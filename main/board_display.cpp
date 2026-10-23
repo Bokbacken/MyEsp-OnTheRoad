@@ -2,7 +2,12 @@
 
 #include <string.h>
 
+#include "board_backlight.h"
 #include "board_pins.h"
+#include "board_rgb.h"
+#include "esp_rom_sys.h"
+#include "hal/gpio_ll.h"
+#include "soc/gpio_struct.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
@@ -14,6 +19,10 @@
 #include "my_log.h"
 
 static const char *TAG = "lcd";
+
+namespace Display {
+void fillScreen(uint16_t rgb565);
+}
 
 namespace {
 
@@ -167,7 +176,7 @@ void flush(int x1, int y1, int x2, int y2, const uint16_t *src, bool firstOfFram
     }
 }
 
-bool initPanel()
+bool initBus()
 {
     spi_bus_config_t bus = {};
     bus.sclk_io_num = PIN_LCD_CLK;
@@ -188,22 +197,6 @@ bool initPanel()
         return false;
     }
     ESP_LOGI(TAG, "SPI2 quad bus ok (max transfer %d B)", bus.max_transfer_sz);
-
-    esp_lcd_panel_io_spi_config_t io = {};
-    io.cs_gpio_num = (gpio_num_t)PIN_LCD_CS;
-    io.dc_gpio_num = GPIO_NUM_NC;
-    io.spi_mode = 0;
-    io.pclk_hz = LCD_QSPI_HZ;
-    io.trans_queue_depth = 10;
-    io.lcd_cmd_bits = 32;
-    io.lcd_param_bits = 8;
-    io.flags.quad_mode = 1;
-    err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io, &g_io);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "panel IO: %s", esp_err_to_name(err));
-        g_fail = "panel-IO";
-        return false;
-    }
     return true;
 }
 
@@ -235,6 +228,245 @@ bool sendInitSequence()
         i += 3 + len;
     }
     return true;
+}
+
+bool createIo(uint32_t hz)
+{
+    esp_lcd_panel_io_spi_config_t io = {};
+    io.cs_gpio_num = (gpio_num_t)PIN_LCD_CS;
+    io.dc_gpio_num = GPIO_NUM_NC;
+    io.spi_mode = 0;
+    io.pclk_hz = hz;
+    io.trans_queue_depth = 10;
+    io.lcd_cmd_bits = 32;
+    io.lcd_param_bits = 8;
+    io.flags.quad_mode = 1;
+    return esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io, &g_io) == ESP_OK;
+}
+
+void destroyIo()
+{
+    if (g_io) esp_lcd_panel_io_del(g_io);
+    g_io = nullptr;
+}
+
+void initTe();
+
+// ---------------------------------------------------------------------------
+// v0.4.x boot diagnostics (black screen on IDF while the Arduino build worked).
+// Each variant initialises the panel in a different way and fills it with its own colour while
+// the LED shows the same colour. The log reports TE pulses (only produced by a panel that is
+// awake and has TEON) and register read-back, so the log alone tells which path works.
+// ---------------------------------------------------------------------------
+constexpr bool RUN_DIAGNOSTICS = true;
+constexpr uint32_t VARIANT_HOLD_MS = 1500;
+
+void hexLine(char *out, size_t cap, const uint8_t *b, size_t n)
+{
+    size_t used = 0;
+    out[0] = 0;
+    for (size_t i = 0; i < n && used + 4 < cap; i++) used += snprintf(out + used, cap - used, "%02X ", b[i]);
+}
+
+// Read-back over the SPI driver: opcode 0x03 (single-line read, data on D1/MISO).
+void spiReadback(const char *tag)
+{
+    static const uint8_t regs[] = {0x04, 0x09, 0x0A, 0x0C};
+    static const uint8_t lens[] = {3, 4, 1, 1};
+    char line[160];
+    size_t used = 0;
+    line[0] = 0;
+    for (size_t r = 0; r < sizeof(regs); r++) {
+        uint8_t buf[4] = {0xEE, 0xEE, 0xEE, 0xEE};
+        esp_err_t e = esp_lcd_panel_io_rx_param(g_io, (int)((0x03U << 24) | ((uint32_t)regs[r] << 8)), buf, lens[r]);
+        char hex[16];
+        hexLine(hex, sizeof(hex), buf, lens[r]);
+        used += snprintf(line + used, sizeof(line) - used, " %02X:%s%s", regs[r], e == ESP_OK ? "" : "ERR ", hex);
+    }
+    MyLog::event("lcd", "diag %s read-back:%s", tag, line);
+}
+
+// --- Bit-banged single-line access (no SPI peripheral, no DMA) ---
+inline void bbBit(bool v)
+{
+    gpio_ll_set_level(&GPIO, PIN_LCD_D0, v);
+    gpio_ll_set_level(&GPIO, PIN_LCD_CLK, 1);
+    gpio_ll_set_level(&GPIO, PIN_LCD_CLK, 0);
+}
+
+inline void bbByte(uint8_t b)
+{
+    for (int i = 7; i >= 0; i--) bbBit((b >> i) & 1);
+}
+
+void bbBegin(uint8_t opcode, uint8_t cmd)
+{
+    gpio_ll_set_level(&GPIO, PIN_LCD_CS, 0);
+    bbByte(opcode);
+    bbByte(0x00);
+    bbByte(cmd);
+    bbByte(0x00);
+}
+
+void bbEnd() { gpio_ll_set_level(&GPIO, PIN_LCD_CS, 1); }
+
+void bbTx(uint8_t cmd, const uint8_t *p, size_t n)
+{
+    bbBegin(0x02, cmd);
+    for (size_t i = 0; i < n; i++) bbByte(p[i]);
+    bbEnd();
+}
+
+// Reads n bytes after the command word, sampling D1 and D0 (whichever the panel drives).
+void bbRead(uint8_t cmd, uint8_t *d1, uint8_t *d0, size_t n)
+{
+    bbBegin(0x03, cmd);
+    gpio_set_direction((gpio_num_t)PIN_LCD_D0, GPIO_MODE_INPUT);
+    for (size_t i = 0; i < n; i++) {
+        uint8_t a = 0, b = 0;
+        for (int k = 0; k < 8; k++) {
+            gpio_ll_set_level(&GPIO, PIN_LCD_CLK, 1);
+            esp_rom_delay_us(1);
+            a = (uint8_t)((a << 1) | gpio_ll_get_level(&GPIO, PIN_LCD_D1));
+            b = (uint8_t)((b << 1) | gpio_ll_get_level(&GPIO, PIN_LCD_D0));
+            gpio_ll_set_level(&GPIO, PIN_LCD_CLK, 0);
+            esp_rom_delay_us(1);
+        }
+        d1[i] = a;
+        d0[i] = b;
+    }
+    bbEnd();
+    gpio_set_direction((gpio_num_t)PIN_LCD_D0, GPIO_MODE_OUTPUT);
+}
+
+void bbSetupPins()
+{
+    const int outs[] = {PIN_LCD_CS, PIN_LCD_CLK, PIN_LCD_D0, PIN_LCD_D2, PIN_LCD_D3};
+    for (int p : outs) {
+        gpio_reset_pin((gpio_num_t)p);
+        gpio_set_direction((gpio_num_t)p, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)p, p == PIN_LCD_CLK ? 0 : 1);
+    }
+    gpio_reset_pin((gpio_num_t)PIN_LCD_D1);
+    gpio_set_direction((gpio_num_t)PIN_LCD_D1, GPIO_MODE_INPUT);
+}
+
+void bbInitAndFill(uint16_t rgb565)
+{
+    bbTx(0x01, nullptr, 0);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    const uint8_t madctl = 0x00, colmod = 0x55;
+    bbTx(0x36, &madctl, 1);
+    bbTx(0x3A, &colmod, 1);
+    for (size_t i = 0; i + 2 < sizeof(kInitSeq);) {
+        const uint8_t cmd = kInitSeq[i], len = kInitSeq[i + 1], wait = kInitSeq[i + 2];
+        bbTx(cmd, len ? &kInitSeq[i + 3] : nullptr, len);
+        if (wait) vTaskDelay(pdMS_TO_TICKS(wait));
+        i += 3 + len;
+    }
+    const uint8_t caset[4] = {0, 0, (uint8_t)((LCD_H_RES - 1) >> 8), (uint8_t)(LCD_H_RES - 1)};
+    const uint8_t raset[4] = {0, 0, (uint8_t)((LCD_V_RES - 1) >> 8), (uint8_t)(LCD_V_RES - 1)};
+    bbTx(0x2A, caset, 4);
+    bbTx(0x2B, raset, 4);
+    bbBegin(0x02, 0x2C);
+    for (int i = 0; i < LCD_H_RES * LCD_V_RES; i++) {
+        bbByte((uint8_t)(rgb565 >> 8));
+        bbByte((uint8_t)rgb565);
+    }
+    bbEnd();
+}
+
+void showLed(uint16_t rgb565)
+{
+    Rgb::setBase((rgb565 & 0xF800) ? 200 : 0, (rgb565 & 0x07E0) ? 200 : 0, (rgb565 & 0x001F) ? 200 : 0);
+}
+
+struct Variant {
+    const char *name;
+    uint32_t hz;
+    bool touchReset;
+    uint16_t colour;
+};
+
+// Returns the TE pulse count seen while the variant's colour was shown.
+uint32_t runSpiVariant(const Variant &v, int idx)
+{
+    if (v.touchReset) {
+        gpio_reset_pin((gpio_num_t)PIN_TOUCH_RST);
+        gpio_set_direction((gpio_num_t)PIN_TOUCH_RST, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)PIN_TOUCH_RST, 0);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        gpio_set_level((gpio_num_t)PIN_TOUCH_RST, 1);
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+    if (!createIo(v.hz)) {
+        MyLog::event("lcd", "diag %d %s: panel IO failed", idx, v.name);
+        return 0;
+    }
+    const bool initOk = sendInitSequence();
+    showLed(v.colour);
+    Display::fillScreen(v.colour);
+    const uint32_t te0 = g_teEdges;
+    vTaskDelay(pdMS_TO_TICKS(VARIANT_HOLD_MS));
+    const uint32_t te = g_teEdges - te0;
+    MyLog::event("lcd", "diag %d %s: init %s, TE %u pulses in %u ms", idx, v.name, initOk ? "ok" : "FAILED",
+                 (unsigned)te, (unsigned)VARIANT_HOLD_MS);
+    spiReadback(v.name);
+    destroyIo();
+    return te;
+}
+
+void runBitBangVariant(int idx)
+{
+    spi_bus_free(LCD_HOST);
+    bbSetupPins();
+    const uint16_t colour = 0x001F;   // Blue
+    showLed(colour);
+    const int64_t t0 = esp_timer_get_time();
+    bbInitAndFill(colour);
+    const int fillMs = (int)((esp_timer_get_time() - t0) / 1000);
+    const uint32_t te0 = g_teEdges;
+    vTaskDelay(pdMS_TO_TICKS(VARIANT_HOLD_MS));
+    const uint32_t te = g_teEdges - te0;
+    uint8_t id1[3], id0[3], pm1[1], pm0[1];
+    bbRead(0x04, id1, id0, 3);
+    bbRead(0x0A, pm1, pm0, 1);
+    char a[16], b[16];
+    hexLine(a, sizeof(a), id1, 3);
+    hexLine(b, sizeof(b), id0, 3);
+    MyLog::event("lcd", "diag %d bitbang: init+fill %d ms, TE %u pulses, ID d1=%s d0=%s PM d1=%02X d0=%02X", idx, fillMs,
+                 (unsigned)te, a, b, pm1[0], pm0[0]);
+}
+
+void runDiagnostics(uint32_t *chosenHz, bool *chosenTouchReset)
+{
+    Backlight::set(100);
+    MyLog::event("lcd", "diag start: TE level %d, touch RST level %d", gpio_get_level((gpio_num_t)PIN_LCD_TE),
+                 gpio_get_level((gpio_num_t)PIN_TOUCH_RST));
+    const uint32_t te0 = g_teEdges;
+    vTaskDelay(pdMS_TO_TICKS(200));
+    MyLog::event("lcd", "diag 0 before init: TE %u pulses in 200 ms", (unsigned)(g_teEdges - te0));
+
+    static const Variant variants[] = {
+        {"spi40", LCD_QSPI_HZ, false, 0xF800},          // 1 red
+        {"spi10", 10UL * 1000UL * 1000UL, false, 0x07E0},   // 2 green
+        {"spi40+tprst", LCD_QSPI_HZ, true, 0xFFFF},     // 3 white
+    };
+    *chosenHz = LCD_QSPI_HZ;
+    *chosenTouchReset = false;
+    bool chosen = false;
+    for (size_t i = 0; i < sizeof(variants) / sizeof(variants[0]); i++) {
+        const uint32_t te = runSpiVariant(variants[i], (int)i + 1);
+        if (!chosen && te > 5) {
+            chosen = true;
+            *chosenHz = variants[i].hz;
+            *chosenTouchReset = variants[i].touchReset;
+        }
+    }
+    runBitBangVariant(4);   // 4 blue
+    Rgb::setBase(0, 0, 0);
+    MyLog::event("lcd", "diag done: using %u MHz%s (%s)", (unsigned)(*chosenHz / 1000000),
+                 *chosenTouchReset ? " + touch reset" : "", chosen ? "TE seen" : "no variant produced TE, default");
 }
 
 void initTe()
@@ -271,15 +503,33 @@ bool begin()
     }
     const int64_t sinceBootMs = esp_timer_get_time() / 1000;
     if (sinceBootMs < (int64_t)POWER_ON_SETTLE_MS) vTaskDelay(pdMS_TO_TICKS(POWER_ON_SETTLE_MS - sinceBootMs));
-    if (!initPanel()) return false;
+    initTe();   // Before the panel init so the diagnostics can count TE pulses
+    if (!initBus()) return false;
+    uint32_t hz = LCD_QSPI_HZ;
+    bool touchReset = false;
+    if (RUN_DIAGNOSTICS) {
+        runDiagnostics(&hz, &touchReset);
+        if (!initBus()) return false;   // The bit-bang test released the bus
+        if (touchReset) {
+            gpio_set_level((gpio_num_t)PIN_TOUCH_RST, 0);
+            vTaskDelay(pdMS_TO_TICKS(10));
+            gpio_set_level((gpio_num_t)PIN_TOUCH_RST, 1);
+            vTaskDelay(pdMS_TO_TICKS(120));
+        }
+    }
+    if (!createIo(hz)) {
+        ESP_LOGE(TAG, "panel IO failed");
+        g_fail = "panel-IO";
+        return false;
+    }
     if (!sendInitSequence()) {
         ESP_LOGW(TAG, "init sequence failed - retrying once");
         vTaskDelay(pdMS_TO_TICKS(200));
         if (!sendInitSequence()) return false;
     }
     g_panelOk = true;
-    ESP_LOGI(TAG, "ST77922 init sequence sent");
-    initTe();
+    ESP_LOGI(TAG, "ST77922 init sequence sent (%u MHz)", (unsigned)(hz / 1000000));
+    if (RUN_DIAGNOSTICS) spiReadback("final");
 
     MyLvgl::Config cfg;
     cfg.hres = LCD_H_RES;
