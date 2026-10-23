@@ -1,4 +1,5 @@
-// board_wifi.cpp - STA-only Wi-Fi manager: scan, connect with timeout, NVS auto-connect, mDNS.
+// board_wifi.cpp - STA-only Wi-Fi manager: scan, connect with timeout, auto-connect to the
+// first visible saved network (up to 50, priority order), mDNS.
 #include "board_wifi.h"
 
 #include <ESPmDNS.h>
@@ -37,6 +38,14 @@ static volatile uint8_t s_discReason = 0;   // Last STA disconnect reason (wifi_
 static volatile bool s_discEvent = false;
 static volatile int s_scanState = -1;       // -2 running, -1 none/failed, >= 0 count
 static volatile bool s_hostnameDirty = false;
+
+// Auto-connect sequence: scan -> try visible saved networks in priority order.
+static bool s_autoScan = false;          // Waiting for the auto-connect scan
+static bool s_autoActive = false;        // Running attempt belongs to the sequence
+static bool s_autoTryNext = false;       // Last sequence attempt failed: try the next one
+static int s_autoNext = 0;               // Next saved-list index to consider
+static char s_visible[MAX_NETWORKS][33];
+static int s_visibleCount = 0;
 
 struct Lock {
     Lock() { if (s_lock) xSemaphoreTakeRecursive(s_lock, portMAX_DELAY); }
@@ -105,6 +114,57 @@ static void failAttempt(FailReason r)
     s_lastAttemptMs = millis();
     WiFi.disconnect(false, false);   // Stop the driver's own retries (frees the radio for scans)
     Serial.printf("[wifi] connect to \"%s\" failed: %s\n", s_trySsid, failText(r));
+    if (s_autoActive && r != FailReason::CANCELLED) s_autoTryNext = true;   // Next saved network
+    s_autoActive = false;
+}
+
+// Starts the auto-connect sequence with a fresh scan. Caller holds the lock.
+static void startAuto(bool background)
+{
+    if (Config::nets().count == 0 || s_status == Status::OFF || s_status == Status::ERROR) return;
+    if (s_scanState == -2) {                 // A scan is already running: reuse its result
+        s_autoScan = true;
+    } else {
+        WiFi.disconnect(false, false);
+        WiFi.scanDelete();
+        s_scanState = -2;
+        s_autoScan = WiFi.scanNetworks(true, false) != WIFI_SCAN_FAILED;
+        if (!s_autoScan) s_scanState = -1;
+    }
+    s_autoTryNext = false;
+    s_autoActive = false;
+    s_autoNext = 0;
+    s_bgAttempt = background;
+    s_userIdle = false;
+    s_lastAttemptMs = millis();
+    if (s_autoScan) {
+        s_status = Status::SEARCHING;
+        Serial.printf("[wifi] auto-connect: scanning for %u saved network(s)\n", Config::nets().count);
+    }
+}
+
+// Tries the next visible saved network, or ends the sequence. Caller holds the lock.
+static void autoTryNext()
+{
+    s_autoTryNext = false;
+    const NetList &nl = Config::nets();
+    const char *vis[MAX_NETWORKS];
+    for (int i = 0; i < s_visibleCount; i++) vis[i] = s_visible[i];
+    int idx = nl.firstVisible(vis, s_visibleCount, s_autoNext);
+    if (idx < 0) {
+        bool none = s_autoNext == 0;
+        s_lastFail = none ? FailReason::NOT_FOUND : s_lastFail;
+        s_status = Status::FAILED;
+        s_lastAttemptMs = millis();
+        Serial.printf("[wifi] auto-connect: %s\n", none ? "no saved network in range" : "all visible saved networks failed");
+        return;
+    }
+    s_autoNext = idx + 1;
+    snprintf(s_trySsid, sizeof(s_trySsid), "%s", nl.items[idx].ssid);
+    snprintf(s_tryPass, sizeof(s_tryPass), "%s", nl.items[idx].pass);
+    bool bg = s_bgAttempt;
+    beginAttempt(bg, false);
+    s_autoActive = true;
 }
 
 bool begin(StatusCallback cb)
@@ -129,13 +189,18 @@ bool begin(StatusCallback cb)
     WiFi.setSleep(false);            // Lower latency for the web UI
     WiFi.setAutoReconnect(true);     // Driver rejoins after short drops
     s_status = Status::IDLE;
-    if (hasSavedCredentials()) reconnectSaved();
+    if (hasSavedCredentials()) startAuto(false);
     loop();
     return true;
 }
 
-bool hasSavedCredentials() { return Config::get().staSsid[0] != 0; }
-const char *savedSsid() { return Config::get().staSsid; }
+bool hasSavedCredentials() { return Config::nets().count > 0; }
+
+const char *savedSsid()
+{
+    if ((s_status == Status::CONNECTING || s_status == Status::CONNECTED) && s_trySsid[0]) return s_trySsid;
+    return Config::nets().count ? Config::nets().items[0].ssid : "";
+}
 
 bool connect(const char *ssid, const char *pass)
 {
@@ -146,8 +211,10 @@ bool connect(const char *ssid, const char *pass)
     if (s_status == Status::OFF || s_status == Status::ERROR) return false;
     snprintf(s_trySsid, sizeof(s_trySsid), "%s", ssid);
     snprintf(s_tryPass, sizeof(s_tryPass), "%s", pass);
-    const AppConfig &c = Config::get();
-    bool same = strcmp(c.staSsid, ssid) == 0 && strcmp(c.staPass, pass) == 0;
+    const NetList &nl = Config::nets();
+    int i = nl.find(ssid);
+    bool same = i == 0 && strcmp(nl.items[i].pass, pass) == 0;   // Already saved on top
+    s_autoScan = s_autoActive = s_autoTryNext = false;
     beginAttempt(false, !same);
     return true;
 }
@@ -155,11 +222,7 @@ bool connect(const char *ssid, const char *pass)
 void reconnectSaved()
 {
     Lock l;
-    if (!hasSavedCredentials() || s_status == Status::OFF || s_status == Status::ERROR) return;
-    const AppConfig &c = Config::get();
-    snprintf(s_trySsid, sizeof(s_trySsid), "%s", c.staSsid);
-    snprintf(s_tryPass, sizeof(s_tryPass), "%s", c.staPass);
-    beginAttempt(false, false);
+    startAuto(false);
 }
 
 void cancelConnect()
@@ -168,6 +231,7 @@ void cancelConnect()
     if (s_status != Status::CONNECTING) return;
     s_lastFail = FailReason::CANCELLED;
     s_userIdle = true;
+    s_autoScan = s_autoActive = s_autoTryNext = false;
     s_saveOnSuccess = false;
     WiFi.disconnect(false, false);
     s_status = Status::IDLE;
@@ -177,21 +241,65 @@ void disconnect()
 {
     Lock l;
     s_userIdle = true;
+    s_autoScan = s_autoActive = s_autoTryNext = false;
     s_saveOnSuccess = false;
     if (s_status == Status::CONNECTED) s_disconnects++;
     WiFi.disconnect(false, false);
     if (s_status != Status::OFF && s_status != Status::ERROR) s_status = Status::IDLE;
 }
 
-void forget()
+void forgetAll()
 {
     Lock l;
     disconnect();
-    AppConfig &c = Config::get();
-    c.staSsid[0] = 0;
-    memset(c.staPass, 0, sizeof(c.staPass));
-    Config::save();
-    Serial.println("[wifi] saved network erased");
+    Config::nets().clear();
+    Config::saveNets();
+    Serial.println("[wifi] all saved networks erased");
+}
+
+void savedCopy(NetList &out)
+{
+    Lock l;
+    out = Config::nets();
+}
+
+bool savedAdd(const char *ssid, const char *pass)
+{
+    if (!pass) pass = "";
+    if (!Config::validWifiPass(pass, true)) return false;
+    Lock l;
+    if (Config::nets().upsert(ssid, pass) < 0) return false;
+    return Config::saveNets();
+}
+
+bool savedRemove(const char *ssid)
+{
+    Lock l;
+    NetList &nl = Config::nets();
+    int i = nl.find(ssid);
+    if (i < 0) return false;
+    if ((s_status == Status::CONNECTED || s_status == Status::CONNECTING) && strcmp(s_trySsid, ssid) == 0) disconnect();
+    nl.remove(i);
+    Serial.printf("[wifi] forgot \"%s\"\n", ssid);
+    return Config::saveNets();
+}
+
+bool savedMove(const char *ssid, int delta)
+{
+    Lock l;
+    NetList &nl = Config::nets();
+    if (!nl.move(nl.find(ssid), delta)) return false;
+    return Config::saveNets();
+}
+
+bool savedPassword(const char *ssid, char *out, size_t cap)
+{
+    Lock l;
+    const NetList &nl = Config::nets();
+    int i = nl.find(ssid);
+    if (i < 0 || !out || !cap) return false;
+    snprintf(out, cap, "%s", nl.items[i].pass);
+    return true;
 }
 
 void requestHostnameUpdate() { s_hostnameDirty = true; }
@@ -218,14 +326,18 @@ void loop()
         s_status = Status::CONNECTED;
         s_lastFail = FailReason::NONE;
         s_bgAttempt = false;
+        s_autoActive = s_autoTryNext = s_autoScan = false;
+        String cur = WiFi.SSID();
+        if (cur.length()) snprintf(s_trySsid, sizeof(s_trySsid), "%s", cur.c_str());
         Serial.printf("[wifi] connected to \"%s\", IP %s, RSSI %d dBm\n", WiFi.SSID().c_str(),
                       WiFi.localIP().toString().c_str(), WiFi.RSSI());
         if (s_saveOnSuccess) {
             s_saveOnSuccess = false;
-            AppConfig &c = Config::get();
-            snprintf(c.staSsid, sizeof(c.staSsid), "%s", s_trySsid);
-            snprintf(c.staPass, sizeof(c.staPass), "%s", s_tryPass);
-            Serial.printf("[wifi] credentials for \"%s\" saved: %s\n", c.staSsid, Config::save() ? "ok" : "FAILED");
+            NetList &nl = Config::nets();
+            int i = nl.find(s_trySsid);
+            if (i > 0) nl.move(i, -i);   // Manually chosen again: move it to the top
+            nl.upsert(s_trySsid, s_tryPass);
+            Serial.printf("[wifi] credentials for \"%s\" saved: %s\n", s_trySsid, Config::saveNets() ? "ok" : "FAILED");
         }
         startMdns();
     }
@@ -263,20 +375,33 @@ void loop()
         failAttempt(fr);
     }
 
-    // Background retry of the saved network (e.g. the phone hotspot appears later).
-    if ((s_status == Status::FAILED || s_status == Status::IDLE) && !s_userIdle && hasSavedCredentials() &&
-        s_scanState != -2 && now - s_lastAttemptMs > RETRY_INTERVAL_MS) {
-        const AppConfig &c = Config::get();
-        snprintf(s_trySsid, sizeof(s_trySsid), "%s", c.staSsid);
-        snprintf(s_tryPass, sizeof(s_tryPass), "%s", c.staPass);
-        beginAttempt(true, false);
-    }
-
     // Fallback in case the SCAN_DONE event was missed.
     if (s_scanState == -2) {
         int n = WiFi.scanComplete();
         if (n >= 0) s_scanState = n;
         else if (n == WIFI_SCAN_FAILED) s_scanState = -1;
+        else if (s_autoScan && now - s_lastAttemptMs > 12000) s_scanState = -1;   // Scan hung
+    }
+
+    // Auto-connect: scan finished -> remember visible SSIDs and try the first saved one.
+    if (s_autoScan && s_scanState != -2) {
+        s_autoScan = false;
+        s_visibleCount = 0;
+        if (s_scanState > 0) {
+            Network tmp[MAX_NETWORKS];
+            int n = scanResults(tmp, MAX_NETWORKS);
+            for (int i = 0; i < n; i++) snprintf(s_visible[s_visibleCount++], 33, "%s", tmp[i].ssid);
+        }
+        s_autoNext = 0;
+        autoTryNext();
+    } else if (s_autoTryNext && s_status == Status::FAILED) {
+        autoTryNext();
+    }
+
+    // Background retry (e.g. the phone hotspot appears later): new scan + saved list.
+    if ((s_status == Status::FAILED || s_status == Status::IDLE) && !s_userIdle && hasSavedCredentials() &&
+        s_scanState != -2 && now - s_lastAttemptMs > RETRY_INTERVAL_MS) {
+        startAuto(true);
     }
 
     if (s_status != s_reported) {
@@ -286,7 +411,11 @@ void loop()
     }
 }
 
-Status status() { return s_status; }
+Status status()
+{
+    Lock l;   // Never observe the transient FAILED between two auto-connect attempts
+    return s_status;
+}
 bool connected() { return s_status == Status::CONNECTED; }
 bool mdnsOk() { return s_mdnsOk; }
 IPAddress ip() { return connected() ? WiFi.localIP() : IPAddress(0, 0, 0, 0); }
@@ -307,7 +436,7 @@ Info info()
     i.connected = connected();
     if (i.connected) snprintf(i.ssid, sizeof(i.ssid), "%s", WiFi.SSID().c_str());
     else if (s_status == Status::CONNECTING || s_status == Status::FAILED) snprintf(i.ssid, sizeof(i.ssid), "%s", s_trySsid);
-    else snprintf(i.ssid, sizeof(i.ssid), "%s", Config::get().staSsid);
+    else snprintf(i.ssid, sizeof(i.ssid), "%s", savedSsid());
     i.ip = ip();
     i.rssi = rssi();
     i.uptimeS = i.connected ? (millis() - s_connectedAtMs) / 1000 : 0;
@@ -322,6 +451,7 @@ const char *statusText(Status s)
     switch (s) {
     case Status::OFF: return "off";
     case Status::IDLE: return "idle";
+    case Status::SEARCHING: return "searching";
     case Status::CONNECTING: return "connecting";
     case Status::CONNECTED: return "connected";
     case Status::FAILED: return "failed";
@@ -354,8 +484,12 @@ void startScan()
 {
     Lock l;
     if (s_scanState == -2 || s_status == Status::OFF || s_status == Status::ERROR) return;
+    if (s_status == Status::SEARCHING) return;   // Auto-connect scan running: its result is shared
     // A background retry would make the scan fail: drop it, it is retried later.
-    if (s_status == Status::CONNECTING && s_bgAttempt) failAttempt(FailReason::TIMEOUT);
+    if (s_status == Status::CONNECTING && s_bgAttempt) {
+        s_autoActive = false;   // Do not chain to the next saved network during the user's scan
+        failAttempt(FailReason::TIMEOUT);
+    }
     WiFi.scanDelete();
     s_scanState = -2;
     if (WiFi.scanNetworks(true, false) == WIFI_SCAN_FAILED) s_scanState = -1;

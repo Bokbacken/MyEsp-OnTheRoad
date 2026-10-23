@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Spelare</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small>Spelare</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">–</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/players" class="active">Spelare</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag">Diagnostik</a>
+  <a href="/update">Uppdatera</a>
+</nav>
+
+<h2>Spelarregister</h2>
+<div class="card">
+  <p class="muted">Upp till 200 spelare med unika namn (skiftläget spelar ingen roll: "Anna" och
+  "anna" räknas som samma). Spelarna väljs på enheten innan ett spel startar. Varje spelare har
+  ett fast id, så framtida statistik följer med vid namnbyte. Att ta bort en spelare kräver
+  admin-PIN om en sådan är satt.</p>
+  <p id="fs-warn" class="muted" hidden><b>Lagringen (FFat) är inte tillgänglig – ändringar sparas inte.</b></p>
+</div>
+
+<form id="add-form">
+  <fieldset>
+    <legend>Ny spelare</legend>
+    <label for="new-name">Namn (1–23 tecken)</label>
+    <input type="text" id="new-name" maxlength="23" autocomplete="off">
+    <div class="row"><button type="submit" class="primary">Lägg till</button></div>
+  </fieldset>
+</form>
+
+<h2>Alla spelare <span class="muted" id="count"></span></h2>
+<div class="card">
+  <input type="search" id="filter" placeholder="Sök..." autocomplete="off">
+  <ul class="saved" id="list"></ul>
+  <p class="muted" id="empty" hidden>Inga spelare ännu.</p>
+</div>
+
+<div class="toast" id="toast"></div>
+<footer>MyEsp-OnTheRoad</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let players = [], pinSet = false;
+function toast(msg, ok = true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'ok' : 'bad');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.className = 'toast', 4000);
+}
+function esc(s) {
+  return s.replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+function fmtDate(e) {
+  return e > 1700000000 ? new Date(e * 1000).toLocaleDateString('sv-SE') : '';
+}
+function render() {
+  const q = $('filter').value.trim().toLowerCase();
+  const shown = players.filter(p => !q || p.name.toLowerCase().includes(q));
+  $('list').innerHTML = shown.map(p =>
+    '<li><span class="prio">#' + p.id + '</span><span class="name">' + esc(p.name) +
+    '</span><span class="muted">' + fmtDate(p.created) + '</span>' +
+    '<button type="button" data-ren="' + p.id + '" title="Byt namn">&#9998;</button>' +
+    '<button type="button" class="danger" data-del="' + p.id + '" title="Ta bort">&#10005;</button></li>').join('');
+  $('empty').hidden = players.length > 0;
+  $('count').textContent = '(' + players.length + ' av 200)';
+}
+function apply(j) {
+  players = j.players || [];
+  $('fs-warn').hidden = j.fs_ok !== false;
+  render();
+}
+async function post(params) {
+  const r = await fetch('/api/players', {method: 'POST', body: new URLSearchParams(params)});
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+  apply(j);
+}
+async function load() {
+  try {
+    apply(await (await fetch('/api/players', {cache: 'no-store'})).json());
+    const cfg = await (await fetch('/api/config', {cache: 'no-store'})).json();
+    pinSet = !!cfg.admin_pin_set;
+    $('live-dot').className = 'dot ok';
+    $('live-text').textContent = 'ansluten';
+  } catch (e) {
+    $('live-dot').className = 'dot bad';
+    $('live-text').textContent = 'ingen kontakt';
+  }
+}
+
+$('add-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('new-name').value.trim();
+  if (!name) return toast('Skriv ett namn', false);
+  try {
+    await post({action: 'add', name});
+    $('new-name').value = '';
+    toast('Lade till ' + name);
+  } catch (err) { toast(err.message, false); }
+});
+$('filter').addEventListener('input', render);
+$('list').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const id = Number(b.dataset.ren || b.dataset.del);
+  const p = players.find(x => x.id === id);
+  if (!p) return;
+  try {
+    if (b.dataset.ren) {
+      const name = prompt('Nytt namn för ' + p.name, p.name);
+      if (name === null || name.trim() === p.name) return;
+      await post({action: 'rename', id, name: name.trim()});
+      toast('Namnet ändrat');
+    } else {
+      if (!confirm('Ta bort ' + p.name + '?')) return;
+      const params = {action: 'remove', id};
+      if (pinSet) {
+        const pin = prompt('Admin-PIN');
+        if (pin === null) return;
+        params.pin = pin;
+      }
+      await post(params);
+      toast(p.name + ' borttagen');
+    }
+  } catch (err) { toast(err.message, false); }
+});
+
+load();
+</script>
+</body>
+</html>

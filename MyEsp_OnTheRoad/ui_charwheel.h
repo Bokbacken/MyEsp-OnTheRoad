@@ -6,8 +6,8 @@
 //  - Drag vertically on the wheel to step characters, tap a row to jump to it
 //  - Swipe horizontally on the wheel to change range
 //  - NEXT appends the centred character, DEL removes the last one
-// With an external encoder (encoder_input) the wheel is focusable: rotate = step,
-// press = append (in LVGL edit mode).
+// Touch only - the "wheel" is simulated on screen, no hardware encoder.
+// Text logic: mypi_kbd_core.h (identical to MyPi-Hotspot).
 #pragma once
 
 #include <lvgl.h>

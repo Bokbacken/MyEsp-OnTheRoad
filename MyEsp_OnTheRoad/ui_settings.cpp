@@ -9,7 +9,7 @@
 #include "board_rgb.h"
 #include "board_touch.h"
 #include "board_wifi.h"
-#include "encoder_input.h"
+#include "ui_clock.h"
 #include "ui_theme.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -129,7 +129,6 @@ void show()
 {
     s_edit = Config::get();
     lv_obj_t *scr = Theme::screen();
-    lv_group_t *g = Theme::newScreenGroup(Encoder::setGroup);
     Theme::header(scr, "Inställningar");
 
     lv_obj_t *body = lv_obj_create(scr);
@@ -143,16 +142,16 @@ void show()
 
     lv_obj_t *disp = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(disp, LV_FLEX_FLOW_COLUMN);
-    lv_group_add_obj(g, sliderRow(disp, "Skärmljusstyrka", 5, 100, s_edit.brightness, &s_brightVal, onBright));
-    lv_group_add_obj(g, switchRow(disp, "RGB-LED", s_edit.ledEnabled, [](lv_event_t *e) {
+    sliderRow(disp, "Skärmljusstyrka", 5, 100, s_edit.brightness, &s_brightVal, onBright);
+    switchRow(disp, "RGB-LED", s_edit.ledEnabled, [](lv_event_t *e) {
         s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
         Rgb::setEnabled(s_edit.ledEnabled);
-    }));
-    lv_group_add_obj(g, sliderRow(disp, "LED-ljusstyrka", 0, 255, s_edit.ledBrightness, &s_ledVal, onLed));
+    });
+    sliderRow(disp, "LED-ljusstyrka", 0, 255, s_edit.ledBrightness, &s_ledVal, onLed);
 
     lv_obj_t *game = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(game, LV_FLEX_FLOW_COLUMN);
-    lv_group_add_obj(g, sliderRow(game, "Kastanimation", 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim));
+    sliderRow(game, "Kastanimation", 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim);
     lv_obj_t *dd = lv_dropdown_create(game);
     lv_dropdown_set_options(dd, "Yatzy\nMaxi-Yatzy\nYatzy i ordning\nMaxi-Yatzy i ordning");
     lv_dropdown_set_selected(dd, s_edit.defaultVariant);
@@ -163,10 +162,23 @@ void show()
     lv_obj_add_event_cb(dd, [](lv_event_t *e) {
         s_edit.defaultVariant = (uint8_t)lv_dropdown_get_selected(lv_event_get_target(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_group_add_obj(g, dd);
-    lv_group_add_obj(g, switchRow(game, "Maxi: spara oanvända kast", s_edit.maxiSavedRolls, [](lv_event_t *e) {
+    switchRow(game, "Maxi: spara oanvända kast", s_edit.maxiSavedRolls, [](lv_event_t *e) {
         s_edit.maxiSavedRolls = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    }));
+    });
+
+    lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(clk, LV_FLEX_FLOW_COLUMN);
+    Theme::label(clk, "Klocka", &otr_font_14, Theme::ACCENT);
+    UiClock::attachLabel(Theme::label(clk, "", &otr_font_18), true);
+    lv_obj_t *clkBtn = Theme::button(clk, LV_SYMBOL_EDIT " Ställ klockan", LV_PCT(100), 40, Theme::TEAL);
+    lv_obj_add_event_cb(clkBtn, [](lv_event_t *) {
+        if (s_timer) {
+            lv_timer_del(s_timer);
+            s_timer = nullptr;
+        }
+        applyHardware();   // Discard unsaved live previews
+        UiClock::showSetter(show);
+    }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *net = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(net, LV_FLEX_FLOW_COLUMN);
@@ -184,7 +196,6 @@ void show()
         applyHardware();   // Discard unsaved live previews
         UiWifi::showNetworks();
     }, LV_EVENT_CLICKED, nullptr);
-    lv_group_add_obj(g, wifiBtn);
 
     lv_obj_t *cancel = Theme::button(scr, LV_SYMBOL_CLOSE " Avbryt", 146, 44, Theme::MUTED);
     lv_obj_set_pos(cancel, 8, 480 - 50);
@@ -192,8 +203,6 @@ void show()
     lv_obj_t *save = Theme::button(scr, LV_SYMBOL_SAVE " Spara", 152, 44, Theme::ACCENT, true);
     lv_obj_set_pos(save, 160, 480 - 50);
     lv_obj_add_event_cb(save, [](lv_event_t *) { leave(true); }, LV_EVENT_CLICKED, nullptr);
-    lv_group_add_obj(g, save);
-    lv_group_add_obj(g, cancel);
 
     refreshInfo(nullptr);
     s_timer = lv_timer_create(refreshInfo, 1000, nullptr);

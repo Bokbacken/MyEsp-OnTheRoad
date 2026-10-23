@@ -134,7 +134,7 @@ tr:last-child th, tr:last-child td { border-bottom: 0; }
 
 /* Forms */
 label { display: block; margin: .6rem 0 .25rem; color: var(--otr-muted); font-size: .92rem; }
-input[type=text], input[type=password], input[type=number], select {
+input[type=text], input[type=password], input[type=number], input[type=search], select {
   width: 100%;
   padding: .6rem .7rem;
   border: 1px solid var(--otr-line);
@@ -175,6 +175,18 @@ button:disabled { opacity: .5; cursor: wait; }
   cursor: pointer;
 }
 .networks li:hover { border-color: var(--otr-orange); }
+
+.saved { list-style: none; margin: .6rem 0 0; padding: 0; }
+.saved li {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .35rem .5rem; border: 1px solid var(--otr-line); border-radius: .45rem;
+  margin-bottom: .35rem; background: var(--otr-panel-raised);
+}
+.saved li.on { border-color: var(--otr-green); }
+.saved .prio { min-width: 1.8rem; font-weight: 700; color: var(--otr-gold, #ffd45c); font-variant-numeric: tabular-nums; }
+.saved .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved button { padding: .25rem .55rem; min-width: 2.2rem; margin: 0; }
+progress { width: 100%; height: 1.2rem; accent-color: var(--otr-orange); }
 
 .toast {
   position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);

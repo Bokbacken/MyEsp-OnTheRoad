@@ -65,16 +65,3 @@ constexpr int PIN_BOOT_BTN = 0;    // BOOT button (strapping pin)
 constexpr int PIN_BAT_ADC  = 8;    // Battery divider - ratio NOT yet verified, report raw ADC only
 // GPIO45 / GPIO46 are strapping pins on the expansion header - do not force levels at reset.
 
-// ---------------------------------------------------------------------------
-// Externally connected rotary encoder (scroll wheel). NOT part of the board.
-// Pins are unassigned (-1) until the wheel is wired: set them and ENCODER_ENABLED to 1.
-// Avoid 9-14 (LCD QSPI), 38/39 (I2C), 2-7 (SD) and 45/46 (strapping: a pull-up on GPIO45
-// at reset selects 1.8 V flash and the board will not boot).
-// ---------------------------------------------------------------------------
-#ifndef ENCODER_ENABLED
-#define ENCODER_ENABLED 0
-#endif
-constexpr int PIN_ENC_CLK = -1;    // externally connected rotary encoder - A / CLK
-constexpr int PIN_ENC_DT  = -1;    // externally connected rotary encoder - B / DT
-constexpr int PIN_ENC_SW  = -1;    // externally connected rotary encoder - push switch (active low)
-constexpr int ENC_STEPS_PER_DETENT = 4;  // Quadrature edges per mechanical click (typical: 4)

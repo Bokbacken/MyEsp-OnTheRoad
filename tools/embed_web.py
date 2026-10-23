@@ -21,6 +21,8 @@ ASSETS = [
     ("WEB_INDEX_HTML", "index.html", "text/html; charset=utf-8"),
     ("WEB_SETTINGS_HTML", "settings.html", "text/html; charset=utf-8"),
     ("WEB_DIAGNOSTICS_HTML", "diagnostics.html", "text/html; charset=utf-8"),
+    ("WEB_UPDATE_HTML", "update.html", "text/html; charset=utf-8"),
+    ("WEB_PLAYERS_HTML", "players.html", "text/html; charset=utf-8"),
     ("WEB_STYLE_CSS", "style.css", "text/css; charset=utf-8"),
 ]
 

@@ -11,10 +11,14 @@
 //   GET  /api/info          heap, PSRAM, uptime, Wi-Fi (status, RSSI, IPs), display, touch, I2C
 //   GET  /api/config        current settings (passwords are never returned)
 //   POST /api/config        update settings (form fields, see board_webserver.cpp)
-//   POST /api/wifi          ssid, pass -> connect (saved to NVS on success); empty ssid = forget
+//   POST /api/wifi          ssid, pass -> connect (added to the saved list on success)
 //   GET  /api/scan          start/poll an async Wi-Fi scan
+//   GET/POST /api/nets      saved networks (add / remove / move / forget_all), never passwords
+//   POST /api/time          epoch -> set the clock manually
+//   GET/POST /api/players   player registry (add / rename / remove; remove needs the admin PIN)
+//   POST /api/ota           firmware upload into the inactive app slot (admin PIN)
 //   POST /api/reboot        restart the board
-//   POST /api/reset         factory-reset the settings, then restart
+//   POST /api/reset         factory-reset the settings, then restart (admin PIN)
 #pragma once
 
 namespace Webserver {

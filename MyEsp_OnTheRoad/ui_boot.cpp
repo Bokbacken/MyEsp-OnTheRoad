@@ -10,8 +10,9 @@
 namespace UiBoot {
 
 static const char *const ITEM_NAME[(int)Item::COUNT] = {
-    "Display (ST77922 QSPI)", "Touch (I2C 0x55)", "PSRAM (8 MB OPI)", "I2C-buss", "Wi-Fi (AP + STA)", "Webbserver"};
+    "Display (ST77922 QSPI)", "Touch (I2C 0x55)", "PSRAM (8 MB OPI)", "I2C-buss", "Lagring (FFat)", "Wi-Fi (STA)", "Webbserver"};
 
+static constexpr lv_coord_t ROW_H = 34;
 static lv_obj_t *s_screen = nullptr;
 static lv_obj_t *s_bar = nullptr;
 static lv_obj_t *s_status = nullptr;
@@ -28,7 +29,7 @@ void show()
     lv_obj_t *logo = lv_obj_create(s_screen);
     lv_obj_remove_style_all(logo);
     lv_obj_set_size(logo, 64, 64);
-    lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 24);
     lv_obj_set_style_bg_color(logo, Theme::c(Theme::ACCENT), 0);
     lv_obj_set_style_bg_opa(logo, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(logo, 14, 0);
@@ -47,25 +48,25 @@ void show()
     }
 
     lv_obj_t *title = Theme::label(s_screen, "OnTheRoad", &otr_font_36);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 108);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
     lv_obj_t *ver = Theme::label(s_screen, FW_NAME " v" FW_VERSION, &otr_font_14, Theme::MUTED);
-    lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 152);
+    lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 138);
 
     s_bar = lv_bar_create(s_screen);
     lv_obj_set_size(s_bar, 260, 10);
-    lv_obj_align(s_bar, LV_ALIGN_TOP_MID, 0, 182);
+    lv_obj_align(s_bar, LV_ALIGN_TOP_MID, 0, 164);
     lv_bar_set_range(s_bar, 0, 100);
     lv_obj_set_style_bg_color(s_bar, Theme::c(Theme::PANEL_RAISED), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_bar, Theme::c(Theme::TEAL), LV_PART_INDICATOR);
     lv_obj_set_style_anim_time(s_bar, 250, 0);
 
-    lv_obj_t *list = Theme::card(s_screen, 296, 6 * 38 + 18);
-    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 206);
+    lv_obj_t *list = Theme::card(s_screen, 296, (int)Item::COUNT * ROW_H + 18);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 182);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     for (int i = 0; i < (int)Item::COUNT; i++) {
-        lv_coord_t y = i * 38;
+        lv_coord_t y = i * ROW_H;
         s_icon[i] = Theme::label(list, LV_SYMBOL_BULLET, &otr_font_18, Theme::LINE);
-        lv_obj_set_pos(s_icon[i], 2, y + 8);
+        lv_obj_set_pos(s_icon[i], 2, y + 6);
         lv_obj_t *name = Theme::label(list, ITEM_NAME[i], &otr_font_14);
         lv_obj_set_pos(name, 30, y);
         s_detail[i] = Theme::label(list, "väntar", &otr_font_14, Theme::MUTED);
@@ -75,7 +76,7 @@ void show()
         s_state[i] = State::PENDING;
     }
 
-    s_status = Theme::label(s_screen, "Startar…", &otr_font_14, Theme::MUTED);
+    s_status = Theme::label(s_screen, "Startar...", &otr_font_14, Theme::MUTED);
     lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -14);
     lv_scr_load(s_screen);
 }
@@ -90,7 +91,7 @@ void set(Item item, State state, const char *detail)
     uint32_t col = Theme::LINE;
     const char *def = "väntar";
     switch (state) {
-    case State::RUNNING: sym = LV_SYMBOL_REFRESH; col = Theme::TEAL; def = "testar…"; break;
+    case State::RUNNING: sym = LV_SYMBOL_REFRESH; col = Theme::TEAL; def = "testar..."; break;
     case State::OK: sym = LV_SYMBOL_OK; col = Theme::GREEN; def = "OK"; break;
     case State::FAIL: sym = LV_SYMBOL_CLOSE; col = Theme::RED; def = "fel"; break;
     case State::SKIP: sym = LV_SYMBOL_MINUS; col = Theme::MUTED; def = "hoppas över"; break;

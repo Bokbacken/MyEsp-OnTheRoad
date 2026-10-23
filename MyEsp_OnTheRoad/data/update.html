@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Uppdatera firmware</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small>Uppdatera firmware</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">–</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/players">Spelare</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag">Diagnostik</a>
+  <a href="/update" class="active">Uppdatera</a>
+</nav>
+
+<h2>Firmware över Wi-Fi (OTA)</h2>
+<div class="card">
+  <div class="table-wrap"><table>
+    <tr><th>Nuvarande version</th><td id="u-ver">–</td></tr>
+    <tr><th>Kör från / skriver till</th><td id="u-slot">–</td></tr>
+    <tr><th>Max filstorlek</th><td id="u-max">–</td></tr>
+  </table></div>
+  <p class="muted">Välj <b>OTA-filen</b> (<code>MyEsp_OnTheRoad-vX.Y.Z-ota.bin</code>), inte
+  <code>merged.bin</code> – den är bara för första flashningen via USB. Den nya versionen skrivs
+  till den lediga app-platsen; om något går fel behålls den nuvarande. Inställningar, sparade
+  nätverk och spelardata påverkas inte.</p>
+</div>
+
+<form id="ota-form">
+  <fieldset>
+    <legend>Ladda upp</legend>
+    <label for="fw">Firmwarefil (.bin)</label>
+    <input type="file" id="fw" accept=".bin,application/octet-stream">
+    <div id="pin-wrap" hidden>
+      <label for="pin">Admin-PIN</label>
+      <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off">
+    </div>
+    <progress id="prog" max="100" value="0" hidden></progress>
+    <p class="muted" id="msg"></p>
+    <div class="row"><button type="submit" class="primary" id="go">Uppdatera</button></div>
+  </fieldset>
+</form>
+
+<div class="toast" id="toast"></div>
+<footer>MyEsp-OnTheRoad</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const kb = b => (b / 1024).toFixed(0) + ' kB';
+let info = null;
+function toast(msg, ok = true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'ok' : 'bad');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.className = 'toast', 4000);
+}
+async function load() {
+  try {
+    info = await (await fetch('/api/info', {cache: 'no-store'})).json();
+    const cfg = await (await fetch('/api/config', {cache: 'no-store'})).json();
+    $('u-ver').textContent = info.fw + ' v' + info.version + ' (' + info.build + ')';
+    $('u-slot').textContent = info.ota.running + ' → ' + info.ota.next;
+    $('u-max').textContent = kb(info.ota.slot_size);
+    $('pin-wrap').hidden = !cfg.admin_pin_set;
+    $('live-dot').className = 'dot ok';
+    $('live-text').textContent = 'v' + info.version;
+    return true;
+  } catch (e) {
+    $('live-dot').className = 'dot bad';
+    $('live-text').textContent = 'ingen kontakt';
+    return false;
+  }
+}
+
+$('ota-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = $('fw').files[0];
+  if (!f) return toast('Välj en fil', false);
+  if (info && f.size > info.ota.slot_size) return toast('Filen är för stor för app-platsen', false);
+  const head = new Uint8Array(await f.slice(0, 1).arrayBuffer());
+  if (head[0] !== 0xE9) return toast('Inte en ESP32-appfil. Använd OTA-filen (-ota.bin)', false);
+  if (!confirm('Uppdatera till ' + f.name + '? Enheten startar om efteråt.')) return;
+
+  const oldBuild = info ? info.build : '';
+  const fd = new FormData();
+  fd.append('fw', f, f.name);
+  const url = '/api/ota?size=' + f.size + '&pin=' + encodeURIComponent($('pin').value);
+  const xhr = new XMLHttpRequest();
+  $('go').disabled = true;
+  $('prog').hidden = false;
+  $('prog').value = 0;
+  $('msg').textContent = 'Laddar upp...';
+  xhr.upload.onprogress = ev => {
+    if (!ev.lengthComputable) return;
+    const p = Math.round(ev.loaded * 100 / ev.total);
+    $('prog').value = p;
+    $('msg').textContent = 'Laddar upp... ' + p + ' %';
+  };
+  xhr.onload = async () => {
+    let j = {};
+    try { j = JSON.parse(xhr.responseText); } catch (err) {}
+    if (xhr.status !== 200 || !j.ok) {
+      $('go').disabled = false;
+      $('msg').textContent = '';
+      return toast('Misslyckades: ' + (j.error || 'HTTP ' + xhr.status), false);
+    }
+    $('prog').value = 100;
+    $('msg').textContent = 'Klart (' + kb(j.bytes) + '). Enheten startar om – väntar på den...';
+    for (let i = 0; i < 30; i++) {          // Wait up to ~60 s for the device to come back
+      await new Promise(r => setTimeout(r, 2000));
+      if (await load() && info.build !== oldBuild) {
+        $('msg').textContent = 'Uppdaterad till v' + info.version + '.';
+        toast('Uppdaterad till v' + info.version);
+        $('go').disabled = false;
+        return;
+      }
+    }
+    $('msg').textContent = 'Enheten svarar inte än. Ladda om sidan om en stund.';
+    $('go').disabled = false;
+  };
+  xhr.onerror = () => {
+    $('go').disabled = false;
+    toast('Anslutningen bröts under uppladdningen', false);
+  };
+  xhr.open('POST', url);
+  xhr.send(fd);
+});
+
+load();
+</script>
+</body>
+</html>

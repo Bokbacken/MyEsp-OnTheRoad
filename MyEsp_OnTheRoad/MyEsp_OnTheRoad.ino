@@ -24,15 +24,17 @@
 #include <lvgl.h>
 
 #include "board_backlight.h"
+#include "board_clock.h"
 #include "board_config.h"
 #include "board_display.h"
 #include "board_pins.h"
+#include "board_players.h"
 #include "board_rgb.h"
 #include "board_touch.h"
 #include "board_webserver.h"
 #include "board_wifi.h"
-#include "encoder_input.h"
 #include "ui_boot.h"
+#include "ui_ota.h"
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -43,6 +45,7 @@ static bool g_uiReady = false;
 static void onWifiStatus(Wifi::Status s)
 {
     switch (s) {
+    case Wifi::Status::SEARCHING:
     case Wifi::Status::CONNECTING:
         Rgb::setBase(0, 60, 200);
         Rgb::setPulse(true);
@@ -50,6 +53,7 @@ static void onWifiStatus(Wifi::Status s)
     case Wifi::Status::CONNECTED:
         Rgb::setPulse(false);
         Rgb::setBase(0, 160, 40);
+        Clock::onWifiConnected();   // NTP
         break;
     case Wifi::Status::FAILED:
     case Wifi::Status::ERROR:
@@ -89,6 +93,7 @@ void setup()
                   (unsigned long)(ESP.getFlashChipSize() >> 20), (unsigned long)(ESP.getFreePsram() >> 10));
 
     Config::begin();
+    Clock::begin();
     const AppConfig &cfg = Config::get();
 
     Rgb::begin();
@@ -105,10 +110,9 @@ void setup()
     colourTest(displayOk);
     if (!displayOk) Rgb::bootSequence();
 
-    if (!lv_is_initialized()) lv_init();   // Touch/encoder register LVGL input devices
+    if (!lv_is_initialized()) lv_init();   // Touch registers an LVGL input device
     bool touchOk = Touch::begin();
     Serial.printf("[touch] %s\n", touchOk ? "ok" : "not found");
-    bool encOk = Encoder::begin();
 
     if (displayOk) {
         UiBoot::show();
@@ -145,14 +149,26 @@ void setup()
             used += snprintf(buf + used, sizeof(buf) - used, "%s0x%02X", i ? " " : "", addrs[i]);
         UiBoot::set(UiBoot::Item::I2C, n > 0 ? UiBoot::State::OK : UiBoot::State::FAIL, n > 0 ? buf : "inga enheter");
     }
-    UiBoot::setProgress(50);
+    UiBoot::setProgress(45);
+
+    // Storage: FFat (formatted on the very first boot, can take a few seconds) + player registry
+    UiBoot::set(UiBoot::Item::STORAGE, UiBoot::State::RUNNING, "monterar FFat (första gången: formaterar)");
+    {
+        bool ok = Players::begin();
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%lu kB ledigt, %d spelare",
+                 (unsigned long)((Players::fsTotalBytes() - Players::fsUsedBytes()) >> 10), Players::count());
+        UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL,
+                    ok ? buf : "FFat-partitionen saknas - välj 3MB APP/9.9MB FATFS");
+    }
+    UiBoot::setProgress(55);
 
     UiBoot::set(UiBoot::Item::WIFI, UiBoot::State::RUNNING);
-    UiBoot::setStatus("Startar Wi-Fi…");
+    UiBoot::setStatus("Startar Wi-Fi...");
     bool wifiOk = Wifi::begin(onWifiStatus);   // STA only; connects to the saved network in the background
     {
         char buf[64];
-        if (Wifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), "STA, sparat: %s", Wifi::savedSsid());
+        if (Wifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), "STA, %u sparade nätverk", Config::nets().count);
         else snprintf(buf, sizeof(buf), "STA, inget sparat nätverk");
         UiBoot::set(UiBoot::Item::WIFI, wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL,
                     wifiOk ? buf : "Wi-Fi-drivrutinen startade inte");
@@ -167,7 +183,6 @@ void setup()
         UiBoot::set(UiBoot::Item::WEB, webOk ? UiBoot::State::OK : UiBoot::State::FAIL, webOk ? buf : "startade inte");
     }
     UiBoot::setProgress(100);
-    (void)encOk;
 
     int fails = UiBoot::failures();
     UiBoot::setStatus(fails ? "Fel hittades - fortsätter om en stund" : "Klart!");
@@ -181,11 +196,13 @@ void setup()
         if (wifiOk && Wifi::hasSavedCredentials()) UiWifi::showConnecting(Wifi::savedSsid(), nullptr, true);
         else if (wifiOk) UiWifi::showNetworks();
         else UiYatzy::showMenu();
+        UiOta::begin();
     }
 }
 
 void loop()
 {
     Wifi::loop();
+    Clock::loop();
     delay(20);
 }

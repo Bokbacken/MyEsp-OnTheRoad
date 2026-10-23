@@ -89,10 +89,6 @@ inline lv_obj_t *button(lv_obj_t *parent, const char *text, lv_coord_t w, lv_coo
     lv_obj_set_style_bg_opa(b, LV_OPA_40, LV_STATE_DISABLED);
     lv_obj_set_style_border_color(b, c(LINE), LV_STATE_DISABLED);
     lv_obj_set_style_text_color(b, c(MUTED), LV_STATE_DISABLED);
-    // Encoder focus ring
-    lv_obj_set_style_outline_width(b, 2, LV_STATE_FOCUS_KEY);
-    lv_obj_set_style_outline_color(b, c(TEAL), LV_STATE_FOCUS_KEY);
-    lv_obj_set_style_outline_pad(b, 2, LV_STATE_FOCUS_KEY);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, text);
     lv_obj_set_style_text_font(l, &otr_font_18, 0);
@@ -115,17 +111,6 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title)
     lv_obj_t *t = label(h, title, &otr_font_24);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 10, 0);
     return h;
-}
-
-// One focus group per screen for the optional encoder. Deletes the previous screen's
-// group and binds the new one to the encoder input device (no-op without encoder).
-inline lv_group_t *newScreenGroup(void (*bind)(lv_group_t *))
-{
-    static lv_group_t *s_group = nullptr;
-    if (s_group) lv_group_del(s_group);
-    s_group = lv_group_create();
-    if (bind) bind(s_group);
-    return s_group;
 }
 
 // Loads a screen with a short fade and deletes the previous one.

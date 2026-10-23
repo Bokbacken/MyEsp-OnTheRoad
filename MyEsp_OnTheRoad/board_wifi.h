@@ -2,9 +2,11 @@
 //
 // - The device joins an existing access point (home router, phone hotspot ...). The
 //   soft-AP of the first scaffold is disabled (deferred, see AP_MODE_ENABLED below).
-// - connect() starts an attempt with a 15 s timeout. On success the SSID + password are
-//   stored in NVS (Config) and used for auto-connect at the next boot.
-// - Saved credentials are retried in the background (every 60 s) while not connected.
+// - Up to 50 networks are saved (Config::nets(), priority order, see net_list.h).
+// - Auto-connect (boot, background retry every 60 s, reconnectSaved()): scan, then try the
+//   saved networks that are visible in priority order until one connects.
+// - connect() starts a manual attempt with a 15 s timeout. On success the network is added
+//   to (or updated in) the saved list.
 // - mDNS "<hostname>.local" (default "ontheroad") is announced once an IP is obtained.
 // - Scans run asynchronously; results are de-duplicated and sorted by RSSI (strongest first).
 //
@@ -14,6 +16,8 @@
 
 #include <Arduino.h>
 #include <IPAddress.h>
+
+#include "net_list.h"
 
 // The access point mode is postponed. Kept as a compile-time switch so it can come back.
 #ifndef AP_MODE_ENABLED
@@ -28,6 +32,7 @@ constexpr int MAX_NETWORKS = 24;
 enum class Status : uint8_t {
     OFF = 0,       // Driver not started
     IDLE,          // Started, not connected, no attempt running
+    SEARCHING,     // Auto-connect: scanning for saved networks
     CONNECTING,    // Attempt running (timeout CONNECT_TIMEOUT_MS)
     CONNECTED,     // Has an IP address
     FAILED,        // Last attempt failed / timed out (saved network retried in background)
@@ -62,15 +67,22 @@ typedef void (*StatusCallback)(Status s);
 bool begin(StatusCallback cb);
 void loop();                       // Call regularly from loop()
 
-bool hasSavedCredentials();
-const char *savedSsid();
+bool hasSavedCredentials();        // At least one saved network
+const char *savedSsid();           // Network being tried, else the top saved one ("" if none)
 // Starts a connection attempt. Credentials are saved to NVS only if it succeeds.
 // pass may be empty/nullptr for open networks. Returns false for invalid input.
 bool connect(const char *ssid, const char *pass);
-void reconnectSaved();             // Retry the stored network now
+void reconnectSaved();             // Auto-connect now (scan + saved list)
 void cancelConnect();              // Aborts a running attempt (status -> IDLE)
 void disconnect();                 // Drops the connection, keeps the saved network
-void forget();                     // Drops the connection and erases saved credentials
+
+// Saved-network list (thread-safe wrappers around Config::nets(); all persist to NVS).
+void savedCopy(NetList &out);      // Snapshot (contains passwords - never send them to the web)
+bool savedAdd(const char *ssid, const char *pass);
+bool savedRemove(const char *ssid);   // Drops the connection too if it is that network
+bool savedMove(const char *ssid, int delta);
+bool savedPassword(const char *ssid, char *out, size_t cap);
+void forgetAll();                  // Drops the connection and erases every saved network
 void requestHostnameUpdate();      // Re-applies Config hostname to DHCP/mDNS (deferred to loop)
 
 Status status();

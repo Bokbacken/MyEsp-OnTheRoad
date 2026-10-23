@@ -6,10 +6,11 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "board_players.h"
 #include "board_rgb.h"
-#include "encoder_input.h"
 #include "game_yatzy.h"
 #include "ui_charwheel.h"
+#include "ui_clock.h"
 #include "ui_settings.h"
 #include "ui_theme.h"
 #include "ui_wifi.h"
@@ -61,7 +62,6 @@ static void menuChoiceEvent(lv_event_t *e)
 void showMenu()
 {
     lv_obj_t *scr = Theme::screen();
-    lv_group_t *g = Theme::newScreenGroup(Encoder::setGroup);
     Theme::header(scr, "OnTheRoad");
 
     lv_obj_t *gear = Theme::button(scr, LV_SYMBOL_SETTINGS, 52, 36, Theme::LINE);
@@ -73,6 +73,9 @@ void showMenu()
 
     lv_obj_t *hint = Theme::label(scr, "Välj spel", &otr_font_14, Theme::MUTED);
     lv_obj_set_pos(hint, 14, 52);
+    lv_obj_t *clk = Theme::label(scr, "", &otr_font_14, Theme::MUTED);
+    lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
+    UiClock::attachLabel(clk, true);
 
     int def = Config::get().defaultVariant;
     for (int i = 0; i < 4; i++) {
@@ -86,8 +89,6 @@ void showMenu()
         lv_obj_set_style_border_width(b, i == def ? 2 : 1, 0);
         lv_obj_set_style_border_color(b, Theme::c(i == def ? Theme::ACCENT : Theme::LINE), 0);
         lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
-        lv_obj_set_style_outline_width(b, 2, LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_outline_color(b, Theme::c(Theme::TEAL), LV_STATE_FOCUS_KEY);
         // Accent stripe on the left
         lv_obj_t *stripe = lv_obj_create(b);
         lv_obj_remove_style_all(stripe);
@@ -106,10 +107,7 @@ void showMenu()
             lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, 12);
         }
         lv_obj_add_event_cb(b, menuChoiceEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-        lv_group_add_obj(g, b);
     }
-    lv_group_add_obj(g, wifi);
-    lv_group_add_obj(g, gear);
 
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &otr_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);
@@ -118,14 +116,20 @@ void showMenu()
 
 // ========================================================================================
 // Players
+//
+// The roster (up to YATZY_MAX_PLAYERS) is picked from the player registry (board_players,
+// up to 200 unique names). "Ny spelare" adds to the registry; "Gäst" plays without saving.
+// s_pids keeps the registry id per seat (0 = guest) for the game history (Del B).
 // ========================================================================================
+static uint16_t s_pids[YATZY_MAX_PLAYERS];
 static lv_obj_t *s_playerList = nullptr;
 static lv_obj_t *s_addBtn = nullptr;
 static lv_obj_t *s_startBtn = nullptr;
-static lv_group_t *s_playersGroup = nullptr;
-static int s_editIndex = -1;   // -1 = new player
+static int s_pickSlot = -1;   // Seat the picker fills; -1 = append
+static char s_pickFilter[PLAYER_NAME_CAP];   // Picker search text
 
 static void rebuildPlayerList();
+static void showPicker(int slot);
 
 static void trimInPlace(char *s)
 {
@@ -135,58 +139,43 @@ static void trimInPlace(char *s)
     if (lead) memmove(s, s + lead, n - lead + 1);
 }
 
-static void nameEntered(const char *text, bool confirmed, void *user)
+// Puts a player into the picker's seat (or appends). Returns false if the roster is full.
+static bool setSeat(const char *name, uint16_t id)
 {
-    lv_obj_t *wheel = (lv_obj_t *)user;
-    if (!confirmed) {   // Wheel closes itself on BACK
-        Encoder::setGroup(s_playersGroup);
-        return;
+    int i = s_pickSlot;
+    if (i < 0 || i >= s_nameCount) {
+        if (s_nameCount >= YATZY_MAX_PLAYERS) return false;
+        i = s_nameCount++;
     }
-    char name[YATZY_NAME_CAP];
-    snprintf(name, sizeof(name), "%s", text);
-    trimInPlace(name);
-    if (!name[0]) {
-        CharWheel::setHint(wheel, "Namnet får inte vara tomt");
-        return;
-    }
-    if (s_editIndex < 0 && s_nameCount < YATZY_MAX_PLAYERS) {
-        snprintf(s_names[s_nameCount++], YATZY_NAME_CAP, "%s", name);
-    } else if (s_editIndex >= 0 && s_editIndex < s_nameCount) {
-        snprintf(s_names[s_editIndex], YATZY_NAME_CAP, "%s", name);
-    }
-    CharWheel::close(wheel);
-    Encoder::setGroup(s_playersGroup);
-    rebuildPlayerList();
+    snprintf(s_names[i], YATZY_NAME_CAP, "%s", name);
+    s_pids[i] = id;
+    return true;
 }
 
-static void openNameWheel(int index)
+// Registry names may have changed on the web page meanwhile: refresh them by id.
+static void refreshSeatNames()
 {
-    s_editIndex = index;
-    char label[40], initial[YATZY_NAME_CAP];
-    if (index < 0) {
-        snprintf(label, sizeof(label), "Namn på spelare %d", s_nameCount + 1);
-        snprintf(initial, sizeof(initial), "Spelare %d", s_nameCount + 1);
-    } else {
-        snprintf(label, sizeof(label), "Byt namn på spelare %d", index + 1);
-        snprintf(initial, sizeof(initial), "%s", s_names[index]);
+    for (int i = 0; i < s_nameCount; i++) {
+        if (!s_pids[i]) continue;
+        char n[PLAYER_NAME_CAP];
+        if (Players::name(s_pids[i], n, sizeof(n))) snprintf(s_names[i], YATZY_NAME_CAP, "%s", n);
+        else s_pids[i] = 0;   // Removed from the registry: keep playing as a guest
     }
-    // The callback needs the wheel object; create first, then patch the user pointer via a
-    // static trampoline (the wheel passes `user` back unchanged).
-    static lv_obj_t *s_wheel = nullptr;
-    s_wheel = CharWheel::create(lv_scr_act(), 0, 0, 320, 480, label, initial, YATZY_NAME_CAP - 1, false,
-                                [](const char *t, bool ok, void *) { nameEntered(t, ok, s_wheel); }, nullptr);
 }
 
 static void playerRowEvent(lv_event_t *e)
 {
-    openNameWheel((int)(intptr_t)lv_event_get_user_data(e));
+    showPicker((int)(intptr_t)lv_event_get_user_data(e));
 }
 
 static void playerDeleteEvent(lv_event_t *e)
 {
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (i < 0 || i >= s_nameCount) return;
-    for (int k = i; k < s_nameCount - 1; k++) memcpy(s_names[k], s_names[k + 1], YATZY_NAME_CAP);
+    for (int k = i; k < s_nameCount - 1; k++) {
+        memcpy(s_names[k], s_names[k + 1], YATZY_NAME_CAP);
+        s_pids[k] = s_pids[k + 1];
+    }
     s_nameCount--;
     rebuildPlayerList();
 }
@@ -209,13 +198,15 @@ static void rebuildPlayerList()
         lv_obj_align(n, LV_ALIGN_LEFT_MID, 10, 0);
         lv_obj_t *name = Theme::label(row, s_names[i], &otr_font_18);
         lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(name, 170);
+        lv_obj_set_width(name, 150);
         lv_obj_align(name, LV_ALIGN_LEFT_MID, 36, 0);
-        lv_obj_t *pen = Theme::label(row, LV_SYMBOL_EDIT, &otr_font_14, Theme::MUTED);
-        lv_obj_align(pen, LV_ALIGN_RIGHT_MID, -8, 0);
+        if (!s_pids[i]) {   // Guests are not saved in the registry
+            lv_obj_t *tag = Theme::label(row, "gäst", &otr_font_14, Theme::GOLD);
+            lv_obj_align(tag, LV_ALIGN_RIGHT_MID, -8, 0);
+        }
         lv_obj_add_event_cb(row, playerRowEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
-        lv_obj_t *del = Theme::button(s_playerList, LV_SYMBOL_TRASH, 44, 34, Theme::RED);
+        lv_obj_t *del = Theme::button(s_playerList, LV_SYMBOL_CLOSE, 44, 34, Theme::RED);
         lv_obj_set_pos(del, 248, i * 38);
         lv_obj_add_event_cb(del, playerDeleteEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
@@ -231,13 +222,15 @@ static void rebuildPlayerList()
 
 static void showPlayers()
 {
-    if (s_nameCount == 0) {
+    s_pickFilter[0] = 0;
+    refreshSeatNames();
+    if (s_nameCount == 0 && Players::count() == 0) {   // Empty registry: two guests to get going
         snprintf(s_names[0], YATZY_NAME_CAP, "Spelare 1");
         snprintf(s_names[1], YATZY_NAME_CAP, "Spelare 2");
+        s_pids[0] = s_pids[1] = 0;
         s_nameCount = 2;
     }
     lv_obj_t *scr = Theme::screen();
-    s_playersGroup = Theme::newScreenGroup(Encoder::setGroup);
     Theme::header(scr, "Spelare");
     lv_obj_t *var = Theme::label(scr, Yatzy::variantName(s_variant, s_mode), &otr_font_14, Theme::TEAL);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
@@ -252,7 +245,7 @@ static void showPlayers()
 
     s_addBtn = Theme::button(scr, LV_SYMBOL_PLUS " Lägg till spelare", 300, 42, Theme::TEAL);
     lv_obj_set_pos(s_addBtn, 10, 384);
-    lv_obj_add_event_cb(s_addBtn, [](lv_event_t *) { openNameWheel(-1); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(s_addBtn, [](lv_event_t *) { showPicker(-1); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *back = Theme::button(scr, LV_SYMBOL_LEFT " Tillbaka", 140, 42, Theme::MUTED);
     lv_obj_set_pos(back, 10, 432);
@@ -270,10 +263,193 @@ static void showPlayers()
         showGame();
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_group_add_obj(s_playersGroup, s_startBtn);
-    lv_group_add_obj(s_playersGroup, s_addBtn);
-    lv_group_add_obj(s_playersGroup, back);
     rebuildPlayerList();
+    Theme::loadScreen(scr);
+}
+
+// ----------------------------------------------------------------------------------------
+// Player picker: sorted registry list (one lv_table, light on RAM even with 200 names),
+// optional search filter, "Ny spelare" (saved) and "Gäst" (not saved).
+// ----------------------------------------------------------------------------------------
+static PlayerDb *s_pickDb = nullptr;        // Snapshot, PSRAM
+static uint16_t s_pickIds[PLAYER_MAX];      // Table row -> player id
+static lv_obj_t *s_wheel = nullptr;
+
+// Case-insensitive substring match (ASCII + Latin-1 via PlayerDb::foldChar).
+static bool nameMatches(const char *name, const char *filter)
+{
+    if (!filter[0]) return true;
+    for (const char *s = name; *s;) {
+        const char *a = s, *b = filter;
+        while (*a && *b) {
+            uint32_t ca, cb;
+            int la = PlayerDb::foldChar(a, ca), lb = PlayerDb::foldChar(b, cb);
+            if (ca != cb) break;
+            a += la;
+            b += lb;
+        }
+        if (!*b) return true;
+        uint32_t dummy;
+        s += PlayerDb::foldChar(s, dummy);
+    }
+    return false;
+}
+
+static bool seated(uint16_t id, int exceptSlot)
+{
+    for (int i = 0; i < s_nameCount; i++)
+        if (i != exceptSlot && s_pids[i] == id) return true;
+    return false;
+}
+
+static void pickTableEvent(lv_event_t *e)
+{
+    lv_obj_t *t = lv_event_get_target(e);
+    uint16_t row, col;
+    lv_table_get_selected_cell(t, &row, &col);
+    if (row == LV_TABLE_CELL_NONE || row >= lv_table_get_row_cnt(t) || !s_pickIds[row]) return;
+    char n[PLAYER_NAME_CAP];
+    if (!Players::name(s_pickIds[row], n, sizeof(n))) return;
+    setSeat(n, s_pickIds[row]);
+    showPlayers();
+}
+
+static void newPlayerEntered(const char *text, bool confirmed, void *)
+{
+    if (!confirmed) return;   // Wheel closes itself on BACK
+    int r = Players::add(text);
+    if (r < 0) {
+        CharWheel::setHint(s_wheel, playerErrText(r));
+        return;
+    }
+    char n[PLAYER_NAME_CAP];
+    if (!Players::name((uint16_t)r, n, sizeof(n))) snprintf(n, sizeof(n), "%s", text);
+    setSeat(n, (uint16_t)r);
+    CharWheel::close(s_wheel);
+    showPlayers();
+}
+
+static void guestEntered(const char *text, bool confirmed, void *)
+{
+    if (!confirmed) return;
+    char name[YATZY_NAME_CAP];
+    snprintf(name, sizeof(name), "%s", text);
+    trimInPlace(name);
+    if (!name[0]) {
+        CharWheel::setHint(s_wheel, "Namnet får inte vara tomt");
+        return;
+    }
+    setSeat(name, 0);
+    CharWheel::close(s_wheel);
+    showPlayers();
+}
+
+static void filterEntered(const char *text, bool confirmed, void *)
+{
+    if (!confirmed) return;
+    snprintf(s_pickFilter, sizeof(s_pickFilter), "%s", text);
+    trimInPlace(s_pickFilter);
+    CharWheel::close(s_wheel);
+    showPicker(s_pickSlot);
+}
+
+static void openWheel(const char *label, const char *initial, CharWheel::Callback cb)
+{
+    s_wheel = CharWheel::create(lv_scr_act(), 0, 0, 320, 480, label, initial, PLAYER_NAME_CAP - 1, false, cb, nullptr);
+}
+
+static void showPicker(int slot)
+{
+    s_pickSlot = slot;
+    if (!s_pickDb) {
+        s_pickDb = (PlayerDb *)heap_caps_malloc(sizeof(PlayerDb), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_pickDb) s_pickDb = (PlayerDb *)malloc(sizeof(PlayerDb));
+        if (!s_pickDb) return;
+    }
+    Players::snapshot(*s_pickDb);
+    static uint8_t idx[PLAYER_MAX];
+    int total = s_pickDb->sortedIndices(idx);
+
+    lv_obj_t *scr = Theme::screen();
+    Theme::header(scr, slot < 0 ? "Välj spelare" : "Byt spelare");
+    char buf[48];
+    snprintf(buf, sizeof(buf), "%d av %d", total, PLAYER_MAX);
+    lv_obj_t *cnt = Theme::label(scr, buf, &otr_font_14, Theme::MUTED);
+    lv_obj_align(cnt, LV_ALIGN_TOP_RIGHT, -12, 14);
+
+    lv_obj_t *add = Theme::button(scr, LV_SYMBOL_PLUS " Ny spelare", 170, 42, Theme::TEAL, true);
+    lv_obj_set_pos(add, 10, 52);
+    lv_obj_add_event_cb(add, [](lv_event_t *) { openWheel("Ny spelare (sparas)", "", newPlayerEntered); },
+                        LV_EVENT_CLICKED, nullptr);
+    if (total >= PLAYER_MAX) lv_obj_add_state(add, LV_STATE_DISABLED);
+    lv_obj_t *search = Theme::button(scr, s_pickFilter[0] ? LV_SYMBOL_CLOSE " Sök" : "Sök...", 120, 42,
+                                     s_pickFilter[0] ? Theme::GOLD : Theme::LINE);
+    lv_obj_set_pos(search, 190, 52);
+    lv_obj_add_event_cb(search, [](lv_event_t *) {
+        if (s_pickFilter[0]) {   // Clear the active filter
+            s_pickFilter[0] = 0;
+            showPicker(s_pickSlot);
+        } else {
+            openWheel("Sök spelare", "", filterEntered);
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+
+    // Rows: registry players not already seated (the seat being replaced is allowed)
+    int rows = 0;
+    for (int k = 0; k < total; k++) {
+        const PlayerRec &r = s_pickDb->items[idx[k]];
+        if (seated(r.id, slot) || !nameMatches(r.name, s_pickFilter)) continue;
+        s_pickIds[rows++] = r.id;
+    }
+
+    lv_obj_t *t = lv_table_create(scr);
+    lv_obj_set_pos(t, 10, 102);
+    lv_obj_set_size(t, 300, 322);
+    lv_table_set_col_cnt(t, 1);
+    lv_table_set_col_width(t, 0, 284);
+    lv_obj_set_style_bg_color(t, Theme::c(Theme::PANEL), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(t, Theme::c(Theme::LINE), LV_PART_MAIN);
+    lv_obj_set_style_border_width(t, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(t, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(t, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(t, Theme::c(Theme::PANEL), LV_PART_ITEMS);
+    lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(t, Theme::c(Theme::ACCENT_DARK), LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_set_style_text_color(t, Theme::c(Theme::TEXT), LV_PART_ITEMS);
+    lv_obj_set_style_text_font(t, &otr_font_18, LV_PART_ITEMS);
+    lv_obj_set_style_border_side(t, LV_BORDER_SIDE_BOTTOM, LV_PART_ITEMS);
+    lv_obj_set_style_border_color(t, Theme::c(Theme::LINE), LV_PART_ITEMS);
+    lv_obj_set_style_border_width(t, 1, LV_PART_ITEMS);
+    lv_obj_set_style_pad_ver(t, 9, LV_PART_ITEMS);
+    lv_obj_set_style_pad_hor(t, 10, LV_PART_ITEMS);
+    if (rows == 0) {
+        lv_table_set_row_cnt(t, 1);
+        s_pickIds[0] = 0;
+        lv_table_set_cell_value(t, 0, 0,
+                                total == 0 ? "Registret är tomt - tryck Ny spelare"
+                                : s_pickFilter[0] ? "Ingen träff" : "Alla spelare är redan valda");
+        lv_obj_set_style_text_color(t, Theme::c(Theme::MUTED), LV_PART_ITEMS);
+    } else {
+        lv_table_set_row_cnt(t, rows);
+        for (int r = 0; r < rows; r++) {
+            const PlayerRec *p = s_pickDb->get(s_pickIds[r]);
+            lv_table_set_cell_value(t, r, 0, p ? p->name : "?");
+        }
+        lv_obj_add_event_cb(t, pickTableEvent, LV_EVENT_VALUE_CHANGED, nullptr);
+    }
+
+    lv_obj_t *back = Theme::button(scr, LV_SYMBOL_LEFT " Tillbaka", 140, 42, Theme::MUTED);
+    lv_obj_set_pos(back, 10, 432);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { s_pickFilter[0] = 0; showPlayers(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *guest = Theme::button(scr, "Gäst (sparas ej)", 160, 42, Theme::GOLD);
+    lv_obj_set_pos(guest, 150, 432);
+    lv_obj_add_event_cb(guest, [](lv_event_t *) {
+        char initial[YATZY_NAME_CAP];
+        snprintf(initial, sizeof(initial), "Gäst %d", s_nameCount + 1);
+        openWheel("Gästens namn", initial, guestEntered);
+    }, LV_EVENT_CLICKED, nullptr);
+
     Theme::loadScreen(scr);
 }
 
@@ -1017,7 +1193,6 @@ static void showGame()
     s_dieSize = s_game.diceCount() == 6 ? 46 : 52;
 
     lv_obj_t *scr = Theme::screen();
-    lv_group_t *g = Theme::newScreenGroup(Encoder::setGroup);
 
     // Header: player, round, menu
     lv_obj_t *h = Theme::header(scr, "");
@@ -1073,8 +1248,6 @@ static void showGame()
         lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(chip, 1, 0);
         lv_obj_set_style_bg_color(chip, Theme::c(Theme::ACCENT_DARK), LV_STATE_PRESSED);
-        lv_obj_set_style_outline_width(chip, 2, LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_outline_color(chip, Theme::c(Theme::TEAL), LV_STATE_FOCUS_KEY);
         lv_obj_set_ext_click_area(chip, 2);
         s_sugName[k] = Theme::label(chip, "", &otr_font_14);
         lv_label_set_long_mode(s_sugName[k], LV_LABEL_LONG_DOT);
@@ -1113,12 +1286,7 @@ static void showGame()
     lv_obj_set_style_text_align(s_writeLabel, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_add_event_cb(s_writeBtn, [](lv_event_t *) { writeSelected(); }, LV_EVENT_CLICKED, nullptr);
 
-    lv_group_add_obj(g, s_rollBtn);
-    lv_group_add_obj(g, s_chooseBtn);
-    for (int k = 0; k < SUG_MAX; k++) lv_group_add_obj(g, s_sugChip[k]);
-    lv_group_add_obj(g, s_writeBtn);
-    lv_group_add_obj(g, s_backBtn);
-    lv_group_add_obj(g, menu);
+    for (int k = 0; k < SUG_MAX; k++) 
 
     // Score table (lower half in the result phase; parked below the screen while rolling)
     buildRows();
@@ -1168,7 +1336,6 @@ static void showGame()
 static void showResults()
 {
     lv_obj_t *scr = Theme::screen();
-    lv_group_t *g = Theme::newScreenGroup(Encoder::setGroup);
     Theme::header(scr, "Resultat");
     lv_obj_t *var = Theme::label(scr, Yatzy::variantName(s_game.variant(), s_game.mode()), &otr_font_14, Theme::TEAL);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
@@ -1208,8 +1375,6 @@ static void showResults()
     lv_obj_t *menu = Theme::button(scr, LV_SYMBOL_HOME " Meny", 140, 46, Theme::MUTED);
     lv_obj_set_pos(menu, 10, 424);
     lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
-    lv_group_add_obj(g, again);
-    lv_group_add_obj(g, menu);
 
     Rgb::effectFlash(255, 200, 60, 1200);
     Theme::loadScreen(scr);

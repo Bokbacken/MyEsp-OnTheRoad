@@ -16,8 +16,10 @@
 </header>
 <nav class="otr-nav">
   <a href="/">Översikt</a>
+  <a href="/players">Spelare</a>
   <a href="/settings" class="active">Inställningar</a>
   <a href="/diag">Diagnostik</a>
+  <a href="/update">Uppdatera</a>
 </nav>
 
 <h2>Wi-Fi</h2>
@@ -30,12 +32,15 @@
       <tr><th>Anslutet nätverk</th><td id="w-ssid">–</td></tr>
       <tr><th>IP-adress</th><td id="w-ip">–</td></tr>
       <tr><th>Signal</th><td id="w-signal">–</td></tr>
-      <tr><th>Sparat nätverk</th><td id="w-saved">–</td></tr>
     </table>
   </div>
+  <h3>Sparade nätverk <span class="muted" id="nets-count"></span></h3>
+  <p class="muted">Vid start söker enheten och ansluter till det första nätverket i listan som syns.
+  Misslyckas det provas nästa. Ett nytt nätverk hamnar överst. Lösenord visas aldrig här.</p>
+  <ul class="saved" id="saved"></ul>
   <div class="row">
-    <button type="button" class="primary" id="change-btn">Byt nätverk</button>
-    <button type="button" class="danger" id="forget-btn">Glöm nätverk</button>
+    <button type="button" class="primary" id="change-btn">Lägg till / anslut</button>
+    <button type="button" class="danger" id="forget-btn">Glöm alla</button>
   </div>
 </div>
 
@@ -52,11 +57,23 @@
     <label class="check"><input type="checkbox" id="show-pass"> Visa lösenord</label>
     <div class="row">
       <button type="submit" class="primary">Anslut</button>
+      <button type="button" class="secondary" id="save-only-btn">Spara utan att ansluta</button>
       <button type="button" class="secondary" id="scan-btn">Sök igen</button>
       <button type="button" class="secondary" id="close-btn">Stäng</button>
     </div>
   </fieldset>
 </form>
+
+<h2>Klocka</h2>
+<div class="card">
+  <p class="muted">Tiden hämtas via NTP när enheten har internet. Utan internet kan den sättas härifrån
+  (din dators/mobils tid) eller på enheten.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Enhetens tid</th><td id="c-now">–</td></tr>
+    <tr><th>Källa</th><td id="c-src">–</td></tr>
+  </table></div>
+  <div class="row"><button type="button" class="secondary" id="time-btn">Sätt tid från den här enheten</button></div>
+</div>
 
 <h2>Enhet</h2>
 <form id="cfg-form">
@@ -85,10 +102,27 @@
     <legend>Nätverk</legend>
     <label for="hostname">Värdnamn (mDNS, utan .local)</label>
     <input type="text" id="hostname" name="hostname" maxlength="31" pattern="[A-Za-z0-9-]{1,31}" autocapitalize="none">
+    <label for="tz">Tidszon (POSIX TZ)</label>
+    <input type="text" id="tz" name="tz" maxlength="47" autocapitalize="none">
+    <p class="muted">Sverige: <code>CET-1CEST,M3.5.0,M10.5.0/3</code></p>
   </fieldset>
   <div class="row">
     <button type="submit" class="primary">Spara inställningar</button>
   </div>
+</form>
+
+<h2>Admin</h2>
+<form id="admin-form">
+  <fieldset>
+    <legend>Admin-PIN <span class="muted" id="pin-state"></span></legend>
+    <p class="muted">Skyddar firmware-uppdatering, fabriksåterställning och (senare) radering av
+    spelresultat. 4–8 siffror. Lämna nytt fält tomt för att ta bort PIN.</p>
+    <label for="pin-old">Nuvarande PIN</label>
+    <input type="password" id="pin-old" inputmode="numeric" maxlength="8" autocomplete="off">
+    <label for="pin-new">Ny PIN</label>
+    <input type="password" id="pin-new" inputmode="numeric" maxlength="8" autocomplete="off">
+    <div class="row"><button type="submit" class="primary">Byt PIN</button></div>
+  </fieldset>
 </form>
 
 <h2>System</h2>
@@ -134,9 +168,10 @@ const updA = bindRange('roll_anim_ms', 'anim-val');
 function fill(c) {
   cfg = c;
   $('host-link').textContent = c.hostname + '.local';
-  if (!$('ssid').value) $('ssid').value = c.sta_ssid;
   $('pass').value = '';
-  $('pass-hint').textContent = c.sta_pass_set ? '(sparat – lämna tomt för att behålla)' : '';
+  $('tz').value = c.tz;
+  $('pin-state').textContent = c.admin_pin_set ? '(satt)' : '(ingen – öppen åtkomst)';
+  $('pin-old').disabled = !c.admin_pin_set;
   $('brightness').value = c.brightness; updB();
   $('led_brightness').value = c.led_brightness; updL();
   $('led_enabled').checked = c.led_enabled;
@@ -153,7 +188,7 @@ async function load() {
 function bars(n) { return '▮'.repeat(n) + '▯'.repeat(5 - n); }
 async function status() {
   try {
-    const w = (await (await fetch('/api/info', {cache: 'no-store'})).json()).wifi;
+    const info = await (await fetch('/api/info', {cache: 'no-store'})).json(), w = info.wifi;
     const map = {connected: ['ok', w.ssid + ' · ' + w.ip], connecting: ['warn', 'ansluter till ' + w.ssid + '…'],
                  failed: ['bad', 'kunde inte ansluta'], idle: ['ap', 'inte ansluten'], error: ['bad', 'Wi-Fi-fel']};
     const [cls, txt] = map[w.status] || ['', w.status];
@@ -164,7 +199,11 @@ async function status() {
     $('w-ssid').textContent = w.connected ? w.ssid : '–';
     $('w-ip').textContent = w.connected ? w.ip : '–';
     $('w-signal').textContent = w.connected ? bars(w.bars) + '  ' + w.rssi + ' dBm' : '–';
-    $('w-saved').textContent = w.saved_ssid || '(inget)';
+    {
+      const c = info.clock;
+      $('c-now').textContent = c.epoch ? new Date(c.epoch * 1000).toLocaleString('sv-SE') : 'ej satt';
+      $('c-src').innerHTML = '<span class="' + (c.certain ? 'ok' : 'warn') + '">' + c.source + '</span>';
+    }
     return w;
   } catch (e) { $('wifi-dot').className = 'dot bad'; $('wifi-text').textContent = 'ingen kontakt'; return null; }
 }
@@ -180,7 +219,7 @@ $('wifi-form').addEventListener('submit', async e => {
   if (!ssid) return toast('Välj eller skriv ett nätverk', false);
   if (pass && (pass.length < 8 || pass.length > 63)) return toast('Lösenordet måste vara 8–63 tecken', false);
   const data = {ssid, pass};
-  if (!pass && ssid === cfg.sta_ssid && cfg.sta_pass_set) data.keep_pass = '1';
+  if (!pass && saved.some(n => n.ssid === ssid && n.secure)) data.keep_pass = '1';
   try {
     await post('/api/wifi', data);
     toast('Ansluter till ' + ssid + ' (upp till 15 s)…');
@@ -188,16 +227,72 @@ $('wifi-form').addEventListener('submit', async e => {
       await new Promise(r => setTimeout(r, 2000));
       const w = await status();
       if (!w) { toast('Kontakten bröts – enheten byter troligen nätverk', false); return; }
-      if (w.status === 'connected' && w.ssid === ssid) { toast('Ansluten till ' + ssid); $('wifi-form').hidden = true; load(); return; }
+      if (w.status === 'connected' && w.ssid === ssid) { toast('Ansluten till ' + ssid); $('wifi-form').hidden = true; loadNets(); return; }
       if (w.status === 'failed') { toast('Kunde inte ansluta: ' + (w.last_error || 'okänt fel'), false); return; }
     }
   } catch (err) { toast(err.message, false); }
 });
 
 $('forget-btn').addEventListener('click', async () => {
-  if (!confirm('Glömma det sparade nätverket? Enheten kopplas från och sidan tappar kontakten.')) return;
-  try { await post('/api/wifi', {ssid: '', pass: ''}); toast('Nätverket borttaget'); load(); }
+  if (!confirm('Glömma ALLA sparade nätverk? Enheten kopplas från och sidan tappar kontakten.')) return;
+  try { await post('/api/nets', {action: 'forget_all'}); toast('Alla nätverk borttagna'); loadNets(); }
   catch (err) { toast(err.message, false); }
+});
+
+let saved = [];
+function renderNets(j) {
+  saved = j.nets;
+  $('nets-count').textContent = '(' + j.nets.length + ' av ' + j.max + ')';
+  const ul = $('saved');
+  ul.innerHTML = '';
+  if (!j.nets.length) ul.innerHTML = '<li class="muted">Inga sparade nätverk</li>';
+  j.nets.forEach((n, i) => {
+    const li = document.createElement('li');
+    if (n.connected) li.className = 'on';
+    const prio = document.createElement('span'); prio.className = 'prio'; prio.textContent = (i + 1) + '.';
+    const name = document.createElement('span'); name.className = 'name';
+    name.textContent = (n.secure ? '\u{1F512} ' : '\u{1F513} ') + n.ssid + (n.connected ? '  (ansluten)' : '');
+    const btn = (txt, title, fn, dis) => { const b = document.createElement('button'); b.type = 'button';
+      b.className = 'secondary'; b.textContent = txt; b.title = title; b.disabled = dis; b.onclick = fn; return b; };
+    li.append(prio, name,
+      btn('\u25B2', 'Högre prioritet', () => netAct({action: 'move', ssid: n.ssid, delta: -1}), i === 0),
+      btn('\u25BC', 'Lägre prioritet', () => netAct({action: 'move', ssid: n.ssid, delta: 1}), i === j.nets.length - 1),
+      btn('\u2715', 'Ta bort', () => { if (confirm('Ta bort ' + n.ssid + '?')) netAct({action: 'remove', ssid: n.ssid}); }, false));
+    li.lastChild.className = 'danger';
+    ul.appendChild(li);
+  });
+}
+async function loadNets() {
+  try { renderNets(await (await fetch('/api/nets', {cache: 'no-store'})).json()); }
+  catch (e) { $('saved').innerHTML = '<li class="bad">Kunde inte läsa listan</li>'; }
+}
+async function netAct(data) {
+  try { renderNets(await post('/api/nets', data)); } catch (err) { toast(err.message, false); }
+}
+$('save-only-btn').addEventListener('click', async () => {
+  const ssid = $('ssid').value.trim(), pass = $('pass').value;
+  if (!ssid) return toast('Välj eller skriv ett nätverk', false);
+  if (pass && (pass.length < 8 || pass.length > 63)) return toast('Lösenordet måste vara 8–63 tecken', false);
+  await netAct({action: 'add', ssid, pass});
+  toast(ssid + ' sparat');
+});
+
+$('time-btn').addEventListener('click', async () => {
+  try { await post('/api/time', {epoch: Math.floor(Date.now() / 1000)}); toast('Tiden satt'); status(); }
+  catch (err) { toast(err.message, false); }
+});
+
+$('admin-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nw = $('pin-new').value;
+  if (nw && !/^[0-9]{4,8}$/.test(nw)) return toast('PIN: 4–8 siffror', false);
+  if (!nw && !confirm('Ta bort admin-PIN? Då kan alla i nätverket uppdatera firmware.')) return;
+  try {
+    const j = await post('/api/config', {pin: $('pin-old').value, admin_pin_new: nw});
+    fill(j.config);
+    $('pin-old').value = ''; $('pin-new').value = '';
+    toast(nw ? 'PIN bytt' : 'PIN borttagen');
+  } catch (err) { toast(err.message, false); }
 });
 
 async function scan() {
@@ -217,15 +312,17 @@ async function scan() {
       const li = document.createElement('li');
       const name = document.createElement('span');
       name.textContent = (n.secure ? '\u{1F512} ' : '\u{1F513} ') + n.ssid;
+      if (saved.some(s => s.ssid === n.ssid)) name.textContent += '  \u2605';
       const sig = document.createElement('span');
       sig.className = 'muted';
       sig.textContent = bars(n.bars) + ' ' + n.rssi + ' dBm';
       li.append(name, sig);
       li.addEventListener('click', () => {
+        const known = saved.some(s => s.ssid === n.ssid);
         $('ssid').value = n.ssid;
         $('pass').value = '';
         $('pass').disabled = !n.secure;
-        $('pass-hint').textContent = n.secure ? '' : '(öppet nätverk)';
+        $('pass-hint').textContent = !n.secure ? '(öppet nätverk)' : known ? '(sparat – lämna tomt för att behålla)' : '';
         if (n.secure) $('pass').focus();
       });
       list.appendChild(li);
@@ -247,7 +344,8 @@ $('cfg-form').addEventListener('submit', async e => {
     default_variant: $('default_variant').value,
     roll_anim_ms: $('roll_anim_ms').value,
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
-    hostname: host
+    hostname: host,
+    tz: $('tz').value.trim()
   };
   try {
     const j = await post('/api/config', data);
@@ -262,10 +360,13 @@ $('reboot-btn').addEventListener('click', async () => {
 });
 $('reset-btn').addEventListener('click', async () => {
   if (!confirm('Radera alla inställningar och Wi-Fi-uppgifter?')) return;
-  try { await post('/api/reset', {}); toast('Återställer och startar om…'); } catch (err) { toast(err.message, false); }
+  const pin = cfg.admin_pin_set ? prompt('Admin-PIN:') : '';
+  if (pin === null) return;
+  try { await post('/api/reset', {pin}); toast('Återställer och startar om…'); } catch (err) { toast(err.message, false); }
 });
 
 load();
+loadNets();
 status();
 setInterval(status, 4000);
 </script>

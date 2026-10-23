@@ -16,8 +16,10 @@
 </header>
 <nav class="otr-nav">
   <a href="/" class="active">Översikt</a>
+  <a href="/players">Spelare</a>
   <a href="/settings">Inställningar</a>
   <a href="/diag">Diagnostik</a>
+  <a href="/update">Uppdatera</a>
 </nav>
 
 <h2>Status</h2>
@@ -74,7 +76,7 @@ function kb(b) { return (b / 1024).toFixed(0) + ' kB'; }
 function rssiPct(r) { return r ? Math.max(0, Math.min(100, 2 * (r + 100))) : 0; }
 function wifiBadge(w) {
   const dot = $('wifi-dot');
-  const map = {connected: ['ok', w.ssid + ' · ' + w.rssi + ' dBm'], connecting: ['warn', 'ansluter till ' + w.ssid],
+  const map = {connected: ['ok', w.ssid + ' · ' + w.rssi + ' dBm'], connecting: ['warn', 'ansluter till ' + w.ssid], searching: ['warn', 'söker nätverk'],
                failed: ['bad', 'kunde inte ansluta'], idle: ['ap', 'inte ansluten'], error: ['bad', 'Wi-Fi-fel']};
   const [cls, txt] = map[w.status] || ['', w.status];
   dot.className = 'dot ' + cls;

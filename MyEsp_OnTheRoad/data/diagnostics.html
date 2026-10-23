@@ -16,8 +16,10 @@
 </header>
 <nav class="otr-nav">
   <a href="/">Översikt</a>
+  <a href="/players">Spelare</a>
   <a href="/settings">Inställningar</a>
   <a href="/diag" class="active">Diagnostik</a>
+  <a href="/update">Uppdatera</a>
 </nav>
 
 <h2>Hårdvarutest</h2>
@@ -70,7 +72,7 @@ async function refresh() {
     $('live-text').textContent = 'live';
     test('t-display', d.ok, (d.fps_x10 / 10).toFixed(1) + ' fps · TE ' + (d.te_active ? 'aktiv' : 'av'));
     test('t-touch', t.present, t.present ? t.touches + ' tryck · fw ' + t.fw : 'ingen svar på 0x55');
-    test('t-wifi', w.status !== 'error', w.connected ? w.ssid + ' ' + w.rssi + ' dBm' : (w.status === 'connecting' ? 'ansluter…' : 'inte ansluten'),
+    test('t-wifi', w.status !== 'error', w.connected ? w.ssid + ' ' + w.rssi + ' dBm' : (w.status === 'connecting' || w.status === 'searching' ? 'ansluter…' : 'inte ansluten'),
          w.status === 'failed' ? (w.last_error || 'kunde inte ansluta') : null);
     test('t-psram', i.psram_size > 0, mb(i.psram_size) + ' totalt');
     rows('sys', [
@@ -84,6 +86,11 @@ async function refresh() {
       ['PSRAM ledigt / totalt', kb(i.psram_free) + ' / ' + mb(i.psram_size)],
       ['Flash', mb(i.flash_size)],
       ['Sketch / ledigt app-utrymme', kb(i.sketch_size) + ' / ' + kb(i.sketch_free)],
+      ['App-partition (kör / nästa OTA)', esc(i.ota.running + ' / ' + i.ota.next) + ' · ' + kb(i.ota.slot_size)],
+      ['Lagring (FFat)', i.storage.ok ? kb(i.storage.used) + ' av ' + kb(i.storage.total) + ' · ' + i.storage.players + ' spelare' : 'ej tillgänglig'],
+      ['Klocka', i.clock.epoch ? new Date(i.clock.epoch * 1000).toLocaleString('sv-SE') + ' · ' +
+        (i.clock.certain ? '<span class="ok">' + esc(i.clock.source) + '</span>' : '<span class="warn">' + esc(i.clock.source) + '</span>') : '<span class="muted">ej satt</span>'],
+      ['Senaste NTP', i.clock.ntp_age_s < 0 ? '–' : i.clock.ntp_age_s + ' s sedan'],
     ]);
     rows('disp', [
       ['Initierad', yes(d.ok)],
@@ -101,13 +108,12 @@ async function refresh() {
       ['Senaste punkt', t.last_x + ', ' + t.last_y + (t.pressed ? ' <span class="ok">(nedtryckt)</span>' : '')],
       ['Tryck / IRQ / läsfel', t.touches + ' / ' + t.irqs + ' / ' + (t.errors ? '<span class="bad">' + t.errors + '</span>' : 0)],
       ['I²C-enheter', i.i2c.length ? i.i2c.map(a => '<code>' + esc(a) + '</code>').join(' ') : '<span class="bad">inga</span>'],
-      ['Scrollhjul (encoder)', i.encoder.active ? 'aktiv · position ' + i.encoder.position : '<span class="muted">ej kopplat</span>'],
     ]);
     rows('wifi', [
       ['Status', esc(w.status)],
       ['Läge', 'Station (ansluter till befintligt nätverk)'],
       ['Nätverk', esc(w.ssid || '–')],
-      ['Sparat nätverk', esc(w.saved_ssid || '–')],
+      ['Högst prioriterade sparade', esc(w.saved_ssid || '–')],
       ['IP-adress', esc(w.ip)],
       ['RSSI', w.rssi ? w.rssi + ' dBm · ' + w.bars + '/5 streck' : '–'],
       ['Ansluten sedan', w.connected ? w.uptime_s + ' s' : '–'],

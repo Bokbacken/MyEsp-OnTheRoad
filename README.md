@@ -4,29 +4,45 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). Arduino-ESP32 3.x sketch with LVGL 8.4,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** scaffold. Compiles with arduino-cli; **not yet verified on hardware**.
+> **Status:** v0.3.0. v0.2.0 is verified on hardware; the v0.3.0 additions (OTA, saved networks,
+> clock, player registry, on-screen scroll wheel) compile and pass the host tests but are **not yet
+> verified on hardware**. See [ROADMAP.md](ROADMAP.md).
 
 ## Features
 
 - **Board support** – ST77922 over QSPI (40 MHz) with LVGL 8 partial PSRAM draw buffers, I2C capacitive
   touch (0x55), LEDC PWM backlight on GPIO41, WS2812 status LED on GPIO40.
-- **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, Wi-Fi, web)
+- **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, storage, Wi-Fi, web)
   with green ✓ / red ✗, plus an R→G→B→white LED sequence.
 - **Yatzy & Maxi-Yatzy** – 1–8 players, all 15 (Yatzy) / 20 (Maxi) categories, upper bonus (50 / 100),
   free or ordered play, Maxi "saved rolls" rule. Full scoring in `game_yatzy.cpp` with host tests.
-- **Game UI** – variant menu, player names via a touch scroll wheel (char wheel), game screen with
+- **Player registry** – up to 200 players with unique names (case-insensitive, å/ä/ö aware) and
+  stable ids, stored on the FFat partition (`/players.bin`, power-safe tmp + rename). Before a game the
+  players are picked from a sorted list with search; "Ny spelare" saves a new name, "Gäst" plays
+  without saving. Managed on the web page `/players` (add, rename, remove – remove needs the admin PIN).
+- **Game UI** – variant menu with clock, player picker, game screen with
   roll area + "nest" (tap a die to keep it), 800 ms ease-out roll animation, LED flash on roll,
   scrollable score table with best-category hint, result screen with medals.
 - **Wi-Fi (station only)** – joins an existing access point; the soft-AP is disabled (`AP_MODE_ENABLED 0`).
   On-device setup (`ui_wifi.cpp`): network list sorted by RSSI with 5 signal bars and lock/"Öppen" marker,
-  password entry with a character strip (encoder: rotate = next/previous char, press = add; touch: tap a
-  char), "Visa/Dölj", "Rensa" (backspace), max 64 chars, then a connect screen with a 15 s countdown.
-  The last successful network is stored in NVS and auto-connected at boot. LED: pulsing blue while
+  password entry with the on-screen scroll wheel (`ui_charwheel` + `mypi_kbd_core.h`, same model as
+  MyPi-Hotspot's keyboard: swipe/drag the wheel, tap to add), "Visa/Dölj", backspace, max 64 chars, then a
+  connect screen with a 15 s countdown. Up to **50 saved networks** in priority order (NVS); at boot and
+  after a lost connection the device scans and joins the highest-priority saved network in range. LED: pulsing blue while
   connecting, green = connected, red = failed. mDNS `ontheroad.local`. The main menu (Wi-Fi icon) and
   settings screen open the network list; the games work without Wi-Fi.
-- **Web UI** – dark card-based theme: dashboard, settings (display, LED, game, connected network + "Byt nätverk" with scan) and
-  diagnostics. Pages are gzip-embedded in flash (`web_assets.h`), no filesystem needed.
-- **Encoder input** – LVGL encoder indev with quadrature ISR (pins defined, not wired yet).
+- **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone
+  (default Swedish CET/CEST), manual setting on the device (Inställningar → Klocka) or from the browser.
+  The last time is kept in NVS across reboots and shown as uncertain (orange "?") until NTP or a manual set.
+- **OTA firmware update** – web page `/update` streams the `-ota.bin` into the inactive app slot
+  (app0/app1) with progress on the web page and on the display; the running firmware stays if anything fails.
+- **Admin PIN** – optional 4–8 digit PIN (Inställningar on the web) protecting OTA, factory reset,
+  player removal and PIN changes.
+- **Web UI** – dark card-based theme: dashboard, players, settings (display, LED, game, saved networks,
+  clock, time zone, admin PIN), diagnostics and update. Pages are gzip-embedded in flash
+  (`web_assets.h`), no filesystem upload needed.
+
+The hardware rotary encoder was removed in v0.3.0; all input is touch.
 
 ## Hardware
 
@@ -85,18 +101,31 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 
 ```sh
 g++ -std=c++17 -Wall -Wextra -I MyEsp_OnTheRoad tests/test_yatzy.cpp MyEsp_OnTheRoad/game_yatzy.cpp -o test_yatzy && ./test_yatzy
+g++ -std=c++17 -Wall -Wextra -I MyEsp_OnTheRoad tests/test_core.cpp -o test_core && ./test_core   # net list, scroll wheel, player registry
 ```
+
+## Flashing and updating
+
+- **First time / from v0.2.0** (no OTA yet): flash `MyEsp_OnTheRoad-vX.Y.Z-merged.bin` at offset `0x0`
+  over USB (esptool.js / esptool). The first boot formats the FFat partition (a few seconds,
+  "Lagring" on the boot screen).
+- **After that:** open `http://ontheroad.local/update` and upload `MyEsp_OnTheRoad-vX.Y.Z-ota.bin`.
+  Settings, saved networks and players are kept.
 
 ## Web endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/`, `/settings`, `/diag` | Dashboard, settings, diagnostics pages |
-| GET | `/api/info` | System, display, touch, Wi-Fi status (JSON) |
-| GET / POST | `/api/config` | Read / update settings (stored in NVS) |
-| POST | `/api/wifi` | Connect to `ssid`/`pass` (saved to NVS on success); empty `ssid` forgets the network |
+| GET | `/`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
+| GET | `/api/info` | System, display, touch, Wi-Fi, clock, OTA slots, storage (JSON) |
+| GET / POST | `/api/config` | Read / update settings (NVS); `tz`, `admin_pin_new` (+ `pin`) |
+| POST | `/api/wifi` | Connect to `ssid`/`pass` (added to the saved list on success) |
 | GET | `/api/scan` | Wi-Fi scan (async) |
-| POST | `/api/reboot`, `/api/reset` | Reboot / factory reset settings |
+| GET / POST | `/api/nets` | Saved networks (never passwords); `action` = add / remove / move (`delta`) / forget_all |
+| POST | `/api/time` | Set the clock manually (`epoch`, UTC seconds) |
+| GET / POST | `/api/players` | Player registry; `action` = add (`name`) / rename (`id`, `name`) / remove (`id`, admin `pin`) |
+| POST | `/api/ota` | Firmware upload (multipart, `?size=&pin=`) |
+| POST | `/api/reboot`, `/api/reset` | Reboot / factory reset settings (reset needs the admin PIN) |
 
 ## Project layout
 
@@ -105,13 +134,10 @@ MyEsp_OnTheRoad/      Arduino sketch (board_*, ui_*, game_yatzy, web server, fon
 MyEsp_OnTheRoad/data/ Web page sources (HTML/CSS)
 docs/                 Hardware reference
 extras/lv_conf.h      LVGL 8.4 configuration
-tests/                Host unit tests for the game logic
+tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry)
 tools/embed_web.py    data/ -> web_assets.h generator
 ```
 
 ## Roadmap
 
-- Verify display/touch on hardware, tune touch coordinates and refresh rate
-- Wire up the rotary encoder
-- Sound (ES8311), SD card, battery gauge
-- More dice animation polish
+See [ROADMAP.md](ROADMAP.md).
