@@ -12,6 +12,7 @@
 #include "ui_charwheel.h"
 #include "ui_settings.h"
 #include "ui_theme.h"
+#include "ui_wifi.h"
 
 namespace UiYatzy {
 
@@ -66,6 +67,9 @@ void showMenu()
     lv_obj_t *gear = Theme::button(scr, LV_SYMBOL_SETTINGS, 52, 36, Theme::LINE);
     lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -6, 4);
     lv_obj_add_event_cb(gear, [](lv_event_t *) { UiSettings::show(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *wifi = Theme::button(scr, LV_SYMBOL_WIFI, 52, 36, Theme::LINE);
+    lv_obj_align(wifi, LV_ALIGN_TOP_RIGHT, -64, 4);
+    lv_obj_add_event_cb(wifi, [](lv_event_t *) { UiWifi::showNetworks(); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *hint = Theme::label(scr, "Välj spel", &otr_font_14, Theme::MUTED);
     lv_obj_set_pos(hint, 14, 52);
@@ -104,6 +108,7 @@ void showMenu()
         lv_obj_add_event_cb(b, menuChoiceEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         lv_group_add_obj(g, b);
     }
+    lv_group_add_obj(g, wifi);
     lv_group_add_obj(g, gear);
 
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &otr_font_14, Theme::LINE);

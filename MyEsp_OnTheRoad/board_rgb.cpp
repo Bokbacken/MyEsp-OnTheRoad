@@ -11,6 +11,7 @@ struct State {
     uint8_t flash[3] = {0, 0, 0};
     uint8_t brightness = 40;
     bool enabled = true;
+    bool pulse = false;              // Base colour breathes (e.g. Wi-Fi connecting)
     Effect effect = Effect::NONE;
     uint32_t effectEnd = 0;
 };
@@ -57,7 +58,17 @@ void rgbTask(void *)
             writeScaled(s.flash[0], s.flash[1], s.flash[2], bri);
             break;
         default:
-            writeScaled(s.base[0], s.base[1], s.base[2], bri);
+            if (s.pulse) {
+                // Breathing: triangle wave 20 %..100 % over 1.2 s
+                constexpr uint32_t PERIOD = 1200;
+                uint32_t ph = millis() % PERIOD;
+                uint32_t tri = ph < PERIOD / 2 ? ph : PERIOD - ph;           // 0..600
+                uint32_t lvl = 51 + tri * 204 / (PERIOD / 2);                 // 51..255
+                writeScaled((uint8_t)(s.base[0] * lvl / 255), (uint8_t)(s.base[1] * lvl / 255),
+                            (uint8_t)(s.base[2] * lvl / 255), bri);
+            } else {
+                writeScaled(s.base[0], s.base[1], s.base[2], bri);
+            }
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -96,6 +107,13 @@ void setBase(uint8_t r, uint8_t g_, uint8_t b)
 {
     portENTER_CRITICAL(&g_mux);
     g.base[0] = r; g.base[1] = g_; g.base[2] = b;
+    portEXIT_CRITICAL(&g_mux);
+}
+
+void setPulse(bool on)
+{
+    portENTER_CRITICAL(&g_mux);
+    g.pulse = on;
     portEXIT_CRITICAL(&g_mux);
 }
 

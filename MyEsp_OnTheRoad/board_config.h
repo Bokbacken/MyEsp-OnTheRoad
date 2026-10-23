@@ -5,12 +5,11 @@
 #include <stddef.h>
 
 #define FW_NAME    "MyEsp-OnTheRoad"
-#define FW_VERSION "0.1.0"
+#define FW_VERSION "0.2.0"
 
 struct AppConfig {
-    char staSsid[33];        // Empty = STA disabled (AP only)
-    char staPass[65];
-    char apPass[65];         // >= 8 chars (WPA2); default "yatzy1234"
+    char staSsid[33];        // Last successfully joined network; empty = none saved
+    char staPass[65];        // Its password (empty for open networks)
     char hostname[32];       // mDNS name without ".local"
     uint8_t brightness;      // Backlight 5..100 %
     uint8_t ledBrightness;   // RGB LED 0..255

@@ -1,5 +1,7 @@
 #include "board_config.h"
 
+#include <ctype.h>
+
 #include <Arduino.h>
 #include <Preferences.h>
 #include <string.h>
@@ -21,7 +23,6 @@ namespace Config {
 void defaults(AppConfig &c)
 {
     memset(&c, 0, sizeof(c));
-    strcpy(c.apPass, "yatzy1234");
     strcpy(c.hostname, "ontheroad");
     c.brightness = 80;
     c.ledBrightness = 40;
@@ -42,7 +43,6 @@ void begin()
     if (p.getUChar("schema", 0) == CONFIG_SCHEMA) {
         copyStr(g_cfg.staSsid, sizeof(g_cfg.staSsid), p.getString("sta_ssid", ""));
         copyStr(g_cfg.staPass, sizeof(g_cfg.staPass), p.getString("sta_pass", ""));
-        copyStr(g_cfg.apPass, sizeof(g_cfg.apPass), p.getString("ap_pass", g_cfg.apPass));
         copyStr(g_cfg.hostname, sizeof(g_cfg.hostname), p.getString("host", g_cfg.hostname));
         g_cfg.brightness = constrain(p.getUChar("bl", g_cfg.brightness), 5, 100);
         g_cfg.ledBrightness = p.getUChar("led_bri", g_cfg.ledBrightness);
@@ -52,7 +52,6 @@ void begin()
         g_cfg.maxiSavedRolls = p.getBool("maxi_save", true);
     }
     p.end();
-    if (!validWifiPass(g_cfg.apPass, false)) strcpy(g_cfg.apPass, "yatzy1234");
     if (!validHostname(g_cfg.hostname)) strcpy(g_cfg.hostname, "ontheroad");
     Serial.printf("[cfg] loaded: sta='%s' host=%s bl=%u%%\n", g_cfg.staSsid, g_cfg.hostname, g_cfg.brightness);
 }
@@ -64,9 +63,9 @@ bool save()
     Preferences p;
     if (!p.begin(NVS_NS, false)) return false;
     p.putUChar("schema", CONFIG_SCHEMA);
+    p.remove("ap_pass");   // Soft-AP removed in 0.2.0
     p.putString("sta_ssid", g_cfg.staSsid);
     p.putString("sta_pass", g_cfg.staPass);
-    p.putString("ap_pass", g_cfg.apPass);
     p.putString("host", g_cfg.hostname);
     p.putUChar("bl", g_cfg.brightness);
     p.putUChar("led_bri", g_cfg.ledBrightness);
@@ -92,7 +91,11 @@ bool validWifiPass(const char *pass, bool allowEmpty)
 {
     if (!pass) return false;
     size_t n = strlen(pass);
-    return (allowEmpty && n == 0) || (n >= 8 && n <= 63);
+    if ((allowEmpty && n == 0) || (n >= 8 && n <= 63)) return true;
+    if (n != 64) return false;
+    for (size_t i = 0; i < n; i++)   // 64 hex digits = raw WPA PSK
+        if (!isxdigit((unsigned char)pass[i])) return false;
+    return true;
 }
 
 bool validHostname(const char *name)

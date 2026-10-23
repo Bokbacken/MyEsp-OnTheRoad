@@ -1,5 +1,5 @@
 // MyEsp-OnTheRoad - Yatzy / Maxi-Yatzy travel console on the Heemol ESP32-S3 3.5" board
-// (ST77922 QSPI 320x480 + capacitive touch, WS2812 LED, Wi-Fi AP+STA web UI).
+// (ST77922 QSPI 320x480 + capacitive touch, WS2812 LED, Wi-Fi station + web UI).
 //
 // Arduino IDE 2 / arduino-cli board settings (Arduino-ESP32 core 3.x):
 //   Board:            ESP32S3 Dev Module
@@ -34,20 +34,32 @@
 #include "encoder_input.h"
 #include "ui_boot.h"
 #include "ui_settings.h"
+#include "ui_wifi.h"
 #include "ui_yatzy.h"
 
 static bool g_uiReady = false;
 
-// Wi-Fi status -> RGB LED: blue = AP only / connecting, green = STA connected, red = error.
+// Wi-Fi status -> RGB LED: pulsing blue = connecting, green = connected, red = failed, off = idle.
 static void onWifiStatus(Wifi::Status s)
 {
     switch (s) {
-    case Wifi::Status::STA_CONNECTED: Rgb::setBase(0, 160, 40); break;
-    case Wifi::Status::STA_CONNECTING: Rgb::setBase(0, 60, 160); break;
-    case Wifi::Status::AP_ONLY: Rgb::setBase(0, 0, 180); break;
-    case Wifi::Status::STA_FAILED:
-    case Wifi::Status::ERROR: Rgb::setBase(180, 0, 0); break;
-    default: Rgb::setBase(0, 0, 0); break;
+    case Wifi::Status::CONNECTING:
+        Rgb::setBase(0, 60, 200);
+        Rgb::setPulse(true);
+        break;
+    case Wifi::Status::CONNECTED:
+        Rgb::setPulse(false);
+        Rgb::setBase(0, 160, 40);
+        break;
+    case Wifi::Status::FAILED:
+    case Wifi::Status::ERROR:
+        Rgb::setPulse(false);
+        Rgb::setBase(180, 0, 0);
+        break;
+    default:
+        Rgb::setPulse(false);
+        Rgb::setBase(0, 0, 0);
+        break;
     }
 }
 
@@ -137,12 +149,13 @@ void setup()
 
     UiBoot::set(UiBoot::Item::WIFI, UiBoot::State::RUNNING);
     UiBoot::setStatus("Startar Wi-Fi…");
-    bool wifiOk = Wifi::begin(onWifiStatus);
+    bool wifiOk = Wifi::begin(onWifiStatus);   // STA only; connects to the saved network in the background
     {
         char buf[64];
-        snprintf(buf, sizeof(buf), "AP %s", Wifi::apSsid());
+        if (Wifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), "STA, sparat: %s", Wifi::savedSsid());
+        else snprintf(buf, sizeof(buf), "STA, inget sparat nätverk");
         UiBoot::set(UiBoot::Item::WIFI, wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    wifiOk ? buf : "accesspunkten startade inte");
+                    wifiOk ? buf : "Wi-Fi-drivrutinen startade inte");
     }
     UiBoot::setProgress(75);
 
@@ -150,7 +163,7 @@ void setup()
     bool webOk = wifiOk && Webserver::begin();
     {
         char buf[64];
-        snprintf(buf, sizeof(buf), "http://%s  /  %s.local", Wifi::apIp().toString().c_str(), cfg.hostname);
+        snprintf(buf, sizeof(buf), "http://%s.local (när ansluten)", cfg.hostname);
         UiBoot::set(UiBoot::Item::WEB, webOk ? UiBoot::State::OK : UiBoot::State::FAIL, webOk ? buf : "startade inte");
     }
     UiBoot::setProgress(100);
@@ -162,8 +175,12 @@ void setup()
     delay(fails ? 5000 : 1500);
 
     if (g_uiReady) {
+        // Saved network -> connect screen (auto-connect already running), otherwise the network list.
+        // Both screens lead to the main menu (Avbryt / success), so the games work without Wi-Fi.
         DisplayLock lock;
-        UiYatzy::showMenu();
+        if (wifiOk && Wifi::hasSavedCredentials()) UiWifi::showConnecting(Wifi::savedSsid(), nullptr, true);
+        else if (wifiOk) UiWifi::showNetworks();
+        else UiYatzy::showMenu();
     }
 }
 

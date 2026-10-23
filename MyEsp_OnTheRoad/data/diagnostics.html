@@ -70,8 +70,8 @@ async function refresh() {
     $('live-text').textContent = 'live';
     test('t-display', d.ok, (d.fps_x10 / 10).toFixed(1) + ' fps · TE ' + (d.te_active ? 'aktiv' : 'av'));
     test('t-touch', t.present, t.present ? t.touches + ' tryck · fw ' + t.fw : 'ingen svar på 0x55');
-    test('t-wifi', w.status !== 'error', w.status === 'connected' ? w.sta_ssid + ' ' + w.rssi + ' dBm' : 'AP ' + w.ap_ssid,
-         w.status === 'failed' ? 'STA-fel' : null);
+    test('t-wifi', w.status !== 'error', w.connected ? w.ssid + ' ' + w.rssi + ' dBm' : (w.status === 'connecting' ? 'ansluter…' : 'inte ansluten'),
+         w.status === 'failed' ? (w.last_error || 'kunde inte ansluta') : null);
     test('t-psram', i.psram_size > 0, mb(i.psram_size) + ' totalt');
     rows('sys', [
       ['Firmware', esc(i.fw + ' v' + i.version)],
@@ -105,10 +105,14 @@ async function refresh() {
     ]);
     rows('wifi', [
       ['Status', esc(w.status)],
-      ['Accesspunkt', esc(w.ap_ssid) + ' · ' + esc(w.ap_ip) + ' · ' + w.ap_clients + ' klienter'],
-      ['STA-nätverk', esc(w.sta_ssid || '–')],
-      ['STA-adress', esc(w.sta_ip)],
-      ['RSSI', w.rssi ? w.rssi + ' dBm' : '–'],
+      ['Läge', 'Station (ansluter till befintligt nätverk)'],
+      ['Nätverk', esc(w.ssid || '–')],
+      ['Sparat nätverk', esc(w.saved_ssid || '–')],
+      ['IP-adress', esc(w.ip)],
+      ['RSSI', w.rssi ? w.rssi + ' dBm · ' + w.bars + '/5 streck' : '–'],
+      ['Ansluten sedan', w.connected ? w.uptime_s + ' s' : '–'],
+      ['Senaste fel', esc(w.last_error || '–')],
+      ['MAC', esc(w.mac)],
       ['Anslutningar / avbrott', w.connects + ' / ' + w.disconnects],
       ['mDNS', w.mdns ? esc(w.hostname) + '.local' : '<span class="bad">inaktiv</span>'],
     ]);

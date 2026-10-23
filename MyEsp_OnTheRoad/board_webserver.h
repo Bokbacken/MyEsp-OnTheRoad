@@ -11,7 +11,7 @@
 //   GET  /api/info          heap, PSRAM, uptime, Wi-Fi (status, RSSI, IPs), display, touch, I2C
 //   GET  /api/config        current settings (passwords are never returned)
 //   POST /api/config        update settings (form fields, see board_webserver.cpp)
-//   POST /api/wifi          ssid, pass -> NVS, reconnect STA
+//   POST /api/wifi          ssid, pass -> connect (saved to NVS on success); empty ssid = forget
 //   GET  /api/scan          start/poll an async Wi-Fi scan
 //   POST /api/reboot        restart the board
 //   POST /api/reset         factory-reset the settings, then restart

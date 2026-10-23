@@ -47,11 +47,10 @@
 <h2>Nätverk</h2>
 <div class="card table-wrap">
   <table>
-    <tr><th>Accesspunkt</th><td id="ap">–</td></tr>
-    <tr><th>AP-adress</th><td id="ap-ip">–</td></tr>
-    <tr><th>Anslutna klienter</th><td id="ap-clients">–</td></tr>
-    <tr><th>Hemnätverk (STA)</th><td id="sta">–</td></tr>
-    <tr><th>STA-adress</th><td id="sta-ip">–</td></tr>
+    <tr><th>Wi-Fi-nätverk</th><td id="sta">–</td></tr>
+    <tr><th>IP-adress</th><td id="sta-ip">–</td></tr>
+    <tr><th>Ansluten sedan</th><td id="sta-up">–</td></tr>
+    <tr><th>Sparat nätverk</th><td id="saved">–</td></tr>
     <tr><th>mDNS</th><td id="mdns">–</td></tr>
   </table>
 </div>
@@ -75,8 +74,8 @@ function kb(b) { return (b / 1024).toFixed(0) + ' kB'; }
 function rssiPct(r) { return r ? Math.max(0, Math.min(100, 2 * (r + 100))) : 0; }
 function wifiBadge(w) {
   const dot = $('wifi-dot');
-  const map = {connected: ['ok', w.sta_ssid + ' · ' + w.rssi + ' dBm'], connecting: ['warn', 'ansluter till ' + w.sta_ssid],
-               failed: ['bad', 'STA-fel · AP aktiv'], ap_only: ['ap', 'endast AP'], error: ['bad', 'Wi-Fi-fel']};
+  const map = {connected: ['ok', w.ssid + ' · ' + w.rssi + ' dBm'], connecting: ['warn', 'ansluter till ' + w.ssid],
+               failed: ['bad', 'kunde inte ansluta'], idle: ['ap', 'inte ansluten'], error: ['bad', 'Wi-Fi-fel']};
   const [cls, txt] = map[w.status] || ['', w.status];
   dot.className = 'dot ' + cls;
   $('wifi-text').textContent = txt;
@@ -98,11 +97,10 @@ async function refresh() {
     $('fps').innerHTML = (i.display.fps_x10 / 10).toFixed(1) + ' <small>fps</small>';
     $('touch').textContent = i.touch.present ? 'Touch OK · ' + i.touch.touches + ' tryck' : 'Touch hittades inte';
     $('touch').className = i.touch.present ? 'muted' : 'bad';
-    $('ap').textContent = w.ap_ssid;
-    $('ap-ip').textContent = w.ap_ip;
-    $('ap-clients').textContent = w.ap_clients;
-    $('sta').textContent = w.sta_ssid || '(inte konfigurerat)';
-    $('sta-ip').textContent = w.status === 'connected' ? w.sta_ip : '–';
+    $('sta').textContent = w.connected ? w.ssid + ' (' + '▮'.repeat(w.bars) + '▯'.repeat(5 - w.bars) + ')' : 'inte ansluten';
+    $('sta-ip').textContent = w.connected ? w.ip : '–';
+    $('sta-up').textContent = w.connected ? fmtUptime(w.uptime_s) : '–';
+    $('saved').textContent = w.saved_ssid || '(inget)';
     $('mdns').innerHTML = w.mdns ? '<a href="http://' + w.hostname + '.local/">' + w.hostname + '.local</a>' : '<span class="bad">inaktiv</span>';
   } catch (e) {
     $('wifi-dot').className = 'dot bad';

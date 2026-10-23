@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
+#include <WiFi.h>
 #include <esp_chip_info.h>
 #include <esp_system.h>
 
@@ -138,18 +139,23 @@ static void handleInfo(AsyncWebServerRequest *req)
     kv(o, "sdk", ESP.getSdkVersion());
     kv(o, "reset_reason", (long)esp_reset_reason());
 
-    // Wi-Fi
+    // Wi-Fi (station mode)
     const AppConfig &cfg = Config::get();
+    Wifi::Info wi = Wifi::info();
     o += "\"wifi\":{";
-    kv(o, "status", Wifi::statusText(Wifi::status()));
-    kv(o, "ap_ssid", Wifi::apSsid());
-    kv(o, "ap_ip", Wifi::apIp().toString().c_str());
-    kv(o, "ap_clients", Wifi::apClients());
-    kv(o, "sta_ssid", Wifi::staSsid().c_str());
-    kv(o, "sta_ip", Wifi::staIp().toString().c_str());
-    kv(o, "rssi", Wifi::rssi());
-    kv(o, "connects", (long)Wifi::staConnects());
-    kv(o, "disconnects", (long)Wifi::staDisconnects());
+    kv(o, "mode", "sta");
+    kv(o, "status", Wifi::statusText(wi.status));
+    kvb(o, "connected", wi.connected);
+    kv(o, "ssid", wi.ssid);
+    kv(o, "saved_ssid", Wifi::savedSsid());
+    kv(o, "ip", wi.ip.toString().c_str());
+    kv(o, "rssi", wi.rssi);
+    kv(o, "bars", wi.connected ? Wifi::signalBars(wi.rssi) : 0);
+    kv(o, "uptime_s", (long)wi.uptimeS);
+    kv(o, "connects", (long)wi.connects);
+    kv(o, "disconnects", (long)wi.disconnects);
+    kv(o, "last_error", Wifi::failText(wi.lastFail));
+    kv(o, "mac", WiFi.macAddress().c_str());
     kv(o, "hostname", cfg.hostname);
     kvb(o, "mdns", Wifi::mdnsOk(), false);
     o += "},";
@@ -218,8 +224,6 @@ static void configJson(String &o)
     kv(o, "hostname", c.hostname);
     kv(o, "sta_ssid", c.staSsid);
     kvb(o, "sta_pass_set", c.staPass[0] != 0);
-    kvb(o, "ap_pass_custom", strcmp(c.apPass, "yatzy1234") != 0);
-    kv(o, "ap_ssid", Wifi::apSsid());
     kv(o, "brightness", c.brightness);
     kv(o, "led_brightness", c.ledBrightness);
     kvb(o, "led_enabled", c.ledEnabled);
@@ -256,18 +260,10 @@ static void handleConfigPost(AsyncWebServerRequest *req)
             wifiChanged = true;
         }
     }
-    if (const AsyncWebParameter *p = param(req, "ap_pass")) {
-        if (!p->value().isEmpty()) {   // Empty = keep current
-            if (!Config::validWifiPass(p->value().c_str(), false))
-                return sendError(req, 400, "AP-lösenordet måste vara 8-63 tecken");
-            snprintf(next.apPass, sizeof(next.apPass), "%s", p->value().c_str());
-            wifiChanged = true;
-        }
-    }
     Config::get() = next;
     if (!Config::save()) return sendError(req, 500, "Kunde inte spara i NVS");
     if (s_configCb) s_configCb();
-    if (wifiChanged) Wifi::requestReconnect();
+    if (wifiChanged) Wifi::requestHostnameUpdate();
     String o = "{\"ok\":true,\"config\":";
     configJson(o);
     o += '}';
@@ -277,6 +273,8 @@ static void handleConfigPost(AsyncWebServerRequest *req)
 // ----------------------------------------------------------------------------------------
 // /api/wifi, /api/scan, /api/reboot, /api/reset
 // ----------------------------------------------------------------------------------------
+// ssid + pass: start a connection attempt (credentials are saved to NVS only on success).
+// Empty ssid: forget the saved network. keep_pass=1 reuses the stored password.
 static void handleWifiPost(AsyncWebServerRequest *req)
 {
     const AsyncWebParameter *ssid = param(req, "ssid");
@@ -284,20 +282,18 @@ static void handleWifiPost(AsyncWebServerRequest *req)
     if (!ssid) return sendError(req, 400, "ssid saknas");
     String s = ssid->value();
     s.trim();
-    if (s.length() > 32) return sendError(req, 400, "SSID får vara högst 32 tecken");
-    AppConfig &c = Config::get();
-    // Keep the stored password when the field is left empty for the same network.
-    bool keepPass = (!pass || pass->value().isEmpty()) && s == c.staSsid && param(req, "keep_pass");
-    if (!keepPass) {
-        const char *pw = pass ? pass->value().c_str() : "";
-        if (!Config::validWifiPass(pw, true)) return sendError(req, 400, "Lösenordet måste vara tomt eller 8-63 tecken");
-        snprintf(c.staPass, sizeof(c.staPass), "%s", pw);
+    if (s.isEmpty()) {
+        Wifi::forget();
+        return sendJson(req, 200, "{\"ok\":true,\"forgotten\":true}");
     }
-    snprintf(c.staSsid, sizeof(c.staSsid), "%s", s.c_str());
-    if (!Config::save()) return sendError(req, 500, "Kunde inte spara i NVS");
-    Wifi::requestReconnect();
-    String o = "{\"ok\":true,";
-    kv(o, "sta_ssid", c.staSsid, false);
+    if (s.length() > 32) return sendError(req, 400, "SSID får vara högst 32 tecken");
+    const AppConfig &c = Config::get();
+    String pw = pass ? pass->value() : String();
+    if (pw.isEmpty() && s == c.staSsid && param(req, "keep_pass")) pw = c.staPass;
+    if (!Config::validWifiPass(pw.c_str(), true)) return sendError(req, 400, "Lösenordet måste vara tomt eller 8-63 tecken");
+    if (!Wifi::connect(s.c_str(), pw.c_str())) return sendError(req, 500, "Wi-Fi är inte startat");
+    String o = "{\"ok\":true,\"connecting\":true,";
+    kv(o, "ssid", s.c_str(), false);
     o += '}';
     sendJson(req, 200, o);
 }
@@ -310,17 +306,17 @@ static void handleScan(AsyncWebServerRequest *req)
         return sendJson(req, 202, "{\"scanning\":true,\"networks\":[]}");
     }
     if (st == -2) return sendJson(req, 202, "{\"scanning\":true,\"networks\":[]}");
+    static Wifi::Network nets[Wifi::MAX_NETWORKS];   // async_tcp task only
+    int n = Wifi::scanResults(nets, Wifi::MAX_NETWORKS);
     String o = "{\"scanning\":false,\"networks\":[";
-    for (int i = 0; i < st && i < 30; i++) {
-        String ssid;
-        int rssi;
-        bool secure;
-        if (!Wifi::scanResult(i, ssid, rssi, secure)) break;
+    for (int i = 0; i < n; i++) {
         if (i) o += ',';
         o += '{';
-        kv(o, "ssid", ssid.c_str());
-        kv(o, "rssi", rssi);
-        kvb(o, "secure", secure, false);
+        kv(o, "ssid", nets[i].ssid);
+        kv(o, "rssi", nets[i].rssi);
+        kv(o, "bars", Wifi::signalBars(nets[i].rssi));
+        kv(o, "channel", nets[i].channel);
+        kvb(o, "secure", nets[i].secure, false);
         o += '}';
     }
     o += "]}";
@@ -361,7 +357,6 @@ bool begin()
     });
     s_server.onNotFound([](AsyncWebServerRequest *r) {
         if (r->url().startsWith("/api/")) return sendError(r, 404, "Okänd endpoint");
-        // Captive-portal style: anything else goes to the dashboard.
         r->redirect("/");
     });
     s_server.begin();

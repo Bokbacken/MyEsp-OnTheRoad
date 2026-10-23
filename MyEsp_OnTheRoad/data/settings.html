@@ -20,23 +20,41 @@
   <a href="/diag">Diagnostik</a>
 </nav>
 
-<h2>Hemnätverk (Wi-Fi STA)</h2>
-<form id="wifi-form">
+<h2>Wi-Fi</h2>
+<div class="card" id="wifi-card">
+  <p class="muted">Enheten ansluter till ett befintligt nätverk (t.ex. mobilens hotspot i bilen).
+  Nätverket kan också väljas direkt på enheten under Wi-Fi i menyn.</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Status</th><td id="w-status">–</td></tr>
+      <tr><th>Anslutet nätverk</th><td id="w-ssid">–</td></tr>
+      <tr><th>IP-adress</th><td id="w-ip">–</td></tr>
+      <tr><th>Signal</th><td id="w-signal">–</td></tr>
+      <tr><th>Sparat nätverk</th><td id="w-saved">–</td></tr>
+    </table>
+  </div>
+  <div class="row">
+    <button type="button" class="primary" id="change-btn">Byt nätverk</button>
+    <button type="button" class="danger" id="forget-btn">Glöm nätverk</button>
+  </div>
+</div>
+
+<form id="wifi-form" hidden>
   <fieldset>
     <legend>Anslut till nätverk</legend>
-    <p class="muted">Enhetens egen accesspunkt <b id="ap-ssid">–</b> är alltid på. Här anger du ett
-    nätverk som enheten dessutom ansluter till (t.ex. mobilens hotspot i bilen).</p>
+    <p class="muted">Om du byter nätverk tappar den här sidan kontakten. Öppna sedan
+    <b id="host-link">ontheroad.local</b> från en enhet i det nya nätverket.</p>
+    <ul class="networks" id="networks"></ul>
     <label for="ssid">Nätverksnamn (SSID)</label>
     <input type="text" id="ssid" name="ssid" maxlength="32" autocomplete="off" autocapitalize="none">
     <label for="pass">Lösenord <span class="muted" id="pass-hint"></span></label>
     <input type="password" id="pass" name="pass" maxlength="63" autocomplete="new-password">
     <label class="check"><input type="checkbox" id="show-pass"> Visa lösenord</label>
     <div class="row">
-      <button type="submit" class="primary">Spara och anslut</button>
-      <button type="button" class="secondary" id="scan-btn">Sök nätverk</button>
-      <button type="button" class="danger" id="forget-btn">Glöm nätverk</button>
+      <button type="submit" class="primary">Anslut</button>
+      <button type="button" class="secondary" id="scan-btn">Sök igen</button>
+      <button type="button" class="secondary" id="close-btn">Stäng</button>
     </div>
-    <ul class="networks" id="networks"></ul>
   </fieldset>
 </form>
 
@@ -67,8 +85,6 @@
     <legend>Nätverk</legend>
     <label for="hostname">Värdnamn (mDNS, utan .local)</label>
     <input type="text" id="hostname" name="hostname" maxlength="31" pattern="[A-Za-z0-9-]{1,31}" autocapitalize="none">
-    <label for="ap_pass">Nytt lösenord för accesspunkten (8–63 tecken, lämna tomt för att behålla)</label>
-    <input type="password" id="ap_pass" name="ap_pass" maxlength="63" autocomplete="new-password">
   </fieldset>
   <div class="row">
     <button type="submit" class="primary">Spara inställningar</button>
@@ -117,8 +133,8 @@ const updA = bindRange('roll_anim_ms', 'anim-val');
 
 function fill(c) {
   cfg = c;
-  $('ap-ssid').textContent = c.ap_ssid;
-  $('ssid').value = c.sta_ssid;
+  $('host-link').textContent = c.hostname + '.local';
+  if (!$('ssid').value) $('ssid').value = c.sta_ssid;
   $('pass').value = '';
   $('pass-hint').textContent = c.sta_pass_set ? '(sparat – lämna tomt för att behålla)' : '';
   $('brightness').value = c.brightness; updB();
@@ -128,46 +144,63 @@ function fill(c) {
   $('roll_anim_ms').value = c.roll_anim_ms; updA();
   $('maxi_saved_rolls').checked = c.maxi_saved_rolls;
   $('hostname').value = c.hostname;
-  $('ap_pass').value = '';
 }
 async function load() {
   try {
     fill(await (await fetch('/api/config', {cache: 'no-store'})).json());
   } catch (e) { toast('Kunde inte läsa inställningar', false); }
 }
+function bars(n) { return '▮'.repeat(n) + '▯'.repeat(5 - n); }
 async function status() {
   try {
     const w = (await (await fetch('/api/info', {cache: 'no-store'})).json()).wifi;
-    const map = {connected: ['ok', w.sta_ssid + ' · ' + w.sta_ip], connecting: ['warn', 'ansluter…'],
-                 failed: ['bad', 'kunde inte ansluta'], ap_only: ['ap', 'endast AP'], error: ['bad', 'Wi-Fi-fel']};
+    const map = {connected: ['ok', w.ssid + ' · ' + w.ip], connecting: ['warn', 'ansluter till ' + w.ssid + '…'],
+                 failed: ['bad', 'kunde inte ansluta'], idle: ['ap', 'inte ansluten'], error: ['bad', 'Wi-Fi-fel']};
     const [cls, txt] = map[w.status] || ['', w.status];
     $('wifi-dot').className = 'dot ' + cls;
     $('wifi-text').textContent = txt;
-  } catch (e) { $('wifi-dot').className = 'dot bad'; $('wifi-text').textContent = 'ingen kontakt'; }
+    $('w-status').innerHTML = '<span class="' + (cls === 'ok' ? 'ok' : cls === 'bad' ? 'bad' : '') + '">' + txt + '</span>' +
+      (w.status === 'failed' && w.last_error ? ' <span class="muted">(' + w.last_error + ')</span>' : '');
+    $('w-ssid').textContent = w.connected ? w.ssid : '–';
+    $('w-ip').textContent = w.connected ? w.ip : '–';
+    $('w-signal').textContent = w.connected ? bars(w.bars) + '  ' + w.rssi + ' dBm' : '–';
+    $('w-saved').textContent = w.saved_ssid || '(inget)';
+    return w;
+  } catch (e) { $('wifi-dot').className = 'dot bad'; $('wifi-text').textContent = 'ingen kontakt'; return null; }
 }
 
 $('show-pass').addEventListener('change', e => $('pass').type = e.target.checked ? 'text' : 'password');
 
+$('change-btn').addEventListener('click', () => { $('wifi-form').hidden = false; scan(); });
+$('close-btn').addEventListener('click', () => { $('wifi-form').hidden = true; });
+
 $('wifi-form').addEventListener('submit', async e => {
   e.preventDefault();
   const ssid = $('ssid').value.trim(), pass = $('pass').value;
+  if (!ssid) return toast('Välj eller skriv ett nätverk', false);
   if (pass && (pass.length < 8 || pass.length > 63)) return toast('Lösenordet måste vara 8–63 tecken', false);
   const data = {ssid, pass};
   if (!pass && ssid === cfg.sta_ssid && cfg.sta_pass_set) data.keep_pass = '1';
   try {
     await post('/api/wifi', data);
-    toast(ssid ? 'Sparat – ansluter till ' + ssid : 'STA avstängt');
-    setTimeout(load, 500);
+    toast('Ansluter till ' + ssid + ' (upp till 15 s)…');
+    for (let i = 0; i < 10; i++) {           // Poll the result; may lose contact on a network change
+      await new Promise(r => setTimeout(r, 2000));
+      const w = await status();
+      if (!w) { toast('Kontakten bröts – enheten byter troligen nätverk', false); return; }
+      if (w.status === 'connected' && w.ssid === ssid) { toast('Ansluten till ' + ssid); $('wifi-form').hidden = true; load(); return; }
+      if (w.status === 'failed') { toast('Kunde inte ansluta: ' + (w.last_error || 'okänt fel'), false); return; }
+    }
   } catch (err) { toast(err.message, false); }
 });
 
 $('forget-btn').addEventListener('click', async () => {
-  if (!confirm('Glömma hemnätverket?')) return;
+  if (!confirm('Glömma det sparade nätverket? Enheten kopplas från och sidan tappar kontakten.')) return;
   try { await post('/api/wifi', {ssid: '', pass: ''}); toast('Nätverket borttaget'); load(); }
   catch (err) { toast(err.message, false); }
 });
 
-$('scan-btn').addEventListener('click', async () => {
+async function scan() {
   const btn = $('scan-btn'), list = $('networks');
   btn.disabled = true;
   list.innerHTML = '<li class="muted">Söker…</li>';
@@ -177,30 +210,36 @@ $('scan-btn').addEventListener('click', async () => {
       await new Promise(r => setTimeout(r, 700));
       j = await (await fetch('/api/scan')).json();
     }
-    const seen = new Set();
-    const nets = j.networks.filter(n => n.ssid && !seen.has(n.ssid) && seen.add(n.ssid)).sort((a, b) => b.rssi - a.rssi);
+    const nets = j.networks;               // De-duplicated and sorted by the device
     list.innerHTML = '';
     if (!nets.length) list.innerHTML = '<li class="muted">Inga nätverk hittades</li>';
     for (const n of nets) {
       const li = document.createElement('li');
       const name = document.createElement('span');
-      name.textContent = (n.secure ? '\u{1F512} ' : '') + n.ssid;
+      name.textContent = (n.secure ? '\u{1F512} ' : '\u{1F513} ') + n.ssid;
       const sig = document.createElement('span');
       sig.className = 'muted';
-      sig.textContent = n.rssi + ' dBm';
+      sig.textContent = bars(n.bars) + ' ' + n.rssi + ' dBm';
       li.append(name, sig);
-      li.addEventListener('click', () => { $('ssid').value = n.ssid; $('pass').focus(); });
+      li.addEventListener('click', () => {
+        $('ssid').value = n.ssid;
+        $('pass').value = '';
+        $('pass').disabled = !n.secure;
+        $('pass-hint').textContent = n.secure ? '' : '(öppet nätverk)';
+        if (n.secure) $('pass').focus();
+      });
       list.appendChild(li);
     }
   } catch (err) { list.innerHTML = '<li class="bad">Sökningen misslyckades</li>'; }
   btn.disabled = false;
-});
+}
+$('scan-btn').addEventListener('click', scan);
+$('ssid').addEventListener('input', () => { $('pass').disabled = false; $('pass-hint').textContent = ''; });
 
 $('cfg-form').addEventListener('submit', async e => {
   e.preventDefault();
-  const host = $('hostname').value.trim(), ap = $('ap_pass').value;
+  const host = $('hostname').value.trim();
   if (!/^[A-Za-z0-9-]{1,31}$/.test(host)) return toast('Värdnamn: 1–31 tecken a–z, 0–9 och -', false);
-  if (ap && (ap.length < 8 || ap.length > 63)) return toast('AP-lösenordet måste vara 8–63 tecken', false);
   const data = {
     brightness: $('brightness').value,
     led_brightness: $('led_brightness').value,
@@ -208,13 +247,12 @@ $('cfg-form').addEventListener('submit', async e => {
     default_variant: $('default_variant').value,
     roll_anim_ms: $('roll_anim_ms').value,
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
-    hostname: host,
-    ap_pass: ap
+    hostname: host
   };
   try {
     const j = await post('/api/config', data);
     fill(j.config);
-    toast(ap ? 'Sparat – accesspunkten startar om med nytt lösenord' : 'Inställningar sparade');
+    toast('Inställningar sparade');
   } catch (err) { toast(err.message, false); }
 });
 

@@ -2,7 +2,7 @@
 
 A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3 3.5"** touch board
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). Arduino-ESP32 3.x sketch with LVGL 8.4,
-a Wi-Fi AP+STA web UI for status, settings and diagnostics.
+Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
 > **Status:** scaffold. Compiles with arduino-cli; **not yet verified on hardware**.
 
@@ -17,8 +17,14 @@ a Wi-Fi AP+STA web UI for status, settings and diagnostics.
 - **Game UI** – variant menu, player names via a touch scroll wheel (char wheel), game screen with
   roll area + "nest" (tap a die to keep it), 800 ms ease-out roll animation, LED flash on roll,
   scrollable score table with best-category hint, result screen with medals.
-- **Wi-Fi** – AP (`OnTheRoad`, default password `yatzy1234`) + optional STA, mDNS `ontheroad.local`.
-- **Web UI** – dark card-based theme: dashboard, settings (display, LED, game, Wi-Fi with scan) and
+- **Wi-Fi (station only)** – joins an existing access point; the soft-AP is disabled (`AP_MODE_ENABLED 0`).
+  On-device setup (`ui_wifi.cpp`): network list sorted by RSSI with 5 signal bars and lock/"Öppen" marker,
+  password entry with a character strip (encoder: rotate = next/previous char, press = add; touch: tap a
+  char), "Visa/Dölj", "Rensa" (backspace), max 64 chars, then a connect screen with a 15 s countdown.
+  The last successful network is stored in NVS and auto-connected at boot. LED: pulsing blue while
+  connecting, green = connected, red = failed. mDNS `ontheroad.local`. The main menu (Wi-Fi icon) and
+  settings screen open the network list; the games work without Wi-Fi.
+- **Web UI** – dark card-based theme: dashboard, settings (display, LED, game, connected network + "Byt nätverk" with scan) and
   diagnostics. Pages are gzip-embedded in flash (`web_assets.h`), no filesystem needed.
 - **Encoder input** – LVGL encoder indev with quadrature ISR (pins defined, not wired yet).
 
@@ -88,7 +94,7 @@ g++ -std=c++17 -Wall -Wextra -I MyEsp_OnTheRoad tests/test_yatzy.cpp MyEsp_OnThe
 | GET | `/`, `/settings`, `/diag` | Dashboard, settings, diagnostics pages |
 | GET | `/api/info` | System, display, touch, Wi-Fi status (JSON) |
 | GET / POST | `/api/config` | Read / update settings (stored in NVS) |
-| POST | `/api/wifi` | Set STA credentials and reconnect |
+| POST | `/api/wifi` | Connect to `ssid`/`pass` (saved to NVS on success); empty `ssid` forgets the network |
 | GET | `/api/scan` | Wi-Fi scan (async) |
 | POST | `/api/reboot`, `/api/reset` | Reboot / factory reset settings |
 

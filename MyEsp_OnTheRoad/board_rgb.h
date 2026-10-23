@@ -8,6 +8,7 @@ namespace Rgb {
 bool begin();
 void bootSequence();                          // Blocking R -> G -> B -> white (~1 s)
 void setBase(uint8_t r, uint8_t g, uint8_t b); // Steady status color (e.g. Wi-Fi state)
+void setPulse(bool on);                       // Base color breathes slowly while on
 void setBrightness(uint8_t level);            // 0..255 global scaling
 void setEnabled(bool on);
 void effectDiceRoll(uint32_t ms);             // White/gold pulse while the dice roll

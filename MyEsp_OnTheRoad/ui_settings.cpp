@@ -11,6 +11,7 @@
 #include "board_wifi.h"
 #include "encoder_input.h"
 #include "ui_theme.h"
+#include "ui_wifi.h"
 #include "ui_yatzy.h"
 
 namespace UiSettings {
@@ -30,18 +31,13 @@ void applyHardware()
 static void refreshInfo(lv_timer_t *)
 {
     char buf[200];
-    const char *st = "AP";
-    switch (Wifi::status()) {
-    case Wifi::Status::STA_CONNECTED: st = "ansluten"; break;
-    case Wifi::Status::STA_CONNECTING: st = "ansluter…"; break;
-    case Wifi::Status::STA_FAILED: st = "STA-fel"; break;
-    case Wifi::Status::ERROR: st = "fel"; break;
-    default: st = "endast AP"; break;
-    }
-    String sta = Wifi::staSsid();
-    snprintf(buf, sizeof(buf), "AP: %s  (%s)\nSTA: %s – %s %s\nWebb: http://%s.local",
-             Wifi::apSsid(), Wifi::apIp().toString().c_str(), sta.length() ? sta.c_str() : "–", st,
-             Wifi::staConnected() ? Wifi::staIp().toString().c_str() : "", Config::get().hostname);
+    Wifi::Info wi = Wifi::info();
+    if (wi.connected)
+        snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nIP: %s  %d dBm\nWebb: http://%s.local", wi.ssid,
+                 Wifi::statusText(wi.status), wi.ip.toString().c_str(), wi.rssi, Config::get().hostname);
+    else
+        snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nWebb: http://%s.local", wi.ssid[0] ? wi.ssid : "–",
+                 Wifi::statusText(wi.status), Config::get().hostname);
     lv_label_set_text(s_netInfo, buf);
     Touch::Info ti = Touch::info();
     snprintf(buf, sizeof(buf), "Touch: %s  x=%u y=%u  tryck=%lu", ti.present ? "OK" : "saknas", ti.lastX, ti.lastY,
@@ -179,7 +175,16 @@ void show()
     lv_label_set_long_mode(s_netInfo, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_netInfo, LV_PCT(100));
     s_touchInfo = Theme::label(net, "", &otr_font_14, Theme::MUTED);
-    Theme::label(net, "Wi-Fi-nätverk ställs in via webbsidan.", &otr_font_14, Theme::MUTED);
+    lv_obj_t *wifiBtn = Theme::button(net, LV_SYMBOL_WIFI " Byt Wi-Fi-nätverk", LV_PCT(100), 40, Theme::TEAL);
+    lv_obj_add_event_cb(wifiBtn, [](lv_event_t *) {
+        if (s_timer) {
+            lv_timer_del(s_timer);
+            s_timer = nullptr;
+        }
+        applyHardware();   // Discard unsaved live previews
+        UiWifi::showNetworks();
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_group_add_obj(g, wifiBtn);
 
     lv_obj_t *cancel = Theme::button(scr, LV_SYMBOL_CLOSE " Avbryt", 146, 44, Theme::MUTED);
     lv_obj_set_pos(cancel, 8, 480 - 50);
