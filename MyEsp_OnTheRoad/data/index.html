@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Översikt</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small id="fw">MyEsp-OnTheRoad</small></div>
+    <div class="otr-wifi"><span class="dot" id="wifi-dot"></span><span id="wifi-text">ansluter…</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/" class="active">Översikt</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag">Diagnostik</a>
+</nav>
+
+<h2>Status</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Drifttid</h3>
+    <div class="stat" id="uptime">–</div>
+  </div>
+  <div class="card">
+    <h3>Ledigt minne</h3>
+    <div class="stat" id="heap">–</div>
+    <div class="bar"><i id="heap-bar"></i></div>
+    <div class="muted" id="psram">PSRAM –</div>
+  </div>
+  <div class="card">
+    <h3>Wi-Fi-signal</h3>
+    <div class="stat" id="rssi">–</div>
+    <div class="bar"><i id="rssi-bar"></i></div>
+  </div>
+  <div class="card">
+    <h3>Display</h3>
+    <div class="stat" id="fps">–</div>
+    <div class="muted" id="touch">Touch –</div>
+  </div>
+</div>
+
+<h2>Nätverk</h2>
+<div class="card table-wrap">
+  <table>
+    <tr><th>Accesspunkt</th><td id="ap">–</td></tr>
+    <tr><th>AP-adress</th><td id="ap-ip">–</td></tr>
+    <tr><th>Anslutna klienter</th><td id="ap-clients">–</td></tr>
+    <tr><th>Hemnätverk (STA)</th><td id="sta">–</td></tr>
+    <tr><th>STA-adress</th><td id="sta-ip">–</td></tr>
+    <tr><th>mDNS</th><td id="mdns">–</td></tr>
+  </table>
+</div>
+
+<h2>Spelet</h2>
+<div class="card">
+  <p>Yatzy och Maxi-Yatzy spelas direkt på enhetens pekskärm – upp till åtta spelare.
+  Standardvariant och animationstid ändras under <a href="/settings">Inställningar</a>.</p>
+  <p class="muted">Varianter: Yatzy, Maxi-Yatzy, Yatzy i ordning, Maxi-Yatzy i ordning.</p>
+</div>
+
+<footer id="footer">MyEsp-OnTheRoad</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return (d ? d + ' d ' : '') + h + ' h ' + m + ' min';
+}
+function kb(b) { return (b / 1024).toFixed(0) + ' kB'; }
+function rssiPct(r) { return r ? Math.max(0, Math.min(100, 2 * (r + 100))) : 0; }
+function wifiBadge(w) {
+  const dot = $('wifi-dot');
+  const map = {connected: ['ok', w.sta_ssid + ' · ' + w.rssi + ' dBm'], connecting: ['warn', 'ansluter till ' + w.sta_ssid],
+               failed: ['bad', 'STA-fel · AP aktiv'], ap_only: ['ap', 'endast AP'], error: ['bad', 'Wi-Fi-fel']};
+  const [cls, txt] = map[w.status] || ['', w.status];
+  dot.className = 'dot ' + cls;
+  $('wifi-text').textContent = txt;
+}
+async function refresh() {
+  try {
+    const r = await fetch('/api/info', {cache: 'no-store'});
+    const i = await r.json();
+    $('fw').textContent = i.fw + ' v' + i.version;
+    $('footer').textContent = i.fw + ' v' + i.version + ' · ' + i.chip + ' rev ' + i.chip_rev + ' · ' + i.cpu_mhz + ' MHz';
+    $('uptime').textContent = fmtUptime(i.uptime_s);
+    $('heap').innerHTML = kb(i.heap_free) + ' <small>av ' + kb(i.heap_size) + '</small>';
+    $('heap-bar').style.width = (100 * i.heap_free / i.heap_size).toFixed(0) + '%';
+    $('psram').textContent = 'PSRAM ' + kb(i.psram_free) + ' ledigt av ' + kb(i.psram_size);
+    const w = i.wifi;
+    wifiBadge(w);
+    $('rssi').innerHTML = w.status === 'connected' ? w.rssi + ' <small>dBm</small>' : '<small>ej ansluten</small>';
+    $('rssi-bar').style.width = rssiPct(w.status === 'connected' ? w.rssi : 0) + '%';
+    $('fps').innerHTML = (i.display.fps_x10 / 10).toFixed(1) + ' <small>fps</small>';
+    $('touch').textContent = i.touch.present ? 'Touch OK · ' + i.touch.touches + ' tryck' : 'Touch hittades inte';
+    $('touch').className = i.touch.present ? 'muted' : 'bad';
+    $('ap').textContent = w.ap_ssid;
+    $('ap-ip').textContent = w.ap_ip;
+    $('ap-clients').textContent = w.ap_clients;
+    $('sta').textContent = w.sta_ssid || '(inte konfigurerat)';
+    $('sta-ip').textContent = w.status === 'connected' ? w.sta_ip : '–';
+    $('mdns').innerHTML = w.mdns ? '<a href="http://' + w.hostname + '.local/">' + w.hostname + '.local</a>' : '<span class="bad">inaktiv</span>';
+  } catch (e) {
+    $('wifi-dot').className = 'dot bad';
+    $('wifi-text').textContent = 'ingen kontakt';
+  }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

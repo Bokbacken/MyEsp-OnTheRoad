@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Diagnostik</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small>Diagnostik</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">–</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag" class="active">Diagnostik</a>
+</nav>
+
+<h2>Hårdvarutest</h2>
+<div class="grid">
+  <div class="card"><h3>Display</h3><div class="stat" id="t-display">–</div><div class="muted" id="t-display-sub"></div></div>
+  <div class="card"><h3>Touch</h3><div class="stat" id="t-touch">–</div><div class="muted" id="t-touch-sub"></div></div>
+  <div class="card"><h3>Wi-Fi</h3><div class="stat" id="t-wifi">–</div><div class="muted" id="t-wifi-sub"></div></div>
+  <div class="card"><h3>PSRAM</h3><div class="stat" id="t-psram">–</div><div class="muted" id="t-psram-sub"></div></div>
+</div>
+
+<h2>System</h2>
+<div class="card table-wrap"><table id="sys"></table></div>
+
+<h2>Display (ST77922 QSPI)</h2>
+<div class="card table-wrap"><table id="disp"></table></div>
+
+<h2>Touch och I²C</h2>
+<div class="card table-wrap"><table id="touch"></table></div>
+
+<h2>Wi-Fi</h2>
+<div class="card table-wrap"><table id="wifi"></table></div>
+
+<h2>Rå JSON</h2>
+<div class="card table-wrap"><pre id="raw" class="muted" style="margin:0;white-space:pre-wrap;font-size:.8rem"></pre></div>
+
+<footer>Uppdateras varannan sekund · <a href="/api/info">/api/info</a></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const RESET = ['okänd', 'ström på', 'extern', 'mjukvara', 'panik', 'int. watchdog', 'task-watchdog', 'watchdog',
+               'deep sleep', 'brownout', 'SDIO', 'USB', 'JTAG'];
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+function rows(id, list) {
+  $(id).innerHTML = list.map(([k, v]) => '<tr><th>' + esc(k) + '</th><td>' + v + '</td></tr>').join('');
+}
+function yes(b, okTxt = 'ja', badTxt = 'nej') { return b ? '<span class="ok">' + okTxt + '</span>' : '<span class="bad">' + badTxt + '</span>'; }
+function kb(b) { return (b / 1024).toFixed(1) + ' kB'; }
+function mb(b) { return (b / 1048576).toFixed(1) + ' MB'; }
+function test(id, ok, sub, warn) {
+  const el = $(id);
+  el.textContent = ok ? '\u2713 OK' : (warn ? '\u2013 ' + warn : '\u2717 FEL');
+  el.className = 'stat ' + (ok ? 'ok' : warn ? 'warn' : 'bad');
+  $(id + '-sub').textContent = sub;
+}
+async function refresh() {
+  try {
+    const i = await (await fetch('/api/info', {cache: 'no-store'})).json();
+    const d = i.display, t = i.touch, w = i.wifi;
+    $('live-dot').className = 'dot ok';
+    $('live-text').textContent = 'live';
+    test('t-display', d.ok, (d.fps_x10 / 10).toFixed(1) + ' fps · TE ' + (d.te_active ? 'aktiv' : 'av'));
+    test('t-touch', t.present, t.present ? t.touches + ' tryck · fw ' + t.fw : 'ingen svar på 0x55');
+    test('t-wifi', w.status !== 'error', w.status === 'connected' ? w.sta_ssid + ' ' + w.rssi + ' dBm' : 'AP ' + w.ap_ssid,
+         w.status === 'failed' ? 'STA-fel' : null);
+    test('t-psram', i.psram_size > 0, mb(i.psram_size) + ' totalt');
+    rows('sys', [
+      ['Firmware', esc(i.fw + ' v' + i.version)],
+      ['Byggd', esc(i.build)],
+      ['Chip', esc(i.chip + ' rev ' + i.chip_rev + ' · ' + i.cpu_mhz + ' MHz')],
+      ['ESP-IDF', esc(i.sdk)],
+      ['Drifttid', i.uptime_s + ' s'],
+      ['Senaste reset', esc(RESET[i.reset_reason] || i.reset_reason)],
+      ['Heap ledigt / min / totalt', kb(i.heap_free) + ' / ' + kb(i.heap_min) + ' / ' + kb(i.heap_size)],
+      ['PSRAM ledigt / totalt', kb(i.psram_free) + ' / ' + mb(i.psram_size)],
+      ['Flash', mb(i.flash_size)],
+      ['Sketch / ledigt app-utrymme', kb(i.sketch_size) + ' / ' + kb(i.sketch_free)],
+    ]);
+    rows('disp', [
+      ['Initierad', yes(d.ok)],
+      ['Upplösning', d.width + ' × ' + d.height + ' RGB565'],
+      ['Bildfrekvens', (d.fps_x10 / 10).toFixed(1) + ' fps'],
+      ['Flushes / frames', d.flushes + ' / ' + d.frames],
+      ['TE-synk (GPIO42)', yes(d.te_active, 'aktiv', 'avstängd') + ' · ' + d.te_edges + ' flanker · ' + d.te_timeouts + ' timeouts'],
+      ['LVGL-buffert', kb(d.buf_bytes) + ' × 2 i ' + (d.buf_psram ? 'PSRAM' : 'intern RAM')],
+      ['Bakgrundsbelysning', d.brightness + ' %'],
+    ]);
+    rows('touch', [
+      ['Kontroller 0x55', yes(t.present, 'svarar', 'saknas')],
+      ['Firmware', esc(t.fw)],
+      ['Upplösning / punkter', t.max_x + ' × ' + t.max_y + ' / ' + t.max_points],
+      ['Senaste punkt', t.last_x + ', ' + t.last_y + (t.pressed ? ' <span class="ok">(nedtryckt)</span>' : '')],
+      ['Tryck / IRQ / läsfel', t.touches + ' / ' + t.irqs + ' / ' + (t.errors ? '<span class="bad">' + t.errors + '</span>' : 0)],
+      ['I²C-enheter', i.i2c.length ? i.i2c.map(a => '<code>' + esc(a) + '</code>').join(' ') : '<span class="bad">inga</span>'],
+      ['Scrollhjul (encoder)', i.encoder.active ? 'aktiv · position ' + i.encoder.position : '<span class="muted">ej kopplat</span>'],
+    ]);
+    rows('wifi', [
+      ['Status', esc(w.status)],
+      ['Accesspunkt', esc(w.ap_ssid) + ' · ' + esc(w.ap_ip) + ' · ' + w.ap_clients + ' klienter'],
+      ['STA-nätverk', esc(w.sta_ssid || '–')],
+      ['STA-adress', esc(w.sta_ip)],
+      ['RSSI', w.rssi ? w.rssi + ' dBm' : '–'],
+      ['Anslutningar / avbrott', w.connects + ' / ' + w.disconnects],
+      ['mDNS', w.mdns ? esc(w.hostname) + '.local' : '<span class="bad">inaktiv</span>'],
+    ]);
+    $('raw').textContent = JSON.stringify(i, null, 2);
+  } catch (e) {
+    $('live-dot').className = 'dot bad';
+    $('live-text').textContent = 'ingen kontakt';
+  }
+}
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
