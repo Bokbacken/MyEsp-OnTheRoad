@@ -62,6 +62,21 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Alla föråldrade LVGL-anrop (`lv_obj_add/remove/has_flag`, 49 st) bytta mot 9.6-setters (`lv_obj_set_hidden/clickable/...`, `lv_obj_is_hidden`) – bygget har 0 varningar
 - [ ] HW-test (känsla, trösklar och bildfrekvens i bägaren måste provas på enheten)
 
+## v0.5.2 – Språk (SV/EN), msgbox-font, webbspel ✅ 🔧 (inte HW-testad)
+- [x] **Msgbox-font:** "Avsluta spelet?" visade "Forts#tt" – msgboxen (titel, text, footer-knappar) får nu appens Latin-1-font (`Theme::msgboxFonts`), i alla msgbox-dialoger
+- [x] **i18n:** `main/lang/` – `enum class Str` (216 strängar), `tr()`/`trp()`, `Lang::setLang/currentLang`, tabeller `lang_sv.cpp` (bas) och `lang_en.cpp`; saknad översättning faller tillbaka till svenska. Instruktion för nya språk i `lang.h`
+- [x] Alla skärmar på enheten (boot, meny, spelare, spel, resultat, inställningar, Wi-Fi, klocka, OTA) och API-felmeddelanden går via `tr()`
+- [x] Språkval på enheten (Inställningar → Språk), på webben (Inställningar → Språk / Language) och i `/api/config` (`lang`, lista `langs`); NVS-nyckel `lang`, standard `sv`
+- [x] Webbsidorna `/play` och `/game` är tvåspråkiga (JS-ordbok, språk från API:t); övriga webbsidor är fortfarande på svenska
+- [x] Värdtest `tests/test_lang.cpp`: alla id finns i alla språk, printf-platshållare och radbrytningar matchar, setLang/fallback, trp
+- [x] **Webbspel:** en 4-siffrig spelkod (1000–9999) skapas när spelet startar (behålls vid "Spela igen") och visas i spelhuvudet (när någon spelar via webben), på `/game` och i väntepanelen
+- [x] Spelaruppsättning: wifi-knapp per rad markerar spelaren som webbspelare (även gäster)
+- [x] Webbspelarens tur: enheten visar "Väntar på X via webben..." + URL och kod tills en mobil är ansluten; lokal input (tärningar, bägare, knappar, protokoll) blockeras. Kast från webben körs med vanlig kastanimation på enheten
+- [x] WebSocket `/ws/game` (max 4 klienter): `join` (kod + plats eller åskådare), `hold`, `roll`, `choose`; enheten skickar `state` vid varje ändring. Kommandon går via en kö till LVGL-tråden
+- [x] `/play`: lobby (kod), val av spelare, live-vy med klickbara tärningar, Kasta och rutval med poäng; mobilanpassad (360 px), ingen polling
+- [x] `/api/game` har nya fält `code`, `web_players`, `lang`, `can_roll`, `has_rolled`, `potential` per ruta (bakåtkompatibelt)
+- [ ] HW-test (språkbyte, msgbox, webbspel med 1–2 mobiler)
+
 ## v0.6.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering
 - [ ] Statistik per spelare: antal spel, vinster, snitt, bästa, Yatzy-antal, bonusfrekvens – per variant
@@ -76,7 +91,6 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Ljud (ES8311), SD-kort, batterimätare
 - [ ] Spara pågående spel vid strömavbrott
 - [ ] 802.11k/v/r-roaming (möjligt nu med ESP-IDF)
-- [ ] Webbspel: spela från mobilen med 4-siffrig kod som visas på enheten
 
 ## Möjliga framtida förbättringar
 - Partitionering 6 + 6 MB app (OTA) + ~4 MB lagring (i dag 3 + 3 MB app + 9 MB FFat) – kräver USB-flash och flytt av spelarfilen

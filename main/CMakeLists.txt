@@ -3,7 +3,8 @@ idf_component_register(
        "board_backlight.cpp" "board_display.cpp" "board_rgb.cpp" "board_touch.cpp"
        "dice_cup.cpp" "game_live.cpp" "game_yatzy.cpp"
        "ui_boot.cpp" "ui_clock.cpp" "ui_ota.cpp" "ui_settings.cpp" "ui_wifi.cpp" "ui_yatzy.cpp"
-  INCLUDE_DIRS "."
+       "lang/lang.cpp" "lang/lang_sv.cpp" "lang/lang_en.cpp"
+  INCLUDE_DIRS "." "lang"
   REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui
            lvgl__lvgl espressif__led_strip espressif__cjson
            esp_lcd esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_driver_spi esp_timer esp_app_format)

@@ -22,6 +22,7 @@ namespace MyWeb {
 struct Config {
     uint16_t port = 80;
     uint16_t maxUris = 48;
+    uint16_t maxSockets = 7;   // httpd max_open_sockets (<= CONFIG_LWIP_MAX_SOCKETS - 3)
     uint32_t stackSize = 8192;
     bool (*adminOk)(const char *pin) = nullptr;   // nullptr = no admin protection
     void (*onReboot)() = nullptr;                 // Called just before esp_restart()

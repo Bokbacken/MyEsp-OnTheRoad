@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Play</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+body { max-width: 34rem; }
+input[type=text].code-in { font-size: 2rem; letter-spacing: .4em; text-align: center; width: 9rem; }
+.turn { font-size: 1.15rem; margin: .2rem 0; }
+.turn b { color: var(--otr-orange); }
+.mine { color: var(--otr-green); font-weight: 700; }
+.dice { display: flex; gap: .45rem; justify-content: center; margin: .7rem 0 .4rem; min-height: 3.6rem; }
+.die { width: 3.5rem; height: 3.5rem; transition: transform .2s, opacity .2s; }
+.dice.act .die { cursor: pointer; }
+.die.rolling { animation: wob .35s infinite alternate; opacity: .75; }
+.die.held { transform: translateY(.35rem); filter: drop-shadow(0 0 .35rem var(--otr-orange)); }
+@keyframes wob { from { transform: rotate(-8deg) scale(.95); } to { transform: rotate(8deg) scale(1.03); } }
+.big { width: 100%; font-size: 1.25rem; padding: .8rem; margin: .3rem 0; }
+.cats { list-style: none; margin: .4rem 0 0; padding: 0; }
+.cats li { display: flex; justify-content: space-between; align-items: center; padding: .55rem .7rem; margin: .25rem 0;
+  border: 1px solid var(--otr-line); border-radius: .6rem; background: var(--otr-panel-raised); }
+.cats li.can { cursor: pointer; }
+.cats li.can:hover { border-color: var(--otr-teal); }
+.cats li.sel { border-color: var(--otr-orange); box-shadow: 0 0 0 1px var(--otr-orange) inset; }
+.cats li.done { opacity: .55; }
+.cats .pts { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cats .zero { color: var(--otr-muted); }
+.seats button { width: 100%; margin: .3rem 0; }
+.score th, .score td { width: auto; text-align: center; white-space: nowrap; padding: .3rem .4rem; font-size: .9rem; }
+.score th:first-child, .score td:first-child { text-align: left; }
+.score .cur { background: rgba(255, 156, 61, .14); }
+.score .sum td { font-weight: 700; border-top: 2px solid var(--otr-line); }
+.msg { min-height: 1.3rem; }
+</style>
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small data-t="sub">Webbspel</small></div>
+    <div class="otr-wifi"><span class="dot" id="dot"></span><span id="conn" data-t="connecting">ansluter...</span></div>
+  </div>
+</header>
+
+<!-- 1. Lobby: enter the 4-digit code shown on the console -->
+<div id="lobby" class="card" hidden>
+  <h3 data-t="enter_code">Ange spelkoden</h3>
+  <p class="muted" data-t="code_hint">Koden visas på enheten och på sidan Live.</p>
+  <form id="code-form" class="row">
+    <input type="text" id="code" class="code-in" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off">
+    <button type="submit" class="primary" data-t="join">Anslut</button>
+  </form>
+  <p class="msg bad" id="lobby-msg"></p>
+</div>
+
+<!-- 2. Seat: which web player am I? -->
+<div id="seats" class="card seats" hidden>
+  <h3 data-t="who">Vem spelar du?</h3>
+  <div id="seat-list"></div>
+  <button class="secondary" id="watch" data-t="watch">Titta bara</button>
+  <p class="msg bad" id="seat-msg"></p>
+</div>
+
+<!-- 3. Live: dice, roll, boxes -->
+<div id="live" hidden>
+  <div class="card">
+    <div class="muted" id="info">–</div>
+    <div class="turn" id="turn">–</div>
+    <div class="dice" id="dice"></div>
+    <div class="muted" id="hint" style="text-align:center"></div>
+    <button class="primary big" id="roll" disabled>–</button>
+    <p class="msg bad" id="live-msg"></p>
+  </div>
+  <div class="card" id="cat-card" hidden>
+    <h3 data-t="choose">Välj ruta</h3>
+    <ul class="cats" id="cats"></ul>
+    <button class="primary big" id="write" disabled>–</button>
+  </div>
+  <h2 data-t="protocol">Protokoll</h2>
+  <div class="card table-wrap"><table class="score" id="score"></table></div>
+  <div class="row"><button class="secondary" id="leave" data-t="leave">Byt kod / spelare</button></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const T = {
+  sv: {sub: 'Webbspel', connecting: 'ansluter...', online: 'ansluten', offline: 'ingen kontakt – försöker igen',
+       enter_code: 'Ange spelkoden', code_hint: 'Koden visas på enheten och på sidan Live.', join: 'Anslut',
+       who: 'Vem spelar du?', watch: 'Titta bara', choose: 'Välj ruta', protocol: 'Protokoll', leave: 'Byt kod / spelare',
+       no_game: 'Inget spel pågår på enheten.', expired: 'Spelet är slut eller har startats om – ange den nya koden.',
+       no_web: 'Ingen spelare är markerad som webbspelare. Du kan titta på spelet.',
+       round: 'Omgång {0} av {1}', turn: 'Tur', you: 'din tur!', spectator: 'Du tittar', playing_as: 'Du spelar som {0}',
+       roll: 'Kasta ({0} kvar)', roll_none: 'Inga kast kvar', wait: 'Väntar på {0}...', rolling: 'Tärningarna rullar...',
+       tap_hold: 'Tryck på en tärning för att hålla / släppa den.', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
+       sum: 'Summa', total: 'Totalt', over: 'Spelet är slut', winner: 'Vinnare: {0}',
+       err_code: 'Fel kod eller inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
+       err_join: 'Anslut med koden först.', err_full: 'För många webbklienter (max 4).', err_turn: 'Det är inte din tur.',
+       err_cmd: 'Kommandot kunde inte utföras.'},
+  en: {sub: 'Web play', connecting: 'connecting...', online: 'connected', offline: 'no contact – retrying',
+       enter_code: 'Enter the game code', code_hint: 'The code is shown on the device and on the Live page.', join: 'Join',
+       who: 'Who are you playing?', watch: 'Just watch', choose: 'Choose a box', protocol: 'Score sheet', leave: 'Change code / player',
+       no_game: 'No game is running on the device.', expired: 'The game ended or was restarted – enter the new code.',
+       no_web: 'No player is marked as a web player. You can watch the game.',
+       round: 'Round {0} of {1}', turn: 'Turn', you: 'your turn!', spectator: 'You are watching', playing_as: 'You play as {0}',
+       roll: 'Roll ({0} left)', roll_none: 'No rolls left', wait: 'Waiting for {0}...', rolling: 'Dice rolling...',
+       tap_hold: 'Tap a die to hold / release it.', write: 'Write {0} pts in {1}', pick: 'Choose a box',
+       sum: 'Sum', total: 'Total', over: 'The game is over', winner: 'Winner: {0}',
+       err_code: 'Wrong code or no game running.', err_seat: 'That seat is not played via the web.',
+       err_join: 'Join with the code first.', err_full: 'Too many web clients (max 4).', err_turn: 'It is not your turn.',
+       err_cmd: 'The command could not be executed.'}
+};
+let L = 'sv';
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+function setLang(l) {
+  if (!T[l] || l === L) return;
+  L = l;
+  document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+}
+
+const PIPS = {1: [[50, 50]], 2: [[28, 28], [72, 72]], 3: [[28, 28], [50, 50], [72, 72]],
+  4: [[28, 28], [72, 28], [28, 72], [72, 72]], 5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
+  6: [[28, 26], [72, 26], [28, 50], [72, 50], [28, 74], [72, 74]]};
+function dieSvg(v, held, rolling, i) {
+  const pips = (PIPS[v] || []).map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="8.5" fill="#1b2433"/>`).join('');
+  return `<svg data-i="${i}" class="die${held ? ' held' : ''}${rolling ? ' rolling' : ''}" viewBox="0 0 100 100">
+    <rect x="4" y="4" width="92" height="92" rx="18" fill="#f4f7fa" stroke="${held ? '#ff9c3d' : '#c9d3df'}"
+      stroke-width="${held ? 7 : 2}" opacity="${v ? 1 : .3}"/>${pips}</svg>`;
+}
+
+// --- State ---------------------------------------------------------------------------------
+const params = new URLSearchParams(location.search);
+let code = (params.get('code') || '').replace(/\D/g, '').slice(0, 4);
+let wantSeat = params.has('player') ? parseInt(params.get('player'), 10) : null;   // null = ask
+let ws = null, g = null, you = -1, joined = false, everJoined = false, sel = null, retry = 0;
+const stored = () => { try { return JSON.parse(localStorage.getItem('otr_play') || '{}'); } catch (e) { return {}; } };
+if (code && wantSeat === null && stored().code === code) wantSeat = stored().seat;
+
+function show(view) { ['lobby', 'seats', 'live'].forEach(v => $(v).hidden = v !== view); }
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function join(seat) {
+  const o = {cmd: 'join', code: parseInt(code, 10)};
+  if (seat !== null && seat >= 0) o.player = seat;
+  wantSeat = seat;
+  send(o);
+}
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/game');
+  ws.onopen = () => {
+    retry = 0;
+    joined = false;   // A new socket starts unbound
+    $('dot').className = 'dot ok';
+    $('conn').textContent = t('online');
+    if (code) join(wantSeat === null ? -1 : wantSeat);   // Spectator first when the seat is not known yet
+  };
+  ws.onclose = () => {
+    $('dot').className = 'dot bad';
+    $('conn').textContent = t('offline');
+    setTimeout(connect, Math.min(5000, 1000 + 1000 * retry++));
+  };
+  ws.onmessage = ev => {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === 'state') onState(m);
+    else if (m.type === 'joined') {
+      you = m.you;
+      joined = everJoined = true;
+      if (you >= 0) localStorage.setItem('otr_play', JSON.stringify({code, seat: you}));
+    } else if (m.type === 'error') onError(m);
+  };
+}
+
+function onError(m) {
+  const txt = t('err_' + m.error) !== 'err_' + m.error ? t('err_' + m.error) : m.msg;
+  if (m.error === 'code') {
+    joined = false;
+    show('lobby');
+    $('lobby-msg').textContent = txt;
+  } else if (m.error === 'seat') {   // Stale seat: ask again
+    localStorage.removeItem('otr_play');
+    delete $('seats').dataset.done;
+    $('seat-msg').textContent = txt;
+    join(-1);
+  } else {
+    $('live-msg').textContent = txt;
+    setTimeout(() => { $('live-msg').textContent = ''; }, 2500);
+  }
+}
+
+function onState(m) {
+  if (m.lang) setLang(m.lang);
+  g = m;
+  you = m.joined ? m.you : -1;
+  if (!m.joined) {
+    if (everJoined && joined) { joined = false; $('lobby-msg').textContent = t('expired'); }
+    if (!code || !m.active) {
+      if (!m.active && code) $('lobby-msg').textContent = t('no_game');
+      show('lobby');
+    }
+    return;
+  }
+  joined = true;
+  const wp = m.web_players || [];
+  if (wantSeat === null || (wantSeat === -1 && you === -1 && !$('seats').dataset.done)) {
+    // Ask which web seat this phone plays (or watch)
+    $('seats').dataset.done = '1';
+    if (wp.length === 1 && !wp[0].connected) { join(wp[0].player); return; }
+    $('seat-list').innerHTML = wp.length ? wp.map(w =>
+      `<button class="primary" data-seat="${w.player}">&#128246; ${esc(m.players[w.player].name)}${w.connected ? ' ✓' : ''}</button>`).join('')
+      : `<p class="muted">${t('no_web')}</p>`;
+    show('seats');
+    return;
+  }
+  show('live');
+  render();
+}
+
+// --- Rendering -----------------------------------------------------------------------------
+function render() {
+  if (!g || !g.active) return;
+  const P = g.players, cur = P[g.current] || {name: '?'};
+  const mine = you >= 0 && you === g.current && !g.finished;
+  $('info').textContent = g.name + ' · ' + t('round', g.round, g.rounds) + ' · ' +
+    (you >= 0 ? t('playing_as', P[you].name) : t('spectator'));
+  $('turn').innerHTML = g.finished ? t('over') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (mine ? ' <span class="mine">– ' + t('you') + '</span>' : '');
+  const canHold = mine && g.has_rolled && !g.rolling && !g.choosing;
+  $('dice').className = 'dice' + (canHold ? ' act' : '');
+  $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], (g.rolling || g.shaking) && !g.held[i], i)).join('');
+  $('hint').textContent = g.finished ? '' : g.rolling ? t('rolling') : canHold ? t('tap_hold') : !mine ? t('wait', cur.name) : '';
+
+  const rb = $('roll');
+  rb.hidden = !mine;
+  rb.disabled = !(mine && g.can_roll && !g.rolling);
+  rb.textContent = g.can_roll ? t('roll', g.rolls_left) : t('roll_none');
+
+  // Boxes (only for the web player on turn, after the first roll)
+  const showCats = mine && g.has_rolled && !g.rolling;
+  $('cat-card').hidden = !showCats;
+  if (!showCats) sel = null;
+  if (showCats) {
+    const me = P[you];
+    if (sel !== null && !g.categories.some(c => c.id === sel && c.potential !== undefined)) sel = null;
+    $('cats').innerHTML = g.categories.map((c, k) => {
+      const done = me.scores[k] !== null, can = c.potential !== undefined;
+      const val = done ? me.scores[k] : can ? c.potential : '';
+      return `<li data-cat="${c.id}" class="${done ? 'done' : can ? 'can' : ''}${sel === c.id ? ' sel' : ''}">
+        <span>${esc(c.name)}</span><span class="pts${val === 0 ? ' zero' : ''}">${val}</span></li>`;
+    }).join('');
+    const sc = g.categories.find(c => c.id === sel);
+    $('write').disabled = !sc;
+    $('write').textContent = sc ? t('write', sc.potential, sc.name) : t('pick');
+  }
+
+  // Compact score sheet
+  const cc = i => (!g.finished && i === g.current) ? ' class="cur"' : '';
+  const cell = v => v === null ? '<td class="muted">·</td>' : '<td>' + v + '</td>';
+  let h = '<thead><tr><th></th>' + P.map((p, i) => '<th' + cc(i) + '>' + esc(p.name) + (p.web ? ' &#128246;' : '') + '</th>').join('') + '</tr></thead><tbody>';
+  let upperDone = false;
+  g.categories.forEach((c, k) => {
+    if (!c.upper && !upperDone) {
+      upperDone = true;
+      h += '<tr class="sum"><td>' + t('sum') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.upper + '</td>').join('') + '</tr>';
+      h += '<tr><td>Bonus</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.bonus + '</td>').join('') + '</tr>';
+    }
+    h += '<tr><td>' + esc(c.name) + '</td>' + P.map((p, i) => cell(p.scores[k]).replace('<td', '<td' + cc(i))).join('') + '</tr>';
+  });
+  h += '<tr class="sum"><td>' + t('total') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
+  $('score').innerHTML = h;
+  if (g.finished && g.ranking) {
+    const first = g.ranking.filter(r => r.place === 1).map(r => P[r.player].name).join(' & ');
+    $('hint').textContent = t('winner', first);
+  }
+}
+
+// --- Input ---------------------------------------------------------------------------------
+$('code-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const c = $('code').value.replace(/\D/g, '');
+  if (c.length !== 4) return;
+  code = c;
+  history.replaceState(null, '', '/play?code=' + code);
+  $('lobby-msg').textContent = '';
+  delete $('seats').dataset.done;
+  wantSeat = stored().code === code ? stored().seat : null;
+  join(wantSeat === null ? -1 : wantSeat);
+});
+$('seat-list').addEventListener('click', e => {
+  const b = e.target.closest('button[data-seat]');
+  if (b) { $('seat-msg').textContent = ''; join(parseInt(b.dataset.seat, 10)); }
+});
+$('watch').onclick = () => { wantSeat = -1; localStorage.removeItem('otr_play'); join(-1); if (g) { show('live'); render(); } };
+$('dice').addEventListener('click', e => {
+  const d = e.target.closest('.die');
+  if (d && $('dice').classList.contains('act')) send({cmd: 'hold', die: parseInt(d.dataset.i, 10)});
+});
+$('roll').onclick = () => { sel = null; send({cmd: 'roll'}); };
+$('cats').addEventListener('click', e => {
+  const li = e.target.closest('li.can');
+  if (!li) return;
+  const id = parseInt(li.dataset.cat, 10);
+  if (sel === id) { send({cmd: 'choose', cat: id}); sel = null; }   // Second tap writes
+  else { sel = id; render(); }
+});
+$('write').onclick = () => { if (sel !== null) { send({cmd: 'choose', cat: sel}); sel = null; } };
+$('leave').onclick = () => {
+  localStorage.removeItem('otr_play');
+  code = ''; wantSeat = null; joined = everJoined = false;
+  delete $('seats').dataset.done;
+  $('code').value = '';
+  history.replaceState(null, '', '/play');
+  if (ws) ws.close();   // Reconnects as a fresh, unbound client
+  show('lobby');
+};
+
+$('code').value = code;
+show(code ? 'live' : 'lobby');
+connect();
+</script>
+</body>
+</html>

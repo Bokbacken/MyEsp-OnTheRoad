@@ -8,6 +8,7 @@
 #include "app_config.h"
 #include "my_wifi.h"
 #include "my_charwheel.h"
+#include "lang.h"
 #include "my_theme.h"
 #include "ui_yatzy.h"
 
@@ -71,10 +72,10 @@ static void listStatusLine()
     MyWifi::Info wi = MyWifi::info();
     char buf[96];
     if (wi.connected) snprintf(buf, sizeof(buf), LV_SYMBOL_WIFI " %s  \xE2\x80\xA2  %s", wi.ssid, wi.ip);
-    else if (wi.status == MyWifi::Status::CONNECTING) snprintf(buf, sizeof(buf), "Ansluter till %s...", wi.ssid);
-    else if (wi.status == MyWifi::Status::SEARCHING) snprintf(buf, sizeof(buf), "Söker sparade nätverk...");
-    else if (MyWifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), "Inte ansluten  ·  håll inne sparad rad = glöm");
-    else snprintf(buf, sizeof(buf), "Inte ansluten");
+    else if (wi.status == MyWifi::Status::CONNECTING) snprintf(buf, sizeof(buf), tr(Str::WIFI_CONNECTING_TO_FMT), wi.ssid);
+    else if (wi.status == MyWifi::Status::SEARCHING) snprintf(buf, sizeof(buf), "%s", tr(Str::WIFI_SEARCHING_SAVED));
+    else if (MyWifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), "%s", tr(Str::WIFI_NOT_CONNECTED_FORGET));
+    else snprintf(buf, sizeof(buf), "%s", tr(Str::WIFI_NOT_CONNECTED));
     lv_label_set_text(s_netStatus, buf);
     lv_obj_set_style_text_color(s_netStatus, Theme::c(wi.connected ? Theme::GREEN : Theme::MUTED), 0);
 }
@@ -87,17 +88,18 @@ static void forgetDialog(const char *ssid)
 {
     snprintf(s_forgetSsid, sizeof(s_forgetSsid), "%s", ssid);
     char txt[96];
-    snprintf(txt, sizeof(txt), "Glömma det sparade nätverket\n%s?", ssid);
+    snprintf(txt, sizeof(txt), tr(Str::WIFI_FORGET_Q), ssid);
     lv_obj_t *mb = lv_msgbox_create(nullptr);
-    lv_msgbox_add_title(mb, "Sparat nätverk");
+    lv_msgbox_add_title(mb, tr(Str::WIFI_SAVED_NETWORK));
     lv_msgbox_add_text(mb, txt);
     lv_obj_set_width(mb, 280);
     lv_obj_center(mb);
     lv_obj_set_style_bg_color(mb, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_text_color(mb, Theme::c(Theme::TEXT), 0);
     lv_obj_set_style_text_font(mb, &my_font_18, 0);
-    lv_obj_t *bForget = lv_msgbox_add_footer_button(mb, "Glöm");
-    lv_obj_t *bCancel = lv_msgbox_add_footer_button(mb, "Avbryt");
+    lv_obj_t *bForget = lv_msgbox_add_footer_button(mb, tr(Str::WIFI_FORGET));
+    lv_obj_t *bCancel = lv_msgbox_add_footer_button(mb, tr(Str::BTN_CANCEL));
+    Theme::msgboxFonts(mb);
     lv_obj_add_event_cb(bForget, [](lv_event_t *e) {
         lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e));
         MyWifi::savedRemove(s_forgetSsid);
@@ -142,7 +144,7 @@ static void fillList()
     s_netCount = MyWifi::scanResults(s_nets, MyWifi::MAX_NETWORKS);
     lv_obj_clean(s_list);
     if (s_netCount == 0) {
-        showBusy("Inga nätverk hittades.\nTryck på Uppdatera för att söka igen.", false);
+        showBusy(tr(Str::WIFI_NONE_FOUND), false);
         return;
     }
     lv_obj_set_hidden(s_busy, true);
@@ -191,7 +193,7 @@ static void fillList()
         lv_obj_align(l, LV_ALIGN_LEFT_MID, 24, 0);
 
         lv_obj_t *sec = n.secure ? Theme::label(row, SYM_LOCK, &my_font_14, Theme::MUTED)
-                                 : Theme::label(row, SYM_UNLOCK " Öppen", &my_font_14, Theme::GREEN);
+                                 : Theme::label(row, trp(SYM_UNLOCK " ", Str::WIFI_OPEN), &my_font_14, Theme::GREEN);
         lv_obj_align(sec, LV_ALIGN_RIGHT_MID, -44, 0);
 
         lv_obj_t *bars = signalBars(row, MyWifi::signalBars(n.rssi));
@@ -203,7 +205,7 @@ static void fillList()
 
 static void startListScan()
 {
-    showBusy("Söker nätverk...", true);
+    showBusy(tr(Str::WIFI_SCANNING), true);
     s_scanStartMs = MySys::millis();
     MyWifi::startScan();
 }
@@ -218,7 +220,7 @@ static void listTick(lv_timer_t *)
     if (st >= 0) {
         fillList();
     } else if (st == -1 || MySys::millis() - s_scanStartMs > 12000) {
-        showBusy("Sökningen misslyckades.\nTryck på Uppdatera för att försöka igen.", false);
+        showBusy(tr(Str::WIFI_SCAN_FAILED), false);
     }
 }
 
@@ -226,7 +228,7 @@ void showNetworks()
 {
     killTimer();
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, "Välj nätverk");
+    Theme::header(scr, tr(Str::WIFI_CHOOSE));
 
     s_list = lv_obj_create(scr);
     lv_obj_remove_style_all(s_list);
@@ -264,10 +266,10 @@ void showNetworks()
     lv_obj_set_width(s_netStatus, 304);
     lv_obj_set_pos(s_netStatus, 10, 400);
 
-    s_rescanBtn = Theme::button(scr, LV_SYMBOL_REFRESH " Uppdatera", 148, 46, Theme::ACCENT);
+    s_rescanBtn = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::WIFI_REFRESH), 148, 46, Theme::ACCENT);
     lv_obj_set_pos(s_rescanBtn, 8, 426);
     lv_obj_add_event_cb(s_rescanBtn, [](lv_event_t *) { startListScan(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *cancel = Theme::button(scr, LV_SYMBOL_CLOSE " Avbryt", 148, 46, Theme::MUTED);
+    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 148, 46, Theme::MUTED);
     lv_obj_set_pos(cancel, 164, 426);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) { toMenu(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_user_data(s_rescanBtn, cancel);
@@ -305,10 +307,10 @@ static void passEntered(const char *text, bool confirmed, void *user)
         navLater(showNetworks);
         return;
     }
-    if (!text[0]) return CharWheel::setHint(wheel, "Ange lösenordet först");
+    if (!text[0]) return CharWheel::setHint(wheel, tr(Str::WIFI_ENTER_PASSWORD));
     if (!Config::validWifiPass(text, false)) {
         size_t n = strlen(text);
-        CharWheel::setHint(wheel, n < 8 ? "Minst 8 tecken" : n == 64 ? "64 tecken = hex-nyckel (0-9, a-f)" : "Max 63 tecken");
+        CharWheel::setHint(wheel, tr(n < 8 ? Str::WIFI_MIN8 : n == 64 ? Str::WIFI_HEX64 : Str::WIFI_MAX63));
         return;
     }
     snprintf(s_pass, sizeof(s_pass), "%s", text);
@@ -325,14 +327,14 @@ void showPassword(const char *ssid)
 
     lv_obj_t *scr = Theme::screen();
     char label[64];
-    snprintf(label, sizeof(label), SYM_LOCK " Lösenord för %s", s_ssid);
+    snprintf(label, sizeof(label), trp(SYM_LOCK " ", Str::WIFI_PASSWORD_FOR), s_ssid);
     // Wheel user data = the wheel itself (needed for setHint/close in the callback).
     static lv_obj_t *s_wheel;
     s_wheel = CharWheel::create(scr, 0, 0, 320, 480, label, s_pass, PASS_MAX, true,
                                 [](const char *t, bool ok, void *) { passEntered(t, ok, s_wheel); }, nullptr);
     memset(s_pass, 0, sizeof(s_pass));
     if (s_wheel && MyWifi::hasSavedCredentials() && CharWheel::text(s_wheel)[0])
-        CharWheel::setHint(s_wheel, "Sparat lösenord ifyllt - tryck OK");
+        CharWheel::setHint(s_wheel, tr(Str::WIFI_SAVED_FILLED));
     Theme::loadScreen(scr);
 }
 
@@ -355,10 +357,10 @@ static void connResult(bool ok, const char *msg)
     lv_obj_set_hidden(s_resultIcon, false);
     lv_label_set_text(s_resultIcon, ok ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
     lv_obj_set_style_text_color(s_resultIcon, Theme::c(ok ? Theme::GREEN : Theme::RED), 0);
-    lv_label_set_text(s_connTitle, ok ? "Ansluten!" : "Kunde inte ansluta");
+    lv_label_set_text(s_connTitle, tr(ok ? Str::WIFI_CONNECTED : Str::WIFI_CONNECT_FAILED));
     lv_obj_set_style_text_color(s_connTitle, Theme::c(ok ? Theme::GREEN : Theme::RED), 0);
     lv_label_set_text(s_connMsg, msg);
-    lv_label_set_text(s_connBtnLabel, LV_SYMBOL_RIGHT " Fortsätt");
+    lv_label_set_text(s_connBtnLabel, trp(LV_SYMBOL_RIGHT " ", Str::BTN_CONTINUE));
 }
 
 static void connNext()
@@ -386,8 +388,8 @@ static void connTick(lv_timer_t *)
     }
     MyWifi::Status st = MyWifi::status();
     if (st == MyWifi::Status::SEARCHING) {
-        lv_label_set_text(s_connSsid, "sparat nätverk...");
-        lv_label_set_text(s_connTime, "söker");
+        lv_label_set_text(s_connSsid, tr(Str::WIFI_SAVED_NETWORK_DOTS));
+        lv_label_set_text(s_connTime, tr(Str::WIFI_SEARCHING));
         s_uiStartMs = now;
         return;
     }
@@ -399,7 +401,7 @@ static void connTick(lv_timer_t *)
     }
     if (st == MyWifi::Status::FAILED || st == MyWifi::Status::IDLE || st == MyWifi::Status::ERROR) {
         MyWifi::Info wi = MyWifi::info();
-        connResult(false, wi.lastFail != MyWifi::FailReason::NONE ? MyWifi::failText(wi.lastFail) : "Okänt fel");
+        connResult(false, wi.lastFail != MyWifi::FailReason::NONE ? MyWifi::failText(wi.lastFail) : tr(Str::WIFI_UNKNOWN_ERROR));
         return;
     }
     uint32_t el = MyWifi::connectElapsedMs();
@@ -421,7 +423,7 @@ void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
 
     lv_obj_t *scr = Theme::screen();
 
-    s_connTitle = Theme::label(scr, "Ansluter till", &my_font_24);
+    s_connTitle = Theme::label(scr, tr(Str::WIFI_CONNECTING_TO), &my_font_24);
     lv_obj_align(s_connTitle, LV_ALIGN_TOP_MID, 0, 70);
     s_connSsid = Theme::label(scr, ssidCopy, &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_connSsid, LV_LABEL_LONG_MODE_DOTS);
@@ -458,7 +460,7 @@ void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
     lv_obj_set_style_text_align(s_connMsg, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_connMsg, LV_ALIGN_TOP_MID, 0, 340);
 
-    lv_obj_t *btn = Theme::button(scr, LV_SYMBOL_CLOSE " Avbryt", 200, 48, Theme::MUTED);
+    lv_obj_t *btn = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 200, 48, Theme::MUTED);
     lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -12);
     s_connBtnLabel = lv_obj_get_child(btn, 0);
     lv_obj_add_event_cb(btn, [](lv_event_t *) {
@@ -474,7 +476,7 @@ void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
     s_phase = ConnPhase::WAIT;
     s_uiStartMs = MySys::millis();
     if (!alreadyStarted) {
-        if (!MyWifi::connect(ssidCopy, pass ? pass : "")) connResult(false, "Ogiltigt nätverk eller lösenord");
+        if (!MyWifi::connect(ssidCopy, pass ? pass : "")) connResult(false, tr(Str::WIFI_INVALID));
     } else if (MyWifi::status() == MyWifi::Status::CONNECTING) {
         s_uiStartMs = MySys::millis() - MyWifi::connectElapsedMs();   // Attempt began during boot
     } else if (MyWifi::status() != MyWifi::Status::CONNECTED && MyWifi::status() != MyWifi::Status::SEARCHING) {
@@ -482,7 +484,7 @@ void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
     }
     s_attempt = MyWifi::attemptId();
     memset(s_pass, 0, sizeof(s_pass));   // MyWifi::connect() keeps its own copy
-    if (alreadyStarted && MyWifi::status() == MyWifi::Status::SEARCHING) lv_label_set_text(s_connTitle, "Ansluter automatiskt");
+    if (alreadyStarted && MyWifi::status() == MyWifi::Status::SEARCHING) lv_label_set_text(s_connTitle, tr(Str::WIFI_AUTO_CONNECT));
     s_timer = lv_timer_create(connTick, 100, nullptr);
     connTick(s_timer);                   // Immediate state (e.g. already connected)
     Theme::loadScreen(scr);

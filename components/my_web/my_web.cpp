@@ -411,6 +411,7 @@ bool begin(const Config &cfg)
     httpd_config_t c = HTTPD_DEFAULT_CONFIG();
     c.server_port = cfg.port;
     c.max_uri_handlers = cfg.maxUris;
+    c.max_open_sockets = cfg.maxSockets;
     c.stack_size = cfg.stackSize;
     c.lru_purge_enable = true;
     c.uri_match_fn = httpd_uri_match_wildcard;

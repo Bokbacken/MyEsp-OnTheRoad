@@ -1,0 +1,291 @@
+// lang.h - user interface strings (i18n) for the on-device UI and the web API messages.
+//
+// Usage:   lv_label_set_text(l, tr(Str::BTN_SAVE));
+//          trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE)   -> prefix + text (LVGL symbols, icons)
+//
+// Every visible string has an ID in LANG_STR_IDS below; each language is a table of
+// {Str::ID, "text"} pairs in its own file (lang_sv.cpp, lang_en.cpp, ...). Missing entries fall
+// back to Swedish (the base language, always complete), so a partial translation still works.
+// Pure C++ (no ESP-IDF): the language code is persisted by AppConfig (NVS key "lang") and the
+// module is host-tested by tests/test_lang.cpp.
+//
+// Contributing a new language (e.g. German, code "de"):
+//   1. Copy main/lang/lang_en.cpp to main/lang/lang_de.cpp (English is the easiest template).
+//   2. Rename LANG_EN / DEF_EN to LANG_DE / DEF_DE, set the code "de" and the native name
+//      "Deutsch", and translate the strings. Keep printf placeholders (%s, %d, %u, %lu, %04u)
+//      in the same order and keep "\n" line breaks - the test checks the placeholders.
+//      The fonts cover ASCII + Latin-1 (U+00A0-U+00FF) and a few symbols: no emoji, use "...".
+//   3. Add `extern const LangDef DEF_DE;` and `&DEF_DE` to the LANGS table in lang.cpp.
+//   4. Add "lang/lang_de.cpp" to main/CMakeLists.txt and to the test_lang build line.
+//   5. Run tests/test_lang (see README) and open a pull request.
+// New strings: add the ID to LANG_STR_IDS and a line to EVERY language file (at least lang_sv).
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+// clang-format off
+#define LANG_STR_IDS(X) \
+    X(BTN_CANCEL) \
+    X(BTN_SAVE) \
+    X(BTN_BACK) \
+    X(BOOT_I2C) \
+    X(BOOT_CLOCK) \
+    X(BOOT_STORAGE) \
+    X(BOOT_WEB) \
+    X(BOOT_WAITING) \
+    X(BOOT_STARTING) \
+    X(BOOT_TESTING) \
+    X(BOOT_FAIL) \
+    X(BOOT_SKIPPED) \
+    X(WDAY_SUN) \
+    X(WDAY_MON) \
+    X(WDAY_TUE) \
+    X(WDAY_WED) \
+    X(WDAY_THU) \
+    X(WDAY_FRI) \
+    X(WDAY_SAT) \
+    X(MON_JAN) \
+    X(MON_FEB) \
+    X(MON_MAR) \
+    X(MON_APR) \
+    X(MON_MAY) \
+    X(MON_JUN) \
+    X(MON_JUL) \
+    X(MON_AUG) \
+    X(MON_SEP) \
+    X(MON_OCT) \
+    X(MON_NOV) \
+    X(MON_DEC) \
+    X(CLOCK_TITLE) \
+    X(CLOCK_INFO) \
+    X(CLOCK_DATE) \
+    X(CLOCK_TIME) \
+    X(OTA_TITLE) \
+    X(OTA_DONT_POWER_OFF) \
+    X(OTA_DONE) \
+    X(OTA_RESTARTING) \
+    X(OTA_FAILED) \
+    X(OTA_KEPT) \
+    X(SET_NET_INFO_CONNECTED) \
+    X(SET_NET_INFO) \
+    X(SET_TOUCH_INFO) \
+    X(SET_MISSING) \
+    X(SET_TITLE) \
+    X(SET_LANGUAGE) \
+    X(SET_BRIGHTNESS) \
+    X(SET_RGB_LED) \
+    X(SET_LED_BRIGHTNESS) \
+    X(SET_ROLL_ANIM) \
+    X(SET_DEFAULT_VARIANT) \
+    X(SET_MAXI_SAVED) \
+    X(SET_THROW_MODE) \
+    X(SET_THROW_CUP) \
+    X(SET_THROW_BUTTON) \
+    X(SET_CLOCK) \
+    X(SET_NETWORK) \
+    X(SET_CHANGE_WIFI) \
+    X(VAR_YATZY) \
+    X(VAR_MAXI) \
+    X(VAR_YATZY_ORDER) \
+    X(VAR_MAXI_ORDER) \
+    X(WIFI_CONNECTING_TO_FMT) \
+    X(WIFI_SEARCHING_SAVED) \
+    X(WIFI_NOT_CONNECTED_FORGET) \
+    X(WIFI_NOT_CONNECTED) \
+    X(WIFI_FORGET_Q) \
+    X(WIFI_SAVED_NETWORK) \
+    X(WIFI_FORGET) \
+    X(WIFI_NONE_FOUND) \
+    X(WIFI_OPEN) \
+    X(WIFI_SCANNING) \
+    X(WIFI_SCAN_FAILED) \
+    X(WIFI_CHOOSE) \
+    X(WIFI_REFRESH) \
+    X(WIFI_ENTER_PASSWORD) \
+    X(WIFI_MIN8) \
+    X(WIFI_HEX64) \
+    X(WIFI_MAX63) \
+    X(WIFI_PASSWORD_FOR) \
+    X(WIFI_SAVED_FILLED) \
+    X(WIFI_CONNECTED) \
+    X(WIFI_CONNECT_FAILED) \
+    X(BTN_CONTINUE) \
+    X(WIFI_SAVED_NETWORK_DOTS) \
+    X(WIFI_SEARCHING) \
+    X(WIFI_UNKNOWN_ERROR) \
+    X(WIFI_CONNECTING_TO) \
+    X(WIFI_INVALID) \
+    X(WIFI_AUTO_CONNECT) \
+    X(CAT_ONES) \
+    X(CAT_TWOS) \
+    X(CAT_THREES) \
+    X(CAT_FOURS) \
+    X(CAT_FIVES) \
+    X(CAT_SIXES) \
+    X(CAT_ONE_PAIR) \
+    X(CAT_TWO_PAIRS) \
+    X(CAT_THREE_PAIRS) \
+    X(CAT_THREE_KIND) \
+    X(CAT_FOUR_KIND) \
+    X(CAT_FIVE_KIND) \
+    X(CAT_SMALL_STRAIGHT) \
+    X(CAT_LARGE_STRAIGHT) \
+    X(CAT_FULL_STRAIGHT) \
+    X(CAT_FULL_HOUSE) \
+    X(CAT_VILLA) \
+    X(CAT_TOWER) \
+    X(CAT_CHANCE) \
+    X(CAT_YATZY) \
+    X(CAT_MAXI_YATZY) \
+    X(PERR_INVALID) \
+    X(PERR_DUPLICATE) \
+    X(PERR_FULL) \
+    X(PERR_NOT_FOUND) \
+    X(MENU_CHOOSE_GAME) \
+    X(MENU_SUB_YATZY) \
+    X(MENU_SUB_MAXI) \
+    X(MENU_SUB_YATZY_ORDER) \
+    X(MENU_SUB_MAXI_ORDER) \
+    X(PL_GUEST_TAG) \
+    X(PL_ADD_AT_LEAST_ONE) \
+    X(PL_DEFAULT_NAME) \
+    X(PL_TITLE) \
+    X(PL_ADD) \
+    X(PL_START) \
+    X(PL_WEB_HINT) \
+    X(PL_NAME_EMPTY) \
+    X(PICK_CHOOSE) \
+    X(PICK_CHANGE) \
+    X(PICK_COUNT) \
+    X(PICK_NEW) \
+    X(PICK_NEW_SAVED) \
+    X(PICK_SEARCH) \
+    X(PICK_SEARCH_DOTS) \
+    X(PICK_SEARCH_PLAYER) \
+    X(PICK_EMPTY) \
+    X(PICK_NO_MATCH) \
+    X(PICK_ALL_SEATED) \
+    X(PICK_GUEST) \
+    X(PICK_GUEST_NAME_FMT) \
+    X(PICK_GUEST_NAME) \
+    X(CUP_HINT) \
+    X(GAME_ROLL) \
+    X(GAME_CHOOSE) \
+    X(GAME_TIDY) \
+    X(GAME_HINT_ROLL) \
+    X(GAME_HINT_ROLLING) \
+    X(GAME_HINT_NO_BOXES) \
+    X(GAME_ROUND) \
+    X(GAME_SUM) \
+    X(GAME_BONUS) \
+    X(GAME_TOTAL) \
+    X(GAME_ROLL_N_EXTRA) \
+    X(GAME_ROLL_N) \
+    X(GAME_BACK_ROLL_N) \
+    X(GAME_WRITE) \
+    X(GAME_PICK_BOX) \
+    X(GAME_ROLLS_LEFT_EXTRA) \
+    X(GAME_ROLLS_LEFT) \
+    X(GAME_QUIT_Q) \
+    X(GAME_QUIT_TEXT) \
+    X(GAME_QUIT) \
+    X(GAME_SUGGESTIONS) \
+    X(GAME_PICK_BOX_BTN) \
+    X(GAME_WEB_WAIT) \
+    X(GAME_WEB_CONNECT) \
+    X(GAME_WEB_CONNECTED) \
+    X(GAME_CODE) \
+    X(RES_TITLE) \
+    X(RES_AGAIN) \
+    X(RES_MENU) \
+    X(WEB_ERR_NUMBER) \
+    X(WEB_ERR_TZ) \
+    X(WEB_ERR_PIN) \
+    X(WEB_ERR_PIN_FORMAT) \
+    X(WEB_ERR_HOSTNAME) \
+    X(WEB_ERR_NVS) \
+    X(WEB_ERR_LANG) \
+    X(WEB_ERR_SSID_MISSING) \
+    X(WEB_ERR_SSID_LONG) \
+    X(WEB_ERR_PASS) \
+    X(WEB_ERR_WIFI_OFF) \
+    X(WEB_ERR_MEMORY) \
+    X(WEB_ERR_ACTION_MISSING) \
+    X(WEB_ERR_SSID) \
+    X(WEB_ERR_DELTA) \
+    X(WEB_ERR_ACTION) \
+    X(WEB_ERR_NET_NOT_FOUND) \
+    X(WEB_ERR_EPOCH) \
+    X(WEB_ERR_TIME) \
+    X(WEB_ERR_NAME) \
+    X(WEB_ERR_ID_NAME) \
+    X(WEB_ERR_ID) \
+    X(BOOT_TOUCH_NO_REPLY) \
+    X(BOOT_PSRAM_INFO) \
+    X(BOOT_PSRAM_MISSING) \
+    X(BOOT_NO_DEVICES) \
+    X(BOOT_RTC_MISSING) \
+    X(BOOT_FS_INFO) \
+    X(BOOT_FS_FAIL) \
+    X(BOOT_STARTING_WIFI) \
+    X(BOOT_WIFI_SAVED) \
+    X(BOOT_WIFI_NONE) \
+    X(BOOT_WIFI_FAIL) \
+    X(BOOT_WEB_INFO) \
+    X(BOOT_WEB_FAIL) \
+    X(BOOT_FAILURES) \
+    X(BOOT_DONE) \
+    X(WEB_ERR_WS_CODE) \
+    X(WEB_ERR_WS_SEAT) \
+    X(WEB_ERR_WS_JOIN) \
+    X(WEB_ERR_WS_FULL) \
+    X(WEB_ERR_WS_CMD) \
+    X(WEB_ERR_WS_TURN)
+// clang-format on
+
+enum class Str : uint16_t {
+#define LANG_X_ENUM(id) id,
+    LANG_STR_IDS(LANG_X_ENUM)
+#undef LANG_X_ENUM
+    COUNT
+};
+
+// Text of `id` in the current language (never null; "" for an invalid id).
+const char *tr(Str id);
+
+// prefix + tr(id) + suffix in one of 8 rotating static buffers (UI thread only; LVGL copies
+// label texts, so the result only has to live until the next call or two).
+const char *trp(const char *prefix, Str id, const char *suffix = "");
+
+namespace Lang {
+
+constexpr int MAX_LANGS = 8;
+constexpr int CODE_CAP = 4;   // "sv" + NUL, room for 3-letter codes
+
+struct Entry {
+    Str id;
+    const char *text;
+};
+
+struct LangDef {
+    const char *code;   // ISO 639-1 ("sv", "en")
+    const char *name;   // Native name for the language picker ("Svenska", "English")
+    const Entry *entries;
+    size_t count;
+};
+
+bool setLang(const char *code);   // Unknown code -> false, Swedish stays/is selected
+const char *currentLang();        // Code of the active language
+bool valid(const char *code);
+
+int count();                      // Number of available languages
+const char *code(int i);
+const char *name(int i);
+int indexOf(const char *code);    // -1 if unknown
+
+// Raw lookup in one language without fallback (nullptr if missing) - for tests and tools.
+const char *lookup(int lang, Str id);
+const char *idName(Str id);       // "BTN_SAVE" (for diagnostics)
+
+}  // namespace Lang

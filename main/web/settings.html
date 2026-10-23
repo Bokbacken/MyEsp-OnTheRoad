@@ -87,6 +87,11 @@
     <input type="range" id="led_brightness" name="led_brightness" min="0" max="255" step="1">
   </fieldset>
   <fieldset>
+    <legend>Språk / Language</legend>
+    <label for="lang">Språk på enheten och i webbspelet</label>
+    <select id="lang" name="lang"><option value="sv">Svenska</option><option value="en">English</option></select>
+  </fieldset>
+  <fieldset>
     <legend>Spel</legend>
     <label for="default_variant">Standardvariant</label>
     <select id="default_variant" name="default_variant">
@@ -186,6 +191,12 @@ function fill(c) {
   $('maxi_saved_rolls').checked = c.maxi_saved_rolls;
   if (c.throw_mode !== undefined) $('throw_mode').value = c.throw_mode;
   $('hostname').value = c.hostname;
+  if (c.langs) {
+    const sel = $('lang');
+    sel.innerHTML = '';
+    for (const l of c.langs) { const o = document.createElement('option'); o.value = l.code; o.textContent = l.name; sel.appendChild(o); }
+  }
+  if (c.lang) $('lang').value = c.lang;
 }
 async function load() {
   try {
@@ -352,6 +363,7 @@ $('cfg-form').addEventListener('submit', async e => {
     roll_anim_ms: $('roll_anim_ms').value,
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
     throw_mode: $('throw_mode').value,
+    lang: $('lang').value,
     hostname: host,
     tz: $('tz').value.trim()
   };

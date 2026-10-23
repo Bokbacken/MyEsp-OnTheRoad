@@ -26,31 +26,37 @@
 .score .zero { color: var(--otr-muted); }
 .winner { font-size: 1.3rem; font-weight: 700; color: var(--otr-green); }
 .full { position: fixed; right: .8rem; bottom: .8rem; }
+.webcode { font-size: 1.3rem; letter-spacing: .15em; color: var(--otr-orange); }
 </style>
 </head>
 <body>
 <header class="otr-brand">
   <div class="otr-head">
     <div class="otr-logo">&#9856;</div>
-    <div class="otr-project">ONTHEROAD<small>Live-spel</small></div>
-    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">hämtar...</span></div>
+    <div class="otr-project">ONTHEROAD<small data-t="sub">Live-spel</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text" data-t="loading">hämtar...</span></div>
   </div>
 </header>
 <nav class="otr-nav">
-  <a href="/">Översikt</a>
+  <a href="/" data-t="nav_home">Översikt</a>
   <a href="/game" class="active">Live</a>
-  <a href="/players">Spelare</a>
-  <a href="/settings">Inställningar</a>
-  <a href="/diag">Diagnostik</a>
-  <a href="/update">Uppdatera</a>
+  <a href="/players" data-t="nav_players">Spelare</a>
+  <a href="/settings" data-t="nav_settings">Inställningar</a>
+  <a href="/diag" data-t="nav_diag">Diagnostik</a>
+  <a href="/update" data-t="nav_update">Uppdatera</a>
 </nav>
 
 <div id="idle" class="card" hidden>
-  <h3>Inget spel pågår</h3>
-  <p class="muted">Starta Yatzy eller Maxi-Yatzy på enheten – sidan uppdateras automatiskt.</p>
+  <h3 data-t="idle">Inget spel pågår</h3>
+  <p class="muted" data-t="idle_hint">Starta Yatzy eller Maxi-Yatzy på enheten – sidan uppdateras automatiskt.</p>
 </div>
 
 <div id="game" hidden>
+  <div class="card" id="webplay" hidden>
+    <div><b data-t="web_title">Spela via webben</b> · <span data-t="code">Kod</span> <b class="webcode" id="webcode">–</b></div>
+    <div><a id="weblink" href="#">–</a></div>
+    <div class="muted" id="webwho"></div>
+  </div>
   <div class="card">
     <div class="live-top">
       <div class="stat" id="variant">–</div>
@@ -61,7 +67,7 @@
     <div class="muted" id="rolls">–</div>
     <div class="winner" id="winner" hidden></div>
   </div>
-  <h2>Protokoll</h2>
+  <h2 data-t="protocol">Protokoll</h2>
   <div class="card table-wrap">
     <table class="score" id="score"></table>
   </div>
@@ -85,29 +91,67 @@ function dieSvg(v, held, rolling) {
     ${pips}</svg>`;
 }
 
+const T = {
+  sv: {sub: 'Live-spel', loading: 'hämtar...', nav_home: 'Översikt', nav_players: 'Spelare', nav_settings: 'Inställningar',
+       nav_diag: 'Diagnostik', nav_update: 'Uppdatera', idle: 'Inget spel pågår',
+       idle_hint: 'Starta Yatzy eller Maxi-Yatzy på enheten – sidan uppdateras automatiskt.', protocol: 'Protokoll',
+       web_title: 'Spela via webben', code: 'Kod', over: 'Spelet är slut', round: 'Omgång {0} av {1}', final: 'Slutresultat',
+       turn: 'Tur', rolling: 'tärningarna rullar...', shaking: 'skakar bägaren...', choosing: 'väljer ruta',
+       rolls: 'Kast kvar: {0}', saved: ' (varav {0} sparade)', shared: 'Delad vinst: ', winner: 'Vinnare: ',
+       sum: 'Summa', total: 'Totalt', live: 'live', nocontact: 'ingen kontakt', connected: 'ansluten', waiting: 'väntar',
+       fs: 'Helskärm'},
+  en: {sub: 'Live game', loading: 'loading...', nav_home: 'Overview', nav_players: 'Players', nav_settings: 'Settings',
+       nav_diag: 'Diagnostics', nav_update: 'Update', idle: 'No game running',
+       idle_hint: 'Start Yatzy or Maxi Yatzy on the device – the page updates automatically.', protocol: 'Score sheet',
+       web_title: 'Play via the web', code: 'Code', over: 'The game is over', round: 'Round {0} of {1}', final: 'Final result',
+       turn: 'Turn', rolling: 'dice rolling...', shaking: 'shaking the cup...', choosing: 'choosing a box',
+       rolls: 'Rolls left: {0}', saved: ' ({0} saved)', shared: 'Shared win: ', winner: 'Winner: ',
+       sum: 'Sum', total: 'Total', live: 'live', nocontact: 'no contact', connected: 'connected', waiting: 'waiting',
+       fs: 'Full screen'}
+};
+let L = 'sv';
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+function setLang(l) {
+  if (!T[l] || l === L) return;
+  L = l;
+  document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  $('fs').title = t('fs');
+}
+
 let ver = -1, last = null, fails = 0;
 
 function render(g) {
   last = g;
+  if (g.lang) setLang(g.lang);
   $('idle').hidden = g.active;
   $('game').hidden = !g.active;
   if (!g.active) return;
   const P = g.players;
+  const wp = g.web_players || [];
+  $('webplay').hidden = !(g.code && wp.length && !g.finished);
+  if (g.code) {
+    const url = location.protocol + '//' + location.host + '/play?code=' + g.code;
+    $('webcode').textContent = g.code;
+    $('weblink').href = url;
+    $('weblink').textContent = url;
+    $('webwho').textContent = wp.map(w => (P[w.player] || {name: '?'}).name + ': ' + t(w.connected ? 'connected' : 'waiting')).join(' · ');
+  }
   $('variant').textContent = g.name;
-  $('round').textContent = g.finished ? 'Spelet är slut' : 'Omgång ' + g.round + ' av ' + g.rounds;
+  $('round').textContent = g.finished ? t('over') : t('round', g.round, g.rounds);
   const cur = P[g.current] || {name: '?'};
-  $('turn').innerHTML = g.finished ? 'Slutresultat' : 'Tur: <b>' + esc(cur.name) + '</b>' +
-    (g.rolling ? ' <span class="muted">· tärningarna rullar...</span>' : g.shaking ? ' <span class="muted">· skakar bägaren...</span>' : g.choosing ? ' <span class="muted">· väljer ruta</span>' : '');
+  $('turn').innerHTML = g.finished ? t('final') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (cur.web ? ' 📶' : '') +
+    (g.rolling ? ' <span class="muted">· ' + t('rolling') + '</span>' : g.shaking ? ' <span class="muted">· ' + t('shaking') + '</span>' : g.choosing ? ' <span class="muted">· ' + t('choosing') + '</span>' : '');
   $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], (g.rolling || g.shaking) && !g.held[i])).join('');
-  let rolls = g.finished ? '' : 'Kast kvar: ' + g.rolls_left;
-  if (!g.finished && g.variant === 'maxi' && cur.saved_rolls) rolls += ' (varav ' + cur.saved_rolls + ' sparade)';
+  let rolls = g.finished ? '' : t('rolls', g.rolls_left);
+  if (!g.finished && g.variant === 'maxi' && cur.saved_rolls) rolls += t('saved', cur.saved_rolls);
   $('rolls').textContent = rolls;
 
   const w = $('winner');
   w.hidden = !g.finished;
   if (g.finished && g.ranking) {
     const first = g.ranking.filter(r => r.place === 1).map(r => esc(P[r.player].name));
-    w.innerHTML = (first.length > 1 ? 'Delad vinst: ' : 'Vinnare: ') + first.join(' & ') + ' 🏆<div class="muted" style="font-size:1rem;font-weight:500">' +
+    w.innerHTML = (first.length > 1 ? t('shared') : t('winner')) + first.join(' & ') + ' 🏆<div class="muted" style="font-size:1rem;font-weight:500">' +
       g.ranking.map(r => r.place + '. ' + esc(P[r.player].name) + ' ' + P[r.player].total).join(' · ') + '</div>';
   }
 
@@ -118,13 +162,13 @@ function render(g) {
   g.categories.forEach((c, k) => {
     if (!c.upper && !upperDone) {
       upperDone = true;
-      h += '<tr class="sum"><td>Summa</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.upper + '</td>').join('') + '</tr>';
+      h += '<tr class="sum"><td>' + t('sum') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.upper + '</td>').join('') + '</tr>';
       h += '<tr><td>Bonus <span class="muted">(' + g.bonus_threshold + ')</span></td>' +
         P.map((p, i) => '<td' + cc(i) + '>' + (p.bonus ? '<span class="ok">' + p.bonus + '</span>' : '<span class="muted">' + (p.upper - g.bonus_threshold) + '</span>') + '</td>').join('') + '</tr>';
     }
     h += '<tr><td>' + esc(c.name) + '</td>' + P.map((p, i) => cell(p.scores[k]).replace('<td', '<td' + cc(i))).join('') + '</tr>';
   });
-  h += '<tr class="total sum"><td>Totalt</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
+  h += '<tr class="total sum"><td>' + t('total') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
   $('score').innerHTML = h;
 }
 
@@ -134,10 +178,10 @@ async function poll() {
     const g = await r.json();
     fails = 0;
     $('live-dot').className = 'dot ok';
-    $('live-text').textContent = 'live';
+    $('live-text').textContent = t('live');
     if (!g.same) { ver = g.version; render(g); }
   } catch (e) {
-    if (++fails > 2) { $('live-dot').className = 'dot bad'; $('live-text').textContent = 'ingen kontakt'; }
+    if (++fails > 2) { $('live-dot').className = 'dot bad'; $('live-text').textContent = t('nocontact'); }
   }
   setTimeout(poll, 700);
 }

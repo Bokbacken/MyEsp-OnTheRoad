@@ -25,6 +25,7 @@ struct AppConfig {
     uint8_t throwMode;       // 0 = dice cup gesture (default), 1 = [Kasta] button
     char adminPin[9];        // 4-8 digits; empty = no admin protection (OTA, reset, deletions)
     char tz[48];             // POSIX TZ string for the clock (default Sweden CET/CEST)
+    char lang[4];            // UI language code ("sv" default, "en"); see main/lang/lang.h
 };
 
 namespace Config {

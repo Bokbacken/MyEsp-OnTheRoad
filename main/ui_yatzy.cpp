@@ -16,10 +16,12 @@
 #include "game_live.h"
 #include "game_yatzy.h"
 #include "my_charwheel.h"
+#include "my_wifi.h"
 #include "ui_clock.h"
 #include "ui_settings.h"
 #include "my_theme.h"
 #include "ui_wifi.h"
+#include "lang_game.h"
 
 namespace UiYatzy {
 
@@ -45,16 +47,15 @@ static void showResults();
 struct VariantChoice {
     YatzyVariant v;
     YatzyMode m;
-    const char *title;
-    const char *sub;
+    Str sub;
     uint32_t color;
 };
 
 static const VariantChoice CHOICES[4] = {
-    {YatzyVariant::STANDARD, YatzyMode::NORMAL, "Yatzy", "5 tärningar \xE2\x80\xA2 15 rutor \xE2\x80\xA2 bonus 50", Theme::ACCENT},
-    {YatzyVariant::MAXI, YatzyMode::NORMAL, "Maxi-Yatzy", "6 tärningar \xE2\x80\xA2 20 rutor \xE2\x80\xA2 bonus 100", Theme::TEAL},
-    {YatzyVariant::STANDARD, YatzyMode::ORDERED, "Yatzy i ordning", "Rutorna fylls uppifrån och ned", Theme::ACCENT},
-    {YatzyVariant::MAXI, YatzyMode::ORDERED, "Maxi-Yatzy i ordning", "6 tärningar, uppifrån och ned", Theme::TEAL},
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, Str::MENU_SUB_YATZY, Theme::ACCENT},
+    {YatzyVariant::MAXI, YatzyMode::NORMAL, Str::MENU_SUB_MAXI, Theme::TEAL},
+    {YatzyVariant::STANDARD, YatzyMode::ORDERED, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT},
+    {YatzyVariant::MAXI, YatzyMode::ORDERED, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL},
 };
 
 static void menuChoiceEvent(lv_event_t *e)
@@ -77,7 +78,7 @@ void showMenu()
     lv_obj_align(wifi, LV_ALIGN_TOP_RIGHT, -64, 4);
     lv_obj_add_event_cb(wifi, [](lv_event_t *) { UiWifi::showNetworks(); }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *hint = Theme::label(scr, "Välj spel", &my_font_14, Theme::MUTED);
+    lv_obj_t *hint = Theme::label(scr, tr(Str::MENU_CHOOSE_GAME), &my_font_14, Theme::MUTED);
     lv_obj_set_pos(hint, 14, 52);
     lv_obj_t *clk = Theme::label(scr, "", &my_font_14, Theme::MUTED);
     lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
@@ -104,9 +105,9 @@ void showMenu()
         lv_obj_set_style_bg_color(stripe, Theme::c(CHOICES[i].color), 0);
         lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
         lv_obj_set_clickable(stripe, false);
-        lv_obj_t *t = Theme::label(b, CHOICES[i].title, &my_font_24);
+        lv_obj_t *t = Theme::label(b, trVariant(CHOICES[i].v, CHOICES[i].m), &my_font_24);
         lv_obj_set_pos(t, 28, 14);
-        lv_obj_t *s = Theme::label(b, CHOICES[i].sub, &my_font_14, Theme::MUTED);
+        lv_obj_t *s = Theme::label(b, tr(CHOICES[i].sub), &my_font_14, Theme::MUTED);
         lv_obj_set_pos(s, 28, 50);
         if (i == def) {
             lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
@@ -128,6 +129,8 @@ void showMenu()
 // s_pids keeps the registry id per seat (0 = guest) for the game history (Del B).
 // ========================================================================================
 static uint16_t s_pids[YATZY_MAX_PLAYERS];
+static bool s_web[YATZY_MAX_PLAYERS];   // Seat is played from a phone via /play (v0.5.2)
+static uint16_t s_code = 0;             // 4-digit game code of the current game
 static lv_obj_t *s_playerList = nullptr;
 static lv_obj_t *s_addBtn = nullptr;
 static lv_obj_t *s_startBtn = nullptr;
@@ -152,6 +155,7 @@ static bool setSeat(const char *name, uint16_t id)
     if (i < 0 || i >= s_nameCount) {
         if (s_nameCount >= YATZY_MAX_PLAYERS) return false;
         i = s_nameCount++;
+        s_web[i] = false;
     }
     snprintf(s_names[i], YATZY_NAME_CAP, "%s", name);
     s_pids[i] = id;
@@ -181,6 +185,7 @@ static void playerDeleteEvent(lv_event_t *e)
     for (int k = i; k < s_nameCount - 1; k++) {
         memcpy(s_names[k], s_names[k + 1], YATZY_NAME_CAP);
         s_pids[k] = s_pids[k + 1];
+        s_web[k] = s_web[k + 1];
     }
     s_nameCount--;
     rebuildPlayerList();
@@ -192,7 +197,7 @@ static void rebuildPlayerList()
     for (int i = 0; i < s_nameCount; i++) {
         lv_obj_t *row = lv_button_create(s_playerList);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, 240, 34);
+        lv_obj_set_size(row, 192, 34);
         lv_obj_set_pos(row, 0, i * 38);
         lv_obj_set_style_radius(row, 8, 0);
         lv_obj_set_style_bg_color(row, Theme::c(Theme::PANEL_RAISED), 0);
@@ -204,20 +209,36 @@ static void rebuildPlayerList()
         lv_obj_align(n, LV_ALIGN_LEFT_MID, 10, 0);
         lv_obj_t *name = Theme::label(row, s_names[i], &my_font_18);
         lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(name, 150);
+        lv_obj_set_width(name, s_pids[i] ? 150 : 112);
         lv_obj_align(name, LV_ALIGN_LEFT_MID, 36, 0);
         if (!s_pids[i]) {   // Guests are not saved in the registry
-            lv_obj_t *tag = Theme::label(row, "gäst", &my_font_14, Theme::GOLD);
-            lv_obj_align(tag, LV_ALIGN_RIGHT_MID, -8, 0);
+            lv_obj_t *tag = Theme::label(row, tr(Str::PL_GUEST_TAG), &my_font_14, Theme::GOLD);
+            lv_obj_align(tag, LV_ALIGN_RIGHT_MID, -6, 0);
         }
         lv_obj_add_event_cb(row, playerRowEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+        // Web toggle: this seat is played from a phone (/play?code=...)
+        lv_obj_t *web = Theme::button(s_playerList, LV_SYMBOL_WIFI, 44, 34, s_web[i] ? Theme::TEAL : Theme::LINE);
+        lv_obj_set_pos(web, 198, i * 38);
+        lv_obj_add_event_cb(web, [](lv_event_t *e) {
+            int k = (int)(intptr_t)lv_event_get_user_data(e);
+            if (k < 0 || k >= s_nameCount) return;
+            s_web[k] = !s_web[k];
+            rebuildPlayerList();
+        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
         lv_obj_t *del = Theme::button(s_playerList, LV_SYMBOL_CLOSE, 44, 34, Theme::RED);
         lv_obj_set_pos(del, 248, i * 38);
         lv_obj_add_event_cb(del, playerDeleteEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
+    if (s_nameCount > 0 && s_nameCount < YATZY_MAX_PLAYERS) {
+        lv_obj_t *hint = Theme::label(s_playerList, trp(LV_SYMBOL_WIFI " ", Str::PL_WEB_HINT), &my_font_14, Theme::MUTED);
+        lv_obj_set_pos(hint, 200, s_nameCount * 38 + 6);
+        lv_obj_set_width(hint, 92);
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_WRAP);
+    }
     if (s_nameCount == 0) {
-        lv_obj_t *empty = Theme::label(s_playerList, "Lägg till minst en spelare", &my_font_14, Theme::MUTED);
+        lv_obj_t *empty = Theme::label(s_playerList, tr(Str::PL_ADD_AT_LEAST_ONE), &my_font_14, Theme::MUTED);
         lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 20);
     }
     if (s_nameCount >= YATZY_MAX_PLAYERS) lv_obj_add_state(s_addBtn, LV_STATE_DISABLED);
@@ -231,14 +252,15 @@ static void showPlayers()
     s_pickFilter[0] = 0;
     refreshSeatNames();
     if (s_nameCount == 0 && Players::count() == 0) {   // Empty registry: two guests to get going
-        snprintf(s_names[0], YATZY_NAME_CAP, "Spelare 1");
-        snprintf(s_names[1], YATZY_NAME_CAP, "Spelare 2");
+        snprintf(s_names[0], YATZY_NAME_CAP, tr(Str::PL_DEFAULT_NAME), 1);
+        snprintf(s_names[1], YATZY_NAME_CAP, tr(Str::PL_DEFAULT_NAME), 2);
         s_pids[0] = s_pids[1] = 0;
+        s_web[0] = s_web[1] = false;
         s_nameCount = 2;
     }
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, "Spelare");
-    lv_obj_t *var = Theme::label(scr, Yatzy::variantName(s_variant, s_mode), &my_font_14, Theme::TEAL);
+    Theme::header(scr, tr(Str::PL_TITLE));
+    lv_obj_t *var = Theme::label(scr, trVariant(s_variant, s_mode), &my_font_14, Theme::TEAL);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
 
     lv_obj_t *card = Theme::card(scr, 310, 326);
@@ -249,15 +271,15 @@ static void showPlayers()
     lv_obj_set_size(s_playerList, 292, 306);
     lv_obj_set_scrollable(s_playerList, false);
 
-    s_addBtn = Theme::button(scr, LV_SYMBOL_PLUS " Lägg till spelare", 300, 42, Theme::TEAL);
+    s_addBtn = Theme::button(scr, trp(LV_SYMBOL_PLUS " ", Str::PL_ADD), 300, 42, Theme::TEAL);
     lv_obj_set_pos(s_addBtn, 10, 384);
     lv_obj_add_event_cb(s_addBtn, [](lv_event_t *) { showPicker(-1); }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *back = Theme::button(scr, LV_SYMBOL_LEFT " Tillbaka", 140, 42, Theme::MUTED);
+    lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
     lv_obj_set_pos(back, 10, 432);
     lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
 
-    s_startBtn = Theme::button(scr, "Starta " LV_SYMBOL_RIGHT, 150, 42, Theme::ACCENT, true);
+    s_startBtn = Theme::button(scr, trp("", Str::PL_START, " " LV_SYMBOL_RIGHT), 150, 42, Theme::ACCENT, true);
     lv_obj_set_pos(s_startBtn, 160, 432);
     lv_obj_add_event_cb(s_startBtn, [](lv_event_t *) {
         const AppConfig &cfg = Config::get();
@@ -266,6 +288,8 @@ static void showPlayers()
         s_game.setRng(rngDie, nullptr);
         for (int i = 0; i < s_nameCount; i++) s_game.addPlayer(s_names[i]);
         s_game.start();
+        s_code = (uint16_t)rnd(1000, 9999);   // Web play code (/play?code=XXXX), kept for "Spela igen"
+        GameLive::setSeats(s_code, s_web, s_pids, s_nameCount);
         showGame();
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -325,7 +349,7 @@ static void newPlayerEntered(const char *text, bool confirmed, void *)
     if (!confirmed) return;   // Wheel closes itself on BACK
     int r = Players::add(text);
     if (r < 0) {
-        CharWheel::setHint(s_wheel, playerErrText(r));
+        CharWheel::setHint(s_wheel, trPlayerErr(r));
         return;
     }
     char n[PLAYER_NAME_CAP];
@@ -342,7 +366,7 @@ static void guestEntered(const char *text, bool confirmed, void *)
     snprintf(name, sizeof(name), "%s", text);
     trimInPlace(name);
     if (!name[0]) {
-        CharWheel::setHint(s_wheel, "Namnet får inte vara tomt");
+        CharWheel::setHint(s_wheel, tr(Str::PL_NAME_EMPTY));
         return;
     }
     setSeat(name, 0);
@@ -377,18 +401,18 @@ static void showPicker(int slot)
     int total = s_pickDb->sortedIndices(idx);
 
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, slot < 0 ? "Välj spelare" : "Byt spelare");
+    Theme::header(scr, tr(slot < 0 ? Str::PICK_CHOOSE : Str::PICK_CHANGE));
     char buf[48];
-    snprintf(buf, sizeof(buf), "%d av %d", total, PLAYER_MAX);
+    snprintf(buf, sizeof(buf), tr(Str::PICK_COUNT), total, PLAYER_MAX);
     lv_obj_t *cnt = Theme::label(scr, buf, &my_font_14, Theme::MUTED);
     lv_obj_align(cnt, LV_ALIGN_TOP_RIGHT, -12, 14);
 
-    lv_obj_t *add = Theme::button(scr, LV_SYMBOL_PLUS " Ny spelare", 170, 42, Theme::TEAL, true);
+    lv_obj_t *add = Theme::button(scr, trp(LV_SYMBOL_PLUS " ", Str::PICK_NEW), 170, 42, Theme::TEAL, true);
     lv_obj_set_pos(add, 10, 52);
-    lv_obj_add_event_cb(add, [](lv_event_t *) { openWheel("Ny spelare (sparas)", "", newPlayerEntered); },
+    lv_obj_add_event_cb(add, [](lv_event_t *) { openWheel(tr(Str::PICK_NEW_SAVED), "", newPlayerEntered); },
                         LV_EVENT_CLICKED, nullptr);
     if (total >= PLAYER_MAX) lv_obj_add_state(add, LV_STATE_DISABLED);
-    lv_obj_t *search = Theme::button(scr, s_pickFilter[0] ? LV_SYMBOL_CLOSE " Sök" : "Sök...", 120, 42,
+    lv_obj_t *search = Theme::button(scr, s_pickFilter[0] ? trp(LV_SYMBOL_CLOSE " ", Str::PICK_SEARCH) : tr(Str::PICK_SEARCH_DOTS), 120, 42,
                                      s_pickFilter[0] ? Theme::GOLD : Theme::LINE);
     lv_obj_set_pos(search, 190, 52);
     lv_obj_add_event_cb(search, [](lv_event_t *) {
@@ -396,7 +420,7 @@ static void showPicker(int slot)
             s_pickFilter[0] = 0;
             showPicker(s_pickSlot);
         } else {
-            openWheel("Sök spelare", "", filterEntered);
+            openWheel(tr(Str::PICK_SEARCH_PLAYER), "", filterEntered);
         }
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -433,8 +457,9 @@ static void showPicker(int slot)
         lv_table_set_row_count(t, 1);
         s_pickIds[0] = 0;
         lv_table_set_cell_value(t, 0, 0,
-                                total == 0 ? "Registret är tomt - tryck Ny spelare"
-                                : s_pickFilter[0] ? "Ingen träff" : "Alla spelare är redan valda");
+                                tr(total == 0          ? Str::PICK_EMPTY
+                                   : s_pickFilter[0] ? Str::PICK_NO_MATCH
+                                                     : Str::PICK_ALL_SEATED));
         lv_obj_set_style_text_color(t, Theme::c(Theme::MUTED), LV_PART_ITEMS);
     } else {
         lv_table_set_row_count(t, rows);
@@ -445,15 +470,15 @@ static void showPicker(int slot)
         lv_obj_add_event_cb(t, pickTableEvent, LV_EVENT_VALUE_CHANGED, nullptr);
     }
 
-    lv_obj_t *back = Theme::button(scr, LV_SYMBOL_LEFT " Tillbaka", 140, 42, Theme::MUTED);
+    lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
     lv_obj_set_pos(back, 10, 432);
     lv_obj_add_event_cb(back, [](lv_event_t *) { s_pickFilter[0] = 0; showPlayers(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *guest = Theme::button(scr, "Gäst (sparas ej)", 160, 42, Theme::GOLD);
+    lv_obj_t *guest = Theme::button(scr, tr(Str::PICK_GUEST), 160, 42, Theme::GOLD);
     lv_obj_set_pos(guest, 150, 432);
     lv_obj_add_event_cb(guest, [](lv_event_t *) {
         char initial[YATZY_NAME_CAP];
-        snprintf(initial, sizeof(initial), "Gäst %d", s_nameCount + 1);
-        openWheel("Gästens namn", initial, guestEntered);
+        snprintf(initial, sizeof(initial), tr(Str::PICK_GUEST_NAME_FMT), s_nameCount + 1);
+        openWheel(tr(Str::PICK_GUEST_NAME), initial, guestEntered);
     }, LV_EVENT_CLICKED, nullptr);
 
     Theme::loadScreen(scr);
@@ -537,8 +562,16 @@ static int s_rolling = 0;
 static YatzyCategory s_selected = YatzyCategory::COUNT;
 static YatzyCategory s_best = YatzyCategory::COUNT;
 
+// Current seat is played from the web: local dice / cup / table input is blocked.
+static bool webTurn()
+{
+    const int p = s_game.currentPlayer();
+    return p >= 0 && p < YATZY_MAX_PLAYERS && s_web[p] && s_game.started() && !s_game.finished();
+}
+
 static void refreshTable();
 static void refreshActions();
+static void updateWebOverlay();
 static void refreshSuggestions(bool animateIn);
 static void setPhase(Phase p, bool animate);
 static void showCup(bool animate);
@@ -790,7 +823,7 @@ static void dieEvent(lv_event_t *e)
     lv_event_code_t code = lv_event_get_code(e);
     lv_indev_t *indev = lv_indev_active();
     if (code == LV_EVENT_PRESSED) {
-        d.dragging = s_phase == Phase::ROLL && !s_rolling && s_game.hasRolled() && !s_game.finished();
+        d.dragging = s_phase == Phase::ROLL && !s_rolling && s_game.hasRolled() && !s_game.finished() && !webTurn();
         d.totX = d.totY = 0;
         if (d.dragging) {
             lv_anim_delete(d.obj, xExec);
@@ -1084,7 +1117,7 @@ static bool cupMode() { return Config::get().throwMode == 0; }
 
 static bool cupWanted()
 {
-    return cupMode() && s_phase == Phase::ROLL && !s_rolling && s_game.canRoll() && !s_game.finished();
+    return cupMode() && s_phase == Phase::ROLL && !s_rolling && s_game.canRoll() && !s_game.finished() && !webTurn();
 }
 
 static void cupSetShaking(bool on)
@@ -1413,17 +1446,17 @@ static void buildCup(lv_obj_t *scr)
     s_cupCount = Theme::label(s_cupArea, "", &my_font_18, Theme::GOLD);
     lv_obj_set_width(s_cupCount, 80);
     lv_obj_set_pos(s_cupCount, 6, 8);
-    s_cupHint = Theme::label(s_cupArea, "Skaka och svep upp\xC3\xA5t", &my_font_14, Theme::MUTED);
+    s_cupHint = Theme::label(s_cupArea, tr(Str::CUP_HINT), &my_font_14, Theme::MUTED);
     lv_obj_set_width(s_cupHint, 80);
     lv_obj_set_pos(s_cupHint, 6, 56);
-    cupButton(LV_SYMBOL_REFRESH " Kasta", SCR_W - 82, 8, Theme::ACCENT, true, [](lv_event_t *) {
+    cupButton(trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL), SCR_W - 82, 8, Theme::ACCENT, true, [](lv_event_t *) {
         if (s_cupActive && !s_rolling) cupThrow(DiceCup::defaultThrow(rollBaseMs(), rnd(0, 1) ? 1 : -1));
     });
-    s_cupChoose = cupButton("V\xC3\xA4lj " LV_SYMBOL_RIGHT, SCR_W - 82, CUP_AREA_H - 44, Theme::TEAL, false,
+    s_cupChoose = cupButton(trp("", Str::GAME_CHOOSE, " " LV_SYMBOL_RIGHT), SCR_W - 82, CUP_AREA_H - 44, Theme::TEAL, false,
                             [](lv_event_t *) {
                                 if (!s_rolling && s_game.hasRolled()) setPhase(Phase::RESULT, true);
                             });
-    s_cupHide = cupButton(LV_SYMBOL_DOWN " Ordna", 4, CUP_AREA_H - 44, Theme::MUTED, false, [](lv_event_t *) {
+    s_cupHide = cupButton(trp(LV_SYMBOL_DOWN " ", Str::GAME_TIDY), 4, CUP_AREA_H - 44, Theme::MUTED, false, [](lv_event_t *) {
         if (s_cupActive && !s_rolling) hideCup(true, true);   // Put the cup away to move dice
     });
     lv_obj_set_hidden(s_cupArea, true);
@@ -1431,6 +1464,7 @@ static void buildCup(lv_obj_t *scr)
 
 static void onRoll(lv_event_t *)
 {
+    if (webTurn()) return;
     if (s_rolling || s_phase != Phase::ROLL || !s_game.canRoll()) return;
     if (cupMode()) showCup(true);   // Cup mode: [Kasta n] brings the cup back
     else startRoll(nullptr);
@@ -1440,7 +1474,7 @@ static void onRoll(lv_event_t *)
 static void sugChipEvent(lv_event_t *e)
 {
     int k = (int)(intptr_t)lv_event_get_user_data(e);
-    if (s_rolling || k >= s_sugCount) return;
+    if (s_rolling || k >= s_sugCount || webTurn()) return;
     s_selected = s_sug[k].category;
     setPhase(Phase::RESULT, true);
 }
@@ -1448,9 +1482,9 @@ static void sugChipEvent(lv_event_t *e)
 static void refreshSuggestions(bool animateIn)
 {
     const char *hint = nullptr;
-    if (!s_game.hasRolled()) hint = "Tryck Kasta f\xC3\xB6r att sl\xC3\xA5 t\xC3\xA4rningarna";
-    else if (s_rolling) hint = "T\xC3\xA4rningarna rullar...";
-    else if (s_sugCount == 0) hint = "Inga rutor kvar";
+    if (!s_game.hasRolled()) hint = tr(Str::GAME_HINT_ROLL);
+    else if (s_rolling) hint = tr(Str::GAME_HINT_ROLLING);
+    else if (s_sugCount == 0) hint = tr(Str::GAME_HINT_NO_BOXES);
     int shown = hint && (s_rolling || !s_game.hasRolled()) ? 0 : s_sugCount;
     for (int k = 0; k < SUG_MAX; k++) {
         if (k >= shown) {
@@ -1458,7 +1492,7 @@ static void refreshSuggestions(bool animateIn)
             continue;
         }
         lv_obj_set_hidden(s_sugChip[k], false);
-        lv_label_set_text(s_sugName[k], Yatzy::categoryName(s_sug[k].category, s_game.variant()));
+        lv_label_set_text(s_sugName[k], trCategory(s_sug[k].category, s_game.variant()));
         lv_label_set_text_fmt(s_sugScore[k], "%d", s_sug[k].score);
         bool best = k == 0;
         lv_obj_set_style_bg_color(s_sugChip[k], Theme::c(best ? 0x4D3F10 : Theme::PANEL), 0);
@@ -1553,8 +1587,17 @@ static void newTurnUi()
     s_sugCount = 0;
     const YatzyPlayer &p = s_game.player(s_game.currentPlayer());
     lv_label_set_text(s_playerLabel, p.name);
-    lv_label_set_text_fmt(s_roundLabel, "Runda %d/%d", s_game.round(), s_game.totalRounds());
+    bool anyWeb = false;
+    for (int i = 0; i < s_game.playerCount() && i < YATZY_MAX_PLAYERS; i++) anyWeb |= s_web[i];
+    char rl[48];
+    int n = snprintf(rl, sizeof(rl), tr(Str::GAME_ROUND), s_game.round(), s_game.totalRounds());
+    if (anyWeb && n > 0 && n < (int)sizeof(rl)) {   // Web play: the code under the round
+        rl[n++] = '\n';
+        snprintf(rl + n, sizeof(rl) - n, tr(Str::GAME_CODE), (unsigned)s_code);
+    }
+    lv_label_set_text(s_roundLabel, rl);
     setPhase(Phase::ROLL, true);
+    updateWebOverlay();
     refreshSuggestions(true);
     // Prepare the table for the next result phase: current player's column in view, top row.
     int32_t colW = lv_table_get_column_width(s_table, 1);
@@ -1618,10 +1661,10 @@ static void refreshTable()
         const RowInfo &ri = s_rows[r];
         switch (ri.kind) {
         case ROW_HEADER: lv_table_set_cell_value(s_table, r, 0, s_game.variant() == YatzyVariant::MAXI ? "Maxi" : "Yatzy"); break;
-        case ROW_CAT: lv_table_set_cell_value(s_table, r, 0, Yatzy::categoryName(ri.cat, s_game.variant())); break;
-        case ROW_SUM: lv_table_set_cell_value(s_table, r, 0, "Summa"); break;
-        case ROW_BONUS: lv_table_set_cell_value(s_table, r, 0, "Bonus"); break;
-        case ROW_TOTAL: lv_table_set_cell_value(s_table, r, 0, "Totalt"); break;
+        case ROW_CAT: lv_table_set_cell_value(s_table, r, 0, trCategory(ri.cat, s_game.variant())); break;
+        case ROW_SUM: lv_table_set_cell_value(s_table, r, 0, tr(Str::GAME_SUM)); break;
+        case ROW_BONUS: lv_table_set_cell_value(s_table, r, 0, tr(Str::GAME_BONUS)); break;
+        case ROW_TOTAL: lv_table_set_cell_value(s_table, r, 0, tr(Str::GAME_TOTAL)); break;
         }
         for (int p = 0; p < players; p++) {
             const YatzyPlayer &pl = s_game.player(p);
@@ -1692,7 +1735,7 @@ static void tableClickEvent(lv_event_t *)
 {
     uint32_t row, col;
     lv_table_get_selected_cell(s_table, &row, &col);
-    if (s_phase != Phase::RESULT || s_rolling) return;
+    if (s_phase != Phase::RESULT || s_rolling || webTurn()) return;
     if (row == LV_TABLE_CELL_NONE || row >= s_rowCount || s_rows[row].kind != ROW_CAT) return;
     YatzyCategory c = s_rows[row].cat;
     if (!s_game.hasRolled() || !s_game.canScore(c)) return;
@@ -1712,9 +1755,9 @@ static void refreshActions()
     bool canRoll = !s_rolling && s_game.canRoll();
     int base = YATZY_ROLLS_PER_TURN - LV_MIN(s_game.rollsUsed(), YATZY_ROLLS_PER_TURN);
     if (s_game.variant() == YatzyVariant::MAXI && s_game.savedRollsRule() && left > base)
-        lv_label_set_text_fmt(s_rollLabel, LV_SYMBOL_REFRESH " Kasta  %d (+%d)", base, left - base);
+        lv_label_set_text_fmt(s_rollLabel, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL_N_EXTRA), base, left - base);
     else
-        lv_label_set_text_fmt(s_rollLabel, LV_SYMBOL_REFRESH " Kasta  %d", left);
+        lv_label_set_text_fmt(s_rollLabel, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL_N), left);
     if (canRoll) lv_obj_remove_state(s_rollBtn, LV_STATE_DISABLED);
     else lv_obj_add_state(s_rollBtn, LV_STATE_DISABLED);
     if (!s_rolling && s_game.hasRolled()) lv_obj_remove_state(s_chooseBtn, LV_STATE_DISABLED);
@@ -1723,23 +1766,23 @@ static void refreshActions()
     // Result phase: "back to rolling" only while rolls remain; Skriv takes the full width otherwise.
     bool back = s_phase == Phase::RESULT && canRoll;
     setVisible(s_backBtn, back);
-    lv_label_set_text_fmt(s_backLabel, LV_SYMBOL_LEFT " Kasta %d", left);
+    lv_label_set_text_fmt(s_backLabel, trp(LV_SYMBOL_LEFT " ", Str::GAME_BACK_ROLL_N), left);
     lv_obj_set_x(s_writeBtn, back ? 122 : 6);
     lv_obj_set_width(s_writeBtn, back ? 192 : SCR_W - 12);
     bool canWrite = !s_rolling && s_selected != YatzyCategory::COUNT && s_game.canScore(s_selected);
     if (canWrite) {
-        lv_label_set_text_fmt(s_writeLabel, "Skriv %d p\n%s", s_game.potentialScore(s_selected),
-                              Yatzy::categoryName(s_selected, s_game.variant()));
+        lv_label_set_text_fmt(s_writeLabel, tr(Str::GAME_WRITE), s_game.potentialScore(s_selected),
+                              trCategory(s_selected, s_game.variant()));
         lv_obj_remove_state(s_writeBtn, LV_STATE_DISABLED);
     } else {
-        lv_label_set_text(s_writeLabel, "V\xC3\xA4lj ruta\ni tabellen");
+        lv_label_set_text(s_writeLabel, tr(Str::GAME_PICK_BOX));
         lv_obj_add_state(s_writeBtn, LV_STATE_DISABLED);
     }
     if (s_cupArea) {
         if (s_game.variant() == YatzyVariant::MAXI && s_game.savedRollsRule() && left > base)
-            lv_label_set_text_fmt(s_cupCount, "Kast %d kvar (+%d)", base, left - base);
+            lv_label_set_text_fmt(s_cupCount, tr(Str::GAME_ROLLS_LEFT_EXTRA), base, left - base);
         else
-            lv_label_set_text_fmt(s_cupCount, "Kast %d kvar", left);
+            lv_label_set_text_fmt(s_cupCount, tr(Str::GAME_ROLLS_LEFT), left);
         setVisible(s_cupChoose, s_game.hasRolled());
         setVisible(s_cupHide, s_game.hasRolled());
         setVisible(s_cupHint, !s_cupHintDone);
@@ -1759,16 +1802,18 @@ static void quitEvent(lv_event_t *e)
 static void onMenu(lv_event_t *)
 {
     lv_obj_t *m = lv_msgbox_create(nullptr);
-    lv_msgbox_add_title(m, "Avsluta spelet?");
-    lv_msgbox_add_text(m, "Po\xC3\xA4ngen f\xC3\xB6r den h\xC3\xA4r omg\xC3\xA5ngen f\xC3\xB6rsvinner.");
+    lv_obj_set_style_text_font(m, &my_font_18, 0);
+    lv_msgbox_add_title(m, tr(Str::GAME_QUIT_Q));
+    lv_msgbox_add_text(m, tr(Str::GAME_QUIT_TEXT));
     lv_obj_set_width(m, 280);
     lv_obj_set_style_bg_color(m, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_text_color(m, Theme::c(Theme::TEXT), 0);
     lv_obj_set_style_border_color(m, Theme::c(Theme::ACCENT), 0);
     lv_obj_set_style_border_width(m, 2, 0);
     lv_obj_center(m);
-    lv_obj_t *bQuit = lv_msgbox_add_footer_button(m, "Avsluta");
-    lv_obj_t *bCont = lv_msgbox_add_footer_button(m, "Forts\xC3\xA4tt");
+    lv_obj_t *bQuit = lv_msgbox_add_footer_button(m, tr(Str::GAME_QUIT));
+    lv_obj_t *bCont = lv_msgbox_add_footer_button(m, tr(Str::BTN_CONTINUE));
+    Theme::msgboxFonts(m);
     lv_obj_add_event_cb(bQuit, quitEvent, LV_EVENT_CLICKED, m);
     lv_obj_add_event_cb(bCont, [](lv_event_t *e) { lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e)); },
                         LV_EVENT_CLICKED, m);
@@ -1785,11 +1830,138 @@ static lv_obj_t *plainBox(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int
     return o;
 }
 
+// --- Web play (v0.5.2) -------------------------------------------------------------------
+// While a web seat has the turn a transparent blocker swallows all touches below the header and
+// a panel at the bottom says who we are waiting for (plus code + URL until a phone is bound).
+// Commands from /ws/game arrive through GameLive's queue and are executed here, on the LVGL task.
+static constexpr uint32_t WEB_TICK_MS = 50, WEB_WRITE_DELAY_MS = 700;
+static lv_obj_t *s_webBlock = nullptr, *s_webPanel = nullptr, *s_webText = nullptr;
+static int s_webShownConn = -1;   // Connection state the panel text was built for
+static YatzyCategory s_webPending = YatzyCategory::COUNT;
+
+static void updateWebOverlay()
+{
+    if (!s_webBlock) return;
+    const bool on = webTurn();
+    lv_obj_set_hidden(s_webBlock, !on);
+    lv_obj_set_hidden(s_webPanel, !on);
+    if (!on) {
+        s_webShownConn = -1;
+        return;
+    }
+    const int cur = s_game.currentPlayer();
+    const char *name = s_game.player(cur).name;
+    const int conn = GameLive::connections(cur) > 0 ? 1 : 0;
+    s_webShownConn = conn;
+    char line1[80], line2[96], all[180];
+    snprintf(line1, sizeof(line1), tr(Str::GAME_WEB_WAIT), name);
+    if (conn) snprintf(line2, sizeof(line2), tr(Str::GAME_WEB_CONNECTED), name);
+    else snprintf(line2, sizeof(line2), tr(Str::GAME_WEB_CONNECT), MyWifi::ipStr(), (unsigned)s_code);
+    snprintf(all, sizeof(all), "%s\n%s", line1, line2);
+    lv_label_set_text(s_webText, all);
+    lv_obj_move_foreground(s_webBlock);
+    lv_obj_move_foreground(s_webPanel);
+}
+
+static void webWriteTimer(lv_timer_t *t)
+{
+    uint32_t gen = (uint32_t)(uintptr_t)lv_timer_get_user_data(t);
+    YatzyCategory c = s_webPending;
+    s_webPending = YatzyCategory::COUNT;
+    if (gen != s_gen || !webTurn() || s_rolling || c == YatzyCategory::COUNT) return;
+    s_selected = c;
+    if (s_phase != Phase::RESULT) setPhase(Phase::RESULT, false);
+    writeSelected();
+}
+
+static void webCommand(const GameLive::Cmd &c)
+{
+    if (!webTurn() || c.player != s_game.currentPlayer() || s_rolling || s_webPending != YatzyCategory::COUNT) return;
+    switch (c.type) {
+    case GameLive::CmdType::HOLD: {
+        const int i = c.arg;
+        if (s_phase != Phase::ROLL || !s_game.hasRolled() || i < 0 || i >= s_game.diceCount()) return;
+        const bool hold = !s_game.held(i);
+        s_game.setHold(i, hold);
+        if (!hold) {   // Back to the throw zone at a new random spot
+            s_dice[i].jx = (int32_t)rnd(-scatterX(), scatterX());
+            s_dice[i].jy = (int32_t)rnd(-scatterY(), scatterY());
+        }
+        moveDie(i, true);
+        refreshActions();
+        break;
+    }
+    case GameLive::CmdType::ROLL:
+        if (!s_game.canRoll()) return;
+        if (s_phase == Phase::RESULT) setPhase(Phase::ROLL, false);
+        startRoll(nullptr);   // Classic throw; the console shows the animation
+        break;
+    case GameLive::CmdType::CHOOSE: {
+        const YatzyCategory cat = (YatzyCategory)c.arg;
+        if (!s_game.hasRolled() || !s_game.canScore(cat)) return;
+        // Show the table with the chosen box for a moment, then write it
+        s_selected = cat;
+        if (s_phase != Phase::RESULT) setPhase(Phase::RESULT, true);
+        else refreshActions();
+        lv_obj_invalidate(s_table);
+        s_webPending = cat;
+        lv_timer_t *t = lv_timer_create(webWriteTimer, WEB_WRITE_DELAY_MS, (void *)(uintptr_t)s_gen);
+        lv_timer_set_repeat_count(t, 1);
+        break;
+    }
+    }
+}
+
+static void webTimer(lv_timer_t *t)
+{
+    uint32_t gen = (uint32_t)(uintptr_t)lv_timer_get_user_data(t);
+    if (gen != s_gen) {   // Game screen left
+        lv_timer_delete(t);
+        return;
+    }
+    GameLive::Cmd c;
+    for (int n = 0; n < 4 && GameLive::popCmd(c); n++) {
+        webCommand(c);
+        if (gen != s_gen) return;   // The game ended (results screen)
+    }
+    if (webTurn()) {
+        const int conn = GameLive::connections(s_game.currentPlayer()) > 0 ? 1 : 0;
+        if (conn != s_webShownConn) updateWebOverlay();
+    }
+}
+
+static void buildWebOverlay(lv_obj_t *scr)
+{
+    s_webBlock = plainBox(scr, 0, FELT_Y, SCR_W, SCR_H - FELT_Y);
+    lv_obj_set_clickable(s_webBlock, true);   // Swallows touches (dice, cup, buttons, table)
+    lv_obj_set_scroll_chain(s_webBlock, false);
+    lv_obj_set_gesture_bubble(s_webBlock, false);
+    s_webPanel = plainBox(scr, 8, SCR_H - 112, SCR_W - 16, 104);
+    lv_obj_set_style_radius(s_webPanel, 14, 0);
+    lv_obj_set_style_bg_color(s_webPanel, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_bg_opa(s_webPanel, 235, 0);
+    lv_obj_set_style_border_width(s_webPanel, 2, 0);
+    lv_obj_set_style_border_color(s_webPanel, Theme::c(Theme::TEAL), 0);
+    lv_obj_t *icon = Theme::label(s_webPanel, LV_SYMBOL_WIFI, &my_font_24, Theme::TEAL);
+    lv_obj_set_pos(icon, 10, 10);
+    s_webText = Theme::label(s_webPanel, "", &my_font_14);
+    lv_obj_set_width(s_webText, SCR_W - 16 - 50);
+    lv_label_set_long_mode(s_webText, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_pos(s_webText, 44, 8);
+    lv_obj_set_hidden(s_webBlock, true);
+    lv_obj_set_hidden(s_webPanel, true);
+    s_webShownConn = -1;
+    s_webPending = YatzyCategory::COUNT;
+    GameLive::clearCmds();
+    lv_timer_create(webTimer, WEB_TICK_MS, (void *)(uintptr_t)s_gen);
+}
+
 static void showGame()
 {
     s_gen++;
     cupKill();
     s_cupArea = nullptr;
+    s_webBlock = s_webPanel = s_webText = nullptr;
     s_cupHintDone = false;   // "Skaka och svep uppåt" once per game
     s_rolling = 0;
     s_phase = Phase::ROLL;
@@ -1842,7 +2014,7 @@ static void showGame()
     lv_obj_set_style_shadow_color(s_sugPanel, Theme::c(0x000000), 0);
     lv_obj_set_style_shadow_opa(s_sugPanel, LV_OPA_50, 0);
     lv_obj_set_style_shadow_offset_y(s_sugPanel, 4, 0);
-    lv_obj_t *sugTitle = Theme::label(s_sugPanel, "F\xC3\xB6rslag", &my_font_14, Theme::MUTED);
+    lv_obj_t *sugTitle = Theme::label(s_sugPanel, tr(Str::GAME_SUGGESTIONS), &my_font_14, Theme::MUTED);
     lv_obj_set_pos(sugTitle, 10, 3);
     s_sugHint = Theme::label(s_sugPanel, "", &my_font_14, Theme::MUTED);
     lv_obj_align(s_sugHint, LV_ALIGN_CENTER, 0, 8);
@@ -1872,7 +2044,7 @@ static void showGame()
     lv_obj_set_pos(s_rollBtn, 6, BTN_Y);
     s_rollLabel = lv_obj_get_child(s_rollBtn, 0);
     lv_obj_add_event_cb(s_rollBtn, onRoll, LV_EVENT_CLICKED, nullptr);
-    s_chooseBtn = Theme::button(scr, "V\xC3\xA4lj ruta " LV_SYMBOL_RIGHT, 152, BTN_H, Theme::TEAL);
+    s_chooseBtn = Theme::button(scr, trp("", Str::GAME_PICK_BOX_BTN, " " LV_SYMBOL_RIGHT), 152, BTN_H, Theme::TEAL);
     lv_obj_set_pos(s_chooseBtn, 162, BTN_Y);
     lv_obj_add_event_cb(s_chooseBtn, [](lv_event_t *) {
         if (!s_rolling && s_game.hasRolled()) setPhase(Phase::RESULT, true);
@@ -1935,6 +2107,7 @@ static void showGame()
         createDie(scr, i);
         moveDie(i, false);
     }
+    buildWebOverlay(scr);   // Above the dice: blocks local input on web turns
 
     Theme::loadScreen(scr);
     newTurnUi();
@@ -1946,8 +2119,8 @@ static void showGame()
 static void showResults()
 {
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, "Resultat");
-    lv_obj_t *var = Theme::label(scr, Yatzy::variantName(s_game.variant(), s_game.mode()), &my_font_14, Theme::TEAL);
+    Theme::header(scr, tr(Str::RES_TITLE));
+    lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode()), &my_font_14, Theme::TEAL);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
@@ -1979,10 +2152,10 @@ static void showResults()
         lv_obj_align(pl, LV_ALIGN_TOP_RIGHT, 0, y + 2);
     }
 
-    lv_obj_t *again = Theme::button(scr, LV_SYMBOL_REFRESH " Spela igen", 150, 46, Theme::ACCENT, true);
+    lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN), 150, 46, Theme::ACCENT, true);
     lv_obj_set_pos(again, 160, 424);
     lv_obj_add_event_cb(again, [](lv_event_t *) { s_game.restartSamePlayers(); showGame(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *menu = Theme::button(scr, LV_SYMBOL_HOME " Meny", 140, 46, Theme::MUTED);
+    lv_obj_t *menu = Theme::button(scr, trp(LV_SYMBOL_HOME " ", Str::RES_MENU), 140, 46, Theme::MUTED);
     lv_obj_set_pos(menu, 10, 424);
     lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
 

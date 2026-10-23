@@ -5,12 +5,25 @@
 
 #include "app_config.h"
 #include "board_display.h"
+#include "lang.h"
 #include "my_theme.h"
 
 namespace UiBoot {
 
-static const char *const ITEM_NAME[(int)Item::COUNT] = {
-    "Display (ST77922 QSPI)", "Touch (I2C 0x55)", "PSRAM (8 MB OPI)", "I2C-buss", "Klocka (DS3231 RTC)", "Lagring (FFat)", "Wi-Fi (STA)", "Webbserver"};
+static const char *itemName(int i)
+{
+    switch ((Item)i) {
+    case Item::DISP: return "Display (ST77922 QSPI)";
+    case Item::TOUCH: return "Touch (I2C 0x55)";
+    case Item::PSRAM: return "PSRAM (8 MB OPI)";
+    case Item::I2C: return tr(Str::BOOT_I2C);
+    case Item::RTC: return tr(Str::BOOT_CLOCK);
+    case Item::STORAGE: return tr(Str::BOOT_STORAGE);
+    case Item::WIFI: return "Wi-Fi (STA)";
+    case Item::WEB: return tr(Str::BOOT_WEB);
+    default: return "?";
+    }
+}
 
 static constexpr int32_t ROW_H = 33;
 static lv_obj_t *s_screen = nullptr;
@@ -67,16 +80,16 @@ void show()
         int32_t y = i * ROW_H;
         s_icon[i] = Theme::label(list, LV_SYMBOL_BULLET, &my_font_18, Theme::LINE);
         lv_obj_set_pos(s_icon[i], 2, y + 6);
-        lv_obj_t *name = Theme::label(list, ITEM_NAME[i], &my_font_14);
+        lv_obj_t *name = Theme::label(list, itemName(i), &my_font_14);
         lv_obj_set_pos(name, 30, y);
-        s_detail[i] = Theme::label(list, "väntar", &my_font_14, Theme::MUTED);
+        s_detail[i] = Theme::label(list, tr(Str::BOOT_WAITING), &my_font_14, Theme::MUTED);
         lv_label_set_long_mode(s_detail[i], LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_width(s_detail[i], 240);
         lv_obj_set_pos(s_detail[i], 30, y + 17);
         s_state[i] = State::PENDING;
     }
 
-    s_status = Theme::label(s_screen, "Startar...", &my_font_14, Theme::MUTED);
+    s_status = Theme::label(s_screen, tr(Str::BOOT_STARTING), &my_font_14, Theme::MUTED);
     lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -14);
     lv_screen_load(s_screen);
 }
@@ -89,12 +102,12 @@ void set(Item item, State state, const char *detail)
     s_state[i] = state;
     const char *sym = LV_SYMBOL_BULLET;
     uint32_t col = Theme::LINE;
-    const char *def = "väntar";
+    const char *def = tr(Str::BOOT_WAITING);
     switch (state) {
-    case State::RUNNING: sym = LV_SYMBOL_REFRESH; col = Theme::TEAL; def = "testar..."; break;
+    case State::RUNNING: sym = LV_SYMBOL_REFRESH; col = Theme::TEAL; def = tr(Str::BOOT_TESTING); break;
     case State::OK: sym = LV_SYMBOL_OK; col = Theme::GREEN; def = "OK"; break;
-    case State::FAIL: sym = LV_SYMBOL_CLOSE; col = Theme::RED; def = "fel"; break;
-    case State::SKIP: sym = LV_SYMBOL_MINUS; col = Theme::MUTED; def = "hoppas över"; break;
+    case State::FAIL: sym = LV_SYMBOL_CLOSE; col = Theme::RED; def = tr(Str::BOOT_FAIL); break;
+    case State::SKIP: sym = LV_SYMBOL_MINUS; col = Theme::MUTED; def = tr(Str::BOOT_SKIPPED); break;
     default: break;
     }
     lv_label_set_text(s_icon[i], sym);

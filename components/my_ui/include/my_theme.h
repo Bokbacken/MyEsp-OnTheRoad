@@ -113,6 +113,21 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title)
     return h;
 }
 
+// Applies `font` to an object and all of its descendants. lv_msgbox builds its title, text and
+// footer buttons with the LVGL default theme font (no Latin-1, so "Fortsätt" became "Forts#tt");
+// call this after the last lv_msgbox_add_* call so every child uses one of our fonts.
+inline void fontTree(lv_obj_t *o, const lv_font_t *font)
+{
+    lv_obj_set_style_text_font(o, font, 0);
+    uint32_t n = lv_obj_get_child_count(o);
+    for (uint32_t i = 0; i < n; i++) fontTree(lv_obj_get_child(o, (int32_t)i), font);
+}
+
+inline void msgboxFonts(lv_obj_t *mbox, const lv_font_t *font = &my_font_18)
+{
+    fontTree(mbox, font);
+}
+
 // Loads a screen with a short fade and deletes the previous one.
 inline void loadScreen(lv_obj_t *scr)
 {

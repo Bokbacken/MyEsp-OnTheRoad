@@ -1,6 +1,7 @@
 // app_web.cpp - OnTheRoad routes (see header). JSON field names are unchanged from the
 // Arduino 0.3.x builds, so the web pages work as before.
 #include "app_web.h"
+#include "lang_game.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,8 @@
 #include "board_touch.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "game_live.h"
 #include "my_diag.h"
 #include "my_log.h"
@@ -216,6 +219,14 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "roll_anim_ms", c.rollAnimMs);
     cJSON_AddBoolToObject(o, "maxi_saved_rolls", c.maxiSavedRolls);
     cJSON_AddNumberToObject(o, "throw_mode", c.throwMode);
+    cJSON_AddStringToObject(o, "lang", c.lang);
+    cJSON *langs = cJSON_AddArrayToObject(o, "langs");
+    for (int i = 0; i < Lang::count(); i++) {
+        cJSON *l = cJSON_CreateObject();
+        cJSON_AddStringToObject(l, "code", Lang::code(i));
+        cJSON_AddStringToObject(l, "name", Lang::name(i));
+        cJSON_AddItemToArray(langs, l);
+    }
     return o;
 }
 
@@ -233,26 +244,30 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;
     if (q.getInt("throw_mode", 0, 1, v, bad)) next.throwMode = (uint8_t)v;
-    if (bad) return MyWeb::sendError(r, 400, "Ogiltigt numeriskt värde");
+    if (bad) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NUMBER));
     if (q.getBool("led_enabled", b)) next.ledEnabled = b;
     if (q.getBool("maxi_saved_rolls", b)) next.maxiSavedRolls = b;
     char buf[64];
     if (q.has("tz")) {
-        if (!q.get("tz", buf, sizeof(buf)) || !Config::validTz(buf)) return MyWeb::sendError(r, 400, "Ogiltig tidszon");
+        if (!q.get("tz", buf, sizeof(buf)) || !Config::validTz(buf)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_TZ));
         if (strcmp(next.tz, buf)) {
             strlcpy(next.tz, buf, sizeof(next.tz));
             tzChanged = true;
         }
     }
+    if (q.has("lang")) {
+        if (!q.get("lang", buf, sizeof(buf)) || !Lang::valid(buf)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_LANG));
+        strlcpy(next.lang, buf, sizeof(next.lang));
+    }
     if (q.has("admin_pin_new")) {
-        if (!q.adminAllowed()) return MyWeb::sendError(r, 403, "Fel admin-PIN");
+        if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
         if (!q.get("admin_pin_new", buf, sizeof(buf)) || !Config::validAdminPin(buf, true))
-            return MyWeb::sendError(r, 400, "Admin-PIN måste vara 4-8 siffror (tomt = ingen PIN)");
+            return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_PIN_FORMAT));
         strlcpy(next.adminPin, buf, sizeof(next.adminPin));
     }
     if (q.has("hostname")) {
         if (!q.get("hostname", buf, sizeof(buf)) || !Config::validHostname(buf))
-            return MyWeb::sendError(r, 400, "Ogiltigt värdnamn");
+            return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_HOSTNAME));
         if (strcmp(next.hostname, buf)) {
             strlcpy(next.hostname, buf, sizeof(next.hostname));
             hostChanged = true;
@@ -260,10 +275,11 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     }
     const bool pinChanged = strcmp(next.adminPin, Config::get().adminPin) != 0;
     Config::get() = next;
-    if (!Config::save()) return MyWeb::sendError(r, 500, "Kunde inte spara i NVS");
+    if (!Config::save()) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_NVS));
     if (s_configCb) s_configCb();
     if (hostChanged) MyWifi::requestHostnameUpdate();
     if (tzChanged) MyTime::setTz(next.tz);
+    Lang::setLang(next.lang);
     MyLog::event("cfg", "settings saved from web%s%s%s", hostChanged ? ", hostname" : "", tzChanged ? ", tz" : "",
                  pinChanged ? ", admin PIN" : "");
     cJSON *o = cJSON_CreateObject();
@@ -281,14 +297,14 @@ static esp_err_t handleWifiPost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     char ssid[40], pass[72] = "";
-    if (!getTrim(q, "ssid", ssid, sizeof(ssid)) || !ssid[0]) return MyWeb::sendError(r, 400, "ssid saknas");
-    if (strlen(ssid) > 32) return MyWeb::sendError(r, 400, "SSID får vara högst 32 tecken");
+    if (!getTrim(q, "ssid", ssid, sizeof(ssid)) || !ssid[0]) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_SSID_MISSING));
+    if (strlen(ssid) > 32) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_SSID_LONG));
     if (q.has("pass") && !q.get("pass", pass, sizeof(pass)))
-        return MyWeb::sendError(r, 400, "Lösenordet måste vara tomt eller 8-63 tecken");
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_PASS));
     if (!pass[0] && q.has("keep_pass")) MyWifi::savedPassword(ssid, pass, sizeof(pass));
     esp_err_t e;
-    if (!Config::validWifiPass(pass, true)) e = MyWeb::sendError(r, 400, "Lösenordet måste vara tomt eller 8-63 tecken");
-    else if (!MyWifi::connect(ssid, pass)) e = MyWeb::sendError(r, 500, "Wi-Fi är inte startat");
+    if (!Config::validWifiPass(pass, true)) e = MyWeb::sendError(r, 400, tr(Str::WEB_ERR_PASS));
+    else if (!MyWifi::connect(ssid, pass)) e = MyWeb::sendError(r, 500, tr(Str::WEB_ERR_WIFI_OFF));
     else {
         cJSON *o = cJSON_CreateObject();
         cJSON_AddBoolToObject(o, "ok", true);
@@ -330,7 +346,7 @@ static esp_err_t handleScan(httpd_req_t *r)
 static esp_err_t sendNets(httpd_req_t *r)
 {
     NetList *list = (NetList *)psAlloc(sizeof(NetList));
-    if (!list) return MyWeb::sendError(r, 500, "Minnet räcker inte");
+    if (!list) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
     MyWifi::savedCopy(*list);
     MyWifi::Info wi = MyWifi::info();
     cJSON *o = cJSON_CreateObject();
@@ -355,20 +371,20 @@ static esp_err_t handleNetsPost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     char act[16];
-    if (!q.get("action", act, sizeof(act))) return MyWeb::sendError(r, 400, "action saknas");
+    if (!q.get("action", act, sizeof(act))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ACTION_MISSING));
     if (strcmp(act, "forget_all") == 0) {
         MyWifi::forgetAll();
         MyLog::event("wifi", "all saved networks forgotten (web)");
         return MyWeb::sendOk(r);
     }
     char ssid[40];
-    if (!q.get("ssid", ssid, sizeof(ssid)) || !ssid[0] || strlen(ssid) > 32) return MyWeb::sendError(r, 400, "Ogiltigt SSID");
+    if (!q.get("ssid", ssid, sizeof(ssid)) || !ssid[0] || strlen(ssid) > 32) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_SSID));
     bool ok = false;
     if (strcmp(act, "add") == 0) {
         char pass[72] = "";
         if (q.has("pass") && !q.get("pass", pass, sizeof(pass)))
-            return MyWeb::sendError(r, 400, "Lösenordet måste vara tomt eller 8-63 tecken");
-        if (!Config::validWifiPass(pass, true)) return MyWeb::sendError(r, 400, "Lösenordet måste vara tomt eller 8-63 tecken");
+            return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_PASS));
+        if (!Config::validWifiPass(pass, true)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_PASS));
         ok = MyWifi::savedAdd(ssid, pass);
         memset(pass, 0, sizeof(pass));
     } else if (strcmp(act, "remove") == 0) {
@@ -376,12 +392,12 @@ static esp_err_t handleNetsPost(httpd_req_t *r)
     } else if (strcmp(act, "move") == 0) {
         long d;
         bool bad = false;
-        if (!q.getInt("delta", -NET_LIST_MAX, NET_LIST_MAX, d, bad)) return MyWeb::sendError(r, 400, "delta saknas");
+        if (!q.getInt("delta", -NET_LIST_MAX, NET_LIST_MAX, d, bad)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_DELTA));
         ok = MyWifi::savedMove(ssid, (int)d);
     } else {
-        return MyWeb::sendError(r, 400, "Okänd action");
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ACTION));
     }
-    if (!ok) return MyWeb::sendError(r, 404, "Nätverket finns inte / kunde inte sparas");
+    if (!ok) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_NET_NOT_FOUND));
     return sendNets(r);
 }
 
@@ -390,30 +406,25 @@ static esp_err_t handleTimePost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     char buf[24];
-    if (!q.get("epoch", buf, sizeof(buf))) return MyWeb::sendError(r, 400, "epoch saknas");
-    if (!MyTime::setManual((time_t)atoll(buf))) return MyWeb::sendError(r, 400, "Ogiltig tid");
+    if (!q.get("epoch", buf, sizeof(buf))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_EPOCH));
+    if (!MyTime::setManual((time_t)atoll(buf))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_TIME));
     return MyWeb::sendOk(r);
 }
 
 // ----------------------------------------------------------------------------------------
-// /api/game - read-only live view of the running game (page /game polls it).
+// /api/game - live view of the running game (page /game polls it).
 // ?v=<version>: answers {"same":true} while nothing changed.
 // ----------------------------------------------------------------------------------------
-static esp_err_t handleGame(httpd_req_t *r)
+// Builds the live-view JSON from a snapshot (shared by /api/game and the WebSocket broadcast).
+static cJSON *gameJson(const GameLive::Snapshot &snap)
 {
-    MyWeb::Req q(r);
-    long v = -1;
-    bool bad = false;
-    q.getInt("v", 0, 0x7FFFFFFF, v, bad);
-    if (v >= 0 && (uint32_t)v == GameLive::version()) return MyWeb::sendJsonStr(r, 200, "{\"same\":true}");
-    GameLive::Snapshot *s = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot));
-    if (!s) return MyWeb::sendError(r, 500, "Minnet räcker inte");
-    GameLive::get(*s);
+    const GameLive::Snapshot *s = &snap;
     const YatzyGame &g = s->game;
     const bool hasGame = s->active && g.started() && g.playerCount() > 0;
     cJSON *o = cJSON_CreateObject();
     cJSON_AddNumberToObject(o, "version", s->version);
     cJSON_AddBoolToObject(o, "active", hasGame);
+    cJSON_AddStringToObject(o, "lang", Lang::currentLang());
     if (hasGame) {
         const YatzyVariant var = g.variant();
         cJSON_AddBoolToObject(o, "rolling", s->rolling);
@@ -421,14 +432,26 @@ static esp_err_t handleGame(httpd_req_t *r)
         cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
         cJSON_AddBoolToObject(o, "finished", g.finished());
         cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");
-        cJSON_AddStringToObject(o, "name", Yatzy::variantName(var, g.mode()));
+        cJSON_AddStringToObject(o, "name", trVariant(var, g.mode()));
         cJSON_AddNumberToObject(o, "round", g.round());
         cJSON_AddNumberToObject(o, "rounds", g.totalRounds());
         cJSON_AddNumberToObject(o, "current", g.currentPlayer());
         cJSON_AddNumberToObject(o, "rolls_used", g.rollsUsed());
         cJSON_AddNumberToObject(o, "rolls_left", g.rollsLeft());
+        cJSON_AddBoolToObject(o, "can_roll", g.canRoll());
+        cJSON_AddBoolToObject(o, "has_rolled", g.hasRolled());
         cJSON_AddNumberToObject(o, "bonus_threshold", Yatzy::bonusThreshold(var));
         cJSON_AddNumberToObject(o, "bonus_points", Yatzy::bonusPoints(var));
+        if (s->code) cJSON_AddNumberToObject(o, "code", s->code);
+        cJSON *wp = cJSON_AddArrayToObject(o, "web_players");
+        for (int p = 0; p < g.playerCount() && p < YATZY_MAX_PLAYERS; p++) {
+            if (!s->web[p]) continue;
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddNumberToObject(e, "player", p);
+            cJSON_AddNumberToObject(e, "id", s->pid[p]);
+            cJSON_AddBoolToObject(e, "connected", s->conn[p] > 0);
+            cJSON_AddItemToArray(wp, e);
+        }
         cJSON *dice = cJSON_AddArrayToObject(o, "dice");
         cJSON *held = cJSON_AddArrayToObject(o, "held");
         for (int i = 0; i < g.diceCount(); i++) {
@@ -441,8 +464,11 @@ static esp_err_t handleGame(httpd_req_t *r)
         for (int k = 0; k < nc; k++) {
             cJSON *c = cJSON_CreateObject();
             cJSON_AddNumberToObject(c, "id", (int)cats[k]);
-            cJSON_AddStringToObject(c, "name", Yatzy::categoryName(cats[k], var));
+            cJSON_AddStringToObject(c, "name", trCategory(cats[k], var));
             cJSON_AddBoolToObject(c, "upper", Yatzy::isUpper(cats[k]));
+            // Points this box would give with the current dice (only meaningful after a roll)
+            if (g.hasRolled() && !g.finished() && g.canScore(cats[k]))
+                cJSON_AddNumberToObject(c, "potential", g.potentialScore(cats[k]));
             cJSON_AddItemToArray(ca, c);
         }
         cJSON *pa = cJSON_AddArrayToObject(o, "players");
@@ -450,6 +476,7 @@ static esp_err_t handleGame(httpd_req_t *r)
             const YatzyPlayer &pl = g.player(p);
             cJSON *e = cJSON_CreateObject();
             cJSON_AddStringToObject(e, "name", pl.name);
+            if (p < YATZY_MAX_PLAYERS && s->web[p]) cJSON_AddBoolToObject(e, "web", true);
             cJSON *sc = cJSON_AddArrayToObject(e, "scores");   // Same order as "categories"; null = empty
             for (int k = 0; k < nc; k++) {
                 int16_t v2 = pl.scores[(int)cats[k]];
@@ -473,8 +500,292 @@ static esp_err_t handleGame(httpd_req_t *r)
             }
         }
     }
+    return o;
+}
+
+static esp_err_t handleGame(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    long v = -1;
+    bool bad = false;
+    q.getInt("v", 0, 0x7FFFFFFF, v, bad);
+    if (v >= 0 && (uint32_t)v == GameLive::version()) return MyWeb::sendJsonStr(r, 200, "{\"same\":true}");
+    GameLive::Snapshot *s = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot));
+    if (!s) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    GameLive::get(*s);
+    cJSON *o = gameJson(*s);
     free(s);
     return MyWeb::sendJson(r, 200, o);
+}
+
+// ----------------------------------------------------------------------------------------
+// /ws/game - interactive web play (page /play).
+//
+// Client -> device (text frames, JSON):
+//   {"cmd":"join","code":1234,"player":2}   bind to seat 2 (must be a web seat); no "player" = spectator
+//   {"cmd":"hold","die":N}                   toggle hold of die N (0-based)
+//   {"cmd":"roll"}                           roll the free dice (the console animates the throw)
+//   {"cmd":"choose","cat":ID}                write the box with category id ID (see "categories")
+// Device -> client:
+//   {"type":"joined","you":seat|-1}
+//   {"type":"error","error":"code|seat|join|full|cmd|turn","msg":"..."}
+//   {"type":"state","you":seat|-1,"joined":bool, ...same fields as /api/game...}  on every change
+//
+// All client bookkeeping and every send run in the httpd task (handler + httpd_queue_work), so
+// the client table needs no lock. A small poll task only watches the GameLive version and
+// queues the broadcast. Commands go to the LVGL task through GameLive's command queue.
+// ----------------------------------------------------------------------------------------
+static constexpr int WS_MAX_CLIENTS = 4;
+static constexpr size_t WS_MAX_FRAME = 256;
+
+struct WsClient {
+    int fd;            // -1 = free slot
+    bool joined;
+    int8_t seat;       // -1 = spectator
+    uint16_t code;     // Code used to join (a new game invalidates the binding)
+    bool fresh;        // Needs a state frame even if the version did not change
+};
+
+static WsClient s_ws[WS_MAX_CLIENTS] = {{-1, false, -1, 0, false}, {-1, false, -1, 0, false},
+                                        {-1, false, -1, 0, false}, {-1, false, -1, 0, false}};
+static volatile int s_wsCount = 0;
+static volatile bool s_wsWorkQueued = false;
+static uint32_t s_wsSentVersion = 0;
+static GameLive::Snapshot *s_wsSnap = nullptr;   // PSRAM, httpd task only
+
+static void wsSendText(int fd, const char *txt)
+{
+    httpd_ws_frame_t f = {};
+    f.type = HTTPD_WS_TYPE_TEXT;
+    f.payload = (uint8_t *)txt;
+    f.len = strlen(txt);
+    f.final = true;
+    httpd_ws_send_frame_async(MyWeb::handle(), fd, &f);
+}
+
+static void wsSendError(int fd, const char *code, Str msg)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "type", "error");
+    cJSON_AddStringToObject(o, "error", code);
+    cJSON_AddStringToObject(o, "msg", tr(msg));
+    char *txt = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    if (txt) {
+        wsSendText(fd, txt);
+        cJSON_free(txt);
+    }
+}
+
+static WsClient *wsFind(int fd)
+{
+    for (WsClient &c : s_ws)
+        if (c.fd == fd) return &c;
+    return nullptr;
+}
+
+static void wsPublishConnections()
+{
+    uint8_t conn[YATZY_MAX_PLAYERS] = {};
+    int n = 0;
+    for (const WsClient &c : s_ws) {
+        if (c.fd < 0) continue;
+        n++;
+        if (c.joined && c.seat >= 0 && c.seat < YATZY_MAX_PLAYERS) conn[c.seat]++;
+    }
+    s_wsCount = n;
+    GameLive::setConnections(conn, YATZY_MAX_PLAYERS);
+}
+
+// httpd task: drop dead sockets, invalidate stale bindings, send state frames.
+static void wsBroadcastWork(void *)
+{
+    s_wsWorkQueued = false;
+    httpd_handle_t hd = MyWeb::handle();
+    if (!s_wsSnap) s_wsSnap = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot));
+    if (!s_wsSnap || !hd) return;
+    bool changed = false;
+    for (WsClient &c : s_ws) {
+        if (c.fd >= 0 && httpd_ws_get_fd_info(hd, c.fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+            c = {-1, false, -1, 0, false};
+            changed = true;
+        }
+    }
+    GameLive::get(*s_wsSnap);
+    for (WsClient &c : s_ws) {
+        if (c.fd >= 0 && c.joined && c.code != s_wsSnap->code) {   // Game left / new code
+            c.joined = false;
+            c.seat = -1;
+            c.fresh = true;
+            changed = true;
+        }
+    }
+    if (changed) {
+        wsPublishConnections();
+        GameLive::get(*s_wsSnap);
+    }
+    const bool newVersion = s_wsSnap->version != s_wsSentVersion;
+    bool any = false;
+    for (const WsClient &c : s_ws) any |= c.fd >= 0 && (newVersion || c.fresh);
+    if (!any) return;
+    s_wsSentVersion = s_wsSnap->version;
+    cJSON *o = gameJson(*s_wsSnap);
+    char *base = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    if (!base || base[0] != '{') {
+        if (base) cJSON_free(base);
+        return;
+    }
+    const size_t cap = strlen(base) + 64;
+    char *msg = (char *)psAlloc(cap);
+    if (msg) {
+        for (WsClient &c : s_ws) {
+            if (c.fd < 0 || !(newVersion || c.fresh)) continue;
+            c.fresh = false;
+            // {"type":"state","you":n,"joined":b, + the rest of the game object
+            snprintf(msg, cap, "{\"type\":\"state\",\"you\":%d,\"joined\":%s,%s", c.joined ? c.seat : -1,
+                     c.joined ? "true" : "false", base + 1);
+            wsSendText(c.fd, msg);
+        }
+        free(msg);
+    }
+    cJSON_free(base);
+}
+
+static void wsQueueBroadcast()
+{
+    if (s_wsWorkQueued || !MyWeb::handle()) return;
+    s_wsWorkQueued = true;
+    if (httpd_queue_work(MyWeb::handle(), wsBroadcastWork, nullptr) != ESP_OK) s_wsWorkQueued = false;
+}
+
+static void wsPollTask(void *)
+{
+    uint32_t last = 0, idle = 0;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if (s_wsCount <= 0) continue;
+        uint32_t v = GameLive::version();
+        if (v != last || ++idle >= 20) {   // On change, and once a second to reap dead sockets
+            last = v;
+            idle = 0;
+            wsQueueBroadcast();
+        }
+    }
+}
+
+static void wsHandleText(int fd, const char *txt)
+{
+    WsClient *c = wsFind(fd);
+    if (!c) return;
+    cJSON *j = cJSON_Parse(txt);
+    if (!j) return wsSendError(fd, "cmd", Str::WEB_ERR_WS_CMD);
+    const cJSON *jc = cJSON_GetObjectItem(j, "cmd");
+    const char *cmd = cJSON_IsString(jc) ? jc->valuestring : "";
+    GameLive::Snapshot *s = s_wsSnap ? s_wsSnap : (s_wsSnap = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot)));
+    if (!s) {
+        cJSON_Delete(j);
+        return;
+    }
+    GameLive::get(*s);
+    if (strcmp(cmd, "join") == 0) {
+        const cJSON *jk = cJSON_GetObjectItem(j, "code");
+        long code = cJSON_IsNumber(jk) ? (long)jk->valuedouble : cJSON_IsString(jk) ? atol(jk->valuestring) : 0;
+        const cJSON *jp = cJSON_GetObjectItem(j, "player");
+        const bool hasGame = s->active && s->game.started();
+        if (!hasGame || s->code == 0 || code != s->code) {
+            wsSendError(fd, "code", Str::WEB_ERR_WS_CODE);
+        } else {
+            int seat = -1;
+            if (cJSON_IsNumber(jp)) {
+                seat = jp->valueint;
+                if (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS || !s->web[seat]) {
+                    wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
+                    seat = -2;
+                }
+            }
+            if (seat >= -1) {
+                c->joined = true;
+                c->seat = (int8_t)seat;
+                c->code = s->code;
+                c->fresh = true;
+                char buf[48];
+                snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
+                wsSendText(fd, buf);
+                wsPublishConnections();
+                wsQueueBroadcast();
+            }
+        }
+    } else if (strcmp(cmd, "hold") == 0 || strcmp(cmd, "roll") == 0 || strcmp(cmd, "choose") == 0) {
+        if (!c->joined || c->seat < 0 || c->code != s->code) {
+            wsSendError(fd, "join", Str::WEB_ERR_WS_JOIN);
+        } else if (s->game.currentPlayer() != c->seat || s->game.finished()) {
+            wsSendError(fd, "turn", Str::WEB_ERR_WS_TURN);
+        } else {
+            GameLive::Cmd gc = {GameLive::CmdType::ROLL, 0, c->seat};
+            bool ok = true;
+            if (cmd[0] == 'h') {
+                const cJSON *jd = cJSON_GetObjectItem(j, "die");
+                ok = cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < s->game.diceCount();
+                gc.type = GameLive::CmdType::HOLD;
+                gc.arg = ok ? (int8_t)jd->valueint : 0;
+            } else if (cmd[0] == 'c') {
+                const cJSON *jd = cJSON_GetObjectItem(j, "cat");
+                ok = cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < (int)YatzyCategory::COUNT;
+                gc.type = GameLive::CmdType::CHOOSE;
+                gc.arg = ok ? (int8_t)jd->valueint : 0;
+            }
+            if (!ok || !GameLive::pushCmd(gc)) wsSendError(fd, "cmd", Str::WEB_ERR_WS_CMD);
+        }
+    } else {
+        wsSendError(fd, "cmd", Str::WEB_ERR_WS_CMD);
+    }
+    cJSON_Delete(j);
+}
+
+static esp_err_t wsHandler(httpd_req_t *r)
+{
+    const int fd = httpd_req_to_sockfd(r);
+    if (r->method == HTTP_GET) {   // Handshake done: register the client
+        WsClient *c = wsFind(fd);
+        if (!c) c = wsFind(-1);
+        if (!c) {
+            wsSendError(fd, "full", Str::WEB_ERR_WS_FULL);
+            httpd_sess_trigger_close(r->handle, fd);
+            return ESP_OK;
+        }
+        *c = {fd, false, -1, 0, true};
+        wsPublishConnections();
+        wsQueueBroadcast();
+        return ESP_OK;
+    }
+    httpd_ws_frame_t f = {};
+    f.type = HTTPD_WS_TYPE_TEXT;
+    esp_err_t e = httpd_ws_recv_frame(r, &f, 0);
+    if (e != ESP_OK) return e;
+    if (f.type != HTTPD_WS_TYPE_TEXT || f.len == 0 || f.len > WS_MAX_FRAME) {
+        if (f.len > WS_MAX_FRAME) return ESP_FAIL;   // Oversized: drop the connection
+        return ESP_OK;
+    }
+    char buf[WS_MAX_FRAME + 1];
+    f.payload = (uint8_t *)buf;
+    e = httpd_ws_recv_frame(r, &f, f.len);
+    if (e != ESP_OK) return e;
+    buf[f.len] = 0;
+    wsHandleText(fd, buf);
+    return ESP_OK;
+}
+
+static bool wsBegin()
+{
+    httpd_uri_t u = {};
+    u.uri = "/ws/game";
+    u.method = HTTP_GET;
+    u.handler = wsHandler;
+    u.user_ctx = nullptr;
+    u.is_websocket = true;
+    if (httpd_register_uri_handler(MyWeb::handle(), &u) != ESP_OK) return false;
+    return xTaskCreatePinnedToCore(wsPollTask, "ws_poll", 3072, nullptr, 3, nullptr, 0) == pdPASS;
 }
 
 // ----------------------------------------------------------------------------------------
@@ -484,7 +795,7 @@ static esp_err_t handleGame(httpd_req_t *r)
 static esp_err_t sendPlayers(httpd_req_t *r)
 {
     PlayerDb *db = (PlayerDb *)psAlloc(sizeof(PlayerDb));
-    if (!db) return MyWeb::sendError(r, 500, "Minnet räcker inte");
+    if (!db) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
     Players::snapshot(*db);
     uint8_t idx[PLAYER_MAX];
     int n = db->sortedIndices(idx);
@@ -513,34 +824,34 @@ static esp_err_t handlePlayersPost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     char act[16], name[PLAYER_NAME_CAP * 2];
-    if (!q.get("action", act, sizeof(act))) return MyWeb::sendError(r, 400, "action saknas");
+    if (!q.get("action", act, sizeof(act))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ACTION_MISSING));
     const bool hasName = q.get("name", name, sizeof(name));
     long id = 0;
     bool bad = false;
     int res;
     if (strcmp(act, "add") == 0) {
-        if (!hasName) return MyWeb::sendError(r, 400, "name saknas");
+        if (!hasName) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NAME));
         res = Players::add(name);
         if (res > 0) res = 0;
     } else if (strcmp(act, "rename") == 0) {
-        if (!hasName || !q.getInt("id", 1, 65535, id, bad)) return MyWeb::sendError(r, 400, "id/name saknas");
+        if (!hasName || !q.getInt("id", 1, 65535, id, bad)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ID_NAME));
         res = Players::rename((uint16_t)id, name);
     } else if (strcmp(act, "remove") == 0) {
-        if (!q.getInt("id", 1, 65535, id, bad)) return MyWeb::sendError(r, 400, "id saknas");
-        if (!q.adminAllowed()) return MyWeb::sendError(r, 403, "Fel admin-PIN");
+        if (!q.getInt("id", 1, 65535, id, bad)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ID));
+        if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
         res = Players::remove((uint16_t)id);
         if (res == 0) MyLog::event("players", "player %ld removed (web)", id);
     } else {
-        return MyWeb::sendError(r, 400, "Okänd action");
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ACTION));
     }
-    if (res < 0) return MyWeb::sendError(r, res == (int)PlayerErr::NOT_FOUND ? 404 : 400, playerErrText(res));
+    if (res < 0) return MyWeb::sendError(r, res == (int)PlayerErr::NOT_FOUND ? 404 : 400, trPlayerErr(res));
     return sendPlayers(r);
 }
 
 static esp_err_t handleReset(httpd_req_t *r)
 {
     MyWeb::Req q(r);
-    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, "Fel admin-PIN");
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
     MyLog::event("cfg", "factory reset (web)");
     Config::resetToDefaults();
     MyWeb::sendOk(r);
@@ -552,6 +863,8 @@ bool begin()
 {
     MyWeb::Config c;
     c.adminOk = Config::adminOk;
+    c.maxUris = 56;
+    c.maxSockets = 12;   // Room for 4 WebSocket clients next to normal page loads (LWIP: 16)
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
     bool ok = MyWeb::on("/api/info", HTTP_GET, handleInfo);
@@ -566,6 +879,7 @@ bool begin()
     ok &= MyWeb::on("/api/players", HTTP_POST, handlePlayersPost);
     ok &= MyWeb::on("/api/reset", HTTP_POST, handleReset);
     ok &= MyWeb::on("/api/game", HTTP_GET, handleGame);
+    ok &= wsBegin();
     if (!ok) ESP_LOGE(TAG, "route registration failed");
     return ok;
 }

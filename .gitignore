@@ -15,3 +15,4 @@ tests/test_core
 managed_components/
 tests/test_rtc
 tests/test_cup
+tests/test_lang

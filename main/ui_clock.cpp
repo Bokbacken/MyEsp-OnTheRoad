@@ -2,16 +2,17 @@
 
 #include "my_sys.h"
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include "my_time.h"
+#include "lang.h"
 #include "my_theme.h"
 
 namespace UiClock {
 
-static const char *const WDAY[7] = {"sön", "mån", "tis", "ons", "tor", "fre", "lör"};
-static const char *const MON[12] = {"jan", "feb", "mar", "apr", "maj", "jun",
-                                    "jul", "aug", "sep", "okt", "nov", "dec"};
+static const char *wday(int i) { return tr((Str)((int)Str::WDAY_SUN + (i % 7))); }
+static const char *mon(int i) { return tr((Str)((int)Str::MON_JAN + (i % 12))); }
 static constexpr int YEAR_MIN = 2024, YEAR_MAX = 2040;
 
 bool format(char *buf, size_t cap, bool withDate)
@@ -23,8 +24,8 @@ bool format(char *buf, size_t cap, bool withDate)
     }
     bool sure = MyTime::certain();
     if (withDate)
-        snprintf(buf, cap, "%02d:%02d%s  %s %d %s", t.tm_hour, t.tm_min, sure ? "" : "?", WDAY[t.tm_wday],
-                 t.tm_mday, MON[t.tm_mon]);
+        snprintf(buf, cap, "%02d:%02d%s  %s %d %s", t.tm_hour, t.tm_min, sure ? "" : "?", wday(t.tm_wday),
+                 t.tm_mday, mon(t.tm_mon));
     else
         snprintf(buf, cap, "%02d:%02d%s", t.tm_hour, t.tm_min, sure ? "" : "?");
     return sure;
@@ -107,34 +108,39 @@ void showSetter(void (*back)())
         now.tm_hour = 12;
     }
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, "Ställ klockan");
+    Theme::header(scr, tr(Str::CLOCK_TITLE));
 
     lv_obj_t *info = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_label_set_text_fmt(info, "Källa nu: %s. Med internet sätts tiden\nautomatiskt via NTP.",
+    lv_label_set_text_fmt(info, tr(Str::CLOCK_INFO),
                           MyTime::sourceText(MyTime::source()));
     lv_obj_set_pos(info, 12, 54);
 
     static char buf[200];
-    lv_obj_t *dl = Theme::label(scr, "Datum", &my_font_14, Theme::ACCENT);
+    lv_obj_t *dl = Theme::label(scr, tr(Str::CLOCK_DATE), &my_font_14, Theme::ACCENT);
     lv_obj_set_pos(dl, 12, 104);
     s_day = roller(scr, numbers(buf, 1, 31, false), now.tm_mday - 1, 76, 10, 126);
-    s_mon = roller(scr, "jan\nfeb\nmar\napr\nmaj\njun\njul\naug\nsep\nokt\nnov\ndec", now.tm_mon, 96, 92, 126);
+    char mons[12 * 8] = "";
+    for (int i = 0; i < 12; i++) {
+        if (i) strlcat(mons, "\n", sizeof(mons));
+        strlcat(mons, mon(i), sizeof(mons));
+    }
+    s_mon = roller(scr, mons, now.tm_mon, 96, 92, 126);
     int ysel = now.tm_year + 1900 - YEAR_MIN;
     if (ysel < 0) ysel = 0;
     if (ysel > YEAR_MAX - YEAR_MIN) ysel = YEAR_MAX - YEAR_MIN;
     s_year = roller(scr, numbers(buf, YEAR_MIN, YEAR_MAX, false), ysel, 118, 194, 126);
 
-    lv_obj_t *tl = Theme::label(scr, "Tid", &my_font_14, Theme::ACCENT);
+    lv_obj_t *tl = Theme::label(scr, tr(Str::CLOCK_TIME), &my_font_14, Theme::ACCENT);
     lv_obj_set_pos(tl, 12, 252);
     s_hour = roller(scr, numbers(buf, 0, 23, true), now.tm_hour, 96, 64, 274);
     lv_obj_t *colon = Theme::label(scr, ":", &my_font_36);
     lv_obj_set_pos(colon, 154, 300);
     s_min = roller(scr, numbers(buf, 0, 59, true), now.tm_min, 96, 170, 274);
 
-    lv_obj_t *cancel = Theme::button(scr, LV_SYMBOL_CLOSE " Avbryt", 146, 44, Theme::MUTED);
+    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 146, 44, Theme::MUTED);
     lv_obj_set_pos(cancel, 8, 480 - 50);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) { if (s_back) s_back(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *ok = Theme::button(scr, LV_SYMBOL_SAVE " Spara", 152, 44, Theme::ACCENT, true);
+    lv_obj_t *ok = Theme::button(scr, trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE), 152, 44, Theme::ACCENT, true);
     lv_obj_set_pos(ok, 160, 480 - 50);
     lv_obj_add_event_cb(ok, [](lv_event_t *) {
         save();

@@ -12,6 +12,7 @@
 #include "app_config.h"
 #include "app_players.h"
 #include "app_web.h"
+#include "lang.h"
 #include "board_backlight.h"
 #include "board_display.h"
 #include "board_rgb.h"
@@ -86,6 +87,7 @@ extern "C" void app_main(void)
     if (fsOk) MyLog::setEventFile("/ffat/events.log");
     Config::begin();
     const AppConfig &cfg = Config::get();
+    Lang::setLang(cfg.lang);
     MyTime::begin(CFG_NVS_NS, "clk_t", cfg.tz);   // Same key as the Arduino builds
     MyDiag::begin("otr_diag", FW_NAME, FW_VERSION);
     AppWeb::registerDiag();
@@ -139,15 +141,15 @@ extern "C" void app_main(void)
         char buf[48];
         snprintf(buf, sizeof(buf), "fw %u, %u x %u", ti.fwVersion, ti.maxX, ti.maxY);
         UiBoot::set(UiBoot::Item::TOUCH, touchOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    touchOk ? buf : "ingen svar på 0x55");
+                    touchOk ? buf : tr(Str::BOOT_TOUCH_NO_REPLY));
     }
     UiBoot::setProgress(35);
     {
         const size_t total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
         char buf[48];
-        snprintf(buf, sizeof(buf), "%u kB, %u kB ledigt", (unsigned)(total >> 10),
+        snprintf(buf, sizeof(buf), tr(Str::BOOT_PSRAM_INFO), (unsigned)(total >> 10),
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >> 10));
-        UiBoot::set(UiBoot::Item::PSRAM, total ? UiBoot::State::OK : UiBoot::State::FAIL, total ? buf : "PSRAM saknas");
+        UiBoot::set(UiBoot::Item::PSRAM, total ? UiBoot::State::OK : UiBoot::State::FAIL, total ? buf : tr(Str::BOOT_PSRAM_MISSING));
     }
     {
         uint8_t addrs[16];
@@ -156,7 +158,7 @@ extern "C" void app_main(void)
         size_t used = 0;
         for (int i = 0; i < n && used < sizeof(buf) - 6; i++)
             used += snprintf(buf + used, sizeof(buf) - used, "%s0x%02X", i ? " " : "", addrs[i]);
-        UiBoot::set(UiBoot::Item::I2C, n > 0 ? UiBoot::State::OK : UiBoot::State::FAIL, n > 0 ? buf : "inga enheter");
+        UiBoot::set(UiBoot::Item::I2C, n > 0 ? UiBoot::State::OK : UiBoot::State::FAIL, n > 0 ? buf : tr(Str::BOOT_NO_DEVICES));
     }
     // RTC (DS3231 on the shared I2C bus): function test, then it becomes the boot clock source.
     {
@@ -171,7 +173,7 @@ extern "C" void app_main(void)
             snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d UTC, %.1f °C", tm.tm_year + 1900, tm.tm_mon + 1,
                      tm.tm_mday, tm.tm_hour, tm.tm_min, (double)rs.tempC);
         } else if (rs.state == MyRtc::State::MISSING) {
-            snprintf(buf, sizeof(buf), "saknas (inget svar på 0x68)");
+            snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_RTC_MISSING));
         } else {
             snprintf(buf, sizeof(buf), "%s", MyRtc::stateText(rs.state));
         }
@@ -192,16 +194,16 @@ extern "C" void app_main(void)
     {
         bool ok = fsOk && Players::begin();
         char buf[64];
-        snprintf(buf, sizeof(buf), "%u kB ledigt, %d spelare",
+        snprintf(buf, sizeof(buf), tr(Str::BOOT_FS_INFO),
                  (unsigned)((MyFat::totalBytes() - MyFat::usedBytes()) >> 10), Players::count());
         UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    ok ? buf : "FFat-partitionen kunde inte monteras");
+                    ok ? buf : tr(Str::BOOT_FS_FAIL));
     }
     UiBoot::setProgress(55);
 
     if (displayOk) Rgb::setBase(25, 18, 0);   // Dim amber: Wi-Fi / web stage
     UiBoot::set(UiBoot::Item::WIFI, UiBoot::State::RUNNING);
-    UiBoot::setStatus("Startar Wi-Fi...");
+    UiBoot::setStatus(tr(Str::BOOT_STARTING_WIFI));
     MyWifi::Hooks hooks;
     hooks.hostname = Config::hostname;
     hooks.loadNets = Config::loadNets;
@@ -212,10 +214,10 @@ extern "C" void app_main(void)
     const bool wifiOk = MyWifi::begin(hooks);   // STA only; connects to saved networks in the background
     {
         char buf[64];
-        if (MyWifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), "STA, %d sparade nätverk", MyWifi::savedCount());
-        else snprintf(buf, sizeof(buf), "STA, inget sparat nätverk");
+        if (MyWifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), tr(Str::BOOT_WIFI_SAVED), MyWifi::savedCount());
+        else snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_WIFI_NONE));
         UiBoot::set(UiBoot::Item::WIFI, wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    wifiOk ? buf : "Wi-Fi-drivrutinen startade inte");
+                    wifiOk ? buf : tr(Str::BOOT_WIFI_FAIL));
     }
     UiBoot::setProgress(75);
 
@@ -223,14 +225,14 @@ extern "C" void app_main(void)
     const bool webOk = wifiOk && AppWeb::begin();
     {
         char buf[64];
-        snprintf(buf, sizeof(buf), "http://%s.local (när ansluten)", cfg.hostname);
-        UiBoot::set(UiBoot::Item::WEB, webOk ? UiBoot::State::OK : UiBoot::State::FAIL, webOk ? buf : "startade inte");
+        snprintf(buf, sizeof(buf), tr(Str::BOOT_WEB_INFO), cfg.hostname);
+        UiBoot::set(UiBoot::Item::WEB, webOk ? UiBoot::State::OK : UiBoot::State::FAIL, webOk ? buf : tr(Str::BOOT_WEB_FAIL));
     }
     UiBoot::setProgress(100);
 
     if (displayOk && !(wifiOk && MyWifi::hasSavedCredentials())) Rgb::setBase(0, 0, 0);   // Else Wi-Fi status owns the LED
     const int fails = UiBoot::failures();
-    UiBoot::setStatus(fails ? "Fel hittades - fortsätter om en stund" : "Klart!");
+    UiBoot::setStatus(fails ? tr(Str::BOOT_FAILURES) : tr(Str::BOOT_DONE));
     ESP_LOGI(TAG, "boot done in %u ms, %d failure(s)", (unsigned)MySys::millis(), fails);
     // A new OTA image confirms itself once the boot sequence completed without crashing
     // (a crash before this point makes the bootloader return to the previous image).

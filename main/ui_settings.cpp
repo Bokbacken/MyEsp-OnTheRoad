@@ -3,6 +3,7 @@
 
 #include "my_sys.h"
 #include <stdio.h>
+#include <string.h>
 
 #include "board_backlight.h"
 #include "app_config.h"
@@ -10,6 +11,7 @@
 #include "board_touch.h"
 #include "my_wifi.h"
 #include "ui_clock.h"
+#include "lang.h"
 #include "my_theme.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -33,15 +35,15 @@ static void refreshInfo(lv_timer_t *)
     char buf[200];
     MyWifi::Info wi = MyWifi::info();
     if (wi.connected)
-        snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nIP: %s  %d dBm  kanal %u\nAP: %s\nWebb: http://%s.local", wi.ssid,
+        snprintf(buf, sizeof(buf), tr(Str::SET_NET_INFO_CONNECTED), wi.ssid,
                  MyWifi::statusText(wi.status), wi.ip, wi.rssi, wi.channel, wi.bssid,
                  Config::get().hostname);
     else
-        snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nWebb: http://%s.local", wi.ssid[0] ? wi.ssid : "–",
+        snprintf(buf, sizeof(buf), tr(Str::SET_NET_INFO), wi.ssid[0] ? wi.ssid : "–",
                  MyWifi::statusText(wi.status), Config::get().hostname);
     lv_label_set_text(s_netInfo, buf);
     Touch::Info ti = Touch::info();
-    snprintf(buf, sizeof(buf), "Touch: %s  x=%u y=%u  tryck=%lu", ti.present ? "OK" : "saknas", ti.lastX, ti.lastY,
+    snprintf(buf, sizeof(buf), tr(Str::SET_TOUCH_INFO), ti.present ? "OK" : tr(Str::SET_MISSING), ti.lastX, ti.lastY,
              (unsigned long)ti.touchCount);
     lv_label_set_text(s_touchInfo, buf);
 }
@@ -104,10 +106,26 @@ static void leave(bool save)
         Config::get().defaultVariant = s_edit.defaultVariant;
         Config::get().maxiSavedRolls = s_edit.maxiSavedRolls;
         Config::get().throwMode = s_edit.throwMode;
+        snprintf(Config::get().lang, sizeof(Config::get().lang), "%s", s_edit.lang);
         Config::save();
+        Lang::setLang(Config::get().lang);
     }
     applyHardware();   // Reverts the live preview when cancelled
     UiYatzy::showMenu();
+}
+
+static lv_obj_t *styledDropdown(lv_obj_t *parent, const char *opts, uint32_t sel)
+{
+    lv_obj_t *dd = lv_dropdown_create(parent);
+    lv_dropdown_set_options(dd, opts);
+    lv_dropdown_set_selected(dd, sel);
+    lv_obj_set_width(dd, LV_PCT(100));
+    lv_obj_set_style_bg_color(dd, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_text_color(dd, Theme::c(Theme::TEXT), 0);
+    lv_obj_set_style_border_color(dd, Theme::c(Theme::LINE), 0);
+    lv_obj_set_style_text_font(dd, &my_font_18, 0);
+    lv_obj_set_style_text_font(lv_dropdown_get_list(dd), &my_font_18, 0);
+    return dd;
 }
 
 static lv_obj_t *switchRow(lv_obj_t *parent, const char *title, bool on, lv_event_cb_t cb)
@@ -131,7 +149,7 @@ void show()
 {
     s_edit = Config::get();
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, "Inställningar");
+    Theme::header(scr, tr(Str::SET_TITLE));
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
@@ -142,48 +160,60 @@ void show()
     lv_obj_set_style_pad_row(body, 8, 0);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
 
+    // Language first, so a user who cannot read the current language finds it immediately.
+    lv_obj_t *lang = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(lang, LV_FLEX_FLOW_COLUMN);
+    Theme::label(lang, trp(LV_SYMBOL_LIST "  ", Str::SET_LANGUAGE), &my_font_14, Theme::ACCENT);
+    static char langOpts[Lang::MAX_LANGS * 24];
+    langOpts[0] = 0;
+    int langSel = 0;
+    for (int i = 0; i < Lang::count(); i++) {
+        if (i) strlcat(langOpts, "\n", sizeof(langOpts));
+        strlcat(langOpts, Lang::name(i), sizeof(langOpts));
+        if (strcmp(Lang::code(i), s_edit.lang) == 0) langSel = i;
+    }
+    lv_obj_t *ld = styledDropdown(lang, langOpts, langSel);
+    lv_obj_add_event_cb(ld, [](lv_event_t *e) {
+        int i = (int)lv_dropdown_get_selected(lv_event_get_target_obj(e));
+        snprintf(s_edit.lang, sizeof(s_edit.lang), "%s", Lang::code(i));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+
     lv_obj_t *disp = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(disp, LV_FLEX_FLOW_COLUMN);
-    sliderRow(disp, "Skärmljusstyrka", 5, 100, s_edit.brightness, &s_brightVal, onBright);
-    switchRow(disp, "RGB-LED", s_edit.ledEnabled, [](lv_event_t *e) {
+    sliderRow(disp, tr(Str::SET_BRIGHTNESS), 5, 100, s_edit.brightness, &s_brightVal, onBright);
+    switchRow(disp, tr(Str::SET_RGB_LED), s_edit.ledEnabled, [](lv_event_t *e) {
         s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
         Rgb::setEnabled(s_edit.ledEnabled);
     });
-    sliderRow(disp, "LED-ljusstyrka", 0, 255, s_edit.ledBrightness, &s_ledVal, onLed);
+    sliderRow(disp, tr(Str::SET_LED_BRIGHTNESS), 0, 255, s_edit.ledBrightness, &s_ledVal, onLed);
 
     lv_obj_t *game = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(game, LV_FLEX_FLOW_COLUMN);
-    sliderRow(game, "Kastanimation", 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim);
-    lv_obj_t *dd = lv_dropdown_create(game);
-    lv_dropdown_set_options(dd, "Yatzy\nMaxi-Yatzy\nYatzy i ordning\nMaxi-Yatzy i ordning");
-    lv_dropdown_set_selected(dd, s_edit.defaultVariant);
-    lv_obj_set_width(dd, LV_PCT(100));
-    lv_obj_set_style_bg_color(dd, Theme::c(Theme::PANEL_RAISED), 0);
-    lv_obj_set_style_text_color(dd, Theme::c(Theme::TEXT), 0);
-    lv_obj_set_style_border_color(dd, Theme::c(Theme::LINE), 0);
+    sliderRow(game, tr(Str::SET_ROLL_ANIM), 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim);
+    Theme::label(game, tr(Str::SET_DEFAULT_VARIANT), &my_font_14, Theme::MUTED);
+    static char varOpts[160];
+    snprintf(varOpts, sizeof(varOpts), "%s\n%s\n%s\n%s", tr(Str::VAR_YATZY), tr(Str::VAR_MAXI),
+             tr(Str::VAR_YATZY_ORDER), tr(Str::VAR_MAXI_ORDER));
+    lv_obj_t *dd = styledDropdown(game, varOpts, s_edit.defaultVariant);
     lv_obj_add_event_cb(dd, [](lv_event_t *e) {
         s_edit.defaultVariant = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
-    switchRow(game, "Maxi: spara oanvända kast", s_edit.maxiSavedRolls, [](lv_event_t *e) {
+    switchRow(game, tr(Str::SET_MAXI_SAVED), s_edit.maxiSavedRolls, [](lv_event_t *e) {
         s_edit.maxiSavedRolls = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });
-    Theme::label(game, "Kasts\xC3\xA4tt", &my_font_14, Theme::MUTED);
-    lv_obj_t *tm = lv_dropdown_create(game);
-    lv_dropdown_set_options(tm, "B\xC3\xA4gare (skaka och svep upp\xC3\xA5t)\nKnapp");
-    lv_dropdown_set_selected(tm, s_edit.throwMode ? 1 : 0);
-    lv_obj_set_width(tm, LV_PCT(100));
-    lv_obj_set_style_bg_color(tm, Theme::c(Theme::PANEL_RAISED), 0);
-    lv_obj_set_style_text_color(tm, Theme::c(Theme::TEXT), 0);
-    lv_obj_set_style_border_color(tm, Theme::c(Theme::LINE), 0);
+    Theme::label(game, tr(Str::SET_THROW_MODE), &my_font_14, Theme::MUTED);
+    static char tmOpts[96];
+    snprintf(tmOpts, sizeof(tmOpts), "%s\n%s", tr(Str::SET_THROW_CUP), tr(Str::SET_THROW_BUTTON));
+    lv_obj_t *tm = styledDropdown(game, tmOpts, s_edit.throwMode ? 1 : 0);
     lv_obj_add_event_cb(tm, [](lv_event_t *e) {
         s_edit.throwMode = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(clk, LV_FLEX_FLOW_COLUMN);
-    Theme::label(clk, "Klocka", &my_font_14, Theme::ACCENT);
+    Theme::label(clk, tr(Str::SET_CLOCK), &my_font_14, Theme::ACCENT);
     UiClock::attachLabel(Theme::label(clk, "", &my_font_18), true);
-    lv_obj_t *clkBtn = Theme::button(clk, LV_SYMBOL_EDIT " Ställ klockan", LV_PCT(100), 40, Theme::TEAL);
+    lv_obj_t *clkBtn = Theme::button(clk, trp(LV_SYMBOL_EDIT " ", Str::CLOCK_TITLE), LV_PCT(100), 40, Theme::TEAL);
     lv_obj_add_event_cb(clkBtn, [](lv_event_t *) {
         if (s_timer) {
             lv_timer_delete(s_timer);
@@ -195,12 +225,12 @@ void show()
 
     lv_obj_t *net = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(net, LV_FLEX_FLOW_COLUMN);
-    Theme::label(net, "Nätverk och diagnostik", &my_font_14, Theme::ACCENT);
+    Theme::label(net, tr(Str::SET_NETWORK), &my_font_14, Theme::ACCENT);
     s_netInfo = Theme::label(net, "", &my_font_14);
     lv_label_set_long_mode(s_netInfo, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(s_netInfo, LV_PCT(100));
     s_touchInfo = Theme::label(net, "", &my_font_14, Theme::MUTED);
-    lv_obj_t *wifiBtn = Theme::button(net, LV_SYMBOL_WIFI " Byt Wi-Fi-nätverk", LV_PCT(100), 40, Theme::TEAL);
+    lv_obj_t *wifiBtn = Theme::button(net, trp(LV_SYMBOL_WIFI " ", Str::SET_CHANGE_WIFI), LV_PCT(100), 40, Theme::TEAL);
     lv_obj_add_event_cb(wifiBtn, [](lv_event_t *) {
         if (s_timer) {
             lv_timer_delete(s_timer);
@@ -210,10 +240,10 @@ void show()
         UiWifi::showNetworks();
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *cancel = Theme::button(scr, LV_SYMBOL_CLOSE " Avbryt", 146, 44, Theme::MUTED);
+    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 146, 44, Theme::MUTED);
     lv_obj_set_pos(cancel, 8, 480 - 50);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) { leave(false); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *save = Theme::button(scr, LV_SYMBOL_SAVE " Spara", 152, 44, Theme::ACCENT, true);
+    lv_obj_t *save = Theme::button(scr, trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE), 152, 44, Theme::ACCENT, true);
     lv_obj_set_pos(save, 160, 480 - 50);
     lv_obj_add_event_cb(save, [](lv_event_t *) { leave(true); }, LV_EVENT_CLICKED, nullptr);
 

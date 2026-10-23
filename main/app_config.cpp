@@ -1,4 +1,5 @@
 #include "app_config.h"
+#include "lang.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -32,6 +33,7 @@ void defaults(AppConfig &c)
     c.maxiSavedRolls = true;
     c.throwMode = 0;
     strcpy(c.tz, DEFAULT_TZ);
+    strcpy(c.lang, "sv");
 }
 
 void begin()
@@ -54,11 +56,13 @@ void begin()
             g_cfg.throwMode = p.getU8("throw_mode", 0) > 1 ? 0 : p.getU8("throw_mode", 0);
             p.getStr("admin_pin", g_cfg.adminPin, sizeof(g_cfg.adminPin));
             p.getStr("tz", g_cfg.tz, sizeof(g_cfg.tz));
+            p.getStr("lang", g_cfg.lang, sizeof(g_cfg.lang));
         }
     }
     if (!validHostname(g_cfg.hostname)) strcpy(g_cfg.hostname, "ontheroad");
     if (!validAdminPin(g_cfg.adminPin, true)) g_cfg.adminPin[0] = 0;
     if (!validTz(g_cfg.tz)) strcpy(g_cfg.tz, DEFAULT_TZ);
+    if (!Lang::valid(g_cfg.lang)) strcpy(g_cfg.lang, "sv");
     ESP_LOGI(TAG, "loaded: host=%s bl=%u%% pin=%s", g_cfg.hostname, g_cfg.brightness, g_cfg.adminPin[0] ? "set" : "none");
 }
 
@@ -81,6 +85,7 @@ bool save()
     ok &= p.setU8("throw_mode", g_cfg.throwMode);
     ok &= p.setStr("admin_pin", g_cfg.adminPin);
     ok &= p.setStr("tz", g_cfg.tz);
+    ok &= p.setStr("lang", g_cfg.lang);
     return p.commit() && ok;
 }
 

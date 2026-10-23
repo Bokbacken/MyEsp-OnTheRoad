@@ -4,8 +4,10 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.5.1 – adds the shake-and-throw dice cup and a warning-free build. v0.5.1 builds with
-> 0 errors / 0 warnings and passes the host tests, but is **not yet tested on hardware**. v0.5.0's RTC and
+> **Status:** v0.5.2 – Swedish/English user interface (i18n), Latin-1 font fix for message boxes and
+> interactive web play from a phone (`/play`, WebSocket, 4-digit game code). v0.5.2 builds with
+> 0 errors / 0 warnings and passes the host tests, but is **not yet tested on hardware** (nor is v0.5.1's
+> dice cup). v0.5.0's RTC and
 > sprite dice animation are hardware-verified; v0.2.0 is hardware-verified. See [ROADMAP.md](ROADMAP.md).
 
 ## Features
@@ -47,6 +49,18 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
   policy in `roam_policy.h` (host-tested). 802.11k/v/r are not used (yet). LED: pulsing blue while
   connecting, green = connected, red = failed. mDNS `ontheroad.local`. The main menu (Wi-Fi icon) and
   settings screen open the network list; the games work without Wi-Fi.
+- **Languages (v0.5.2)** – all on-device text and API error messages come from string tables
+  (`main/lang/`: `enum class Str`, `tr()`, `lang_sv.cpp`, `lang_en.cpp`; missing entries fall back to
+  Swedish). Choose the language on the device (Inställningar → Språk), on the web settings page or via
+  `/api/config` (`lang`; NVS key `lang`, default `sv`). The `/play` and `/game` pages follow the device
+  language; the other web pages are still Swedish. Adding a language is described in `main/lang/lang.h`.
+- **Web play (v0.5.2, not yet hardware-tested)** – in the player setup each seat (guests too) can be
+  marked as a web player (Wi-Fi button). A 4-digit code is created when the game starts (kept for
+  "Spela igen") and shown in the game header, on `/game` and in the waiting panel. On a web player's turn
+  the console shows "Väntar på X via webben..." (plus URL and code until a phone has joined) and blocks
+  local input; the phone opens `http://<device-ip>/play?code=XXXX`, picks its seat and holds dice, rolls
+  (the console runs the normal throw animation) and writes a box. Everything runs over the WebSocket
+  `/ws/game` (max 4 clients, no polling). Without web players everything works as before.
 - **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone
   (default Swedish CET/CEST), manual setting on the device (Inställningar → Klocka) or from the browser.
   The last time is kept in NVS across reboots and shown as uncertain (orange "?") until NTP or a manual set.
@@ -137,6 +151,7 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o te
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
+g++ -std=c++17 -Wall -Wextra -Imain -Imain/lang tests/test_lang.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o tests/test_lang && ./tests/test_lang   # string tables
 ```
 
 ## Flashing and updating
@@ -153,10 +168,11 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o test
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/`, `/game`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
+| GET | `/`, `/game`, `/play`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
 | GET | `/api/info` | System, display, touch, Wi-Fi, clock, RTC, OTA slots, storage (JSON) |
-| GET | `/api/game` | Live game snapshot (read-only); `?v=<version>` answers `{"same":true}` when unchanged |
-| GET / POST | `/api/config` | Read / update settings (NVS); `tz`, `admin_pin_new` (+ `pin`) |
+| GET | `/api/game` | Live game snapshot (read-only); `?v=<version>` answers `{"same":true}` when unchanged. Also `code`, `web_players` (`[{player,id,connected}]`), `lang` |
+| WS | `/ws/game` | Web play. Client: `{"cmd":"join","code":1234,"player":n}` (no `player` = spectator), `{"cmd":"hold","die":n}`, `{"cmd":"roll"}`, `{"cmd":"choose","cat":id}`. Device: `joined`, `error` (`code/seat/join/full/cmd/turn`), `state` (= `/api/game` + `you`, `joined`) on every change |
+| GET / POST | `/api/config` | Read / update settings (NVS); `tz`, `lang` (`sv`/`en`, list in `langs`), `admin_pin_new` (+ `pin`) |
 | POST | `/api/wifi` | Connect to `ssid`/`pass` (added to the saved list on success) |
 | GET | `/api/scan` | Wi-Fi scan (async) |
 | GET / POST | `/api/nets` | Saved networks (never passwords); `action` = add / remove / move (`delta`) / forget_all |
@@ -170,10 +186,11 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o test
 ```
 main/                 Application: app_main, app_config, app_players, app_web, board_* drivers,
                       ui_* screens, game_yatzy, player_db, board_pins.h, web_assets.h
+main/lang/            UI strings: lang.h (ids, tr), lang.cpp, lang_sv.cpp, lang_en.cpp
 main/web/             Web page sources (HTML/CSS)
 components/my_*/      Shared reusable components (see above)
 docs/                 Hardware reference
-tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format, dice cup)
+tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format, dice cup, strings)
 tools/embed_web.py    main/web/ -> main/web_assets.h generator
 tools/lvgl8to9.py     Helper used for the LVGL 8 -> 9 API rename
 partitions.csv        Same layout as Arduino app3M_fat9M_16MB
