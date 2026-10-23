@@ -7,7 +7,7 @@
 #include "net_list.h"
 
 #define FW_NAME    "MyEsp-OnTheRoad"
-#define FW_VERSION "0.3.0"
+#define FW_VERSION "0.3.1"
 
 struct AppConfig {
     char hostname[32];       // mDNS name without ".local"

@@ -17,6 +17,14 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Admin-PIN (OTA, fabriksåterställning, borttagning av spelare, byte av PIN)
 - [ ] HW-test av allt ovan
 
+## v0.3.1 – Wi-Fi-roaming ✅ 🔧
+- [x] Ansluter till starkaste AP:n (BSSID) för SSID:t i stället för första hittade (FAST_SCAN → ALL_CHANNEL_SCAN + BSSID-låsning från egen skanning)
+- [x] Bakgrundsskanning när ansluten: var 5:e min (≥ −55 dBm), 60 s (≥ −65), 30 s (≥ −72), annars 15 s
+- [x] Byter AP vid ≥ 8 dB starkare kandidat (≥ 5 dB när länken är < −75 dBm), 30 s spärr mellan byten (`roam_policy.h`, värdtestad)
+- [x] Vid tappad länk: drivrutinen får 6 s, sedan ny skanning och starkaste AP
+- [x] BSSID/kanal/antal roaming i `/api/info`, diagnostik, webbinställningar och enhetens inställningsskärm
+- [ ] HW-test (fyra AP:er hemma hos Kent)
+
 ## v0.4.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering
 - [ ] Statistik per spelare: antal spel, vinster, snitt, bästa, Yatzy-antal, bonusfrekvens – per variant

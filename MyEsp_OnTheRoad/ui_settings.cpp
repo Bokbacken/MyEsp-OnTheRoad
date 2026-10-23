@@ -33,8 +33,9 @@ static void refreshInfo(lv_timer_t *)
     char buf[200];
     Wifi::Info wi = Wifi::info();
     if (wi.connected)
-        snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nIP: %s  %d dBm\nWebb: http://%s.local", wi.ssid,
-                 Wifi::statusText(wi.status), wi.ip.toString().c_str(), wi.rssi, Config::get().hostname);
+        snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nIP: %s  %d dBm  kanal %u\nAP: %s\nWebb: http://%s.local", wi.ssid,
+                 Wifi::statusText(wi.status), wi.ip.toString().c_str(), wi.rssi, wi.channel, wi.bssid,
+                 Config::get().hostname);
     else
         snprintf(buf, sizeof(buf), "Wi-Fi: %s – %s\nWebb: http://%s.local", wi.ssid[0] ? wi.ssid : "–",
                  Wifi::statusText(wi.status), Config::get().hostname);

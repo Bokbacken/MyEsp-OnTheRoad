@@ -165,6 +165,9 @@ static void handleInfo(AsyncWebServerRequest *req)
     kv(o, "uptime_s", (long)wi.uptimeS);
     kv(o, "connects", (long)wi.connects);
     kv(o, "disconnects", (long)wi.disconnects);
+    kv(o, "roams", (long)wi.roams);
+    kv(o, "bssid", wi.bssid);
+    kv(o, "channel", (long)wi.channel);
     kv(o, "last_error", Wifi::failText(wi.lastFail));
     kv(o, "mac", WiFi.macAddress().c_str());
     kv(o, "hostname", cfg.hostname);

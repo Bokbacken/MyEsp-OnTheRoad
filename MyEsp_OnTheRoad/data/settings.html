@@ -198,7 +198,7 @@ async function status() {
       (w.status === 'failed' && w.last_error ? ' <span class="muted">(' + w.last_error + ')</span>' : '');
     $('w-ssid').textContent = w.connected ? w.ssid : '–';
     $('w-ip').textContent = w.connected ? w.ip : '–';
-    $('w-signal').textContent = w.connected ? bars(w.bars) + '  ' + w.rssi + ' dBm' : '–';
+    $('w-signal').textContent = w.connected ? bars(w.bars) + '  ' + w.rssi + ' dBm · AP ' + w.bssid + ' (kanal ' + w.channel + ')' : '–';
     {
       const c = info.clock;
       $('c-now').textContent = c.epoch ? new Date(c.epoch * 1000).toLocaleString('sv-SE') : 'ej satt';

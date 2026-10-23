@@ -50,7 +50,10 @@ struct Info {
     uint32_t uptimeS;    // Seconds since the current connection was established
     uint32_t connects;   // Successful connections since boot
     uint32_t disconnects;
+    uint32_t roams;      // Moves to a stronger AP (same SSID) since boot
     FailReason lastFail;
+    char bssid[18];      // Connected AP "AA:BB:..", empty when not connected
+    uint8_t channel;     // Connected AP channel, 0 when not connected
 };
 
 struct Network {

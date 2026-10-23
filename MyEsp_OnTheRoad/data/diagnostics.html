@@ -116,10 +116,11 @@ async function refresh() {
       ['Högst prioriterade sparade', esc(w.saved_ssid || '–')],
       ['IP-adress', esc(w.ip)],
       ['RSSI', w.rssi ? w.rssi + ' dBm · ' + w.bars + '/5 streck' : '–'],
+      ['Accesspunkt (BSSID)', w.connected ? esc(w.bssid) + ' · kanal ' + w.channel : '–'],
       ['Ansluten sedan', w.connected ? w.uptime_s + ' s' : '–'],
       ['Senaste fel', esc(w.last_error || '–')],
       ['MAC', esc(w.mac)],
-      ['Anslutningar / avbrott', w.connects + ' / ' + w.disconnects],
+      ['Anslutningar / avbrott / roaming', w.connects + ' / ' + w.disconnects + ' / ' + w.roams],
       ['mDNS', w.mdns ? esc(w.hostname) + '.local' : '<span class="bad">inaktiv</span>'],
     ]);
     $('raw').textContent = JSON.stringify(i, null, 2);

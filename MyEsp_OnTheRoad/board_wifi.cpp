@@ -7,10 +7,15 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "board_ota.h"
+#include "roam_policy.h"
 
 namespace Wifi {
 
 static constexpr uint32_t RETRY_INTERVAL_MS = 60000;   // Background retry of the saved network
+static constexpr uint32_t LOSS_GRACE_MS = 6000;        // Driver rejoin window before a fresh scan
+static constexpr uint32_t ROAM_DWELL_MS = 120;         // Per-channel dwell for background scans
+static constexpr int MAX_APS = 16;                     // BSSIDs tracked per SSID
 
 // All state below is guarded by s_lock (recursive: public functions call each other).
 // The Wi-Fi event handler only touches the volatile flags.
@@ -47,6 +52,17 @@ static int s_autoNext = 0;               // Next saved-list index to consider
 static char s_visible[MAX_NETWORKS][33];
 static int s_visibleCount = 0;
 
+// Roaming: background scans while connected, reconnect to a clearly stronger BSSID.
+static uint8_t s_curBssid[6] = {0};
+static uint8_t s_curChannel = 0;
+static uint32_t s_roams = 0;
+static volatile uint32_t s_scanDoneMs = 0;      // When the last scan result arrived (BSSID pin freshness)
+static uint32_t s_lastRoamScanMs = 0;
+static uint32_t s_lastRoamMs = 0;
+static bool s_roamScan = false;          // Running scan is a background roam scan
+static bool s_roamAttempt = false;       // Running attempt is a roam to another BSSID
+static bool s_lossRecover = false;       // Running attempt is the driver rejoin after a drop
+
 struct Lock {
     Lock() { if (s_lock) xSemaphoreTakeRecursive(s_lock, portMAX_DELAY); }
     ~Lock() { if (s_lock) xSemaphoreGiveRecursive(s_lock); }
@@ -68,6 +84,7 @@ static void onEvent(WiFiEvent_t event, WiFiEventInfo_t info)
         break;
     case ARDUINO_EVENT_WIFI_SCAN_DONE:
         s_scanState = WiFi.scanComplete();
+        s_scanDoneMs = millis();
         break;
     default:
         break;
@@ -86,8 +103,36 @@ static void startMdns()
     Serial.printf("[wifi] mDNS %s.local %s\n", cfg.hostname, s_mdnsOk ? "ok" : "FAILED");
 }
 
-// Starts an attempt with s_trySsid / s_tryPass. Caller holds the lock.
-static void beginAttempt(bool background, bool saveOnSuccess)
+// Collects the scanned APs (BSSIDs) of `ssid` from the current scan result. Caller holds the lock.
+static int scannedAps(const char *ssid, Roam::Ap *out, int max)
+{
+    int n = s_scanState, count = 0;
+    for (int i = 0; i < n && count < max; i++) {
+        if (WiFi.SSID(i) != ssid) continue;
+        uint8_t *b = WiFi.BSSID(i);
+        if (!b) continue;
+        memcpy(out[count].bssid, b, 6);
+        out[count].rssi = (int8_t)WiFi.RSSI(i);
+        out[count].channel = (uint8_t)WiFi.channel(i);
+        count++;
+    }
+    return count;
+}
+
+// Strongest BSSID of `ssid` from a fresh scan (pins the connect to that AP). Caller holds the lock.
+static bool bestBssid(const char *ssid, Roam::Ap &out)
+{
+    if (s_scanState <= 0 || millis() - s_scanDoneMs > Roam::BSSID_PIN_MAX_AGE_MS) return false;
+    Roam::Ap aps[MAX_APS];
+    int n = scannedAps(ssid, aps, MAX_APS);
+    int i = Roam::strongest(aps, n);
+    if (i < 0) return false;
+    out = aps[i];
+    return true;
+}
+
+// Starts an attempt with s_trySsid / s_tryPass, pinned to `ap` when given. Caller holds the lock.
+static void beginAttempt(bool background, bool saveOnSuccess, const Roam::Ap *ap = nullptr)
 {
     WiFi.disconnect(false, false);
     s_gotIp = false;
@@ -101,8 +146,19 @@ static void beginAttempt(bool background, bool saveOnSuccess)
     s_attemptStartMs = s_lastAttemptMs = millis();
     s_attemptId++;
     s_status = Status::CONNECTING;
-    Serial.printf("[wifi] connecting to \"%s\"%s\n", s_trySsid, background ? " (background)" : "");
-    WiFi.begin(s_trySsid, s_tryPass[0] ? s_tryPass : nullptr);
+    s_lossRecover = false;
+    const char *pass = s_tryPass[0] ? s_tryPass : nullptr;
+    if (ap) {
+        char b[18];
+        Roam::formatBssid(ap->bssid, b);
+        Serial.printf("[wifi] connecting to \"%s\" via %s ch %u (%d dBm)%s\n", s_trySsid, b, ap->channel, ap->rssi,
+                      background ? " (background)" : "");
+        WiFi.begin(s_trySsid, pass, ap->channel, ap->bssid);
+    } else {
+        // No fresh scan: the driver does a full-channel scan and picks the strongest AP.
+        Serial.printf("[wifi] connecting to \"%s\"%s\n", s_trySsid, background ? " (background)" : "");
+        WiFi.begin(s_trySsid, pass);
+    }
 }
 
 static void failAttempt(FailReason r)
@@ -131,6 +187,7 @@ static void startAuto(bool background)
         s_autoScan = WiFi.scanNetworks(true, false) != WIFI_SCAN_FAILED;
         if (!s_autoScan) s_scanState = -1;
     }
+    s_roamScan = s_roamAttempt = s_lossRecover = false;
     s_autoTryNext = false;
     s_autoActive = false;
     s_autoNext = 0;
@@ -140,6 +197,10 @@ static void startAuto(bool background)
     if (s_autoScan) {
         s_status = Status::SEARCHING;
         Serial.printf("[wifi] auto-connect: scanning for %u saved network(s)\n", Config::nets().count);
+    } else if (s_status == Status::CONNECTED || s_status == Status::CONNECTING) {
+        // Scan refused (radio busy): report the drop and let the background retry run in ~5 s.
+        s_status = Status::FAILED;
+        s_lastAttemptMs = millis() - RETRY_INTERVAL_MS + 5000;
     }
 }
 
@@ -163,7 +224,8 @@ static void autoTryNext()
     snprintf(s_trySsid, sizeof(s_trySsid), "%s", nl.items[idx].ssid);
     snprintf(s_tryPass, sizeof(s_tryPass), "%s", nl.items[idx].pass);
     bool bg = s_bgAttempt;
-    beginAttempt(bg, false);
+    Roam::Ap ap;
+    beginAttempt(bg, false, bestBssid(s_trySsid, ap) ? &ap : nullptr);
     s_autoActive = true;
 }
 
@@ -188,6 +250,10 @@ bool begin(StatusCallback cb)
     }
     WiFi.setSleep(false);            // Lower latency for the web UI
     WiFi.setAutoReconnect(true);     // Driver rejoins after short drops
+    // Default WIFI_FAST_SCAN joins the FIRST AP found with the SSID (lowest channel), which
+    // with several APs often is a distant one. Scan all channels and take the strongest.
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     s_status = Status::IDLE;
     if (hasSavedCredentials()) startAuto(false);
     loop();
@@ -215,7 +281,9 @@ bool connect(const char *ssid, const char *pass)
     int i = nl.find(ssid);
     bool same = i == 0 && strcmp(nl.items[i].pass, pass) == 0;   // Already saved on top
     s_autoScan = s_autoActive = s_autoTryNext = false;
-    beginAttempt(false, !same);
+    s_roamScan = s_roamAttempt = false;
+    Roam::Ap ap;   // The user just picked it from a scan list: pin the strongest AP
+    beginAttempt(false, !same, bestBssid(ssid, ap) ? &ap : nullptr);
     return true;
 }
 
@@ -319,7 +387,9 @@ void loop()
         s_gotIp = false;
         s_lostIp = false;
         s_discEvent = false;
-        if (s_status != Status::CONNECTED) {
+        if (s_roamAttempt) {
+            s_roams++;                       // A roam is not a new connection
+        } else if (s_status != Status::CONNECTED) {
             s_connects++;
             s_connectedAtMs = now;
         }
@@ -327,10 +397,17 @@ void loop()
         s_lastFail = FailReason::NONE;
         s_bgAttempt = false;
         s_autoActive = s_autoTryNext = s_autoScan = false;
+        s_roamAttempt = s_lossRecover = false;
+        s_lastRoamScanMs = now;              // First background scan after one interval
         String cur = WiFi.SSID();
         if (cur.length()) snprintf(s_trySsid, sizeof(s_trySsid), "%s", cur.c_str());
-        Serial.printf("[wifi] connected to \"%s\", IP %s, RSSI %d dBm\n", WiFi.SSID().c_str(),
-                      WiFi.localIP().toString().c_str(), WiFi.RSSI());
+        uint8_t *b = WiFi.BSSID();
+        if (b) memcpy(s_curBssid, b, 6);
+        s_curChannel = (uint8_t)WiFi.channel();
+        char bs[18];
+        Roam::formatBssid(s_curBssid, bs);
+        Serial.printf("[wifi] connected to \"%s\" via %s ch %u, IP %s, RSSI %d dBm\n", WiFi.SSID().c_str(), bs,
+                      s_curChannel, WiFi.localIP().toString().c_str(), WiFi.RSSI());
         if (s_saveOnSuccess) {
             s_saveOnSuccess = false;
             NetList &nl = Config::nets();
@@ -359,12 +436,20 @@ void loop()
         s_lostIp = false;
         if (s_status == Status::CONNECTED) {
             s_disconnects++;
-            Serial.println("[wifi] connection lost, driver reconnects");
+            Serial.printf("[wifi] connection lost (reason %u), driver rejoins\n", (unsigned)s_discReason);
             s_status = Status::CONNECTING;           // Driver auto-reconnects first
             s_attemptStartMs = s_lastAttemptMs = now;
             s_attemptId++;
             s_bgAttempt = true;
+            s_lossRecover = true;
         }
+    }
+
+    // The driver rejoins the same (possibly pinned) AP; if that is not quick, rescan and take
+    // the strongest AP instead - this is what moves us when the old AP is gone or out of range.
+    if (s_status == Status::CONNECTING && s_lossRecover && now - s_attemptStartMs > LOSS_GRACE_MS) {
+        Serial.println("[wifi] rejoin slow, rescanning for the strongest AP");
+        startAuto(true);
     }
 
     if (s_status == Status::CONNECTING && now - s_attemptStartMs > CONNECT_TIMEOUT_MS) {
@@ -372,15 +457,48 @@ void loop()
         FailReason fr = FailReason::TIMEOUT;
         if (r == WIFI_REASON_NO_AP_FOUND) fr = FailReason::NOT_FOUND;
         else if (r == WIFI_REASON_AUTH_FAIL || r == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT) fr = FailReason::WRONG_PASSWORD;
+        bool wasRoam = s_roamAttempt;
+        s_roamAttempt = false;
         failAttempt(fr);
+        if (wasRoam) startAuto(true);       // Roam target failed: rescan right away
     }
 
     // Fallback in case the SCAN_DONE event was missed.
     if (s_scanState == -2) {
         int n = WiFi.scanComplete();
-        if (n >= 0) s_scanState = n;
+        if (n >= 0) { s_scanState = n; s_scanDoneMs = now; }
         else if (n == WIFI_SCAN_FAILED) s_scanState = -1;
         else if (s_autoScan && now - s_lastAttemptMs > 12000) s_scanState = -1;   // Scan hung
+        else if (s_roamScan && now - s_lastRoamScanMs > 12000) s_scanState = -1;
+    }
+
+    // Roaming: background scan while connected, interval by link quality.
+    if (s_status == Status::CONNECTED && s_scanState != -2 && !Ota::busy() &&
+        now - s_lastRoamScanMs > Roam::scanIntervalMs(-100) &&            // Cheap check first
+        now - s_lastRoamScanMs > Roam::scanIntervalMs(WiFi.RSSI())) {
+        s_lastRoamScanMs = now;
+        WiFi.scanDelete();
+        s_scanState = -2;
+        s_roamScan = WiFi.scanNetworks(true, false, false, ROAM_DWELL_MS) != WIFI_SCAN_FAILED;
+        if (!s_roamScan) s_scanState = -1;
+    }
+    if (s_roamScan && s_scanState != -2) {
+        s_roamScan = false;
+        if (s_status == Status::CONNECTED && s_scanState > 0 && now - s_lastRoamMs > Roam::COOLDOWN_MS) {
+            Roam::Ap aps[MAX_APS];
+            int n = scannedAps(s_trySsid, aps, MAX_APS);
+            int link = WiFi.RSSI();
+            int t = Roam::pickTarget(aps, n, s_curBssid, link);
+            if (t >= 0) {
+                char from[18], to[18];
+                Roam::formatBssid(s_curBssid, from);
+                Roam::formatBssid(aps[t].bssid, to);
+                Serial.printf("[wifi] roam: %s (%d dBm) -> %s ch %u (%d dBm)\n", from, link, to, aps[t].channel, aps[t].rssi);
+                s_lastRoamMs = now;
+                beginAttempt(true, false, &aps[t]);
+                s_roamAttempt = true;
+            }
+        }
     }
 
     // Auto-connect: scan finished -> remember visible SSIDs and try the first saved one.
@@ -442,7 +560,12 @@ Info info()
     i.uptimeS = i.connected ? (millis() - s_connectedAtMs) / 1000 : 0;
     i.connects = s_connects;
     i.disconnects = s_disconnects;
+    i.roams = s_roams;
     i.lastFail = s_lastFail;
+    if (i.connected) {
+        Roam::formatBssid(s_curBssid, i.bssid);
+        i.channel = s_curChannel;
+    }
     return i;
 }
 

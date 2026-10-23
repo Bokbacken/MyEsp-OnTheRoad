@@ -28,7 +28,11 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
   password entry with the on-screen scroll wheel (`ui_charwheel` + `mypi_kbd_core.h`, same model as
   MyPi-Hotspot's keyboard: swipe/drag the wheel, tap to add), "Visa/Dölj", backspace, max 64 chars, then a
   connect screen with a 15 s countdown. Up to **50 saved networks** in priority order (NVS); at boot and
-  after a lost connection the device scans and joins the highest-priority saved network in range. LED: pulsing blue while
+  after a lost connection the device scans and joins the highest-priority saved network in range,
+  pinned to the **strongest AP (BSSID)** of that SSID. **Roaming:** while connected it scans in the
+  background (every 15 s–5 min depending on RSSI) and moves to another AP of the same SSID when it is
+  ≥ 8 dB stronger (≥ 5 dB below −75 dBm, 30 s cooldown, never at ≥ −55 dBm, skipped during OTA);
+  policy in `roam_policy.h` (host-tested). 802.11k/v/r are not available in the Arduino-ESP32 prebuilt libs. LED: pulsing blue while
   connecting, green = connected, red = failed. mDNS `ontheroad.local`. The main menu (Wi-Fi icon) and
   settings screen open the network list; the games work without Wi-Fi.
 - **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone

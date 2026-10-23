@@ -7,6 +7,7 @@
 #include "mypi_kbd_core.h"
 #include "net_list.h"
 #include "player_db.h"
+#include "roam_policy.h"
 
 static int g_fail = 0, g_pass = 0;
 #define CHECK(cond)                                                              \
@@ -185,8 +186,53 @@ static void testPlayers()
     CHECK(sizeof(PlayerRec) == 32);
 }
 
+static void testRoam()
+{
+    using namespace Roam;
+    // Kent's case: connected to a distant AP at -80 dBm while a -48 dBm AP is visible.
+    Ap aps[4] = {
+        {{1, 1, 1, 1, 1, 1}, -80, 1},    // current (far)
+        {{2, 2, 2, 2, 2, 2}, -48, 6},
+        {{3, 3, 3, 3, 3, 3}, -66, 11},
+        {{4, 4, 4, 4, 4, 4}, -71, 1},
+    };
+    const uint8_t cur[6] = {1, 1, 1, 1, 1, 1};
+    CHECK(pickTarget(aps, 4, cur, -80) == 1);
+    CHECK(strongest(aps, 4) == 1);
+    CHECK(strongest(aps, 0) == -1);
+    // Scan measurement of the current AP wins over the link RSSI.
+    CHECK(pickTarget(aps, 4, cur, -40) == 1);
+    // Good link: never roam.
+    CHECK(!shouldRoam(-55, -30));
+    CHECK(!shouldRoam(-50, -30));
+    // Hysteresis: 8 dB normally, 5 dB on a weak link.
+    CHECK(!shouldRoam(-65, -58));
+    CHECK(shouldRoam(-65, -57));
+    CHECK(!shouldRoam(-78, -74));
+    CHECK(shouldRoam(-78, -73));
+    // Only the current AP visible -> no target; current AP strongest -> no target.
+    CHECK(pickTarget(aps, 1, cur, -80) == -1);
+    Ap one[2] = {{{1, 1, 1, 1, 1, 1}, -60, 1}, {{2, 2, 2, 2, 2, 2}, -63, 6}};
+    CHECK(pickTarget(one, 2, cur, -60) == -1);
+    // Current BSSID not in scan: link RSSI is used.
+    const uint8_t gone[6] = {9, 9, 9, 9, 9, 9};
+    CHECK(pickTarget(one, 2, gone, -75) == 0);
+    CHECK(pickTarget(one, 2, gone, -64) == -1);
+    // Scan interval shrinks with weaker links.
+    CHECK(scanIntervalMs(-50) == 300000);
+    CHECK(scanIntervalMs(-60) == 60000);
+    CHECK(scanIntervalMs(-70) == 30000);
+    CHECK(scanIntervalMs(-85) == 15000);
+    CHECK(scanIntervalMs(-100) <= scanIntervalMs(-40));
+    char b[18];
+    const uint8_t mac[6] = {0x28, 0x84, 0x85, 0x0A, 0xFF, 0x00};
+    formatBssid(mac, b);
+    CHECK_STR(b, "28:84:85:0A:FF:00");
+}
+
 int main()
 {
+    testRoam();
     testPlayers();
     testNetList();
     testKbd();
