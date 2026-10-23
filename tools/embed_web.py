@@ -25,6 +25,7 @@ ASSETS = [
     ("WEB_DIAGNOSTICS_HTML", "diagnostics.html", HTML, ["/diag", "/diagnostics.html"]),
     ("WEB_UPDATE_HTML", "update.html", HTML, ["/update", "/update.html"]),
     ("WEB_PLAYERS_HTML", "players.html", HTML, ["/players", "/players.html"]),
+    ("WEB_GAME_HTML", "game.html", HTML, ["/game", "/game.html"]),
     ("WEB_STYLE_CSS", "style.css", "text/css; charset=utf-8", ["/style.css"]),
 ]
 

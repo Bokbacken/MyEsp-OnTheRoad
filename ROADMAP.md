@@ -33,7 +33,20 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] HW-test (första flash via USB med merged-bin, sedan OTA)
 - [ ] Byt ut föråldrade `lv_obj_add/remove_flag` mot LVGL 9.6-setters (bara varningar)
 
-## v0.5.0 – Del B: historik och statistik ⏳
+## v0.5.0 – RTC, ny tärningsanimation, live-webbsida ✅ 🔧
+- [x] DS3231 RTC (RPi-modul "DS3231 for Pi", stift `- NC C D +`) på den delade I2C-bussen (SDA IO38, SCL IO39, 3V3) – ny delad komponent `my_rtc`
+- [x] Funktionstest vid start: svarar på 0x68, register läsbara, OSF (tiden överlevde på batteri), giltigt datum, sekunden tickar, temperatur
+- [x] Ny rad "Klocka (DS3231 RTC)" i bootlistan (tid UTC + temperatur, eller felorsak); 2 × orange LED-blink vid fel
+- [x] RTC lagrar UTC; systemklockan sätts från RTC vid start (källa "RTC" = säker), RTC skrivs efter NTP-synk/manuell inställning och vid ≥ 1 s avvikelse (kontroll var 10:e min)
+- [x] Referenstid för loggar: varje rad lagrar drifttid; när klockan blir säker (RTC/NTP/manuell) visas även tidigare rader i samma boot med riktig tid. Händelser före klockan köas (max 32 st / 180 s) och skrivs med korrigerad tid
+- [x] RTC-status i `/api/info` (`rtc`) och på diagnostiksidan
+- [x] Tärningar som förrenderade sprites (ARGB8888 i PSRAM): gradient, mjuk glans, insänkta prickar; en `lv_image` per tärning roteras/skalas billigt
+- [x] Ny rullning: alla tärningar kastas in från samma sida, ease-out-bana, tre avtagande studsar, 1,25–2,25 varv som rullar ut på rätt sida, liten "duns" vid landning, 45 ms förskjutning
+- [x] Live-webbsida `/game` (skrivskyddad, öppen): tärningar (låsta markerade), protokoll för alla spelare, summa/bonus/totalt, vinnare vid slut, helskärmsknapp. Pollar `/api/game?v=` var 700 ms
+- [x] Värdtest `tests/test_rtc.cpp` (BCD/datum, skottår, veckodag, 12 h-läge, rundtur 2024–2099)
+- [ ] HW-test (RTC-modulen, animation, livesidan)
+
+## v0.6.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering
 - [ ] Statistik per spelare: antal spel, vinster, snitt, bästa, Yatzy-antal, bonusfrekvens – per variant
 - [ ] Statistik per par (ordningsoberoende, A+B = B+A): inbördes möten, vinster, snitt
@@ -47,3 +60,8 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Ljud (ES8311), SD-kort, batterimätare
 - [ ] Spara pågående spel vid strömavbrott
 - [ ] 802.11k/v/r-roaming (möjligt nu med ESP-IDF)
+- [ ] Webbspel: spela från mobilen med 4-siffrig kod som visas på enheten
+
+## Möjliga framtida förbättringar
+- Partitionering 6 + 6 MB app (OTA) + ~4 MB lagring (i dag 3 + 3 MB app + 9 MB FFat) – kräver USB-flash och flytt av spelarfilen
+- Packad lagring med miniz i ROM (`tinfl`/`tdefl`): komprimera i PSRAM och spara packat på FFat (historik/loggar); görs som delad komponent så att den kan återanvändas i MyPi-projekten

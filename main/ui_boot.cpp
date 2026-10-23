@@ -10,9 +10,9 @@
 namespace UiBoot {
 
 static const char *const ITEM_NAME[(int)Item::COUNT] = {
-    "Display (ST77922 QSPI)", "Touch (I2C 0x55)", "PSRAM (8 MB OPI)", "I2C-buss", "Lagring (FFat)", "Wi-Fi (STA)", "Webbserver"};
+    "Display (ST77922 QSPI)", "Touch (I2C 0x55)", "PSRAM (8 MB OPI)", "I2C-buss", "Klocka (DS3231 RTC)", "Lagring (FFat)", "Wi-Fi (STA)", "Webbserver"};
 
-static constexpr int32_t ROW_H = 34;
+static constexpr int32_t ROW_H = 33;
 static lv_obj_t *s_screen = nullptr;
 static lv_obj_t *s_bar = nullptr;
 static lv_obj_t *s_status = nullptr;
@@ -29,7 +29,7 @@ void show()
     lv_obj_t *logo = lv_obj_create(s_screen);
     lv_obj_remove_style_all(logo);
     lv_obj_set_size(logo, 64, 64);
-    lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 14);
     lv_obj_set_style_bg_color(logo, Theme::c(Theme::ACCENT), 0);
     lv_obj_set_style_bg_opa(logo, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(logo, 14, 0);
@@ -48,20 +48,20 @@ void show()
     }
 
     lv_obj_t *title = Theme::label(s_screen, "OnTheRoad", &my_font_36);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 82);
     lv_obj_t *ver = Theme::label(s_screen, FW_NAME " v" FW_VERSION, &my_font_14, Theme::MUTED);
-    lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 138);
+    lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 122);
 
     s_bar = lv_bar_create(s_screen);
     lv_obj_set_size(s_bar, 260, 10);
-    lv_obj_align(s_bar, LV_ALIGN_TOP_MID, 0, 164);
+    lv_obj_align(s_bar, LV_ALIGN_TOP_MID, 0, 146);
     lv_bar_set_range(s_bar, 0, 100);
     lv_obj_set_style_bg_color(s_bar, Theme::c(Theme::PANEL_RAISED), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_bar, Theme::c(Theme::TEAL), LV_PART_INDICATOR);
     lv_obj_set_style_anim_duration(s_bar, 250, 0);
 
     lv_obj_t *list = Theme::card(s_screen, 296, (int)Item::COUNT * ROW_H + 18);
-    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 182);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 164);
     lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     for (int i = 0; i < (int)Item::COUNT; i++) {
         int32_t y = i * ROW_H;

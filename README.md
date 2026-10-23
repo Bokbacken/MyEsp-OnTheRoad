@@ -12,7 +12,7 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 - **Board support** – ST77922 over QSPI (40 MHz) with LVGL 9 partial PSRAM draw buffers (`esp_lcd`), I2C capacitive
   touch (0x55), LEDC PWM backlight on GPIO41, WS2812 status LED on GPIO40.
-- **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, storage, Wi-Fi, web)
+- **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, RTC, storage, Wi-Fi, web)
   with green ✓ / red ✗, plus an R→G→B→white LED sequence.
 - **Yatzy & Maxi-Yatzy** – 1–8 players, all 15 (Yatzy) / 20 (Maxi) categories, upper bonus (50 / 100),
   free or ordered play, Maxi "saved rolls" rule. Full scoring in `game_yatzy.cpp` with host tests.
@@ -21,7 +21,9 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
   players are picked from a sorted list with search; "Ny spelare" saves a new name, "Gäst" plays
   without saving. Managed on the web page `/players` (add, rename, remove – remove needs the admin PIN).
 - **Game UI** – variant menu with clock, player picker, game screen with
-  roll area + "nest" (tap a die to keep it), 800 ms ease-out roll animation, LED flash on roll,
+  roll area + "nest" (tap a die to keep it), sprite dice (pre-rendered ARGB8888 faces in PSRAM with gradient,
+  gloss and inset pips) thrown in from one side with bounces and spin that rolls out onto the result
+  (800 ms default), LED flash on roll,
   scrollable score table with best-category hint, result screen with medals.
 - **Wi-Fi (station only)** – joins an existing access point; the soft-AP is disabled (`AP_MODE_ENABLED 0`).
   On-device setup (`ui_wifi.cpp`): network list sorted by RSSI with 5 signal bars and lock/"Öppen" marker,
@@ -38,6 +40,11 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 - **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone
   (default Swedish CET/CEST), manual setting on the device (Inställningar → Klocka) or from the browser.
   The last time is kept in NVS across reboots and shown as uncertain (orange "?") until NTP or a manual set.
+  With the optional **DS3231 RTC** the clock is set from the RTC at boot (source "RTC", certain); the RTC
+  keeps UTC and is rewritten after every NTP sync / manual set when it drifts ≥ 1 s. Log lines carry
+  uptime and are shown in real time as soon as the clock is certain (also lines from before that point).
+- **Live view** – `/game` shows the running game read-only (dice, kept dice, full score sheet, winner),
+  polling `/api/game` every 700 ms; handy on a phone or TV next to the device.
 - **OTA firmware update** – web page `/update` streams the `-ota.bin` into the inactive app slot
   (app0/app1) with progress on the web page and on the display; the running firmware stays if anything fails.
 - **Admin PIN** – optional 4–8 digit PIN (Inställningar on the web) protecting OTA, factory reset,
@@ -58,10 +65,16 @@ See [docs/hardware_reference.md](docs/hardware_reference.md) for the full refere
 | LCD QSPI CS / CLK / D0 / D1 / D2 / D3 | 10 / 12 / 11 / 13 / 14 / 9 |
 | LCD TE / Backlight | 42 / 41 |
 | Touch SDA / SCL / INT / RST (I2C 0x55) | 38 / 39 / 47 / 48 |
+| DS3231 RTC (I2C 0x68, optional) | SDA 38 / SCL 39 (shared bus), 3V3 |
 | WS2812 LED (GRB) | 40 |
 | Battery ADC | 8 |
 
 SD card and audio (ES8311) are documented but not used yet.
+
+**RTC module:** the Raspberry Pi "DS3231 for Pi" board (5-pin header marked `- NC C D +`) is wired as
+`-` → GND, `NC` → not connected, `C` (SCL) → IO39, `D` (SDA) → IO38, `+` → **3V3** (not 5 V – the board's
+pull-ups go to its supply). These modules have no charging circuit, so a CR1220/LIR1220 coin cell simply
+lasts until it is empty; the boot checklist shows "tid ogiltig (batteri?)" when the time was lost.
 
 ## Building
 
@@ -87,7 +100,8 @@ ESP32 projects (MyPi-Companion, MyPi-Hotspot):
 |---|---|
 | `my_log` | Ring-buffer log + persistent event log (served at `/api/log`, `/api/events`) |
 | `my_storage` | NVS helpers, FAT (wear-levelled) mount and atomic file writes |
-| `my_time` | SNTP, POSIX time zone, manual set, last time kept in NVS |
+| `my_time` | SNTP, POSIX time zone, manual set, RTC source, last time kept in NVS |
+| `my_rtc` | DS3231 on a shared `i2c_master` bus: function test, UTC read/write at the second edge, drift sync (`my_rtc_time.h` host-tested) |
 | `my_diag` | System/heap/PSRAM/partition/reset-reason info as JSON, task list |
 | `my_wifi` | STA with saved networks (`net_list.h`), strongest-BSSID join, roaming (`roam_policy.h`), mDNS |
 | `my_ota` | OTA into the inactive slot, rollback mark-valid |
@@ -110,6 +124,7 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 INC="-Imain -Icomponents/my_wifi/include -Icomponents/my_ui/include"
 g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o tests/test_yatzy && ./tests/test_yatzy
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
+g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 ```
 
 ## Flashing and updating
@@ -126,8 +141,9 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./te
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
-| GET | `/api/info` | System, display, touch, Wi-Fi, clock, OTA slots, storage (JSON) |
+| GET | `/`, `/game`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
+| GET | `/api/info` | System, display, touch, Wi-Fi, clock, RTC, OTA slots, storage (JSON) |
+| GET | `/api/game` | Live game snapshot (read-only); `?v=<version>` answers `{"same":true}` when unchanged |
 | GET / POST | `/api/config` | Read / update settings (NVS); `tz`, `admin_pin_new` (+ `pin`) |
 | POST | `/api/wifi` | Connect to `ssid`/`pass` (added to the saved list on success) |
 | GET | `/api/scan` | Wi-Fi scan (async) |
@@ -145,7 +161,7 @@ main/                 Application: app_main, app_config, app_players, app_web, b
 main/web/             Web page sources (HTML/CSS)
 components/my_*/      Shared reusable components (see above)
 docs/                 Hardware reference
-tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry)
+tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format)
 tools/embed_web.py    main/web/ -> main/web_assets.h generator
 tools/lvgl8to9.py     Helper used for the LVGL 8 -> 9 API rename
 partitions.csv        Same layout as Arduino app3M_fat9M_16MB

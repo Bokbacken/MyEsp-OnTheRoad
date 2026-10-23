@@ -2,13 +2,17 @@
 #include "ui_yatzy.h"
 
 #include "my_sys.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 #include "esp_random.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "app_config.h"
 #include "app_players.h"
 #include "board_rgb.h"
+#include "game_live.h"
 #include "game_yatzy.h"
 #include "my_charwheel.h"
 #include "ui_clock.h"
@@ -480,10 +484,9 @@ static constexpr int32_t BTN_Y = 432, BTN_H = 44;                 // Roll-phase 
 static constexpr int32_t BAR_Y = 194, BAR_H = 42;                 // Result-phase action bar
 static constexpr int32_t TABLE_Y = 240;                           // Lower half
 static constexpr int32_t CAT_COL_W = 112;
-static constexpr uint32_t MOVE_MS = 260, PHASE_MS = 320, BOUNCE_MS = 220, AUTO_RESULT_MS = 650;
-static constexpr uint32_t FAST_PHASE_MS = 400;                       // ~15 fps face changes
-static constexpr uint32_t FAST_INTERVAL_MS = 66, SLOW_EXTRA_MS = 190;
-static constexpr int32_t ZOOM_100 = 256, ZOOM_110 = 282;           // LVGL zoom: 256 = 100 %
+static constexpr uint32_t MOVE_MS = 260, PHASE_MS = 320, BOUNCE_MS = 160, AUTO_RESULT_MS = 650;
+static constexpr uint32_t ROLL_STAGGER_MS = 45;
+static constexpr int32_t ZOOM_100 = 256, ZOOM_LAND = 272;          // LVGL scale: 256 = 100 %
 static constexpr int SUG_MAX = 5;
 
 enum class Phase : uint8_t { ROLL, RESULT };
@@ -495,14 +498,17 @@ struct RowInfo {
 };
 
 struct DieUi {
-    lv_obj_t *obj;
-    lv_obj_t *pips[9];
-    int32_t jx, jy;       // Random scatter in the throw zone (changes every roll)
-    int32_t totX, totY;   // Accumulated drag vector
+    lv_obj_t *obj;           // lv_image showing one of the pre-rendered face sprites
+    int face;                // Face currently shown (0 = blank)
+    int32_t jx, jy;          // Random scatter in the throw zone (changes every roll)
+    int32_t totX, totY;      // Accumulated drag vector
     bool dragging;
     bool rolling;
-    uint32_t nextChange;     // Roll animation: next face change (ms since roll start)
-    uint32_t finishMs;       // Roll animation: landing time (ms since roll start)
+    // Roll animation (ms since roll start)
+    uint32_t startMs, finishMs;
+    int32_t sx, sy, tx, ty;  // Start / landing position
+    int32_t spin;            // Total rotation in 0.1 degree units (signed), unwinds to 0 at landing
+    int32_t lastSeg;         // Quarter turn index of the last face change
 };
 
 static DieUi s_dice[YATZY_MAX_DICE];
@@ -538,17 +544,111 @@ static const uint16_t FACE_PIPS[7] = {
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 8),
 };
 
-static void setFace(DieUi &d, int face)
+// --- Face sprites -----------------------------------------------------------------------
+// The seven faces (blank + 1..6) are rendered once per die size into ARGB8888 draw buffers in
+// PSRAM (anti-aliased rounded body, soft top gloss, inset pips). A die is a single lv_image;
+// rotation and scale are done by the image transform, which is far cheaper than transforming
+// an object tree (LVGL 9 renders transformed objects through an intermediate layer).
+struct FaceSet {
+    int32_t size;
+    uint8_t *mem;
+    lv_draw_buf_t buf[7];
+};
+static FaceSet s_faceSets[2];
+static const FaceSet *s_faces = nullptr;   // Set of the current die size
+
+static void drawFace(lv_layer_t *layer, int32_t S, int face)
 {
+    const int32_t r = S / 5;
+    lv_area_t a = {0, 0, S - 1, S - 1};
+    // Body: warm ivory with a vertical gradient and a thin darker rim
+    lv_draw_rect_dsc_t body;
+    lv_draw_rect_dsc_init(&body);
+    body.radius = r;
+    body.bg_opa = LV_OPA_COVER;
+    const lv_color_t bodyCols[2] = {Theme::c(0xFFFDF6), Theme::c(0xD3CCBC)};
+    lv_grad_init_stops(&body.bg_grad, bodyCols, nullptr, nullptr, 2);
+    lv_grad_vertical_init(&body.bg_grad);
+    body.bg_color = bodyCols[0];
+    body.border_width = 1;
+    body.border_color = Theme::c(0xA89F8C);
+    body.border_opa = LV_OPA_80;
+    lv_draw_rect(layer, &body, &a);
+    // Gloss: white fading out over the upper part
+    lv_draw_rect_dsc_t gloss;
+    lv_draw_rect_dsc_init(&gloss);
+    gloss.radius = r - 2;
+    gloss.bg_opa = LV_OPA_COVER;
+    const lv_color_t glossCols[2] = {lv_color_white(), lv_color_white()};
+    const lv_opa_t glossOpa[2] = {120, 0};
+    lv_grad_init_stops(&gloss.bg_grad, glossCols, glossOpa, nullptr, 2);
+    lv_grad_vertical_init(&gloss.bg_grad);
+    gloss.bg_color = glossCols[0];
+    lv_area_t g = {3, 2, S - 4, S * 45 / 100};
+    lv_draw_rect(layer, &gloss, &g);
+    // Pips: light lower rim (inset look) + dark pip with a slightly lighter centre
     uint16_t mask = FACE_PIPS[face >= 1 && face <= 6 ? face : 0];
-    for (int i = 0; i < 9; i++) {
-        if (mask & (1 << i)) lv_obj_remove_flag(d.pips[i], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(d.pips[i], LV_OBJ_FLAG_HIDDEN);
+    const int32_t pip = S / 5 - 1, off = S * 27 / 100, c = S / 2;
+    for (int k = 0; k < 9; k++) {
+        if (!(mask & (1 << k))) continue;
+        int32_t px = c + (k % 3 - 1) * off - pip / 2, py = c + (k / 3 - 1) * off - pip / 2;
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.radius = LV_RADIUS_CIRCLE;
+        d.bg_opa = LV_OPA_70;
+        d.bg_color = lv_color_white();
+        lv_area_t rim = {px, py + 1, px + pip - 1, py + pip};
+        lv_draw_rect(layer, &d, &rim);
+        d.bg_opa = LV_OPA_COVER;
+        const lv_color_t pipCols[2] = {Theme::c(0x0B1220), Theme::c(Theme::DIE_PIP)};
+        lv_grad_init_stops(&d.bg_grad, pipCols, nullptr, nullptr, 2);
+        lv_grad_vertical_init(&d.bg_grad);
+        d.bg_color = pipCols[0];
+        lv_area_t p = {px, py, px + pip - 1, py + pip - 1};
+        lv_draw_rect(layer, &d, &p);
     }
 }
 
+// Returns the sprite set for die size S, rendering it on first use (LVGL context).
+static const FaceSet *facesFor(int32_t S)
+{
+    FaceSet *freeSet = nullptr;
+    for (FaceSet &fs : s_faceSets) {
+        if (fs.mem && fs.size == S) return &fs;
+        if (!fs.mem && !freeSet) freeSet = &fs;
+    }
+    if (!freeSet) return nullptr;
+    const uint32_t stride = lv_draw_buf_width_to_stride((uint32_t)S, LV_COLOR_FORMAT_ARGB8888);
+    const size_t one = (size_t)stride * (size_t)S;
+    uint8_t *mem = (uint8_t *)heap_caps_aligned_alloc(64, one * 7, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!mem) return nullptr;
+    lv_obj_t *canvas = lv_canvas_create(lv_layer_top());
+    for (int f = 0; f < 7; f++) {
+        lv_draw_buf_init(&freeSet->buf[f], (uint32_t)S, (uint32_t)S, LV_COLOR_FORMAT_ARGB8888, stride, mem + one * f,
+                         (uint32_t)one);
+        lv_canvas_set_draw_buf(canvas, &freeSet->buf[f]);
+        lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_TRANSP);
+        lv_layer_t layer;
+        lv_canvas_init_layer(canvas, &layer);
+        drawFace(&layer, S, f);
+        lv_canvas_finish_layer(canvas, &layer);
+    }
+    lv_obj_delete(canvas);
+    freeSet->mem = mem;
+    freeSet->size = S;
+    return freeSet;
+}
+
+static void setFace(DieUi &d, int face)
+{
+    if (face < 0 || face > 6) face = 0;
+    if (d.face == face) return;
+    d.face = face;
+    if (s_faces) lv_image_set_src(d.obj, &s_faces->buf[face]);
+}
+
 // --- Animation helpers ------------------------------------------------------------------
-static void zoomExec(void *obj, int32_t v) { lv_obj_set_style_transform_scale((lv_obj_t *)obj, (int32_t)v, 0); }
+static void zoomExec(void *obj, int32_t v) { lv_image_set_scale((lv_obj_t *)obj, (uint32_t)v); }
 static void opaExec(void *obj, int32_t v) { lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0); }
 static void xExec(void *obj, int32_t v) { lv_obj_set_x((lv_obj_t *)obj, (int32_t)v); }
 static void yExec(void *obj, int32_t v) { lv_obj_set_y((lv_obj_t *)obj, (int32_t)v); }
@@ -580,8 +680,8 @@ static void stopDieAnims(DieUi &d)
     lv_anim_delete(d.obj, xExec);
     lv_anim_delete(d.obj, yExec);
     lv_anim_delete(d.obj, zoomExec);
-    lv_obj_set_style_transform_scale(d.obj, ZOOM_100, 0);
-    lv_obj_set_style_transform_rotation(d.obj, 0, 0);
+    lv_image_set_scale(d.obj, ZOOM_100);
+    lv_image_set_rotation(d.obj, 0);
 }
 
 // --- Dice placement ---------------------------------------------------------------------
@@ -614,12 +714,14 @@ static void styleDie(int i)
     bool rolled = s_game.hasRolled();
     bool result = s_phase == Phase::RESULT;
     bool held = !result && s_game.held(i);
-    lv_obj_set_style_border_width(o, held ? 3 : (result ? 1 : 0), 0);
-    lv_obj_set_style_border_color(o, Theme::c(held ? Theme::GOLD : 0x8C7A3A), 0);
-    lv_obj_set_style_shadow_width(o, held ? 6 : (result ? 10 : 18), 0);
-    lv_obj_set_style_shadow_color(o, Theme::c(held || result ? 0x000000 : Theme::TEAL), 0);
-    lv_obj_set_style_shadow_opa(o, rolled ? (held ? LV_OPA_60 : LV_OPA_50) : LV_OPA_0, 0);
-    lv_obj_set_style_bg_opa(o, rolled ? (held ? LV_OPA_80 : LV_OPA_COVER) : LV_OPA_30, 0);
+    bool rolling = s_dice[i].rolling;   // Spinning sprite: no box border/shadow (they would not rotate)
+    lv_obj_set_style_border_width(o, rolling ? 0 : (held ? 3 : 0), 0);
+    lv_obj_set_style_border_color(o, Theme::c(Theme::GOLD), 0);
+    lv_obj_set_style_shadow_width(o, held ? 6 : (result ? 10 : 16), 0);
+    lv_obj_set_style_shadow_offset_y(o, held ? 1 : 3, 0);
+    lv_obj_set_style_shadow_color(o, Theme::c(held || result ? 0x000000 : 0x05343A), 0);
+    lv_obj_set_style_shadow_opa(o, rolled && !rolling ? (held ? LV_OPA_60 : LV_OPA_70) : LV_OPA_0, 0);
+    lv_obj_set_style_image_opa(o, rolled ? (held ? 225 : LV_OPA_COVER) : LV_OPA_30, 0);
 }
 
 static void moveDie(int i, bool animate)
@@ -685,35 +787,20 @@ static void dieEvent(lv_event_t *e)
 static void createDie(lv_obj_t *parent, int i)
 {
     DieUi &d = s_dice[i];
-    d.obj = lv_obj_create(parent);
+    d.obj = lv_image_create(parent);
     lv_obj_t *o = d.obj;
     lv_obj_remove_style_all(o);
     lv_obj_set_size(o, s_dieSize, s_dieSize);
-    lv_obj_set_style_radius(o, s_dieSize / 5, 0);
-    lv_obj_set_style_bg_color(o, Theme::c(Theme::DIE_FACE), 0);
-    lv_obj_set_style_bg_grad_color(o, Theme::c(0xD9D4C7), 0);
-    lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_shadow_spread(o, 1, 0);
-    lv_obj_set_style_transform_pivot_x(o, s_dieSize / 2, 0);
-    lv_obj_set_style_transform_pivot_y(o, s_dieSize / 2, 0);
+    lv_obj_set_style_radius(o, s_dieSize / 5, 0);   // For the held rim and the shadow
+    lv_obj_set_style_shadow_spread(o, 0, 0);
+    lv_image_set_pivot(o, s_dieSize / 2, s_dieSize / 2);
+    lv_image_set_antialias(o, true);
     lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(o, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_CHAIN | LV_OBJ_FLAG_GESTURE_BUBBLE));
     lv_obj_set_ext_click_area(o, 4);
-    int32_t pip = s_dieSize / 5 - 1;
-    int32_t off = s_dieSize * 27 / 100;
-    for (int k = 0; k < 9; k++) {
-        lv_obj_t *p = lv_obj_create(o);
-        lv_obj_remove_style_all(p);
-        lv_obj_set_size(p, pip, pip);
-        lv_obj_set_style_radius(p, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(p, Theme::c(Theme::DIE_PIP), 0);
-        lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-        lv_obj_remove_flag(p, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(p, LV_ALIGN_CENTER, (k % 3 - 1) * off, (k / 3 - 1) * off);
-        d.pips[k] = p;
-    }
     d.jx = d.jy = 0;
     d.dragging = d.rolling = false;
+    d.face = -1;
     setFace(d, 0);
     lv_obj_add_event_cb(o, dieEvent, LV_EVENT_PRESSED, (void *)(intptr_t)i);
     lv_obj_add_event_cb(o, dieEvent, LV_EVENT_PRESSING, (void *)(intptr_t)i);
@@ -738,11 +825,14 @@ static void showBanner(const char *text, uint32_t color)
 }
 
 // --- Rolling ----------------------------------------------------------------------------
-// One controller animation (var = felt, value = elapsed ms, linear) drives all rolling dice:
-//  * 0..400 ms     faces change every ~66 ms (~15 fps), strong shake + rotation
-//  * 400 ms..land  the interval grows to ~250 ms and shake/rotation fade out (ease-out)
-//  * landing       final face locked, zoom 110 % -> 100 % bounce
-// Dice are staggered by 35 ms so the last one lands exactly at the configured time (800 ms).
+// One controller animation (var = felt, value = elapsed ms, linear) drives all rolling dice and
+// updates them on every LVGL frame (refresh period 16 ms):
+//  * the dice are thrown in from one side and travel to their landing spot (ease-out cubic)
+//  * three decaying hops (scale up + lift) make them bounce on the felt
+//  * the sprite spins 1.25-2.25 turns and unwinds to 0; each quarter turn shows a new face,
+//    the last quarter shows the real result, so the die "rolls onto" its value
+//  * landing: short 106 % -> 100 % settle
+// Starts are staggered by 45 ms; the last die lands at the configured time (default 800 ms).
 // Held dice (in the nest) are never touched.
 static void autoResultTimer(lv_timer_t *t)
 {
@@ -775,10 +865,40 @@ static void landDie(int i)
     if (!d.rolling) return;
     d.rolling = false;
     setFace(d, s_game.die(i));
-    lv_obj_set_style_transform_rotation(d.obj, 0, 0);
+    lv_image_set_rotation(d.obj, 0);
     moveDie(i, false);
-    lv_obj_set_style_transform_scale(d.obj, ZOOM_110, 0);
-    animInt(d.obj, zoomExec, ZOOM_110, ZOOM_100, BOUNCE_MS, lv_anim_path_ease_out);
+    // Small "thud": the die settles from 106 % to 100 %
+    animInt(d.obj, zoomExec, ZOOM_LAND, ZOOM_100, BOUNCE_MS, lv_anim_path_ease_out);
+}
+
+// Per-frame update of one rolling die. p = 0..1 progress of this die.
+static void rollFrame(int i, float p)
+{
+    DieUi &d = s_dice[i];
+    const float q = 1.0f - p;
+    const float e = 1.0f - q * q * q;                          // Ease-out cubic: fast throw, soft stop
+    // Hops: three decaying bounces (|sin| arcs) -> scale up (towards the viewer) and lift
+    float hop = sinf(3.0f * (float)M_PI * p);
+    if (hop < 0) hop = -hop;
+    hop *= q * sqrtf(q);
+    int32_t x = d.sx + (int32_t)((float)(d.tx - d.sx) * e);
+    int32_t y = d.sy + (int32_t)((float)(d.ty - d.sy) * e) - (int32_t)(hop * 10.0f);
+    lv_obj_set_pos(d.obj, LV_CLAMP(0, x, SCR_W - s_dieSize), y);
+    lv_image_set_scale(d.obj, (uint32_t)(ZOOM_100 + (int32_t)(hop * 64.0f)));
+    // Spin unwinds to 0; a new random face shows every quarter turn, the final face on the last one
+    int32_t angle = (int32_t)((float)d.spin * (1.0f - e));
+    lv_image_set_rotation(d.obj, angle % 3600);
+    int32_t seg = LV_ABS(angle) / 900;
+    if (seg != d.lastSeg) {
+        d.lastSeg = seg;
+        if (seg == 0) {
+            setFace(d, s_game.die(i));
+        } else {
+            int f = rnd(1, 5);
+            if (f >= d.face) f++;                                  // Always a different face
+            setFace(d, f);
+        }
+    }
 }
 
 static void rollExec(void *, int32_t v)
@@ -786,24 +906,12 @@ static void rollExec(void *, int32_t v)
     uint32_t t = (uint32_t)v;
     for (int i = 0; i < s_game.diceCount(); i++) {
         DieUi &d = s_dice[i];
-        if (!d.rolling) continue;
+        if (!d.rolling || t < d.startMs) continue;
         if (t >= d.finishMs) {
             landDie(i);
             continue;
         }
-        if (t < d.nextChange) continue;
-        uint32_t remain = d.finishMs - t;                        // > 0
-        uint32_t interval = FAST_INTERVAL_MS;
-        if (t > FAST_PHASE_MS && d.finishMs > FAST_PHASE_MS)
-            interval += SLOW_EXTRA_MS * (t - FAST_PHASE_MS) / (d.finishMs - FAST_PHASE_MS);
-        d.nextChange = t + interval;
-        setFace(d, rnd(1, 6));
-        int32_t x, y;
-        targetPos(i, x, y);
-        int32_t amp = (int32_t)(2 + 14 * remain / d.finishMs);
-        int32_t angle = (int32_t)(450 * remain / d.finishMs);   // 0.1 degree units
-        lv_obj_set_pos(d.obj, LV_CLAMP(0, x + rnd(-amp, amp), SCR_W - s_dieSize), y + rnd(-amp, amp));
-        lv_obj_set_style_transform_rotation(d.obj, (int32_t)rnd(-angle, angle), 0);
+        rollFrame(i, (float)(t - d.startMs) / (float)(d.finishMs - d.startMs));
     }
 }
 
@@ -828,11 +936,15 @@ static void onRoll(lv_event_t *)
     s_selected = s_best = YatzyCategory::COUNT;
     s_sugCount = 0;
     uint32_t ms = Config::get().rollAnimMs;   // Default 800 ms
+    if (ms < 300) ms = 300;
     if (count == 0) {                          // Everything held: nothing moves
         afterRoll();
         return;
     }
     Rgb::effectDiceRoll(ms + 100);
+    // All dice are thrown in from the same side (random left/right) and roll across the felt.
+    const bool fromLeft = rnd(0, 1) == 0;
+    const int32_t dir = fromLeft ? 1 : -1;
     int k = 0;
     for (int i = 0; i < s_game.diceCount(); i++) {
         if (!rollingMask[i]) continue;
@@ -841,11 +953,19 @@ static void onRoll(lv_event_t *)
         d.jx = (int32_t)rnd(-scatterX(), scatterX());
         d.jy = (int32_t)rnd(-scatterY(), scatterY());
         d.rolling = true;
-        d.nextChange = 0;
-        d.finishMs = ms - (uint32_t)(count - 1 - k) * 35;
+        targetPos(i, d.tx, d.ty);
+        d.sx = fromLeft ? rnd(0, 24) : SCR_W - s_dieSize - rnd(0, 24);
+        d.sy = THROW_TOP + rnd(0, LV_MAX(0, THROW_H - s_dieSize));
+        // Roll direction follows the travel; 1.25 .. 2.25 turns
+        d.spin = dir * (4500 + rnd(0, 3600));
+        d.lastSeg = -1;
+        d.startMs = (uint32_t)k * ROLL_STAGGER_MS;
+        d.finishMs = ms - (uint32_t)(count - 1 - k) * ROLL_STAGGER_MS / 2;
+        if (d.finishMs < d.startMs + 200) d.finishMs = d.startMs + 200;
         k++;
         lv_obj_move_foreground(d.obj);
         styleDie(i);
+        rollFrame(i, 0.0f);
     }
     s_rolling = 1;
     lv_anim_t a;
@@ -875,7 +995,7 @@ static void refreshSuggestions(bool animateIn)
 {
     const char *hint = nullptr;
     if (!s_game.hasRolled()) hint = "Tryck Kasta f\xC3\xB6r att sl\xC3\xA5 t\xC3\xA4rningarna";
-    else if (s_rolling) hint = "T\xC3\xA4rningarna rullar\xE2\x80\xA6";
+    else if (s_rolling) hint = "T\xC3\xA4rningarna rullar...";
     else if (s_sugCount == 0) hint = "Inga rutor kvar";
     int shown = hint && (s_rolling || !s_game.hasRolled()) ? 0 : s_sugCount;
     for (int k = 0; k < SUG_MAX; k++) {
@@ -947,7 +1067,7 @@ static void setPhase(Phase p, bool animate)
             res ? nullptr : hideWhenDone);
     for (int i = 0; i < s_game.diceCount(); i++) {
         lv_anim_delete(s_dice[i].obj, zoomExec);
-        lv_obj_set_style_transform_scale(s_dice[i].obj, ZOOM_100, 0);
+        lv_image_set_scale(s_dice[i].obj, ZOOM_100);
         moveDie(i, animate);
     }
     if (res && s_selected == YatzyCategory::COUNT) s_selected = s_best;
@@ -1153,12 +1273,14 @@ static void refreshActions()
         lv_label_set_text(s_writeLabel, "V\xC3\xA4lj ruta\ni tabellen");
         lv_obj_add_state(s_writeBtn, LV_STATE_DISABLED);
     }
+    GameLive::publish(s_game, true, s_rolling != 0, s_phase == Phase::RESULT);   // Web live view
 }
 
 static void quitEvent(lv_event_t *e)
 {
     lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e));
     s_gen++;
+    GameLive::setActive(false);
     showMenu();
 }
 
@@ -1198,6 +1320,8 @@ static void showGame()
     s_sugCount = 0;
     s_selected = s_best = YatzyCategory::COUNT;
     s_dieSize = s_game.diceCount() == 6 ? 46 : 52;
+    s_faces = facesFor(s_dieSize);
+    if (!s_faces) ESP_LOGE("yatzy", "die sprites: out of PSRAM");
 
     lv_obj_t *scr = Theme::screen();
 
@@ -1293,7 +1417,6 @@ static void showGame()
     lv_obj_set_style_text_align(s_writeLabel, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_add_event_cb(s_writeBtn, [](lv_event_t *) { writeSelected(); }, LV_EVENT_CLICKED, nullptr);
 
-    for (int k = 0; k < SUG_MAX; k++) 
 
     // Score table (lower half in the result phase; parked below the screen while rolling)
     buildRows();
@@ -1385,6 +1508,7 @@ static void showResults()
     lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
 
     Rgb::effectFlash(255, 200, 60, 1200);
+    GameLive::publish(s_game, true, false, true);   // Final scores stay on the live page
     Theme::loadScreen(scr);
 }
 

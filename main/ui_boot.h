@@ -7,7 +7,7 @@
 
 namespace UiBoot {
 
-enum class Item : int { DISP = 0, TOUCH, PSRAM, I2C, STORAGE, WIFI, WEB, COUNT };
+enum class Item : int { DISP = 0, TOUCH, PSRAM, I2C, RTC, STORAGE, WIFI, WEB, COUNT };
 enum class State : int { PENDING = 0, RUNNING, OK, FAIL, SKIP };
 
 void show();                                           // Builds and loads the screen

@@ -16,6 +16,7 @@
 </header>
 <nav class="otr-nav">
   <a href="/">Översikt</a>
+  <a href="/game">Live</a>
   <a href="/players">Spelare</a>
   <a href="/settings">Inställningar</a>
   <a href="/diag" class="active">Diagnostik</a>
@@ -91,6 +92,10 @@ async function refresh() {
       ['Klocka', i.clock.epoch ? new Date(i.clock.epoch * 1000).toLocaleString('sv-SE') + ' · ' +
         (i.clock.certain ? '<span class="ok">' + esc(i.clock.source) + '</span>' : '<span class="warn">' + esc(i.clock.source) + '</span>') : '<span class="muted">ej satt</span>'],
       ['Senaste NTP', i.clock.ntp_age_s < 0 ? '–' : i.clock.ntp_age_s + ' s sedan'],
+      ['RTC (DS3231)', i.rtc ? (i.rtc.ok ? '<span class="ok">OK</span>' : '<span class="bad">' + esc(i.rtc.state) + '</span>') +
+        (i.rtc.present ? ' · ' + i.rtc.temp_c.toFixed(2) + ' °C' + (i.rtc.osf_at_boot ? ' · <span class="warn">tiden var förlorad vid start</span>' : '') : '') : '–'],
+      ['RTC skrivningar / avvikelse', i.rtc && i.rtc.present ? i.rtc.writes + ' / ' + i.rtc.drift_s + ' s' +
+        (i.rtc.last_write ? ' · senast ' + new Date(i.rtc.last_write * 1000).toLocaleString('sv-SE') : '') : '–'],
     ]);
     rows('disp', [
       ['Initierad', yes(d.ok)],

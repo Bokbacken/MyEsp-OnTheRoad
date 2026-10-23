@@ -19,6 +19,7 @@ static volatile Source s_source = Source::NONE;
 static uint32_t s_lastSave = 0;
 static volatile uint32_t s_lastNtpMs = 0;
 static volatile uint32_t s_syncs = 0;
+static volatile bool s_ntpFlag = false;
 static bool s_sntpStarted = false;
 static char s_ns[16] = "time";
 static char s_key[16] = "clk_t";
@@ -38,6 +39,8 @@ static void onSync(struct timeval *)
     s_source = Source::NTP;
     s_lastNtpMs = MySys::millis();
     s_syncs = s_syncs + 1;
+    s_ntpFlag = true;
+    MyLog::setClockAnchor();
     if (first) MyLog::event(TAG, "NTP sync, clock is now certain");
 }
 
@@ -89,13 +92,14 @@ void loop()
 }
 
 bool valid() { return s_source != Source::NONE && time(nullptr) >= MIN_EPOCH; }
-bool certain() { return s_source == Source::NTP || s_source == Source::MANUAL; }
+bool certain() { return s_source == Source::NTP || s_source == Source::MANUAL || s_source == Source::RTC; }
 Source source() { return valid() ? s_source : Source::NONE; }
 
 const char *sourceText(Source s)
 {
     switch (s) {
     case Source::NTP: return "NTP";
+    case Source::RTC: return "RTC";
     case Source::MANUAL: return "manuell";
     case Source::RESTORED: return "osäker";
     default: return "ej satt";
@@ -110,8 +114,30 @@ bool setManual(time_t epoch)
     struct timeval tv = {epoch, 0};
     settimeofday(&tv, nullptr);
     s_source = Source::MANUAL;
+    s_ntpFlag = true;
     saveNvs();
+    MyLog::setClockAnchor();
     MyLog::event(TAG, "clock set manually to %lld", (long long)epoch);
+    return true;
+}
+
+bool setFromRtc(time_t epoch)
+{
+    if (epoch < MIN_EPOCH || epoch >= MAX_EPOCH) return false;
+    if (llabs((long long)(time(nullptr) - epoch)) > 1) {   // my_rtc normally set it already (edge aligned)
+        struct timeval tv = {epoch, 0};
+        settimeofday(&tv, nullptr);
+    }
+    if (s_source != Source::NTP) s_source = Source::RTC;
+    saveNvs();
+    MyLog::setClockAnchor();
+    return true;
+}
+
+bool takeClockChanged()
+{
+    if (!s_ntpFlag) return false;
+    s_ntpFlag = false;
     return true;
 }
 

@@ -7,6 +7,7 @@
 //   core 0  "rgb"    LED effects; httpd (web server); Wi-Fi driver
 //   main    app_main: boot sequence, then Wi-Fi state machine + clock (MyWifi::loop, MyTime::loop)
 #include <stdio.h>
+#include <time.h>
 
 #include "app_config.h"
 #include "app_players.h"
@@ -20,6 +21,7 @@
 #include "my_diag.h"
 #include "my_log.h"
 #include "my_ota.h"
+#include "my_rtc.h"
 #include "my_storage.h"
 #include "my_sys.h"
 #include "my_time.h"
@@ -156,7 +158,35 @@ extern "C" void app_main(void)
             used += snprintf(buf + used, sizeof(buf) - used, "%s0x%02X", i ? " " : "", addrs[i]);
         UiBoot::set(UiBoot::Item::I2C, n > 0 ? UiBoot::State::OK : UiBoot::State::FAIL, n > 0 ? buf : "inga enheter");
     }
-    UiBoot::setProgress(45);
+    // RTC (DS3231 on the shared I2C bus): function test, then it becomes the boot clock source.
+    {
+        time_t t = 0;
+        const bool rtcOk = MyRtc::begin(Touch::bus(), &t);
+        const MyRtc::Status rs = MyRtc::status();
+        char buf[64];
+        if (rtcOk) {
+            MyTime::setFromRtc(t);
+            struct tm tm;
+            gmtime_r(&t, &tm);
+            snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d UTC, %.1f °C", tm.tm_year + 1900, tm.tm_mon + 1,
+                     tm.tm_mday, tm.tm_hour, tm.tm_min, (double)rs.tempC);
+        } else if (rs.state == MyRtc::State::MISSING) {
+            snprintf(buf, sizeof(buf), "saknas (inget svar på 0x68)");
+        } else {
+            snprintf(buf, sizeof(buf), "%s", MyRtc::stateText(rs.state));
+        }
+        UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK : UiBoot::State::FAIL, buf);
+        if (!rtcOk) {   // 2 x orange blink on the LED
+            for (int i = 0; i < 2; i++) {
+                Rgb::setBase(200, 70, 0);
+                MySys::delayMs(180);
+                Rgb::setBase(0, 0, 0);
+                MySys::delayMs(180);
+            }
+            if (displayOk) Rgb::setBase(0, 0, 25);
+        }
+    }
+    UiBoot::setProgress(50);
 
     // Storage: FFat (mounted above) + player registry
     {
@@ -217,9 +247,17 @@ extern "C" void app_main(void)
         UiOta::begin();
     }
 
+    uint32_t lastRtcCheck = MySys::millis();
     for (;;) {
         MyWifi::loop();
         MyTime::loop();
+        // Keep the RTC in step with a certain clock: right after each NTP sync / manual set, otherwise every
+        // 10 minutes (covers manual sets; writes only when the drift is >= 1 s).
+        const bool changed = MyTime::takeClockChanged();
+        if (changed || (MyTime::certain() && MySys::millis() - lastRtcCheck >= 10UL * 60 * 1000)) {
+            lastRtcCheck = MySys::millis();
+            if (MyTime::source() != MyTime::Source::RTC) MyRtc::syncFromSystem();
+        }
         MySys::delayMs(20);
     }
 }

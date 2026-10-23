@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -20,11 +21,23 @@ const char *TAG = "log";
 
 struct Entry {
     uint32_t seq;
-    uint32_t epoch;      // 0 = clock not valid when logged
-    uint32_t uptimeMs;
+    int64_t uptimeMs;    // Reference time: ms since boot (esp_timer). Real time = anchor + uptime.
     char level;
     char text[TEXT_CAP];
 };
+
+// Events logged before the clock is known wait here and are written with the corrected time
+// as soon as setClockAnchor() runs (or after PENDING_MAX_MS / when full, with uptime stamps).
+constexpr int PENDING_CAP = 32;
+constexpr int64_t PENDING_MAX_MS = 180000;
+struct PendingEvent {
+    int64_t uptimeMs;
+    char tag[16];
+    char msg[200];
+};
+PendingEvent *s_pending = nullptr;
+int s_pendingCount = 0;
+volatile int64_t s_anchorMs = 0;   // Real time (UTC ms) minus uptime ms; 0 = clock unknown
 
 Entry *s_ring = nullptr;
 int s_cap = 0;
@@ -69,9 +82,7 @@ void capture(const char *line)
     }
     e.text[n] = 0;
     if (n == 0) return;
-    time_t now = time(nullptr);
-    e.epoch = now >= MIN_VALID_EPOCH ? (uint32_t)now : 0;
-    e.uptimeMs = (uint32_t)(esp_timer_get_time() / 1000);
+    e.uptimeMs = esp_timer_get_time() / 1000;
     portENTER_CRITICAL(&s_mux);
     e.seq = s_seq++;
     s_ring[e.seq % s_cap] = e;
@@ -147,6 +158,54 @@ void formatTime(char *out, size_t cap, time_t epoch, int64_t uptimeMs)
     }
 }
 
+void formatRef(char *out, size_t cap, int64_t uptimeMs)
+{
+    const int64_t a = s_anchorMs;
+    formatTime(out, cap, a ? (time_t)((a + uptimeMs) / 1000) : 0, uptimeMs);
+}
+
+namespace {
+
+// Caller holds s_fileLock.
+void writeEventLine(int64_t uptimeMs, const char *tag, const char *msg)
+{
+    char ts[32];
+    formatRef(ts, sizeof(ts), uptimeMs);
+    rotateIfNeeded();
+    FILE *f = fopen(s_file, "a");
+    // Uptime is always added: it orders events of a boot even when the clock was not set.
+    if (!f || fprintf(f, "%s [%llus] %s: %s\n", ts, (unsigned long long)(uptimeMs / 1000), tag, msg) < 0)
+        s_eventErrors++;
+    if (f) fclose(f);
+}
+
+// Caller holds s_fileLock.
+void flushPendingLocked()
+{
+    for (int i = 0; i < s_pendingCount; i++)
+        writeEventLine(s_pending[i].uptimeMs, s_pending[i].tag, s_pending[i].msg);
+    s_pendingCount = 0;
+}
+
+}  // namespace
+
+void setClockAnchor()
+{
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    if (tv.tv_sec < MIN_VALID_EPOCH) return;
+    const int64_t up = esp_timer_get_time() / 1000;
+    const bool first = s_anchorMs == 0;
+    s_anchorMs = (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000 - up;
+    if (first) ESP_LOGI(TAG, "clock anchored: earlier lines of this boot now show real time");
+    if (!s_fileLock) return;
+    xSemaphoreTake(s_fileLock, portMAX_DELAY);
+    if (s_file[0]) flushPendingLocked();
+    xSemaphoreGive(s_fileLock);
+}
+
+bool clockAnchored() { return s_anchorMs != 0; }
+
 void event(const char *tag, const char *fmt, ...)
 {
     char msg[200];
@@ -157,16 +216,22 @@ void event(const char *tag, const char *fmt, ...)
     ESP_LOGI(tag, "%s", msg);
     s_events++;
     if (!s_fileLock || !s_file[0]) return;
-    char ts[32];
-    time_t now = time(nullptr);
-    formatTime(ts, sizeof(ts), now, esp_timer_get_time() / 1000);
+    const int64_t up = esp_timer_get_time() / 1000;
     xSemaphoreTake(s_fileLock, portMAX_DELAY);
-    rotateIfNeeded();
-    FILE *f = fopen(s_file, "a");
-    // Uptime is always added: it orders events of a boot even when the clock was not set.
-    if (!f || fprintf(f, "%s [%lus] %s: %s\n", ts, (unsigned long)(esp_timer_get_time() / 1000000), tag, msg) < 0)
-        s_eventErrors++;
-    if (f) fclose(f);
+    if (!s_anchorMs && up < PENDING_MAX_MS) {
+        if (!s_pending)
+            s_pending = (PendingEvent *)heap_caps_calloc(PENDING_CAP, sizeof(PendingEvent), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_pending && s_pendingCount < PENDING_CAP) {
+            PendingEvent &p = s_pending[s_pendingCount++];
+            p.uptimeMs = up;
+            snprintf(p.tag, sizeof(p.tag), "%s", tag);
+            snprintf(p.msg, sizeof(p.msg), "%s", msg);
+            xSemaphoreGive(s_fileLock);
+            return;
+        }
+    }
+    flushPendingLocked();   // Clock still unknown after the grace period (or queue full): uptime stamps
+    writeEventLine(up, tag, msg);
     xSemaphoreGive(s_fileLock);
 }
 
@@ -188,7 +253,7 @@ size_t read(char *out, size_t cap, uint32_t fromSeq, uint32_t *nextSeq)
         portEXIT_CRITICAL(&s_mux);
         if (e.seq != seq) continue;             // Overwritten meanwhile
         char ts[32];
-        formatTime(ts, sizeof(ts), e.epoch, e.uptimeMs);
+        formatRef(ts, sizeof(ts), e.uptimeMs);
         int n = snprintf(out + used, cap - used, "%s %c %s\n", ts, e.level, e.text);
         if (n < 0 || used + n >= cap) { out[used] = 0; break; }
         used += n;

@@ -12,9 +12,11 @@
 #include "board_touch.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "game_live.h"
 #include "my_diag.h"
 #include "my_log.h"
 #include "my_ota.h"
+#include "my_rtc.h"
 #include "my_storage.h"
 #include "my_time.h"
 #include "my_web.h"
@@ -129,6 +131,25 @@ static void diagClock(cJSON *o)
     uint32_t age = MyTime::lastNtpSyncS();
     cJSON_AddNumberToObject(o, "ntp_age_s", age == UINT32_MAX ? -1 : (double)age);
     cJSON_AddNumberToObject(o, "ntp_syncs", MyTime::ntpSyncs());
+    cJSON_AddBoolToObject(o, "log_anchored", MyLog::clockAnchored());
+}
+
+static void diagRtc(cJSON *o)
+{
+    const MyRtc::Status s = MyRtc::status();
+    cJSON_AddStringToObject(o, "chip", "DS3231");
+    cJSON_AddStringToObject(o, "state", MyRtc::stateText(s.state));
+    cJSON_AddBoolToObject(o, "ok", s.state == MyRtc::State::OK);
+    cJSON_AddBoolToObject(o, "present", s.present);
+    cJSON_AddBoolToObject(o, "ticking", s.ticking);
+    cJSON_AddBoolToObject(o, "osf_at_boot", s.osf);
+    cJSON_AddBoolToObject(o, "time_valid", s.timeValid);
+    cJSON_AddNumberToObject(o, "temp_c", (double)s.tempC);
+    cJSON_AddNumberToObject(o, "boot_time", (double)s.bootTime);
+    cJSON_AddNumberToObject(o, "last_write", (double)s.lastWrite);
+    cJSON_AddNumberToObject(o, "writes", s.writes);
+    cJSON_AddNumberToObject(o, "errors", s.errors);
+    cJSON_AddNumberToObject(o, "drift_s", s.lastDriftS);
 }
 
 static void diagOta(cJSON *o)
@@ -154,6 +175,7 @@ void registerDiag()
     MyDiag::add("display", diagDisplay);
     MyDiag::add("touch", diagTouch);
     MyDiag::add("clock", diagClock);
+    MyDiag::add("rtc", diagRtc);
     MyDiag::add("ota", diagOta);
     MyDiag::add("storage", diagStorage);
 }
@@ -372,6 +394,87 @@ static esp_err_t handleTimePost(httpd_req_t *r)
 }
 
 // ----------------------------------------------------------------------------------------
+// /api/game - read-only live view of the running game (page /game polls it).
+// ?v=<version>: answers {"same":true} while nothing changed.
+// ----------------------------------------------------------------------------------------
+static esp_err_t handleGame(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    long v = -1;
+    bool bad = false;
+    q.getInt("v", 0, 0x7FFFFFFF, v, bad);
+    if (v >= 0 && (uint32_t)v == GameLive::version()) return MyWeb::sendJsonStr(r, 200, "{\"same\":true}");
+    GameLive::Snapshot *s = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot));
+    if (!s) return MyWeb::sendError(r, 500, "Minnet räcker inte");
+    GameLive::get(*s);
+    const YatzyGame &g = s->game;
+    const bool hasGame = s->active && g.started() && g.playerCount() > 0;
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "version", s->version);
+    cJSON_AddBoolToObject(o, "active", hasGame);
+    if (hasGame) {
+        const YatzyVariant var = g.variant();
+        cJSON_AddBoolToObject(o, "rolling", s->rolling);
+        cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
+        cJSON_AddBoolToObject(o, "finished", g.finished());
+        cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");
+        cJSON_AddStringToObject(o, "name", Yatzy::variantName(var, g.mode()));
+        cJSON_AddNumberToObject(o, "round", g.round());
+        cJSON_AddNumberToObject(o, "rounds", g.totalRounds());
+        cJSON_AddNumberToObject(o, "current", g.currentPlayer());
+        cJSON_AddNumberToObject(o, "rolls_used", g.rollsUsed());
+        cJSON_AddNumberToObject(o, "rolls_left", g.rollsLeft());
+        cJSON_AddNumberToObject(o, "bonus_threshold", Yatzy::bonusThreshold(var));
+        cJSON_AddNumberToObject(o, "bonus_points", Yatzy::bonusPoints(var));
+        cJSON *dice = cJSON_AddArrayToObject(o, "dice");
+        cJSON *held = cJSON_AddArrayToObject(o, "held");
+        for (int i = 0; i < g.diceCount(); i++) {
+            cJSON_AddItemToArray(dice, cJSON_CreateNumber(g.hasRolled() ? g.die(i) : 0));
+            cJSON_AddItemToArray(held, cJSON_CreateBool(g.held(i)));
+        }
+        int nc = 0;
+        const YatzyCategory *cats = Yatzy::categories(var, nc);
+        cJSON *ca = cJSON_AddArrayToObject(o, "categories");
+        for (int k = 0; k < nc; k++) {
+            cJSON *c = cJSON_CreateObject();
+            cJSON_AddNumberToObject(c, "id", (int)cats[k]);
+            cJSON_AddStringToObject(c, "name", Yatzy::categoryName(cats[k], var));
+            cJSON_AddBoolToObject(c, "upper", Yatzy::isUpper(cats[k]));
+            cJSON_AddItemToArray(ca, c);
+        }
+        cJSON *pa = cJSON_AddArrayToObject(o, "players");
+        for (int p = 0; p < g.playerCount(); p++) {
+            const YatzyPlayer &pl = g.player(p);
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "name", pl.name);
+            cJSON *sc = cJSON_AddArrayToObject(e, "scores");   // Same order as "categories"; null = empty
+            for (int k = 0; k < nc; k++) {
+                int16_t v2 = pl.scores[(int)cats[k]];
+                cJSON_AddItemToArray(sc, v2 == YATZY_EMPTY ? cJSON_CreateNull() : cJSON_CreateNumber(v2));
+            }
+            cJSON_AddNumberToObject(e, "upper", g.upperSum(p));
+            cJSON_AddNumberToObject(e, "bonus", g.bonus(p));
+            cJSON_AddNumberToObject(e, "total", g.total(p));
+            if (var == YatzyVariant::MAXI) cJSON_AddNumberToObject(e, "saved_rolls", pl.savedRolls);
+            cJSON_AddItemToArray(pa, e);
+        }
+        if (g.finished()) {
+            int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
+            int n = g.ranking(order, places);
+            cJSON *rk = cJSON_AddArrayToObject(o, "ranking");
+            for (int k = 0; k < n; k++) {
+                cJSON *e = cJSON_CreateObject();
+                cJSON_AddNumberToObject(e, "player", order[k]);
+                cJSON_AddNumberToObject(e, "place", places[k]);
+                cJSON_AddItemToArray(rk, e);
+            }
+        }
+    }
+    free(s);
+    return MyWeb::sendJson(r, 200, o);
+}
+
+// ----------------------------------------------------------------------------------------
 // /api/players
 // ----------------------------------------------------------------------------------------
 // {"ok":true,"count":n,"max":200,"fs_ok":b,"players":[{"id","name","created"}...]} sorted by name.
@@ -459,6 +562,7 @@ bool begin()
     ok &= MyWeb::on("/api/players", HTTP_GET, handlePlayersGet);
     ok &= MyWeb::on("/api/players", HTTP_POST, handlePlayersPost);
     ok &= MyWeb::on("/api/reset", HTTP_POST, handleReset);
+    ok &= MyWeb::on("/api/game", HTTP_GET, handleGame);
     if (!ok) ESP_LOGE(TAG, "route registration failed");
     return ok;
 }

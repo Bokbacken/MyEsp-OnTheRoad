@@ -1,8 +1,8 @@
 // my_log.h - time-stamped log capture + persistent event log (shared MyEsp/MyPi component).
 //
 // - begin() hooks esp_log (esp_log_set_vprintf): every ESP_LOGx line still goes to the console
-//   and is also copied into a RAM ring (PSRAM when available) with a timestamp:
-//   real time (UTC epoch) when the clock is valid, otherwise uptime only.
+//   and is also copied into a RAM ring (PSRAM when available) with its uptime; shown as real
+//   time once the clock is anchored (setClockAnchor), otherwise as uptime.
 // - event() is for things worth keeping across reboots (boot, reset reason, OTA, Wi-Fi changes,
 //   settings changes): logged like ESP_LOGI and appended to a text file on a mounted filesystem
 //   (setEventFile), rotated to "<file>.1" at maxBytes.
@@ -29,6 +29,13 @@ void event(const char *tag, const char *fmt, ...) __attribute__((format(printf, 
 
 // Formats "2026-10-23 14:05:09" (local time) when the clock is valid, else "+123.456s" (uptime).
 void formatTime(char *out, size_t cap, time_t epoch, int64_t uptimeMs);
+// Formats a log timestamp from uptime: real local time once the clock is anchored
+// (setClockAnchor), else "+123.456s". Lines captured before the anchor get real time too.
+void formatRef(char *out, size_t cap, int64_t uptimeMs);
+// Call when the clock became trustworthy (RTC at boot, NTP, manual set). Pins
+// "wall time = anchor + uptime" and flushes events queued while the clock was unknown.
+void setClockAnchor();
+bool clockAnchored();
 
 // Copies RAM log lines with seq >= fromSeq as text ("<time> <L> <text>\n") into out.
 // Returns bytes written (NUL-terminated); *nextSeq = seq to pass next time.

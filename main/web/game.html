@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Live</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.live-top { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: baseline; }
+.live-top .stat { font-size: 1.3rem; }
+.turn { font-size: 1.15rem; margin: .3rem 0 .2rem; }
+.turn b { color: var(--otr-orange); }
+.dice { display: flex; gap: .7rem; flex-wrap: wrap; margin: .8rem 0 .3rem; min-height: 4.2rem; }
+.die { width: 4rem; height: 4rem; transition: transform .25s, opacity .25s; }
+.die.rolling { animation: wob .35s infinite alternate; opacity: .75; }
+.die.held { filter: drop-shadow(0 0 .35rem var(--otr-orange)); }
+@keyframes wob { from { transform: rotate(-8deg) scale(.95); } to { transform: rotate(8deg) scale(1.03); } }
+.score th, .score td { width: auto; text-align: center; white-space: nowrap; padding: .35rem .45rem; }
+.score th:first-child, .score td:first-child { text-align: left; }
+.score thead th { color: var(--otr-text); }
+.score .cur { background: rgba(255, 156, 61, .14); }
+.score thead .cur { box-shadow: inset 0 -3px 0 var(--otr-orange); }
+.score .sum td { font-weight: 700; border-top: 2px solid var(--otr-line); }
+.score .total td { font-weight: 700; font-size: 1.1rem; color: var(--otr-orange); }
+.score .empty { color: var(--otr-line); }
+.score .zero { color: var(--otr-muted); }
+.winner { font-size: 1.3rem; font-weight: 700; color: var(--otr-green); }
+.full { position: fixed; right: .8rem; bottom: .8rem; }
+</style>
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small>Live-spel</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">hämtar...</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/game" class="active">Live</a>
+  <a href="/players">Spelare</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag">Diagnostik</a>
+  <a href="/update">Uppdatera</a>
+</nav>
+
+<div id="idle" class="card" hidden>
+  <h3>Inget spel pågår</h3>
+  <p class="muted">Starta Yatzy eller Maxi-Yatzy på enheten – sidan uppdateras automatiskt.</p>
+</div>
+
+<div id="game" hidden>
+  <div class="card">
+    <div class="live-top">
+      <div class="stat" id="variant">–</div>
+      <div class="muted" id="round">–</div>
+    </div>
+    <div class="turn" id="turn">–</div>
+    <div class="dice" id="dice"></div>
+    <div class="muted" id="rolls">–</div>
+    <div class="winner" id="winner" hidden></div>
+  </div>
+  <h2>Protokoll</h2>
+  <div class="card table-wrap">
+    <table class="score" id="score"></table>
+  </div>
+</div>
+
+<button class="secondary full" id="fs" title="Helskärm">⛶</button>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const PIPS = {1: [[50, 50]], 2: [[28, 28], [72, 72]], 3: [[28, 28], [50, 50], [72, 72]],
+  4: [[28, 28], [72, 28], [28, 72], [72, 72]], 5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
+  6: [[28, 26], [72, 26], [28, 50], [72, 50], [28, 74], [72, 74]]};
+
+function dieSvg(v, held, rolling) {
+  const pips = (PIPS[v] || []).map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="8.5" fill="#1b2433"/>`).join('');
+  const edge = held ? '#ff9c3d' : '#c9d3df';
+  return `<svg class="die${held ? ' held' : ''}${rolling ? ' rolling' : ''}" viewBox="0 0 100 100">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dde4ec"/></linearGradient></defs>
+    <rect x="4" y="4" width="92" height="92" rx="18" fill="url(#g)" stroke="${edge}" stroke-width="${held ? 6 : 2}" opacity="${v ? 1 : .3}"/>
+    ${pips}</svg>`;
+}
+
+let ver = -1, last = null, fails = 0;
+
+function render(g) {
+  last = g;
+  $('idle').hidden = g.active;
+  $('game').hidden = !g.active;
+  if (!g.active) return;
+  const P = g.players;
+  $('variant').textContent = g.name;
+  $('round').textContent = g.finished ? 'Spelet är slut' : 'Omgång ' + g.round + ' av ' + g.rounds;
+  const cur = P[g.current] || {name: '?'};
+  $('turn').innerHTML = g.finished ? 'Slutresultat' : 'Tur: <b>' + esc(cur.name) + '</b>' +
+    (g.rolling ? ' <span class="muted">· tärningarna rullar...</span>' : g.choosing ? ' <span class="muted">· väljer ruta</span>' : '');
+  $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], g.rolling && !g.held[i])).join('');
+  let rolls = g.finished ? '' : 'Kast kvar: ' + g.rolls_left;
+  if (!g.finished && g.variant === 'maxi' && cur.saved_rolls) rolls += ' (varav ' + cur.saved_rolls + ' sparade)';
+  $('rolls').textContent = rolls;
+
+  const w = $('winner');
+  w.hidden = !g.finished;
+  if (g.finished && g.ranking) {
+    const first = g.ranking.filter(r => r.place === 1).map(r => esc(P[r.player].name));
+    w.innerHTML = (first.length > 1 ? 'Delad vinst: ' : 'Vinnare: ') + first.join(' & ') + ' 🏆<div class="muted" style="font-size:1rem;font-weight:500">' +
+      g.ranking.map(r => r.place + '. ' + esc(P[r.player].name) + ' ' + P[r.player].total).join(' · ') + '</div>';
+  }
+
+  const cc = i => (!g.finished && i === g.current) ? ' class="cur"' : '';
+  const cell = v => v === null ? '<td class="empty">·</td>' : v === 0 ? '<td class="zero">–</td>' : '<td>' + v + '</td>';
+  let h = '<thead><tr><th></th>' + P.map((p, i) => '<th' + cc(i) + '>' + esc(p.name) + '</th>').join('') + '</tr></thead><tbody>';
+  let upperDone = false;
+  g.categories.forEach((c, k) => {
+    if (!c.upper && !upperDone) {
+      upperDone = true;
+      h += '<tr class="sum"><td>Summa</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.upper + '</td>').join('') + '</tr>';
+      h += '<tr><td>Bonus <span class="muted">(' + g.bonus_threshold + ')</span></td>' +
+        P.map((p, i) => '<td' + cc(i) + '>' + (p.bonus ? '<span class="ok">' + p.bonus + '</span>' : '<span class="muted">' + (p.upper - g.bonus_threshold) + '</span>') + '</td>').join('') + '</tr>';
+    }
+    h += '<tr><td>' + esc(c.name) + '</td>' + P.map((p, i) => cell(p.scores[k]).replace('<td', '<td' + cc(i))).join('') + '</tr>';
+  });
+  h += '<tr class="total sum"><td>Totalt</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
+  $('score').innerHTML = h;
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/game?v=' + ver, {cache: 'no-store'});
+    const g = await r.json();
+    fails = 0;
+    $('live-dot').className = 'dot ok';
+    $('live-text').textContent = 'live';
+    if (!g.same) { ver = g.version; render(g); }
+  } catch (e) {
+    if (++fails > 2) { $('live-dot').className = 'dot bad'; $('live-text').textContent = 'ingen kontakt'; }
+  }
+  setTimeout(poll, 700);
+}
+$('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+poll();
+</script>
+</body>
+</html>
