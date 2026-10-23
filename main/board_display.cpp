@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "my_log.h"
@@ -97,6 +98,8 @@ const uint8_t kInitSeq[] = {
 
 esp_lcd_panel_io_handle_t g_io = nullptr;
 bool g_ok = false;
+bool g_panelOk = false;
+const char *g_fail = "";
 uint16_t *g_bounce[2] = {nullptr, nullptr};
 uint8_t g_bounceIdx = 0;
 SemaphoreHandle_t g_teSem = nullptr;
@@ -181,8 +184,10 @@ bool initPanel()
     esp_err_t err = spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "spi_bus_initialize: %s", esp_err_to_name(err));
+        g_fail = "SPI-bussen";
         return false;
     }
+    ESP_LOGI(TAG, "SPI2 quad bus ok (max transfer %d B)", bus.max_transfer_sz);
 
     esp_lcd_panel_io_spi_config_t io = {};
     io.cs_gpio_num = (gpio_num_t)PIN_LCD_CS;
@@ -196,12 +201,26 @@ bool initPanel()
     err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io, &g_io);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "panel IO: %s", esp_err_to_name(err));
+        g_fail = "panel-IO";
         return false;
     }
+    return true;
+}
 
+// The panel reset is tied to EN, and an ESP-IDF app reaches this point much sooner after
+// power-up than the Arduino builds did (they waited up to 1.5 s for USB CDC). Give the
+// controller time to finish its own power-on reset before talking to it.
+constexpr uint32_t POWER_ON_SETTLE_MS = 300;
+
+bool sendInitSequence()
+{
     // No reset GPIO (tied to EN): software reset, then the vendor sequence.
-    txParam(0x01, nullptr, 0);
-    vTaskDelay(pdMS_TO_TICKS(120));
+    if (txParam(0x01, nullptr, 0) != ESP_OK) {
+        ESP_LOGE(TAG, "SWRESET failed");
+        g_fail = "SWRESET";
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(150));
     const uint8_t madctl = 0x00, colmod = 0x55;   // RGB order, RGB565
     txParam(0x36, &madctl, 1);
     txParam(0x3A, &colmod, 1);
@@ -209,6 +228,7 @@ bool initPanel()
         const uint8_t cmd = kInitSeq[i], len = kInitSeq[i + 1], wait = kInitSeq[i + 2];
         if (txParam(cmd, len ? &kInitSeq[i + 3] : nullptr, len) != ESP_OK) {
             ESP_LOGE(TAG, "init cmd 0x%02X failed", cmd);
+            g_fail = "init-sekvensen";
             return false;
         }
         if (wait) vTaskDelay(pdMS_TO_TICKS(wait));
@@ -245,10 +265,20 @@ bool begin()
         b = (uint16_t *)heap_caps_malloc(BOUNCE_PIXELS * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
         if (!b) {
             ESP_LOGE(TAG, "no internal DMA memory for bounce buffers");
+            g_fail = "DMA-minne";
             return false;
         }
     }
+    const int64_t sinceBootMs = esp_timer_get_time() / 1000;
+    if (sinceBootMs < (int64_t)POWER_ON_SETTLE_MS) vTaskDelay(pdMS_TO_TICKS(POWER_ON_SETTLE_MS - sinceBootMs));
     if (!initPanel()) return false;
+    if (!sendInitSequence()) {
+        ESP_LOGW(TAG, "init sequence failed - retrying once");
+        vTaskDelay(pdMS_TO_TICKS(200));
+        if (!sendInitSequence()) return false;
+    }
+    g_panelOk = true;
+    ESP_LOGI(TAG, "ST77922 init sequence sent");
     initTe();
 
     MyLvgl::Config cfg;
@@ -260,12 +290,18 @@ bool begin()
     cfg.swapBytes = true;
     cfg.flush = flush;
     g_ok = MyLvgl::begin(cfg);
+    if (!g_ok) {
+        ESP_LOGE(TAG, "LVGL display setup failed");
+        g_fail = "LVGL";
+    }
     ESP_LOGI(TAG, "ST77922 %dx%d @ %u MHz, TE %s", LCD_H_RES, LCD_V_RES, (unsigned)(LCD_QSPI_HZ / 1000000),
              g_teActive ? "on" : "off");
     return g_ok;
 }
 
 bool ok() { return g_ok; }
+bool panelOk() { return g_panelOk; }
+const char *failReason() { return g_fail; }
 
 void fillScreen(uint16_t rgb565)
 {

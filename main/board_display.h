@@ -26,6 +26,8 @@ struct Stats {
 
 bool begin();                       // Panel + lv_init + LVGL display (task not started yet)
 bool ok();
+bool panelOk();                     // Panel IO + init sequence succeeded (LVGL may still have failed)
+const char *failReason();           // Short text for the boot screen / log, "" when ok
 void fillScreen(uint16_t rgb565);   // Blocking full-screen fill, bypasses LVGL
 bool startTask();                   // LVGL handler task on core 1
 inline bool lock(uint32_t timeoutMs = 0) { return MyLvgl::lock(timeoutMs); }

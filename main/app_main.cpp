@@ -95,14 +95,31 @@ extern "C" void app_main(void)
     Backlight::begin(0);   // Dark until the panel holds a defined image
 
     const bool displayOk = Display::begin();
-    ESP_LOGI(TAG, "display %s", displayOk ? "ok" : "FAILED");
-    if (displayOk) {
+    const bool panelOk = Display::panelOk();
+    ESP_LOGI(TAG, "display %s (panel %s%s%s)", displayOk ? "ok" : "FAILED", panelOk ? "ok" : "FAILED",
+             displayOk ? "" : ", reason: ", Display::failReason());
+    if (panelOk) {
+        // Light the panel as soon as it accepted the init sequence, even if LVGL failed afterwards,
+        // so the colour test below is visible.
         Display::fillScreen(0x0000);
-        Backlight::set(cfg.brightness);
+        Backlight::set(cfg.brightness < 40 ? 40 : cfg.brightness);
     }
-    colourTest(displayOk);
-    if (!displayOk) Rgb::bootSequence();
-
+    colourTest(panelOk);
+    if (panelOk) Backlight::set(cfg.brightness);
+    if (!displayOk) {
+        // No usable display: blink a fault code on the LED (3 x red = panel, 3 x magenta = LVGL),
+        // then light the backlight anyway so a dead panel shows as a lit grey/white screen.
+        const bool lvglFault = panelOk;
+        for (int i = 0; i < 3; i++) {
+            Rgb::setBase(lvglFault ? 160 : 200, 0, lvglFault ? 160 : 0);
+            MySys::delayMs(300);
+            Rgb::setBase(0, 0, 0);
+            MySys::delayMs(300);
+        }
+        Backlight::set(100);
+        Rgb::setBase(lvglFault ? 40 : 60, 0, lvglFault ? 40 : 0);   // Stays dim red/magenta
+    }
+    if (displayOk) Rgb::setBase(0, 0, 25);   // Dim blue: touch / UI stage
     const bool touchOk = displayOk && Touch::begin();   // Registers the LVGL pointer device
     ESP_LOGI(TAG, "touch %s", touchOk ? "ok" : "not found");
 
@@ -113,7 +130,7 @@ extern "C" void app_main(void)
 
     // --- Self-test checklist ---
     UiBoot::set(UiBoot::Item::DISP, displayOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                displayOk ? "320 x 480, QSPI 40 MHz, LVGL 9" : "panelen svarar inte");
+                displayOk ? "320 x 480, QSPI 40 MHz, LVGL 9" : Display::failReason());
     UiBoot::setProgress(20);
     {
         Touch::Info ti = Touch::info();
@@ -152,6 +169,7 @@ extern "C" void app_main(void)
     }
     UiBoot::setProgress(55);
 
+    if (displayOk) Rgb::setBase(25, 18, 0);   // Dim amber: Wi-Fi / web stage
     UiBoot::set(UiBoot::Item::WIFI, UiBoot::State::RUNNING);
     UiBoot::setStatus("Startar Wi-Fi...");
     MyWifi::Hooks hooks;
@@ -180,6 +198,7 @@ extern "C" void app_main(void)
     }
     UiBoot::setProgress(100);
 
+    if (displayOk && !(wifiOk && MyWifi::hasSavedCredentials())) Rgb::setBase(0, 0, 0);   // Else Wi-Fi status owns the LED
     const int fails = UiBoot::failures();
     UiBoot::setStatus(fails ? "Fel hittades - fortsätter om en stund" : "Klart!");
     ESP_LOGI(TAG, "boot done in %u ms, %d failure(s)", (unsigned)MySys::millis(), fails);
