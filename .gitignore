@@ -12,3 +12,4 @@ tests/test_yatzy
 .DS_Store
 __pycache__/
 tests/test_core
+managed_components/
