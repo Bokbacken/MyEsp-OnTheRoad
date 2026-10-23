@@ -1,0 +1,13 @@
+build/
+build_*/
+*.bin
+*.elf
+*.map
+sdkconfig
+sdkconfig.old
+.abacus.donotdelete
+test_yatzy
+tests/test_yatzy
+.vscode/
+.DS_Store
+__pycache__/
