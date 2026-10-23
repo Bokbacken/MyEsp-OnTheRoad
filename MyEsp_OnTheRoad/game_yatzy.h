@@ -99,7 +99,7 @@ public:
     bool score(YatzyCategory c);
     // Score the current dice would give in c (ignores whether c is available).
     int potentialScore(YatzyCategory c) const;
-    // Available categories sorted by heuristic weight (best first). Returns count.
+    // The best `max` available categories sorted by heuristic weight (best first). Returns count.
     int getSuggestedCategories(YatzySuggestion *out, int max) const;
     // Next category in ORDERED mode for player p (COUNT if all filled).
     YatzyCategory nextOrderedCategory(int p) const;

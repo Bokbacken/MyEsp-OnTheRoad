@@ -10,6 +10,6 @@ void bootSequence();                          // Blocking R -> G -> B -> white (
 void setBase(uint8_t r, uint8_t g, uint8_t b); // Steady status color (e.g. Wi-Fi state)
 void setBrightness(uint8_t level);            // 0..255 global scaling
 void setEnabled(bool on);
-void effectDiceRoll(uint32_t ms);             // White/gold flicker while the dice roll
+void effectDiceRoll(uint32_t ms);             // White/gold pulse while the dice roll
 void effectFlash(uint8_t r, uint8_t g, uint8_t b, uint32_t ms);  // Short single flash
 }

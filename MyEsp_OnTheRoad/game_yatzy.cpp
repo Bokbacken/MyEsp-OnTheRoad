@@ -382,7 +382,7 @@ int YatzyGame::getSuggestedCategories(YatzySuggestion *out, int max) const
     int n, count = 0;
     const YatzyCategory *list = Yatzy::categories(variant_, n);
     const int upperPar = variant_ == YatzyVariant::MAXI ? 4 : 3;   // 84/21 resp. 63/21
-    for (int i = 0; i < n && count < max; i++) {
+    for (int i = 0; i < n; i++) {
         YatzyCategory c = list[i];
         if (!canScore(c)) continue;
         int s = potentialScore(c);
@@ -395,8 +395,11 @@ int YatzyGame::getSuggestedCategories(YatzySuggestion *out, int max) const
             w = s * 10 + (s - kExpected[(int)c]) * 10;
         }
         if (s == 0) w = -kExpected[(int)c] * 10;   // Striking: prefer the cheapest box
-        // Insertion sort (lists are tiny).
-        int j = count++;
+        // Keep the best `max` entries, sorted (insertion sort; lists are tiny).
+        int j;
+        if (count < max) j = count++;
+        else if (w > out[max - 1].weight) j = max - 1;
+        else continue;
         while (j > 0 && out[j - 1].weight < w) {
             out[j] = out[j - 1];
             j--;

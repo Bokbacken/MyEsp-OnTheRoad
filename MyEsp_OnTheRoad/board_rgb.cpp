@@ -41,11 +41,16 @@ void rgbTask(void *)
         uint8_t bri = s.enabled ? s.brightness : 0;
         switch (s.effect) {
         case Effect::DICE: {
-            // Alternate white and gold with a slight random sparkle.
-            bool white = ((millis() / 70) & 1) != 0;
-            uint8_t sparkle = (uint8_t)random(160, 256);
-            if (white) writeScaled(sparkle, sparkle, sparkle, bri);
-            else writeScaled(255, (uint8_t)(150 + random(0, 40)), 0, bri);
+            // Smooth white/gold pulse: triangle wave 35 %..100 % every 240 ms, the color
+            // alternates between white and gold on each pulse.
+            constexpr uint32_t PERIOD = 240;
+            uint32_t now = millis();
+            uint32_t ph = now % PERIOD;
+            uint32_t tri = ph < PERIOD / 2 ? ph : PERIOD - ph;              // 0..120
+            uint32_t lvl = 90 + tri * 165 / (PERIOD / 2);                    // 90..255
+            bool gold = ((now / PERIOD) & 1) != 0;
+            if (gold) writeScaled((uint8_t)lvl, (uint8_t)(lvl * 175 / 255), (uint8_t)(lvl * 20 / 255), bri);
+            else writeScaled((uint8_t)lvl, (uint8_t)lvl, (uint8_t)lvl, bri);
             break;
         }
         case Effect::FLASH:

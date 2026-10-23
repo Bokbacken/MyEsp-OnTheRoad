@@ -145,8 +145,41 @@ static void testOrderedAndSavedRolls()
     CHECK_EQ((int)g.nextOrderedCategory(0), (int)C::TWOS);
 }
 
+static void testSuggestionsTopN()
+{
+    static const uint8_t vals[] = {6, 6, 6, 5, 5};   // Kåk 6+6+6+5+5
+    Seq seq{vals, 5, 0};
+    YatzyGame g;
+    g.reset(S, YatzyMode::NORMAL);
+    g.setRng(seqRng, &seq);
+    g.addPlayer("A");
+    g.start();
+    g.roll();
+    YatzySuggestion all[YATZY_CATEGORY_COUNT], top[5];
+    int na = g.getSuggestedCategories(all, YATZY_CATEGORY_COUNT);
+    int nt = g.getSuggestedCategories(top, 5);
+    CHECK_EQ(na, 15);
+    CHECK_EQ(nt, 5);
+    for (int i = 0; i < nt; i++) CHECK_EQ(top[i].weight, all[i].weight);
+}
+
+// Regression: starting a new game from the menu must not keep the previous roster.
+static void testNewGameRoster()
+{
+    YatzyGame g;
+    for (int round = 0; round < 3; round++) {
+        g.reset(S, YatzyMode::NORMAL);
+        g.clearPlayers();
+        g.addPlayer("Kent A");
+        g.start();
+        CHECK_EQ(g.playerCount(), 1);
+    }
+}
+
 int main()
 {
+    testNewGameRoster();
+    testSuggestionsTopN();
     testStandardScoring();
     testMaxiScoring();
     testGameFlow();
