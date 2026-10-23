@@ -41,7 +41,8 @@ static lv_obj_t *signalBars(lv_obj_t *parent, int bars)
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_remove_style_all(box);
     lv_obj_set_size(box, 5 * 5 + 4 * 2, 18);
-    lv_obj_remove_flag(box, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
+    lv_obj_set_scrollable(box, false);
+    lv_obj_set_clickable(box, false);
     uint32_t col = bars >= 4 ? Theme::GREEN : bars == 3 ? Theme::ACCENT : Theme::RED;
     for (int i = 0; i < 5; i++) {
         lv_obj_t *b = lv_obj_create(box);
@@ -52,7 +53,7 @@ static lv_obj_t *signalBars(lv_obj_t *parent, int bars)
         lv_obj_set_style_radius(b, 1, 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(b, Theme::c(i < bars ? col : Theme::LINE), 0);
-        lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(b, false);
     }
     return box;
 }
@@ -129,10 +130,10 @@ static void rowEvent(lv_event_t *e)
 static void showBusy(const char *text, bool spinner)
 {
     lv_obj_clean(s_list);
-    lv_obj_remove_flag(s_busy, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_busy, false);
     lv_obj_t *sp = lv_obj_get_child(s_busy, 0);
-    if (spinner) lv_obj_remove_flag(sp, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(sp, LV_OBJ_FLAG_HIDDEN);
+    if (spinner) lv_obj_set_hidden(sp, false);
+    else lv_obj_set_hidden(sp, true);
     lv_label_set_text(s_busyLabel, text);
 }
 
@@ -144,7 +145,7 @@ static void fillList()
         showBusy("Inga nätverk hittades.\nTryck på Uppdatera för att söka igen.", false);
         return;
     }
-    lv_obj_add_flag(s_busy, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_busy, true);
     MyWifi::Info wi = MyWifi::info();
     int savedIdx[MyWifi::MAX_NETWORKS];
     {
@@ -171,8 +172,8 @@ static void fillList()
         lv_obj_set_style_bg_color(row, Theme::c(Theme::PANEL_RAISED), LV_STATE_FOCUSED);
         lv_obj_set_style_border_width(row, 2, LV_STATE_FOCUSED);
         lv_obj_set_style_border_color(row, Theme::c(Theme::ACCENT), LV_STATE_FOCUSED);
-        lv_obj_add_flag(row, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scroll_on_focus(row, true);
+        lv_obj_set_scrollable(row, false);
 
         if (savedIdx[i] >= 0) {   // Saved network: priority number on the left
             char pr[12];
@@ -210,9 +211,9 @@ static void startListScan()
 static void listTick(lv_timer_t *)
 {
     listStatusLine();
-    if (lv_obj_has_flag(s_busy, LV_OBJ_FLAG_HIDDEN)) return;   // List is shown
+    if (lv_obj_is_hidden(s_busy)) return;   // List is shown
     lv_obj_t *sp = lv_obj_get_child(s_busy, 0);
-    if (lv_obj_has_flag(sp, LV_OBJ_FLAG_HIDDEN)) return;       // Final message shown
+    if (lv_obj_is_hidden(sp)) return;       // Final message shown
     int st = MyWifi::scanStatus();
     if (st >= 0) {
         fillList();
@@ -242,7 +243,8 @@ void showNetworks()
     lv_obj_remove_style_all(s_busy);
     lv_obj_set_size(s_busy, 300, 200);
     lv_obj_align(s_busy, LV_ALIGN_TOP_MID, 0, 110);
-    lv_obj_remove_flag(s_busy, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
+    lv_obj_set_scrollable(s_busy, false);
+    lv_obj_set_clickable(s_busy, false);
     lv_obj_t *sp = lv_spinner_create(s_busy);
     lv_spinner_set_anim_params(sp, 1000, 60);                       // child 0
     lv_obj_set_size(sp, 64, 64);
@@ -347,10 +349,10 @@ static void connResult(bool ok, const char *msg)
 {
     s_phase = ok ? ConnPhase::OK : ConnPhase::FAIL;
     s_phaseMs = MySys::millis();
-    lv_obj_add_flag(s_spinner, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_connBar, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_connTime, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(s_resultIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_spinner, true);
+    lv_obj_set_hidden(s_connBar, true);
+    lv_obj_set_hidden(s_connTime, true);
+    lv_obj_set_hidden(s_resultIcon, false);
     lv_label_set_text(s_resultIcon, ok ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
     lv_obj_set_style_text_color(s_resultIcon, Theme::c(ok ? Theme::GREEN : Theme::RED), 0);
     lv_label_set_text(s_connTitle, ok ? "Ansluten!" : "Kunde inte ansluta");
@@ -438,7 +440,7 @@ void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
 
     s_resultIcon = Theme::label(scr, LV_SYMBOL_OK, &my_font_36, Theme::GREEN);
     lv_obj_align(s_resultIcon, LV_ALIGN_TOP_MID, 0, 196);
-    lv_obj_add_flag(s_resultIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_resultIcon, true);
 
     s_connBar = lv_bar_create(scr);
     lv_obj_set_size(s_connBar, 240, 10);

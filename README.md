@@ -4,9 +4,9 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.4.0 – ported from Arduino-ESP32 3.3 + LVGL 8.4 to ESP-IDF 6.1 + LVGL 9.6 with shared,
-> reusable components (`components/my_*`). Builds with 0 errors and passes the host tests, but the port
-> is **not yet verified on hardware**. v0.2.0 is hardware-verified. See [ROADMAP.md](ROADMAP.md).
+> **Status:** v0.5.1 – adds the shake-and-throw dice cup and a warning-free build. v0.5.1 builds with
+> 0 errors / 0 warnings and passes the host tests, but is **not yet tested on hardware**. v0.5.0's RTC and
+> sprite dice animation are hardware-verified; v0.2.0 is hardware-verified. See [ROADMAP.md](ROADMAP.md).
 
 ## Features
 
@@ -25,6 +25,16 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
   gloss and inset pips) thrown in from one side with bounces and spin that rolls out onto the result
   (800 ms default), LED flash on roll,
   scrollable score table with best-category hint, result screen with medals.
+- **Dice cup (v0.5.1, not yet hardware-tested)** – when it is time to roll, the lower part of the screen
+  becomes a leather dice cup seen from above; the dice to be thrown rattle inside it. Hold a finger in
+  the cup and shake (back and forth or in circles) – the cup follows the finger, the dice bounce off the
+  wall and each other, and the LED flashes with the knocks. Swipe up quickly (≥ 500 px/s) or drag out of
+  the cup upwards to throw; releasing without a swipe keeps the dice in the cup, a tap gives a standard
+  throw. Swipe angle and speed shape the flight path, reach, length (600–1400 ms) and bounces; shake
+  energy sets the spin and scatter; the circling direction sets the roll direction and a slight curve.
+  The values still come from the game engine. Gesture and physics maths live in `main/dice_cup.*`
+  (host-tested). Setting **Kastsätt: Bägare / Knapp** (device and web, default Bägare) switches back
+  to the classic [Kasta] button.
 - **Wi-Fi (station only)** – joins an existing access point; the soft-AP is disabled (`AP_MODE_ENABLED 0`).
   On-device setup (`ui_wifi.cpp`): network list sorted by RSSI with 5 signal bars and lock/"Öppen" marker,
   password entry with the on-screen scroll wheel (`my_charwheel` + `mypi_kbd_core.h`, same model as
@@ -43,7 +53,8 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
   With the optional **DS3231 RTC** the clock is set from the RTC at boot (source "RTC", certain); the RTC
   keeps UTC and is rewritten after every NTP sync / manual set when it drifts ≥ 1 s. Log lines carry
   uptime and are shown in real time as soon as the clock is certain (also lines from before that point).
-- **Live view** – `/game` shows the running game read-only (dice, kept dice, full score sheet, winner),
+- **Live view** – `/game` shows the running game read-only (dice, kept dice, full score sheet, winner,
+  "skakar bägaren..." while the cup is shaken),
   polling `/api/game` every 700 ms; handy on a phone or TV next to the device.
 - **OTA firmware update** – web page `/update` streams the `-ota.bin` into the inactive app slot
   (app0/app1) with progress on the web page and on the display; the running firmware stays if anything fails.
@@ -125,6 +136,7 @@ INC="-Imain -Icomponents/my_wifi/include -Icomponents/my_ui/include"
 g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o tests/test_yatzy && ./tests/test_yatzy
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
+g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
 ```
 
 ## Flashing and updating
@@ -161,7 +173,7 @@ main/                 Application: app_main, app_config, app_players, app_web, b
 main/web/             Web page sources (HTML/CSS)
 components/my_*/      Shared reusable components (see above)
 docs/                 Hardware reference
-tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format)
+tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format, dice cup)
 tools/embed_web.py    main/web/ -> main/web_assets.h generator
 tools/lvgl8to9.py     Helper used for the LVGL 8 -> 9 API rename
 partitions.csv        Same layout as Arduino app3M_fat9M_16MB

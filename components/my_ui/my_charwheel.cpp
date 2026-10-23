@@ -219,7 +219,8 @@ static lv_obj_t *box(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t 
     lv_obj_remove_style_all(o);
     lv_obj_set_pos(o, x, y);
     lv_obj_set_size(o, w, h);
-    lv_obj_remove_flag(o, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
+    lv_obj_set_scrollable(o, false);
+    lv_obj_set_clickable(o, false);
     return o;
 }
 
@@ -249,8 +250,8 @@ lv_obj_t *create(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t h,
     lv_obj_remove_style_all(root);
     lv_obj_set_pos(root, x, y);
     lv_obj_set_size(root, w, h);
-    lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);   // Swallow touches behind the overlay
+    lv_obj_set_scrollable(root, false);
+    lv_obj_set_clickable(root, true);   // Swallow touches behind the overlay
     lv_obj_set_style_bg_color(root, Theme::c(Theme::BG), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_text_font(root, k->font, 0);
@@ -281,7 +282,7 @@ lv_obj_t *create(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t h,
     int32_t tabW = (innerW - (MYPI_KBD_RANGE_COUNT - 1) * gap) / MYPI_KBD_RANGE_COUNT;
     for (int r = 0; r < MYPI_KBD_RANGE_COUNT; r++) {
         lv_obj_t *tab = box(root, pad + r * (tabW + gap), fieldH + gap / 2, tabW, tabsH - gap);
-        lv_obj_add_flag(tab, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(tab, true);
         lv_obj_set_style_bg_color(tab, Theme::c(Theme::ACCENT_DARK), 0);
         lv_obj_set_style_border_width(tab, 1, 0);
         lv_obj_set_style_radius(tab, 6, 0);
@@ -305,8 +306,9 @@ lv_obj_t *create(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t h,
     // Wheel
     int32_t wheelY = hintY + hintH;
     k->wheel = box(root, pad, wheelY, innerW, wheelH);
-    lv_obj_add_flag(k->wheel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(k->wheel, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLL_CHAIN | LV_OBJ_FLAG_GESTURE_BUBBLE));
+    lv_obj_set_clickable(k->wheel, true);
+    lv_obj_set_scroll_chain(k->wheel, false);
+    lv_obj_set_gesture_bubble(k->wheel, false);
     int ratioSum = 0;
     for (int i = 0; i < ROWS; i++) ratioSum += ROW_RATIO[i];
     int32_t smallH = wheelH * ROW_RATIO[0] / ratioSum;

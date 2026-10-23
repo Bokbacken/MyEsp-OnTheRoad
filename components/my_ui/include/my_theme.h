@@ -42,7 +42,7 @@ inline lv_obj_t *screen()
     lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(s, c(TEXT), 0);
     lv_obj_set_style_text_font(s, &my_font_18, 0);
-    lv_obj_remove_flag(s, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s, false);
     return s;
 }
 
@@ -107,7 +107,7 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title)
     lv_obj_set_style_border_side(h, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(h, 2, 0);
     lv_obj_set_style_border_color(h, c(ACCENT), 0);
-    lv_obj_remove_flag(h, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(h, false);
     lv_obj_t *t = label(h, title, &my_font_24);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 10, 0);
     return h;

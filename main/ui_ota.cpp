@@ -21,8 +21,8 @@ static void build()
     lv_obj_set_size(s_overlay, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(s_overlay, Theme::c(Theme::BG), 0);
     lv_obj_set_style_bg_opa(s_overlay, LV_OPA_90, 0);
-    lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_CLICKABLE);   // Swallow touches during the update
-    lv_obj_remove_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(s_overlay, true);   // Swallow touches during the update
+    lv_obj_set_scrollable(s_overlay, false);
 
     lv_obj_t *t = Theme::label(s_overlay, LV_SYMBOL_DOWNLOAD "  Uppdaterar firmware", &my_font_24, Theme::ACCENT);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, -80);

@@ -62,7 +62,7 @@ void show()
 
     lv_obj_t *list = Theme::card(s_screen, 296, (int)Item::COUNT * ROW_H + 18);
     lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 164);
-    lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(list, false);
     for (int i = 0; i < (int)Item::COUNT; i++) {
         int32_t y = i * ROW_H;
         s_icon[i] = Theme::label(list, LV_SYMBOL_BULLET, &my_font_18, Theme::LINE);

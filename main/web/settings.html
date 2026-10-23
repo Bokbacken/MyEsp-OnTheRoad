@@ -98,6 +98,11 @@
     <label for="roll_anim_ms">Kastanimation: <b id="anim-val">–</b> ms</label>
     <input type="range" id="roll_anim_ms" name="roll_anim_ms" min="300" max="2000" step="50">
     <label class="check"><input type="checkbox" id="maxi_saved_rolls" name="maxi_saved_rolls"> Maxi-Yatzy: spara oanvända kast</label>
+    <label for="throw_mode">Kastsätt</label>
+    <select id="throw_mode" name="throw_mode">
+      <option value="0">Bägare (skaka och svep uppåt)</option>
+      <option value="1">Knapp</option>
+    </select>
   </fieldset>
   <fieldset>
     <legend>Nätverk</legend>
@@ -179,6 +184,7 @@ function fill(c) {
   $('default_variant').value = c.default_variant;
   $('roll_anim_ms').value = c.roll_anim_ms; updA();
   $('maxi_saved_rolls').checked = c.maxi_saved_rolls;
+  if (c.throw_mode !== undefined) $('throw_mode').value = c.throw_mode;
   $('hostname').value = c.hostname;
 }
 async function load() {
@@ -345,6 +351,7 @@ $('cfg-form').addEventListener('submit', async e => {
     default_variant: $('default_variant').value,
     roll_anim_ms: $('roll_anim_ms').value,
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
+    throw_mode: $('throw_mode').value,
     hostname: host,
     tz: $('tz').value.trim()
   };

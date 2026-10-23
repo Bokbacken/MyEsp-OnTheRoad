@@ -25,6 +25,17 @@ void setActive(bool active)
     if (s_snap.active != active) {
         s_snap.active = active;
         s_snap.rolling = false;
+        s_snap.shaking = false;
+        s_snap.version++;
+    }
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void setShaking(bool shaking)
+{
+    portENTER_CRITICAL(&s_mux);
+    if (s_snap.shaking != shaking) {
+        s_snap.shaking = shaking;
         s_snap.version++;
     }
     portEXIT_CRITICAL(&s_mux);

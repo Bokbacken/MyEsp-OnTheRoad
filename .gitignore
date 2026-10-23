@@ -14,3 +14,4 @@ __pycache__/
 tests/test_core
 managed_components/
 tests/test_rtc
+tests/test_cup

@@ -1,6 +1,6 @@
 # MyEsp-OnTheRoad – Roadmap
 
-Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat.
+Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat.
 
 ## v0.2.0 – grund ✅ (HW-verifierad)
 - Display ST77922 QSPI, touch, LED, bakgrundsbelysning, bootskärm med självtest
@@ -31,9 +31,9 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Samma partitionstabell som Arduino – spelarfilen på FFat behålls; NVS-nycklar migreras
 - [x] Bygger med 0 fel, värdtester 324 + 67 OK
 - [ ] HW-test (första flash via USB med merged-bin, sedan OTA)
-- [ ] Byt ut föråldrade `lv_obj_add/remove_flag` mot LVGL 9.6-setters (bara varningar)
+- [x] Byt ut föråldrade `lv_obj_add/remove_flag` mot LVGL 9.6-setters (gjort i v0.5.1, bygget är varningsfritt)
 
-## v0.5.0 – RTC, ny tärningsanimation, live-webbsida ✅ 🔧
+## v0.5.0 – RTC, ny tärningsanimation, live-webbsida ✅ (RTC + animation HW-verifierade) 🔧
 - [x] DS3231 RTC (RPi-modul "DS3231 for Pi", stift `- NC C D +`) på den delade I2C-bussen (SDA IO38, SCL IO39, 3V3) – ny delad komponent `my_rtc`
 - [x] Funktionstest vid start: svarar på 0x68, register läsbara, OSF (tiden överlevde på batteri), giltigt datum, sekunden tickar, temperatur
 - [x] Ny rad "Klocka (DS3231 RTC)" i bootlistan (tid UTC + temperatur, eller felorsak); 2 × orange LED-blink vid fel
@@ -44,7 +44,23 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Ny rullning: alla tärningar kastas in från samma sida, ease-out-bana, tre avtagande studsar, 1,25–2,25 varv som rullar ut på rätt sida, liten "duns" vid landning, 45 ms förskjutning
 - [x] Live-webbsida `/game` (skrivskyddad, öppen): tärningar (låsta markerade), protokoll för alla spelare, summa/bonus/totalt, vinnare vid slut, helskärmsknapp. Pollar `/api/game?v=` var 700 ms
 - [x] Värdtest `tests/test_rtc.cpp` (BCD/datum, skottår, veckodag, 12 h-läge, rundtur 2024–2099)
-- [ ] HW-test (RTC-modulen, animation, livesidan)
+- [x] HW-test RTC-modulen (Kent 2026-10: sattes via NTP vid första start, andra start OK från RTC)
+- [x] HW-test tärningsanimationen (flyter bra)
+- [ ] HW-test livesidan `/game`
+
+## v0.5.1 – Bägaren, varningsfritt bygge ✅ 🔧
+- [x] **Bägaren** (Kents idé): i kastfasen med kast kvar blir nedre delen av skärmen (där förslagskortet och knapparna ligger) en läderbägare sedd ovanifrån – brun kant med gradient, skugga och glans, mörk insida, filtbotten. Tärningarna som ska kastas (inte de i boet; vid första kastet alla) glider in i bägaren och skramlar där i ~70 % storlek
+- [x] Skaka: håll fingret i bägaren och rör fram och tillbaka eller i cirklar. Bägaren följer fingret (35 % av förskjutningen, max ±18 px) och insidan förskjuts mot kanten (parallax = lätt lutning). Bägarens acceleration knuffar tärningarna, som studsar mot väggen och varandra (enkel fysik) och byter sida vid knuffar. LED blinkar varmt vid varje knuff, starkare vid hårdare stöt
+- [x] Kast: snabbt svep uppåt (≥ 500 px/s, högst ~50° från rakt upp) eller att fingret lämnar bägaren uppåt (≥ 8 px ovanför kanten, ≥ 150 px/s). Släpp utan svep = inget kast. Kort tryck (≤ 350 ms, ≤ 10 px) = standardkast. Kompakt [Kasta]-knapp i bägarytan
+- [x] Gesten formar animationen (värdena kommer fortfarande från spelmotorn): start där tärningarna ligger i bägaren, svepets vinkel (±0,6 rad) och fart ger bana (kvadratisk Bezier), räckvidd, längd 600–1400 ms och 2–4 studsar; skakenergin ger antal varv och spridning; snurriktningen ger rotationsriktning och en lätt kurva
+- [x] "Kast N kvar" vid bägaren, hint "Skaka och svep uppåt" tills första bägarkastet i varje spel, [Välj >] och [Ordna] (lägger undan bägaren så att tärningar kan flyttas) efter första kastet
+- [x] Efter kastet glider bägaren bort och förslagen + [Kasta n] [Välj ruta] visas; [Kasta n] tar fram bägaren igen. Bägaren visas också efter "< Kasta n" från protokollet. En tärning som tas ur boet medan bägaren är framme hamnar i bägaren
+- [x] Uppdatering via LVGL-timer 16 ms bara när bägaren är aktiv, inga allokeringar per bildruta, skyddad med `s_gen` och stoppas när spelet lämnas
+- [x] Ren gest-/fysikmatematik i `main/dice_cup.h/.cpp` (utan LVGL) + värdtest `tests/test_cup.cpp` (50 kontroller)
+- [x] Inställning "Kastsätt: Bägare / Knapp" (standard Bägare) på enheten och webben (NVS `throw_mode`, `/api/config` `throw_mode`)
+- [x] Livesidan `/game` visar "skakar bägaren..." (fält `shaking` i `/api/game`)
+- [x] Alla föråldrade LVGL-anrop (`lv_obj_add/remove/has_flag`, 49 st) bytta mot 9.6-setters (`lv_obj_set_hidden/clickable/...`, `lv_obj_is_hidden`) – bygget har 0 varningar
+- [ ] HW-test (känsla, trösklar och bildfrekvens i bägaren måste provas på enheten)
 
 ## v0.6.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering

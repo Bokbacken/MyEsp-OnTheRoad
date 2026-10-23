@@ -215,6 +215,7 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "default_variant", c.defaultVariant);
     cJSON_AddNumberToObject(o, "roll_anim_ms", c.rollAnimMs);
     cJSON_AddBoolToObject(o, "maxi_saved_rolls", c.maxiSavedRolls);
+    cJSON_AddNumberToObject(o, "throw_mode", c.throwMode);
     return o;
 }
 
@@ -231,6 +232,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("led_brightness", 0, 255, v, bad)) next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;
+    if (q.getInt("throw_mode", 0, 1, v, bad)) next.throwMode = (uint8_t)v;
     if (bad) return MyWeb::sendError(r, 400, "Ogiltigt numeriskt värde");
     if (q.getBool("led_enabled", b)) next.ledEnabled = b;
     if (q.getBool("maxi_saved_rolls", b)) next.maxiSavedRolls = b;
@@ -415,6 +417,7 @@ static esp_err_t handleGame(httpd_req_t *r)
     if (hasGame) {
         const YatzyVariant var = g.variant();
         cJSON_AddBoolToObject(o, "rolling", s->rolling);
+        cJSON_AddBoolToObject(o, "shaking", s->shaking);
         cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
         cJSON_AddBoolToObject(o, "finished", g.finished());
         cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");

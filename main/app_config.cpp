@@ -30,6 +30,7 @@ void defaults(AppConfig &c)
     c.defaultVariant = 0;
     c.rollAnimMs = 800;
     c.maxiSavedRolls = true;
+    c.throwMode = 0;
     strcpy(c.tz, DEFAULT_TZ);
 }
 
@@ -50,6 +51,7 @@ void begin()
             g_cfg.defaultVariant = p.getU8("variant", 0) % 4;
             g_cfg.rollAnimMs = MySys::clamp<uint16_t>(p.getU16("roll_ms", g_cfg.rollAnimMs), 300, 2000);
             g_cfg.maxiSavedRolls = p.getBool("maxi_save", true);
+            g_cfg.throwMode = p.getU8("throw_mode", 0) > 1 ? 0 : p.getU8("throw_mode", 0);
             p.getStr("admin_pin", g_cfg.adminPin, sizeof(g_cfg.adminPin));
             p.getStr("tz", g_cfg.tz, sizeof(g_cfg.tz));
         }
@@ -76,6 +78,7 @@ bool save()
     ok &= p.setU8("variant", g_cfg.defaultVariant);
     ok &= p.setU16("roll_ms", g_cfg.rollAnimMs);
     ok &= p.setBool("maxi_save", g_cfg.maxiSavedRolls);
+    ok &= p.setU8("throw_mode", g_cfg.throwMode);
     ok &= p.setStr("admin_pin", g_cfg.adminPin);
     ok &= p.setStr("tz", g_cfg.tz);
     return p.commit() && ok;

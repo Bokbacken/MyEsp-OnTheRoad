@@ -15,11 +15,13 @@ struct Snapshot {
     bool active;          // A game screen is open (false after "Avsluta" / before the first game)
     bool rolling;         // Dice animation running (dice values are already final)
     bool resultPhase;     // Console shows the score table (choosing a box)
+    bool shaking;         // Player is shaking the dice cup on the console
     YatzyGame game;
 };
 
 void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase);
 void setActive(bool active);
+void setShaking(bool shaking);   // Bumps the version only on change
 uint32_t version();
 void get(Snapshot &out);
 

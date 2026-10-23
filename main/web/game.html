@@ -97,8 +97,8 @@ function render(g) {
   $('round').textContent = g.finished ? 'Spelet är slut' : 'Omgång ' + g.round + ' av ' + g.rounds;
   const cur = P[g.current] || {name: '?'};
   $('turn').innerHTML = g.finished ? 'Slutresultat' : 'Tur: <b>' + esc(cur.name) + '</b>' +
-    (g.rolling ? ' <span class="muted">· tärningarna rullar...</span>' : g.choosing ? ' <span class="muted">· väljer ruta</span>' : '');
-  $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], g.rolling && !g.held[i])).join('');
+    (g.rolling ? ' <span class="muted">· tärningarna rullar...</span>' : g.shaking ? ' <span class="muted">· skakar bägaren...</span>' : g.choosing ? ' <span class="muted">· väljer ruta</span>' : '');
+  $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], (g.rolling || g.shaking) && !g.held[i])).join('');
   let rolls = g.finished ? '' : 'Kast kvar: ' + g.rolls_left;
   if (!g.finished && g.variant === 'maxi' && cur.saved_rolls) rolls += ' (varav ' + cur.saved_rolls + ' sparade)';
   $('rolls').textContent = rolls;

@@ -52,7 +52,7 @@ static lv_obj_t *sliderRow(lv_obj_t *parent, const char *title, int min, int max
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
     lv_obj_set_size(row, LV_PCT(100), 58);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(row, false);
     lv_obj_t *t = Theme::label(row, title, &my_font_14, Theme::MUTED);
     lv_obj_set_pos(t, 0, 0);
     *valLabel = Theme::label(row, "", &my_font_14, Theme::ACCENT);
@@ -103,6 +103,7 @@ static void leave(bool save)
         Config::get().rollAnimMs = s_edit.rollAnimMs;
         Config::get().defaultVariant = s_edit.defaultVariant;
         Config::get().maxiSavedRolls = s_edit.maxiSavedRolls;
+        Config::get().throwMode = s_edit.throwMode;
         Config::save();
     }
     applyHardware();   // Reverts the live preview when cancelled
@@ -114,7 +115,7 @@ static lv_obj_t *switchRow(lv_obj_t *parent, const char *title, bool on, lv_even
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
     lv_obj_set_size(row, LV_PCT(100), 36);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(row, false);
     lv_obj_t *t = Theme::label(row, title, &my_font_14);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_t *sw = lv_switch_create(row);
@@ -166,6 +167,17 @@ void show()
     switchRow(game, "Maxi: spara oanvända kast", s_edit.maxiSavedRolls, [](lv_event_t *e) {
         s_edit.maxiSavedRolls = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });
+    Theme::label(game, "Kasts\xC3\xA4tt", &my_font_14, Theme::MUTED);
+    lv_obj_t *tm = lv_dropdown_create(game);
+    lv_dropdown_set_options(tm, "B\xC3\xA4gare (skaka och svep upp\xC3\xA5t)\nKnapp");
+    lv_dropdown_set_selected(tm, s_edit.throwMode ? 1 : 0);
+    lv_obj_set_width(tm, LV_PCT(100));
+    lv_obj_set_style_bg_color(tm, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_text_color(tm, Theme::c(Theme::TEXT), 0);
+    lv_obj_set_style_border_color(tm, Theme::c(Theme::LINE), 0);
+    lv_obj_add_event_cb(tm, [](lv_event_t *e) {
+        s_edit.throwMode = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(clk, LV_FLEX_FLOW_COLUMN);

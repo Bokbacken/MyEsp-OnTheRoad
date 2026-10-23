@@ -97,8 +97,8 @@ lv_obj_t *openQwerty(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t 
     lv_obj_remove_style_all(root);
     lv_obj_set_pos(root, x, y);
     lv_obj_set_size(root, w, h);
-    lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);   // Swallow touches behind the overlay
+    lv_obj_set_scrollable(root, false);
+    lv_obj_set_clickable(root, true);   // Swallow touches behind the overlay
     lv_obj_set_style_bg_color(root, Theme::c(Theme::BG), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(root, Theme::c(Theme::TEXT), 0);
