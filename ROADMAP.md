@@ -25,7 +25,15 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] BSSID/kanal/antal roaming i `/api/info`, diagnostik, webbinställningar och enhetens inställningsskärm
 - [ ] HW-test (fyra AP:er hemma hos Kent)
 
-## v0.4.0 – Del B: historik och statistik ⏳
+## v0.4.0 – ESP-IDF 6.1 + LVGL 9.6 ✅ 🔧
+- [x] Portad från Arduino-ESP32 3.3 + LVGL 8.4 till ESP-IDF 6.1 + LVGL 9.6 (esp_lcd, esp_http_server, cJSON)
+- [x] Delade komponenter `components/my_*` (log, storage, time, diag, wifi, ota, web, lvgl, ui) för återbruk i MyPi-projekten
+- [x] Samma partitionstabell som Arduino – spelarfilen på FFat behålls; NVS-nycklar migreras
+- [x] Bygger med 0 fel, värdtester 324 + 67 OK
+- [ ] HW-test (första flash via USB med merged-bin, sedan OTA)
+- [ ] Byt ut föråldrade `lv_obj_add/remove_flag` mot LVGL 9.6-setters (bara varningar)
+
+## v0.5.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering
 - [ ] Statistik per spelare: antal spel, vinster, snitt, bästa, Yatzy-antal, bonusfrekvens – per variant
 - [ ] Statistik per par (ordningsoberoende, A+B = B+A): inbördes möten, vinster, snitt
@@ -38,4 +46,4 @@ Status per 2026-10-23. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin-roll per spelare (flaggfältet i `PlayerRec` är reserverat)
 - [ ] Ljud (ES8311), SD-kort, batterimätare
 - [ ] Spara pågående spel vid strömavbrott
-- [ ] Möjlig migrering till ESP-IDF
+- [ ] 802.11k/v/r-roaming (möjligt nu med ESP-IDF)
