@@ -120,14 +120,7 @@ extern "C" void app_main(void)
         Rgb::setBase(lvglFault ? 40 : 60, 0, lvglFault ? 40 : 0);   // Stays dim red/magenta
     }
     if (displayOk) Rgb::setBase(0, 0, 25);   // Dim blue: touch / UI stage
-    const uint32_t teBeforeTouch = Display::stats().teEdges;
-    MySys::delayMs(200);
-    const uint32_t teMid = Display::stats().teEdges;
     const bool touchOk = displayOk && Touch::begin();   // Registers the LVGL pointer device
-    const uint32_t teAfterTouch = Display::stats().teEdges;
-    MySys::delayMs(200);
-    ESP_LOGI(TAG, "TE pulses: %u in 200 ms before touch init, %u in 200 ms after", (unsigned)(teMid - teBeforeTouch),
-             (unsigned)(Display::stats().teEdges - teAfterTouch));
     ESP_LOGI(TAG, "touch %s", touchOk ? "ok" : "not found");
 
     if (displayOk) {

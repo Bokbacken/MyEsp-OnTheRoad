@@ -176,9 +176,12 @@ void flush(int x1, int y1, int x2, int y2, const uint16_t *src, bool firstOfFram
     }
 }
 
-// Bus/IO options, chosen by the boot diagnostics (IDF 6.1 SPI path did not reach the panel).
+// Bus/IO options. gpioMatrix MUST stay true on IDF 6.1: spicommon_bus_initialize_io() tests
+// `flags & SPICOMMON_BUSFLAG_OCTAL` (non-zero for QUAD too) and then re-muxes the IO_MUX pins to
+// the octal function 2, so the quad signals never reach GPIO 9/11-14 (log: FuncSel 2, no TE).
+// Through the GPIO matrix the pins carry the right signals; 40 MHz is fine via the matrix.
 struct BusOpts {
-    bool gpioMatrix = false;   // Route through the GPIO matrix instead of IO_MUX
+    bool gpioMatrix = true;
     bool dma = true;
     int spiMode = 0;
     uint32_t hz = LCD_QSPI_HZ;
@@ -267,7 +270,7 @@ void initTe();
 // the LED shows the same colour. The log reports TE pulses (only produced by a panel that is
 // awake and has TEON) and register read-back, so the log alone tells which path works.
 // ---------------------------------------------------------------------------
-constexpr bool RUN_DIAGNOSTICS = true;
+constexpr bool RUN_DIAGNOSTICS = false;   // Set true to run the variant test at boot again
 constexpr uint32_t VARIANT_HOLD_MS = 1500;
 
 void hexLine(char *out, size_t cap, const uint8_t *b, size_t n)
@@ -618,6 +621,13 @@ bool begin()
         if (!sendInitSequence()) return false;
     }
     g_panelOk = true;
+    {
+        const uint32_t te0 = g_teEdges;
+        vTaskDelay(pdMS_TO_TICKS(50));
+        const uint32_t te = g_teEdges - te0;
+        if (te == 0) MyLog::event("lcd", "VARNING: inga TE-pulser efter init - panelen svarar inte");
+        else ESP_LOGI(TAG, "panel awake: %u TE pulses in 50 ms", (unsigned)te);
+    }
     ESP_LOGI(TAG, "ST77922 init sequence sent (%u MHz, %s, %s DMA, mode %d)", (unsigned)(g_opts.hz / 1000000), g_opts.gpioMatrix ? "GPIO matrix" : "IO_MUX", g_opts.dma ? "with" : "no", g_opts.spiMode);
 
     MyLvgl::Config cfg;

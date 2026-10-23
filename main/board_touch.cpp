@@ -172,8 +172,11 @@ bool begin()
     ic.pull_up_en = GPIO_PULLUP_ENABLE;
     ic.intr_type = GPIO_INTR_NEGEDGE;
     gpio_config(&ic);
-    err = gpio_install_isr_service(0);
-    if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) gpio_isr_handler_add((gpio_num_t)PIN_TOUCH_INT, touchIsr, nullptr);
+    // The display driver normally installed the ISR service already (TE); install only if missing.
+    if (gpio_isr_handler_add((gpio_num_t)PIN_TOUCH_INT, touchIsr, nullptr) == ESP_ERR_INVALID_STATE &&
+        gpio_install_isr_service(0) == ESP_OK) {
+        gpio_isr_handler_add((gpio_num_t)PIN_TOUCH_INT, touchIsr, nullptr);
+    }
 
     // Register the indev even if the probe failed: the controller may wake up later.
     g_indev = MyLvgl::addPointer(pointerRead);
