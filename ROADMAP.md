@@ -77,6 +77,10 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] `/api/game` har nya fält `code`, `web_players`, `lang`, `can_roll`, `has_rolled`, `potential` per ruta (bakåtkompatibelt)
 - [ ] HW-test (språkbyte, msgbox, webbspel med 1–2 mobiler)
 
+## v0.5.5 – Webbspel: klienter registreras igen 🔧 (inte HW-testad)
+- [x] `/ws/game`: ESP-IDF 6.x anropar inte handlern vid WebSocket-handskakningen, så klienten registrerades aldrig och `join` ignorerades tyst (varken rätt eller fel kod gav svar). Klienten registreras nu vid första meddelandet (`wsRegister`)
+- [ ] HW-test (anslutning från mobil, rätt och fel kod)
+
 ## v0.5.4 – Webbspel: auto-join och spökanslutningar 🔧 (inte HW-testad)
 - [x] `/play`: auto-join till enda webbspelaren sker så länge mobilen är åskådare (`you < 0`), även om platsen redan rapporteras som ansluten (race när join-kommandona processas utan state-frame emellan)
 - [x] `/ws/game`: döda/halvöppna WebSocket-sessioner rensas direkt vid ny anslutning (`wsReapDead`) innan "för många klienter" ges – tidigare bara en gång per sekund

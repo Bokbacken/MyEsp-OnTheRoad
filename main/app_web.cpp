@@ -750,23 +750,32 @@ static void wsHandleText(int fd, const char *txt)
     cJSON_Delete(j);
 }
 
+// Binds a socket to a client slot. nullptr (and the socket is closed) when all slots are busy.
+static WsClient *wsRegister(httpd_handle_t hd, int fd)
+{
+    WsClient *c = wsFind(fd);
+    if (c) return c;
+    wsReapDead(hd);   // Sweep ghost sockets (e.g. backgrounded phones) before giving up
+    c = wsFind(-1);
+    if (!c) {
+        wsSendError(fd, "full", Str::WEB_ERR_WS_FULL);
+        httpd_sess_trigger_close(hd, fd);
+        return nullptr;
+    }
+    *c = {fd, false, -1, 0, true};
+    wsPublishConnections();
+    wsQueueBroadcast();
+    return c;
+}
+
 static esp_err_t wsHandler(httpd_req_t *r)
 {
     const int fd = httpd_req_to_sockfd(r);
-    if (r->method == HTTP_GET) {   // Handshake done: register the client
-        WsClient *c = wsFind(fd);
-        if (!c) {
-            wsReapDead(r->handle);   // Sweep ghost sockets (e.g. backgrounded phones) before giving up
-            c = wsFind(-1);
-        }
-        if (!c) {
-            wsSendError(fd, "full", Str::WEB_ERR_WS_FULL);
-            httpd_sess_trigger_close(r->handle, fd);
-            return ESP_OK;
-        }
-        *c = {fd, false, -1, 0, true};
-        wsPublishConnections();
-        wsQueueBroadcast();
+    // ESP-IDF 6.x answers the handshake itself and does NOT call the handler for it (older
+    // releases did, with method GET). Data frames arrive with method 0, so clients are
+    // registered lazily on their first frame below; the GET branch is kept for old IDFs.
+    if (r->method == HTTP_GET) {
+        wsRegister(r->handle, fd);
         return ESP_OK;
     }
     httpd_ws_frame_t f = {};
@@ -782,6 +791,7 @@ static esp_err_t wsHandler(httpd_req_t *r)
     e = httpd_ws_recv_frame(r, &f, f.len);
     if (e != ESP_OK) return e;
     buf[f.len] = 0;
+    if (!wsRegister(r->handle, fd)) return ESP_OK;   // Full: the socket is being closed
     wsHandleText(fd, buf);
     return ESP_OK;
 }
