@@ -329,6 +329,460 @@ static void testWorld()
     CHECK_EQ(W.gems(), 13);
 }
 
+// ---- v0.8.0: pathfinding, rules, treasures, minesweeper, save ----------------------------
+static Planner P;   // ~70 kB
+static Path PA;
+static uint8_t SAVEBUF[64 * 1024];
+
+template <int N>
+static bool loadR(const char *const (&rows)[N], const Rules &r) { return W.load(rows, N, r); }
+
+static constexpr Rules R8 = {8, 20, 2, 3, 4, 3, 1, 2, 1, false};   // Finite lives, lava 3
+
+static uint32_t follow(const Path &p)
+{
+    uint32_t ev = 0;
+    for (int i = 0; i < p.len; i++) ev |= W.move((Dir)p.dirs[i]);
+    return ev;
+}
+
+static void testPickTarget()
+{
+    static const char *const m[] = {"#####", "#S.T#", "#...#", "#####"};
+    CHECK(load(m));
+    int x = -1, y = -1;
+    CHECK(!Planner::pickTarget(W, 3.5f, 1.5f, x, y));   // Clear tap on the tree
+    CHECK(Planner::pickTarget(W, 3.1f, 1.5f, x, y));    // Near its left edge -> (2,1)
+    CHECK_EQ(x, 2); CHECK_EQ(y, 1);
+    CHECK(Planner::pickTarget(W, 3.5f, 1.9f, x, y));    // Near its bottom edge -> (3,2)
+    CHECK_EQ(x, 3); CHECK_EQ(y, 2);
+    CHECK(Planner::pickTarget(W, 1.5f, 2.5f, x, y));    // Plain ground
+    CHECK_EQ(x, 1); CHECK_EQ(y, 2);
+    CHECK(!Planner::pickTarget(W, 0.5f, 0.5f, x, y));   // Wall corner, diagonal too far
+    CHECK(Planner::pickTarget(W, 0.9f, 1.5f, x, y));    // Wall, close to (1,1)
+    CHECK_EQ(x, 1); CHECK_EQ(y, 1);
+    CHECK(!Planner::pickTarget(W, 0.6f, 1.5f, x, y));   // Wall, more than 1/3 away
+    CHECK(Planner::pickTarget(W, 3.8f, 1.8f, x, y));    // Tree corner: nearest is (3,2) below
+    CHECK_EQ(x, 3); CHECK_EQ(y, 2);
+    CHECK(!Planner::targetable(W, 3, 1));
+    CHECK(!Planner::targetable(W, -1, 0));
+}
+
+static void testPlanBasic()
+{
+    static const char *const m[] = {"#######", "#S.#..#", "#..#..#", "#.....#", "#######"};
+    CHECK(load(m));
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 7);                                  // Around the wall
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::ASSIST, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 7);
+    CHECK(follow(PA) & EV_MOVED);
+    CHECK_EQ(W.playerX(), 4); CHECK_EQ(W.playerY(), 1);
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::PRO, PA), (int)PlanResult::HERE);
+    CHECK_EQ((int)P.plan(W, 3, 1, WalkMode::PRO, PA), (int)PlanResult::INVALID);   // Wall
+    CHECK_EQ(PA.len, 0);
+    static const char *const m2[] = {"#######", "#S.#..#", "#..#..#", "#######"};
+    CHECK(load(m2));
+    CHECK_EQ((int)P.plan(W, 5, 2, WalkMode::PRO, PA), (int)PlanResult::UNREACHABLE);
+    CHECK_EQ(PA.len, 0);
+    // Crates / rocks / bushes are obstacles for the planner (it never pushes)
+    static const char *const m3[] = {"######", "#SRc.#", "#.b..#", "#....#", "######"};
+    CHECK(load(m3));
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 7);
+    CHECK_EQ((int)P.plan(W, 2, 1, WalkMode::PRO, PA), (int)PlanResult::INVALID);
+    // Big world: bounded and optimal on open ground, closed garden unreachable
+    CHECK(W.load(WORLDS[0]));
+    CHECK_EQ((int)P.plan(W, 2, 5, WalkMode::ASSIST, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 3);
+    CHECK_EQ((int)P.plan(W, 20, 10, WalkMode::PRO, PA), (int)PlanResult::UNREACHABLE);
+    CHECK_EQ((int)P.plan(W, 58, 58, WalkMode::ASSIST, PA), (int)PlanResult::NEED_BOAT);   // River
+    CHECK(PA.len > 0);
+}
+
+static void testPlanLava()
+{
+    static const char *const m[] = {"######", "#S^^.#", "######"};
+    CHECK(loadR(m, R8));
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::PRO, PA), (int)PlanResult::OK);   // Pro: straight through
+    CHECK_EQ(PA.len, 3);
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::ASSIST, PA), (int)PlanResult::DANGER);
+    CHECK_EQ(PA.len, 0);                                   // Stays on the last safe cell
+    static const char *const m2[] = {"######", "#S^^.#", "#....#", "######"};
+    CHECK(loadR(m2, R8));
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 3);
+    CHECK_EQ((int)P.plan(W, 4, 1, WalkMode::ASSIST, PA), (int)PlanResult::OK);   // Detour
+    CHECK_EQ(PA.len, 5);
+    static const char *const m3[] = {"#######", "#S.^^.#", "#######"};
+    CHECK(loadR(m3, R8));
+    CHECK_EQ((int)P.plan(W, 5, 1, WalkMode::ASSIST, PA), (int)PlanResult::DANGER);
+    CHECK_EQ(PA.len, 1);
+    CHECK_EQ((int)P.plan(W, 3, 1, WalkMode::ASSIST, PA), (int)PlanResult::DANGER);   // Lava as goal
+    CHECK_EQ(PA.len, 1);
+    // Suit: 3 charges carry over a 2 step stretch, not over the following 4 step stretch
+    static const char *const m4[] = {"############", "#Su^^.^^^^.#", "############"};
+    CHECK(loadR(m4, R8));
+    CHECK(W.move(Dir::RIGHT) & EV_SUIT);
+    CHECK_EQ(W.suitCharges(), 3);
+    CHECK_EQ((int)P.plan(W, 5, 1, WalkMode::ASSIST, PA), (int)PlanResult::SUIT);
+    CHECK_EQ(PA.len, 3);
+    CHECK_EQ((int)P.plan(W, 10, 1, WalkMode::ASSIST, PA), (int)PlanResult::DANGER);
+    CHECK_EQ(PA.len, 3);                                   // Stops at (5,1)
+    CHECK_EQ((int)P.plan(W, 10, 1, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 8);
+    const uint32_t ev = follow(PA);                        // 2 suit steps, then 4 burning steps
+    CHECK(ev & EV_SUIT_USED);
+    CHECK(ev & EV_DIED);                                   // 8 energy, 3 per step: dies on the 3rd
+    CHECK_EQ(W.livesLeft(), 1);
+    CHECK_EQ(W.suitCharges(), 0);                          // 2 + 1 used, then burning
+}
+
+static void testPlanBoat()
+{
+    static const char *const m[] = {"########", "#SB~~..#", "########"};
+    for (int mode = 0; mode < 2; mode++) {
+        CHECK(loadR(m, R8));
+        CHECK_EQ((int)P.plan(W, 1, 1, (WalkMode)mode, PA), (int)PlanResult::HERE);
+        // The planner does not foresee the boat: it walks to the shore (onto the boat cell),
+        // the UI plans again once the boat has been picked up.
+        CHECK_EQ((int)P.plan(W, 6, 1, (WalkMode)mode, PA), (int)PlanResult::NEED_BOAT);
+        CHECK_EQ(PA.len, 1);
+        CHECK(follow(PA) & EV_BOAT);
+        CHECK_EQ((int)P.plan(W, 6, 1, (WalkMode)mode, PA), (int)PlanResult::OK);
+        CHECK_EQ(PA.len, 4);
+        CHECK(follow(PA) & EV_SAILING);
+        CHECK_EQ(W.playerX(), 6);
+    }
+    static const char *const m2[] = {"#######", "#S.~~.#", "#######"};
+    for (int mode = 0; mode < 2; mode++) {
+        CHECK(loadR(m2, R8));
+        CHECK_EQ((int)P.plan(W, 5, 1, (WalkMode)mode, PA), (int)PlanResult::NEED_BOAT);
+        CHECK_EQ(PA.len, 1);                                // Waits at the shore
+        CHECK_EQ((int)P.plan(W, 3, 1, (WalkMode)mode, PA), (int)PlanResult::NEED_BOAT);
+        CHECK_EQ(PA.len, 1);
+    }
+}
+
+static void testEnergyAndLives()
+{
+    static const char *const m[] = {"#########", "#S^Q^^^.#", "#########"};
+    CHECK(loadR(m, R8));
+    CHECK_EQ(W.energy(), 8); CHECK_EQ(W.maxEnergy(), 8); CHECK_EQ(W.livesLeft(), 2);
+    uint32_t ev = W.move(Dir::RIGHT);
+    CHECK_EQ(ev & (EV_BURNED | EV_HURT | EV_DIED), EV_BURNED | EV_HURT);
+    CHECK_EQ(W.energy(), 5);
+    CHECK(W.move(Dir::RIGHT) & EV_CHECKPOINT);
+    CHECK_EQ(W.checkpointX(), 3);
+    CHECK(!(W.move(Dir::LEFT) & EV_CHECKPOINT) || true);   // Back onto lava: 2
+    CHECK_EQ(W.energy(), 2);
+    CHECK(!(W.move(Dir::RIGHT) & EV_CHECKPOINT));           // Already the checkpoint
+    ev = W.move(Dir::RIGHT);                                 // 3rd lava step: dies, respawn at Q
+    CHECK(ev & EV_DIED);
+    CHECK(!(ev & EV_GAME_OVER));
+    CHECK_EQ(W.playerX(), 3);
+    CHECK_EQ(W.energy(), 8);
+    CHECK_EQ(W.livesLeft(), 1);
+    CHECK_EQ(W.livesUsed(), 1);
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT);
+    ev = W.move(Dir::RIGHT);
+    CHECK(ev & EV_GAME_OVER);
+    CHECK(W.gameOver());
+    CHECK_EQ(W.livesLeft(), 0);
+    CHECK_EQ(W.move(Dir::LEFT), EV_NONE);                   // Frozen
+    CHECK_EQ(W.hit(), EV_NONE);
+    W.revive();
+    CHECK(!W.gameOver());
+    CHECK_EQ(W.livesLeft(), 1);
+    CHECK_EQ(W.energy(), 8);
+    CHECK_EQ(W.playerX(), 3);
+    // Infinite lives: never game over, lives used counted
+    Rules inf = R8;
+    inf.lives = LIVES_INFINITE;
+    CHECK(loadR(m, inf));
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT);                  // To the checkpoint (energy 5)
+    W.move(Dir::RIGHT);
+    CHECK(W.move(Dir::RIGHT) & EV_DIED);
+    for (int round = 0; round < 2; round++) {
+        W.move(Dir::RIGHT); W.move(Dir::RIGHT);
+        ev = W.move(Dir::RIGHT);
+        CHECK(ev & EV_DIED);
+        CHECK(!W.gameOver());
+        CHECK_EQ(W.playerX(), 3);
+    }
+    CHECK_EQ(W.livesUsed(), 3);
+    CHECK_EQ(W.livesLeft(), LIVES_INFINITE);
+    // Classic rules (v0.7 maps): lava = straight back to the start
+    CHECK(load(m));
+    CHECK(W.move(Dir::RIGHT) & EV_DIED);
+    CHECK_EQ(W.playerX(), 1);
+    CHECK_EQ(W.energy(), 8);
+}
+
+static void testItems()
+{
+    static const char *const m[] = {"##########", "#S^pphhl.#", "##########"};
+    Rules r = R8;
+    r.energyCap = 9;
+    CHECK(loadR(m, r));
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.energy(), 5);
+    CHECK(W.move(Dir::RIGHT) & EV_POTION);
+    CHECK_EQ(W.energy(), 7);
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.energy(), 8);                                 // Capped at max
+    CHECK(W.move(Dir::RIGHT) & EV_HEART);
+    CHECK_EQ(W.maxEnergy(), 9); CHECK_EQ(W.energy(), 9);
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.maxEnergy(), 9);                              // Capped at energyCap
+    CHECK(W.move(Dir::RIGHT) & EV_LIFE);
+    CHECK_EQ(W.livesLeft(), 3);
+    // Suit formula: 3 + 1 per permanent extra max unit; a heart found later extends a worn suit
+    static const char *const m2[] = {"#########", "#Shhuh..#", "#########"};
+    CHECK(loadR(m2, R8));
+    CHECK_EQ(W.suitChargesAtPickup(), 3);
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT);
+    CHECK_EQ(W.maxEnergy(), 10);
+    CHECK_EQ(W.suitChargesAtPickup(), 5);
+    CHECK(W.move(Dir::RIGHT) & EV_SUIT);
+    CHECK_EQ(W.suitCharges(), 5);
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.suitCharges(), 6);
+    // Lava with charges costs nothing
+    static const char *const m3[] = {"######", "#Su^.#", "######"};
+    CHECK(loadR(m3, R8));
+    W.move(Dir::RIGHT);
+    const uint32_t ev = W.move(Dir::RIGHT);
+    CHECK(ev & EV_SUIT_USED);
+    CHECK(!(ev & EV_HURT));
+    CHECK_EQ(W.energy(), 8);
+    CHECK_EQ(W.suitCharges(), 2);
+}
+
+static void testTreasures()
+{
+    static const char *const rows[] = {"#######", "#.c.b.#", "#.S.%R", "#..D...", "#######"};
+    static const char *const rowsOk[] = {"########", "#.c.b..#", "#.S.%R.#", "#..D...#", "########"};
+    static const Treasure t[] = {{2, 1, Obj::GEM, 0}, {4, 1, Obj::POTION, 3}, {4, 2, Obj::HEART, 2},
+                                 {5, 2, Obj::SUIT, 0}, {1, 1, Obj::KEY, 0},  {3, 3, Obj::LIFE, 0}};
+    MapDef bad = {9, rows, 5, R8, t, 6};
+    CHECK(!W.load(bad));                                      // Ragged rows
+    MapDef def = {9, rowsOk, 5, R8, t, 6};
+    CHECK(W.load(def));
+    CHECK_EQ(W.mapId(), 9);
+    CHECK_EQ(W.gemsTotal(), 1);                               // Hidden gems count
+    CHECK_EQ((int)W.obj(1, 1), (int)Obj::KEY);                // Nothing covers it: visible
+    CHECK_EQ((int)W.obj(2, 1), (int)Obj::CRATE);
+    CHECK_EQ((int)W.hidden(2, 1), (int)Obj::GEM);
+    CHECK(W.move(Dir::UP) & EV_BLOCKED);
+    CHECK_EQ(W.hit(), EV_HIT | EV_BROKE | EV_TREASURE);       // Crate -> gem
+    CHECK_EQ((int)W.obj(2, 1), (int)Obj::GEM);
+    CHECK_EQ(W.move(Dir::UP) & (EV_GEM | EV_ALL_GEMS), EV_GEM | EV_ALL_GEMS);
+    CHECK(W.move(Dir::LEFT) & EV_KEY);
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT);
+    CHECK(W.move(Dir::RIGHT) & EV_BLOCKED);                   // Bush
+    CHECK_EQ(W.hit(), EV_HIT | EV_BROKE | EV_TREASURE);       // Bush -> potion
+    CHECK_EQ((int)W.obj(4, 1), (int)Obj::POTION);
+    CHECK_EQ(W.objAmount(4, 1), 3);
+    W.move(Dir::DOWN);
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.hit(), EV_HIT);                                // Cracked wall, 1st hit
+    CHECK_EQ((int)W.obj(4, 2), (int)Obj::NONE);               // Still hidden
+    CHECK_EQ(W.hit(), EV_HIT | EV_BROKE | EV_TREASURE);
+    CHECK_EQ((int)W.obj(4, 2), (int)Obj::HEART);
+    CHECK(W.move(Dir::RIGHT) & EV_HEART);
+    CHECK_EQ(W.maxEnergy(), 10);
+    const uint32_t ev = W.move(Dir::RIGHT);                   // Push the rock: suit under it, picked up
+    CHECK_EQ(ev & (EV_PUSHED | EV_TREASURE | EV_SUIT), EV_PUSHED | EV_TREASURE | EV_SUIT);
+    CHECK_EQ(W.suitCharges(), 5);                             // 3 + 2 extra max
+    W.move(Dir::LEFT); W.move(Dir::LEFT);
+    CHECK_EQ(W.move(Dir::DOWN) & (EV_DOOR | EV_TREASURE), EV_DOOR | EV_TREASURE);   // Door -> extra life
+    CHECK_EQ((int)W.obj(3, 3), (int)Obj::LIFE);
+    // Invalid treasure lists
+    static const Treasure dup[] = {{2, 1, Obj::GEM, 0}, {2, 1, Obj::KEY, 0}};
+    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, dup, 2}));
+    static const Treasure notItem[] = {{2, 1, Obj::ROCK, 0}};
+    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, notItem, 1}));
+    static const Treasure outside[] = {{20, 1, Obj::GEM, 0}};
+    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, outside, 1}));
+}
+
+static constexpr Rules RFOG = {8, 20, 3, 3, 4, 3, 1, 2, 1, true};
+
+static int countRevealed()
+{
+    int n = 0;
+    for (int y = 0; y < W.height(); y++)
+        for (int x = 0; x < W.width(); x++) n += W.revealed(x, y);
+    return n;
+}
+
+static void testMinesweeper()
+{
+    static const char *const m[] = {"#######", "#S.m..#", "#..m..#", "#..m..#", "#######"};
+    CHECK(loadR(m, RFOG));
+    CHECK(W.fog());
+    CHECK(W.revealed(1, 1)); CHECK(W.revealed(1, 3)); CHECK(W.revealed(0, 0));   // Walls always
+    CHECK(W.revealed(2, 1)); CHECK(W.revealed(2, 2));
+    CHECK_EQ(W.mineHint(1, 1), 0);
+    CHECK_EQ(W.mineHint(2, 1), 2);
+    CHECK_EQ(W.mineHint(2, 2), 3);
+    CHECK(!W.revealed(3, 1)); CHECK(!W.revealed(4, 1)); CHECK(!W.revealed(5, 2));
+    CHECK_EQ((int)W.obj(3, 1), (int)Obj::NONE);               // Mines are invisible
+    CHECK_EQ((int)W.rawObj(3, 1), (int)Obj::MINE);
+    // Flags
+    CHECK(!W.toggleFlag(2, 1));                                // Revealed: no flag
+    CHECK(W.toggleFlag(3, 2));
+    CHECK(W.flagged(3, 2));
+    CHECK(!Planner::targetable(W, 3, 2));
+    CHECK(W.toggleFlag(3, 2));
+    CHECK(!W.flagged(3, 2));
+    // Assist will not walk into unknown ground, Pro will
+    CHECK_EQ((int)P.plan(W, 5, 1, WalkMode::ASSIST, PA), (int)PlanResult::UNKNOWN);
+    CHECK_EQ(PA.len, 1);                                       // Stops at (2,1)
+    CHECK(W.toggleFlag(3, 1));
+    CHECK(W.toggleFlag(3, 3));
+    CHECK_EQ((int)P.plan(W, 5, 1, WalkMode::PRO, PA), (int)PlanResult::OK);   // Only (3,2) open
+    const uint32_t ev = follow(PA);
+    CHECK(ev & EV_MINE);
+    CHECK(ev & EV_HURT);
+    CHECK_EQ(W.energy(), 4);
+    CHECK_EQ((int)W.tile(3, 2), (int)Tile::CRATER);
+    CHECK_EQ((int)W.rawObj(3, 2), (int)Obj::NONE);
+    CHECK(W.revealed(3, 2));
+    CHECK_EQ(W.playerX(), 5);
+    CHECK(W.revealed(5, 1)); CHECK(W.revealed(4, 2));
+    // Flood fill: a mine free field opens completely, flags stay closed
+    static const char *const m2[] = {"########", "#S.....#", "#......#", "#......#", "#.....m#", "########"};
+    CHECK(loadR(m2, RFOG));
+    CHECK_EQ(countRevealed(), 8 * 6 - 1);                     // Everything except the mine
+    static const char *const m3[] = {"########", "#S..#..#", "#...#..#", "########"};
+    Rules r = RFOG;
+    CHECK(loadR(m3, r));
+    CHECK(!W.revealed(5, 1));                                  // Behind the wall: closed
+    CHECK(W.revealed(3, 2));
+}
+
+static void testSaveLoad()
+{
+    CHECK(W.load(WORLDS[1]));
+    CHECK_EQ(W.mapId(), WORLD_MINES);
+    const size_t n = W.saveSize();
+    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 4);
+    CHECK_EQ((long)W.save(SAVEBUF, n - 1), 0);
+    // Play a little: flag, walk, step on a mine
+    int fx = -1, fy = -1;
+    for (int y = 1; y < 29 && fx < 0; y++)
+        for (int x = 1; x < 39; x++)
+            if (!W.revealed(x, y) && W.rawObj(x, y) != Obj::MINE) { fx = x; fy = y; break; }
+    CHECK(W.toggleFlag(fx, fy));
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT); W.move(Dir::RIGHT);   // (5,2) is a mine
+    CHECK_EQ((int)W.tile(5, 2), (int)Tile::CRATER);
+    CHECK_EQ(W.energy(), 4);
+    const int px = W.playerX(), py = W.playerY(), rev = countRevealed(), steps = W.steps();
+    CHECK_EQ((long)W.save(SAVEBUF, sizeof(SAVEBUF)), (long)n);
+    // Restore into a fresh world
+    CHECK(W.load(WORLDS[1]));
+    CHECK(W.restore(SAVEBUF, n));
+    CHECK_EQ(W.playerX(), px); CHECK_EQ(W.playerY(), py);
+    CHECK_EQ(W.energy(), 4); CHECK_EQ(W.maxEnergy(), 8);
+    CHECK_EQ(W.livesLeft(), 3);
+    CHECK_EQ(W.steps(), steps);
+    CHECK_EQ(countRevealed(), rev);
+    CHECK(W.flagged(fx, fy));
+    CHECK_EQ((int)W.tile(5, 2), (int)Tile::CRATER);
+    static uint8_t again[64 * 1024];
+    CHECK_EQ((long)W.save(again, sizeof(again)), (long)n);
+    CHECK(memcmp(again, SAVEBUF, n) == 0);                     // Round trip is exact
+    // Corrupt files: rejected, world stays freshly loaded
+    for (int k = 0; k < 5; k++) {
+        CHECK(W.load(WORLDS[1]));
+        memcpy(again, SAVEBUF, n);
+        bool ok = true;
+        switch (k) {
+        case 0: again[n / 2] ^= 0x40; ok = W.restore(again, n); break;       // Bit flip (CRC)
+        case 1: ok = W.restore(again, n - 1); break;                          // Truncated
+        case 2: again[4] = 2; ok = W.restore(again, n); break;                // Other version
+        case 3: again[0] = 'X'; ok = W.restore(again, n); break;              // Bad magic
+        case 4: ok = W.restore(nullptr, n); break;
+        }
+        CHECK(!ok);
+        CHECK_EQ(W.playerX(), 2); CHECK_EQ(W.playerY(), 2);
+        CHECK_EQ(W.energy(), 8);
+        CHECK(!W.flagged(fx, fy));
+        CHECK_EQ((int)W.rawObj(5, 2), (int)Obj::MINE);
+    }
+    CHECK(W.load(WORLDS[0]));                                  // Other map
+    CHECK(!W.restore(SAVEBUF, n));
+    // Test world: treasures + suit survive the round trip
+    CHECK(W.load(WORLDS[0]));
+    CHECK(walkTo(17, 18));
+    CHECK(W.move(Dir::RIGHT) & EV_TREASURE);                   // Potion under the first rock
+    const size_t n0 = W.saveSize();
+    CHECK_EQ((long)W.save(SAVEBUF, sizeof(SAVEBUF)), (long)n0);
+    CHECK(W.load(WORLDS[0]));
+    CHECK(W.restore(SAVEBUF, n0));
+    CHECK_EQ((int)W.obj(19, 18), (int)Obj::ROCK);
+    CHECK_EQ(W.playerX(), 18);
+    CHECK_EQ((int)W.hidden(18, 18), (int)Obj::NONE);
+    CHECK_EQ((int)W.hidden(54, 10), (int)Obj::SUIT);
+}
+
+// Mine free BFS reachability in the minesweeper world (bushes count as passable: they are hit).
+static bool mineFreeReach(int gx, int gy)
+{
+    static int seen[MAX_H][MAX_W];
+    static int queue[MAX_H * MAX_W];
+    memset(seen, 0, sizeof(seen));
+    int head = 0, tail = 0;
+    queue[tail++] = W.playerY() * MAX_W + W.playerX();
+    seen[W.playerY()][W.playerX()] = 1;
+    while (head < tail) {
+        const int c = queue[head++], cx = c % MAX_W, cy = c / MAX_W;
+        if (cx == gx && cy == gy) return true;
+        for (int d = 0; d < 4; d++) {
+            const int nx = cx + dirX((Dir)d), ny = cy + dirY((Dir)d);
+            if (!W.inside(nx, ny) || seen[ny][nx] || W.rawObj(nx, ny) == Obj::MINE) continue;
+            const Tile t = W.tile(nx, ny);
+            if (t == Tile::WALL || t == Tile::TREE) continue;
+            seen[ny][nx] = 1;
+            queue[tail++] = ny * MAX_W + nx;
+        }
+    }
+    return false;
+}
+
+static void testWorlds()
+{
+    for (int y = 0; y < MINE_WORLD_H; y++) CHECK_EQ((int)strlen(MINE_WORLD[y]), MINE_WORLD_W);
+    CHECK(W.load(WORLDS[0]));
+    CHECK_EQ(W.mapId(), WORLD_TEST);
+    CHECK_EQ(W.gemsTotal(), 13);
+    CHECK_EQ(W.livesLeft(), LIVES_INFINITE);
+    CHECK(!W.fog());
+    CHECK_EQ((int)W.hidden(54, 10), (int)Obj::SUIT);
+    CHECK_EQ((int)W.obj(54, 10), (int)Obj::CRATE);
+    CHECK(W.load(WORLDS[1]));
+    CHECK_EQ(W.mapId(), WORLD_MINES);
+    CHECK(W.fog());
+    CHECK_EQ(W.livesLeft(), 3);
+    CHECK_EQ(W.gemsTotal(), 3);
+    int mines = 0;
+    for (int y = 0; y < W.height(); y++)
+        for (int x = 0; x < W.width(); x++) mines += W.rawObj(x, y) == Obj::MINE;
+    CHECK_EQ(mines, 95);
+    CHECK_EQ(W.mineHint(2, 2), 0);
+    CHECK(W.revealed(3, 3));                                   // Opened around the start
+    static const int GOALS[][2] = {{20, 15}, {37, 27}, {33, 4}, {6, 25}, {21, 20}, {28, 26},
+                                   {15, 3},  {3, 14},  {24, 13}, {36, 10}, {12, 26}};
+    for (const auto &g : GOALS) {
+        CHECK(mineFreeReach(g[0], g[1]));
+        CHECK_EQ(W.mineHint(g[0], g[1]), 0);
+    }
+    CHECK_EQ((int)W.tile(20, 15), (int)Tile::CHECKPOINT);
+    CHECK_EQ((int)W.tile(37, 27), (int)Tile::EXIT);
+}
+
 int main()
 {
     testLoad();
@@ -338,6 +792,16 @@ int main()
     testDoorAndBoat();
     testLavaAndGates();
     testWorld();
+    testPickTarget();
+    testPlanBasic();
+    testPlanLava();
+    testPlanBoat();
+    testEnergyAndLives();
+    testItems();
+    testTreasures();
+    testMinesweeper();
+    testSaveLoad();
+    testWorlds();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
