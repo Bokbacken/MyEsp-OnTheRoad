@@ -597,13 +597,9 @@ static void wsPublishConnections()
     GameLive::setConnections(conn, YATZY_MAX_PLAYERS);
 }
 
-// httpd task: drop dead sockets, invalidate stale bindings, send state frames.
-static void wsBroadcastWork(void *)
+// httpd task only: free slots whose socket is no longer an open WebSocket. Returns true if any was freed.
+static bool wsReapDead(httpd_handle_t hd)
 {
-    s_wsWorkQueued = false;
-    httpd_handle_t hd = MyWeb::handle();
-    if (!s_wsSnap) s_wsSnap = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot));
-    if (!s_wsSnap || !hd) return;
     bool changed = false;
     for (WsClient &c : s_ws) {
         if (c.fd >= 0 && httpd_ws_get_fd_info(hd, c.fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
@@ -611,6 +607,17 @@ static void wsBroadcastWork(void *)
             changed = true;
         }
     }
+    return changed;
+}
+
+// httpd task: drop dead sockets, invalidate stale bindings, send state frames.
+static void wsBroadcastWork(void *)
+{
+    s_wsWorkQueued = false;
+    httpd_handle_t hd = MyWeb::handle();
+    if (!s_wsSnap) s_wsSnap = (GameLive::Snapshot *)psAlloc(sizeof(GameLive::Snapshot));
+    if (!s_wsSnap || !hd) return;
+    bool changed = wsReapDead(hd);
     GameLive::get(*s_wsSnap);
     for (WsClient &c : s_ws) {
         if (c.fd >= 0 && c.joined && c.code != s_wsSnap->code) {   // Game left / new code
@@ -748,7 +755,10 @@ static esp_err_t wsHandler(httpd_req_t *r)
     const int fd = httpd_req_to_sockfd(r);
     if (r->method == HTTP_GET) {   // Handshake done: register the client
         WsClient *c = wsFind(fd);
-        if (!c) c = wsFind(-1);
+        if (!c) {
+            wsReapDead(r->handle);   // Sweep ghost sockets (e.g. backgrounded phones) before giving up
+            c = wsFind(-1);
+        }
         if (!c) {
             wsSendError(fd, "full", Str::WEB_ERR_WS_FULL);
             httpd_sess_trigger_close(r->handle, fd);

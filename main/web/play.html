@@ -231,7 +231,7 @@ function onState(m) {
   if (wantSeat === null || (wantSeat === -1 && you === -1 && !$('seats').dataset.done)) {
     // Ask which web seat this phone plays (or watch)
     $('seats').dataset.done = '1';
-    if (wp.length === 1 && !wp[0].connected) { join(wp[0].player); return; }
+    if (wp.length === 1 && you < 0) { join(wp[0].player); return; }
     $('seat-list').innerHTML = wp.length ? wp.map(w =>
       `<button class="primary" data-seat="${w.player}">&#128246; ${esc(m.players[w.player].name)}${w.connected ? ' ✓' : ''}</button>`).join('')
       : `<p class="muted">${t('no_web')}</p>`;

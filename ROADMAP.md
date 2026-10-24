@@ -77,6 +77,11 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] `/api/game` har nya fält `code`, `web_players`, `lang`, `can_roll`, `has_rolled`, `potential` per ruta (bakåtkompatibelt)
 - [ ] HW-test (språkbyte, msgbox, webbspel med 1–2 mobiler)
 
+## v0.5.4 – Webbspel: auto-join och spökanslutningar 🔧 (inte HW-testad)
+- [x] `/play`: auto-join till enda webbspelaren sker så länge mobilen är åskådare (`you < 0`), även om platsen redan rapporteras som ansluten (race när join-kommandona processas utan state-frame emellan)
+- [x] `/ws/game`: döda/halvöppna WebSocket-sessioner rensas direkt vid ny anslutning (`wsReapDead`) innan "för många klienter" ges – tidigare bara en gång per sekund
+- [ ] HW-test (anslutning från mobil, flera återanslutningar)
+
 ## v0.5.3 – Webbspel: tydligare anslutning i `/play` 🔧 (inte HW-testad)
 - [x] `/play`: meddelande vid för kort kod, Anslut-knappen visar "Ansluter..." (återställs efter 5 s utan svar), besked när WebSocket inte är öppen än, felmeddelandet scrollas in i bild på mobil, `?debug=1` loggar WS-trafik i konsolen
 - [ ] HW-test (anslutning från mobil)
