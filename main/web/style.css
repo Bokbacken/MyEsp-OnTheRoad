@@ -16,6 +16,9 @@
 }
 
 * { box-sizing: border-box; }
+/* The hidden attribute must always win: component rules like `display: flex/grid` would otherwise
+   override the browser's default [hidden] { display: none } (e.g. the PIN pad overlay on /play). */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   max-width: 1080px;
