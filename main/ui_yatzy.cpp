@@ -18,6 +18,7 @@
 #include "my_charwheel.h"
 #include "my_wifi.h"
 #include "ui_clock.h"
+#include "ui_numpad.h"
 #include "ui_settings.h"
 #include "my_theme.h"
 #include "ui_wifi.h"
@@ -130,7 +131,6 @@ void showMenu()
 // ========================================================================================
 static uint16_t s_pids[YATZY_MAX_PLAYERS];
 static bool s_web[YATZY_MAX_PLAYERS];   // Seat is played from a phone via /play (v0.5.2)
-static uint16_t s_code = 0;             // 4-digit game code of the current game
 static lv_obj_t *s_playerList = nullptr;
 static lv_obj_t *s_addBtn = nullptr;
 static lv_obj_t *s_startBtn = nullptr;
@@ -191,6 +191,60 @@ static void playerDeleteEvent(lv_event_t *e)
     rebuildPlayerList();
 }
 
+// Small info box with one OK button.
+static void infoBox(const char *title, const char *text)
+{
+    lv_obj_t *m = lv_msgbox_create(nullptr);
+    lv_obj_set_style_text_font(m, &my_font_18, 0);
+    lv_msgbox_add_title(m, title);
+    lv_msgbox_add_text(m, text);
+    lv_obj_set_width(m, 280);
+    lv_obj_set_style_bg_color(m, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_text_color(m, Theme::c(Theme::TEXT), 0);
+    lv_obj_set_style_border_color(m, Theme::c(Theme::ACCENT), 0);
+    lv_obj_set_style_border_width(m, 2, 0);
+    lv_obj_center(m);
+    lv_obj_t *ok = lv_msgbox_add_footer_button(m, "OK");
+    Theme::msgboxFonts(m);
+    lv_obj_add_event_cb(ok, [](lv_event_t *e) { lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e)); },
+                        LV_EVENT_CLICKED, m);
+}
+
+// PIN entered for a web seat whose player had none (v0.5.6).
+static bool webPinDone(const char *pin, bool ok, void *user)
+{
+    if (!ok) return true;
+    const int k = (int)(intptr_t)user;
+    if (k < 0 || k >= s_nameCount || !s_pids[k]) return true;
+    if (Players::setPin(s_pids[k], pin) != 0) return true;
+    s_web[k] = true;
+    rebuildPlayerList();
+    return true;
+}
+
+static void webToggleEvent(lv_event_t *e)
+{
+    const int k = (int)(intptr_t)lv_event_get_user_data(e);
+    if (k < 0 || k >= s_nameCount) return;
+    if (s_web[k]) {
+        s_web[k] = false;
+        rebuildPlayerList();
+        return;
+    }
+    if (!s_pids[k]) {   // Guests have no PIN and cannot be claimed on /play
+        infoBox(tr(Str::PIN_WEB_TITLE), tr(Str::PIN_GUEST_NO_WEB));
+        return;
+    }
+    if (!Players::hasPin(s_pids[k])) {
+        char title[64];
+        snprintf(title, sizeof(title), tr(Str::PIN_TITLE_FOR), s_names[k]);
+        UiNumpad::open(title, tr(Str::PIN_INFO_WEB), webPinDone, (void *)(intptr_t)k);
+        return;
+    }
+    s_web[k] = true;
+    rebuildPlayerList();
+}
+
 static void rebuildPlayerList()
 {
     lv_obj_clean(s_playerList);
@@ -217,15 +271,10 @@ static void rebuildPlayerList()
         }
         lv_obj_add_event_cb(row, playerRowEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
-        // Web toggle: this seat is played from a phone (/play?code=...)
+        // Web toggle: this seat is played from a phone (/play, joined with the player's PIN)
         lv_obj_t *web = Theme::button(s_playerList, LV_SYMBOL_WIFI, 44, 34, s_web[i] ? Theme::TEAL : Theme::LINE);
         lv_obj_set_pos(web, 198, i * 38);
-        lv_obj_add_event_cb(web, [](lv_event_t *e) {
-            int k = (int)(intptr_t)lv_event_get_user_data(e);
-            if (k < 0 || k >= s_nameCount) return;
-            s_web[k] = !s_web[k];
-            rebuildPlayerList();
-        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(web, webToggleEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
         lv_obj_t *del = Theme::button(s_playerList, LV_SYMBOL_CLOSE, 44, 34, Theme::RED);
         lv_obj_set_pos(del, 248, i * 38);
@@ -288,8 +337,7 @@ static void showPlayers()
         s_game.setRng(rngDie, nullptr);
         for (int i = 0; i < s_nameCount; i++) s_game.addPlayer(s_names[i]);
         s_game.start();
-        s_code = (uint16_t)rnd(1000, 9999);   // Web play code (/play?code=XXXX), kept for "Spela igen"
-        GameLive::setSeats(s_code, s_web, s_pids, s_nameCount);
+        GameLive::setSeats(s_web, s_pids, s_nameCount);   // New session; kept for "Spela igen"
         showGame();
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -357,6 +405,13 @@ static void newPlayerEntered(const char *text, bool confirmed, void *)
     setSeat(n, (uint16_t)r);
     CharWheel::close(s_wheel);
     showPlayers();
+    // Optional personal PIN (needed to play from a phone via /play)
+    char title[64];
+    snprintf(title, sizeof(title), tr(Str::PIN_TITLE_FOR), n);
+    UiNumpad::open(title, tr(Str::PIN_INFO_NEW), [](const char *pin, bool ok, void *user) {
+        if (ok) Players::setPin((uint16_t)(uintptr_t)user, pin);
+        return true;
+    }, (void *)(uintptr_t)r, tr(Str::PIN_SKIP));
 }
 
 static void guestEntered(const char *text, bool confirmed, void *)
@@ -1587,14 +1642,8 @@ static void newTurnUi()
     s_sugCount = 0;
     const YatzyPlayer &p = s_game.player(s_game.currentPlayer());
     lv_label_set_text(s_playerLabel, p.name);
-    bool anyWeb = false;
-    for (int i = 0; i < s_game.playerCount() && i < YATZY_MAX_PLAYERS; i++) anyWeb |= s_web[i];
     char rl[48];
-    int n = snprintf(rl, sizeof(rl), tr(Str::GAME_ROUND), s_game.round(), s_game.totalRounds());
-    if (anyWeb && n > 0 && n < (int)sizeof(rl)) {   // Web play: the code under the round
-        rl[n++] = '\n';
-        snprintf(rl + n, sizeof(rl) - n, tr(Str::GAME_CODE), (unsigned)s_code);
-    }
+    snprintf(rl, sizeof(rl), tr(Str::GAME_ROUND), s_game.round(), s_game.totalRounds());
     lv_label_set_text(s_roundLabel, rl);
     setPhase(Phase::ROLL, true);
     updateWebOverlay();
@@ -1832,7 +1881,7 @@ static lv_obj_t *plainBox(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int
 
 // --- Web play (v0.5.2) -------------------------------------------------------------------
 // While a web seat has the turn a transparent blocker swallows all touches below the header and
-// a panel at the bottom says who we are waiting for (plus code + URL until a phone is bound).
+// a panel at the bottom says who we are waiting for (plus the URL until a phone is bound).
 // Commands from /ws/game arrive through GameLive's queue and are executed here, on the LVGL task.
 static constexpr uint32_t WEB_TICK_MS = 50, WEB_WRITE_DELAY_MS = 700;
 static lv_obj_t *s_webBlock = nullptr, *s_webPanel = nullptr, *s_webText = nullptr;
@@ -1856,7 +1905,7 @@ static void updateWebOverlay()
     char line1[80], line2[96], all[180];
     snprintf(line1, sizeof(line1), tr(Str::GAME_WEB_WAIT), name);
     if (conn) snprintf(line2, sizeof(line2), tr(Str::GAME_WEB_CONNECTED), name);
-    else snprintf(line2, sizeof(line2), tr(Str::GAME_WEB_CONNECT), MyWifi::ipStr(), (unsigned)s_code);
+    else snprintf(line2, sizeof(line2), tr(Str::GAME_WEB_CONNECT), MyWifi::ipStr());
     snprintf(all, sizeof(all), "%s\n%s", line1, line2);
     lv_label_set_text(s_webText, all);
     lv_obj_move_foreground(s_webBlock);

@@ -183,7 +183,66 @@ static void testPlayers()
     d.nextId = 65535;
     CHECK(d.add("B", 0) == 65535);
     CHECK(d.add("C", 0) == 2); // 1 is taken
-    CHECK(sizeof(PlayerRec) == 32);
+    CHECK(sizeof(PlayerRec) == 40);
+}
+
+static void testPlayerPin()
+{
+    CHECK(PlayerDb::validPin("1234"));
+    CHECK(PlayerDb::validPin("0000"));
+    CHECK(!PlayerDb::validPin("123"));
+    CHECK(!PlayerDb::validPin("12345"));
+    CHECK(!PlayerDb::validPin("12a4"));
+    CHECK(!PlayerDb::validPin(" 123"));
+    CHECK(!PlayerDb::validPin(""));
+    CHECK(PlayerDb::validPin("", true));
+    CHECK(PlayerDb::validPin(nullptr, true));
+    CHECK(!PlayerDb::validPin(nullptr));
+    static PlayerDb d;
+    d.clear();
+    CHECK(d.add("Kent", 0, "12x4") == (int)PlayerErr::BAD_PIN);
+    CHECK(d.count == 0);
+    CHECK(d.add("Kent", 0, "4321") == 1);
+    CHECK(d.add("Bo", 0) == 2);
+    CHECK(d.add("Ia", 0, "") == 3);
+    CHECK(d.hasPin(1) && !d.hasPin(2) && !d.hasPin(3) && !d.hasPin(99));
+    CHECK(d.checkPin(1, "4321"));
+    CHECK(!d.checkPin(1, "4320"));
+    CHECK(!d.checkPin(1, "43210"));
+    CHECK(!d.checkPin(1, ""));
+    CHECK(!d.checkPin(2, ""));        // No PIN never matches
+    CHECK(!d.checkPin(2, "0000"));
+    CHECK(d.setPin(2, "99") == PlayerErr::BAD_PIN);
+    CHECK(d.setPin(2, "0099") == PlayerErr::OK && d.checkPin(2, "0099"));
+    CHECK(d.setPin(2, "") == PlayerErr::OK && !d.hasPin(2));
+    CHECK(d.setPin(77, "1111") == PlayerErr::NOT_FOUND);
+    // rename keeps the PIN
+    CHECK(d.rename(1, "Kenta") == PlayerErr::OK && d.checkPin(1, "4321"));
+    // sanitize drops garbage PINs
+    std::memcpy(d.items[2].pin, "ab", 3);
+    d.sanitize();
+    CHECK(!d.hasPin(3) && d.hasPin(1));
+}
+
+static void testPlayerMigration()
+{
+    static PlayerDbV1 old;
+    std::memset(&old, 0, sizeof(old));
+    old.nextId = 9;
+    old.count = 2;
+    old.items[0] = {3, 0, 1700000000u, "Kent"};
+    old.items[1].id = 8;
+    std::memset(old.items[1].name, 'x', PLAYER_NAME_CAP);   // Unterminated: must be cut
+    static PlayerDb d;
+    CHECK(d.loadV1(old));
+    CHECK(d.count == 2 && d.nextId == 9);
+    CHECK(d.items[0].id == 3 && d.items[0].created == 1700000000u);
+    CHECK_STR(d.items[0].name, "Kent");
+    CHECK(std::strlen(d.items[1].name) == PLAYER_NAME_CAP - 1);
+    CHECK(!d.hasPin(3) && !d.hasPin(8));
+    CHECK(d.add("Ny", 0) == 9);
+    old.count = PLAYER_MAX + 1;
+    CHECK(!d.loadV1(old));
 }
 
 static void testRoam()
@@ -234,6 +293,8 @@ int main()
 {
     testRoam();
     testPlayers();
+    testPlayerPin();
+    testPlayerMigration();
     testNetList();
     testKbd();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

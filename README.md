@@ -4,11 +4,13 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.5.5 – WebSocket clients are registered on their first frame (ESP-IDF 6.x does not call the handler for the handshake, so `join` was silently ignored); v0.5.4 web-play join fixes (reliable auto-join, immediate cleanup of stale WebSocket sessions), v0.5.3 join feedback on `/play`, on top of v0.5.2: Swedish/English user interface (i18n), Latin-1 font fix for message boxes and
-> interactive web play from a phone (`/play`, WebSocket, 4-digit game code). v0.5.5 builds with
-> 0 errors / 0 warnings and passes the host tests, but is **not yet tested on hardware** (nor is v0.5.1's
-> dice cup). v0.5.0's RTC and
-> sprite dice animation are hardware-verified; v0.2.0 is hardware-verified. See [ROADMAP.md](ROADMAP.md).
+> **Status:** v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
+> personal 4-digit player PINs (player file v2 with automatic v1 migration, on-device numeric keypad),
+> and a new `/play` flow: pick your name, enter your PIN (no shared game code any more; web seats are
+> bound to an internal session id, with a 5-attempt lockout). The overview page links to Live and Play.
+> v0.5.6 builds with 0 errors / 0 warnings and passes the host tests, but is **not yet tested on
+> hardware** (the rotation via MADCTL in particular). v0.5.5 web play, v0.5.0's RTC and sprite dice
+> animation and v0.2.0 are hardware-verified. See [ROADMAP.md](ROADMAP.md).
 
 ## Features
 
@@ -54,13 +56,17 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
   Swedish). Choose the language on the device (Inställningar → Språk), on the web settings page or via
   `/api/config` (`lang`; NVS key `lang`, default `sv`). The `/play` and `/game` pages follow the device
   language; the other web pages are still Swedish. Adding a language is described in `main/lang/lang.h`.
-- **Web play (v0.5.2, not yet hardware-tested)** – in the player setup each seat (guests too) can be
-  marked as a web player (Wi-Fi button). A 4-digit code is created when the game starts (kept for
-  "Spela igen") and shown in the game header, on `/game` and in the waiting panel. On a web player's turn
-  the console shows "Väntar på X via webben..." (plus URL and code until a phone has joined) and blocks
-  local input; the phone opens `http://<device-ip>/play?code=XXXX`, picks its seat and holds dice, rolls
-  (the console runs the normal throw animation) and writes a box. Everything runs over the WebSocket
-  `/ws/game` (max 4 clients, no polling). Without web players everything works as before.
+- **Web play (v0.5.2, PIN flow v0.5.6)** – in the player setup each registered player can be marked as
+  a web player (Wi-Fi button); a player without a personal PIN is asked for one on the numeric keypad
+  first (guests cannot play via the web). On a web player's turn the console shows "Väntar på X via
+  webben..." and blocks local input; the phone opens `http://<device-ip>/play`, picks its name, enters its
+  4-digit PIN and holds dice, rolls (the console runs the normal throw animation) and writes a box. There
+  is no shared game code: seats are bound to an internal session id that changes with every new game.
+  Protocol on the WebSocket `/ws/game` (max 4 clients, no polling): `{"cmd":"join","player":n,"pin":"1234"}`,
+  errors `nogame|seat|pin|nopin|locked`; 5 wrong PINs per connection or per seat lock for 60 s. PINs are
+  never sent out (`has_pin` only) and can also be managed on `/players`.
+- **Screen rotation (v0.5.6)** – 0° (USB down) or 180°, set on the device or via `/api/config`
+  (`rotation`); implemented with MADCTL MX|MY and mirrored touch coordinates.
 - **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone
   (default Swedish CET/CEST), manual setting on the device (Inställningar → Klocka) or from the browser.
   The last time is kept in NVS across reboots and shown as uncertain (orange "?") until NTP or a manual set.

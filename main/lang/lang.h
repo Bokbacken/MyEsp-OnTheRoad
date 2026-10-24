@@ -142,6 +142,7 @@
     X(PERR_DUPLICATE) \
     X(PERR_FULL) \
     X(PERR_NOT_FOUND) \
+    X(PERR_BAD_PIN) \
     X(MENU_CHOOSE_GAME) \
     X(MENU_SUB_YATZY) \
     X(MENU_SUB_MAXI) \
@@ -195,7 +196,6 @@
     X(GAME_WEB_WAIT) \
     X(GAME_WEB_CONNECT) \
     X(GAME_WEB_CONNECTED) \
-    X(GAME_CODE) \
     X(RES_TITLE) \
     X(RES_AGAIN) \
     X(RES_MENU) \
@@ -236,12 +236,24 @@
     X(BOOT_WEB_FAIL) \
     X(BOOT_FAILURES) \
     X(BOOT_DONE) \
-    X(WEB_ERR_WS_CODE) \
+    X(WEB_ERR_WS_NOGAME) \
+    X(WEB_ERR_WS_PIN) \
+    X(WEB_ERR_WS_NOPIN) \
+    X(WEB_ERR_WS_LOCKED) \
     X(WEB_ERR_WS_SEAT) \
     X(WEB_ERR_WS_JOIN) \
     X(WEB_ERR_WS_FULL) \
     X(WEB_ERR_WS_CMD) \
-    X(WEB_ERR_WS_TURN)
+    X(WEB_ERR_WS_TURN) \
+    X(PIN_TITLE_FOR) \
+    X(PIN_INFO_WEB) \
+    X(PIN_INFO_NEW) \
+    X(PIN_SKIP) \
+    X(PIN_WEB_TITLE) \
+    X(PIN_GUEST_NO_WEB) \
+    X(SET_ROTATION) \
+    X(SET_ROT_0) \
+    X(SET_ROT_180)
 // clang-format on
 
 enum class Str : uint16_t {

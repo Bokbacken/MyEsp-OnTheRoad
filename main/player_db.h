@@ -5,6 +5,8 @@
 //   statistics survive renames.
 // - Names are unique, compared case-insensitively (ASCII and the Latin-1 letters such as
 //   å/Å, ä/Ä, ö/Ö), after trimming spaces. 1..23 UTF-8 bytes.
+// - v0.5.6: optional personal 4-digit PIN per player (used to join a game from /play). The PIN is
+//   never sent out by the web API, only `has_pin`.
 #pragma once
 
 #include <stdint.h>
@@ -12,15 +14,34 @@
 
 constexpr int PLAYER_MAX = 200;
 constexpr int PLAYER_NAME_CAP = 24;   // Same as YATZY_NAME_CAP
+constexpr int PLAYER_PIN_LEN = 4;
+constexpr int PLAYER_PIN_CAP = PLAYER_PIN_LEN + 1;
 
-enum class PlayerErr : int8_t { OK = 0, INVALID = -1, DUPLICATE = -2, FULL = -3, NOT_FOUND = -4 };
+enum class PlayerErr : int8_t { OK = 0, INVALID = -1, DUPLICATE = -2, FULL = -3, NOT_FOUND = -4, BAD_PIN = -5 };
 
 struct PlayerRec {
     uint16_t id;
     uint16_t flags;      // Reserved (bit 0: admin, later)
     uint32_t created;    // UTC epoch, 0 if the clock was unknown
     char name[PLAYER_NAME_CAP];
+    char pin[PLAYER_PIN_CAP];   // "" = no PIN, else exactly 4 digits
+    uint8_t reserved[3];
 };
+static_assert(sizeof(PlayerRec) == 40, "players.bin record layout");
+
+// File format v1 (v0.4.x-v0.5.5): record without PIN. Only used to migrate old files.
+struct PlayerRecV1 {
+    uint16_t id;
+    uint16_t flags;
+    uint32_t created;
+    char name[PLAYER_NAME_CAP];
+};
+struct PlayerDbV1 {
+    uint16_t nextId;
+    uint16_t count;
+    PlayerRecV1 items[PLAYER_MAX];
+};
+static_assert(sizeof(PlayerRecV1) == 32 && sizeof(PlayerDbV1) == 6404, "players.bin v1 layout");
 
 struct PlayerDb {
     uint16_t nextId;
@@ -107,6 +128,69 @@ struct PlayerDb {
         return true;
     }
 
+    // True for exactly 4 ASCII digits (or "" when allowEmpty).
+    static bool validPin(const char *pin, bool allowEmpty = false)
+    {
+        if (!pin || !*pin) return allowEmpty;
+        for (int i = 0; i < PLAYER_PIN_LEN; i++)
+            if (pin[i] < '0' || pin[i] > '9') return false;
+        return pin[PLAYER_PIN_LEN] == 0;
+    }
+
+    // Converts a v1 file body; every player gets an empty PIN. False if the data is inconsistent.
+    bool loadV1(const PlayerDbV1 &old)
+    {
+        clear();
+        if (old.count > PLAYER_MAX) return false;
+        nextId = old.nextId ? old.nextId : 1;
+        count = old.count;
+        for (int i = 0; i < count; i++) {
+            items[i].id = old.items[i].id;
+            items[i].flags = old.items[i].flags;
+            items[i].created = old.items[i].created;
+            memcpy(items[i].name, old.items[i].name, PLAYER_NAME_CAP);
+            items[i].name[PLAYER_NAME_CAP - 1] = 0;
+        }
+        return true;
+    }
+
+    // Terminates strings and drops PINs that are not valid (defensive after loading a file).
+    void sanitize()
+    {
+        for (int i = 0; i < count; i++) {
+            items[i].name[PLAYER_NAME_CAP - 1] = 0;
+            items[i].pin[PLAYER_PIN_LEN] = 0;
+            if (!validPin(items[i].pin, true)) memset(items[i].pin, 0, PLAYER_PIN_CAP);
+        }
+    }
+
+    bool hasPin(uint16_t id) const
+    {
+        const PlayerRec *r = get(id);
+        return r && r->pin[0];
+    }
+
+    // Constant-time compare (does not leak how many digits matched). False if no PIN is set.
+    bool checkPin(uint16_t id, const char *pin) const
+    {
+        const PlayerRec *r = get(id);
+        if (!r || !r->pin[0] || !validPin(pin)) return false;
+        uint8_t diff = 0;
+        for (int i = 0; i < PLAYER_PIN_LEN; i++) diff |= (uint8_t)(r->pin[i] ^ pin[i]);
+        return diff == 0;
+    }
+
+    // "" or nullptr clears the PIN.
+    PlayerErr setPin(uint16_t id, const char *pin)
+    {
+        int i = indexOf(id);
+        if (i < 0) return PlayerErr::NOT_FOUND;
+        if (!validPin(pin, true)) return PlayerErr::BAD_PIN;
+        memset(items[i].pin, 0, PLAYER_PIN_CAP);
+        if (pin && *pin) memcpy(items[i].pin, pin, PLAYER_PIN_LEN);
+        return PlayerErr::OK;
+    }
+
     int indexOf(uint16_t id) const
     {
         if (!id) return -1;
@@ -131,10 +215,11 @@ struct PlayerDb {
     }
 
     // Returns the new id (> 0) or a negative PlayerErr.
-    int add(const char *name, uint32_t now)
+    int add(const char *name, uint32_t now, const char *pin = nullptr)
     {
         char n[PLAYER_NAME_CAP];
         if (!normalize(name, n)) return (int)PlayerErr::INVALID;
+        if (!validPin(pin, true)) return (int)PlayerErr::BAD_PIN;
         if (indexOfName(n) >= 0) return (int)PlayerErr::DUPLICATE;
         if (count >= PLAYER_MAX) return (int)PlayerErr::FULL;
         if (nextId == 0) nextId = 1;
@@ -145,6 +230,7 @@ struct PlayerDb {
         r.id = nextId;
         r.created = now;
         memcpy(r.name, n, sizeof(n));
+        if (pin && *pin) memcpy(r.pin, pin, PLAYER_PIN_LEN);
         nextId = nextId == 65535 ? 1 : nextId + 1;
         return r.id;
     }
@@ -192,6 +278,7 @@ inline const char *playerErrText(int e)
     case PlayerErr::DUPLICATE: return "Namnet finns redan";
     case PlayerErr::FULL: return "Max 200 spelare";
     case PlayerErr::NOT_FOUND: return "Spelaren finns inte";
+    case PlayerErr::BAD_PIN: return "PIN måste vara 4 siffror";
     default: return "";
     }
 }

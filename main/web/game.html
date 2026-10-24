@@ -26,7 +26,6 @@
 .score .zero { color: var(--otr-muted); }
 .winner { font-size: 1.3rem; font-weight: 700; color: var(--otr-green); }
 .full { position: fixed; right: .8rem; bottom: .8rem; }
-.webcode { font-size: 1.3rem; letter-spacing: .15em; color: var(--otr-orange); }
 </style>
 </head>
 <body>
@@ -53,7 +52,7 @@
 
 <div id="game" hidden>
   <div class="card" id="webplay" hidden>
-    <div><b data-t="web_title">Spela via webben</b> · <span data-t="code">Kod</span> <b class="webcode" id="webcode">–</b></div>
+    <div><b data-t="web_title">Spela via webben</b> · <span class="muted" data-t="web_hint">välj ditt namn och ange din PIN</span></div>
     <div><a id="weblink" href="#">–</a></div>
     <div class="muted" id="webwho"></div>
   </div>
@@ -95,7 +94,7 @@ const T = {
   sv: {sub: 'Live-spel', loading: 'hämtar...', nav_home: 'Översikt', nav_players: 'Spelare', nav_settings: 'Inställningar',
        nav_diag: 'Diagnostik', nav_update: 'Uppdatera', idle: 'Inget spel pågår',
        idle_hint: 'Starta Yatzy eller Maxi-Yatzy på enheten – sidan uppdateras automatiskt.', protocol: 'Protokoll',
-       web_title: 'Spela via webben', code: 'Kod', over: 'Spelet är slut', round: 'Omgång {0} av {1}', final: 'Slutresultat',
+       web_title: 'Spela via webben', web_hint: 'välj ditt namn och ange din PIN', over: 'Spelet är slut', round: 'Omgång {0} av {1}', final: 'Slutresultat',
        turn: 'Tur', rolling: 'tärningarna rullar...', shaking: 'skakar bägaren...', choosing: 'väljer ruta',
        rolls: 'Kast kvar: {0}', saved: ' (varav {0} sparade)', shared: 'Delad vinst: ', winner: 'Vinnare: ',
        sum: 'Summa', total: 'Totalt', live: 'live', nocontact: 'ingen kontakt', connected: 'ansluten', waiting: 'väntar',
@@ -103,7 +102,7 @@ const T = {
   en: {sub: 'Live game', loading: 'loading...', nav_home: 'Overview', nav_players: 'Players', nav_settings: 'Settings',
        nav_diag: 'Diagnostics', nav_update: 'Update', idle: 'No game running',
        idle_hint: 'Start Yatzy or Maxi Yatzy on the device – the page updates automatically.', protocol: 'Score sheet',
-       web_title: 'Play via the web', code: 'Code', over: 'The game is over', round: 'Round {0} of {1}', final: 'Final result',
+       web_title: 'Play via the web', web_hint: 'pick your name and enter your PIN', over: 'The game is over', round: 'Round {0} of {1}', final: 'Final result',
        turn: 'Turn', rolling: 'dice rolling...', shaking: 'shaking the cup...', choosing: 'choosing a box',
        rolls: 'Rolls left: {0}', saved: ' ({0} saved)', shared: 'Shared win: ', winner: 'Winner: ',
        sum: 'Sum', total: 'Total', live: 'live', nocontact: 'no contact', connected: 'connected', waiting: 'waiting',
@@ -129,10 +128,9 @@ function render(g) {
   if (!g.active) return;
   const P = g.players;
   const wp = g.web_players || [];
-  $('webplay').hidden = !(g.code && wp.length && !g.finished);
-  if (g.code) {
-    const url = location.protocol + '//' + location.host + '/play?code=' + g.code;
-    $('webcode').textContent = g.code;
+  $('webplay').hidden = !(wp.length && !g.finished);
+  if (wp.length) {
+    const url = location.protocol + '//' + location.host + '/play';
     $('weblink').href = url;
     $('weblink').textContent = url;
     $('webwho').textContent = wp.map(w => (P[w.player] || {name: '?'}).name + ': ' + t(w.connected ? 'connected' : 'waiting')).join(' · ');

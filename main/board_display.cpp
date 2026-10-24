@@ -101,11 +101,12 @@ const uint8_t kInitSeq[] = {
     0x29, 0, 0,  // DISPON
     0x2C, 0, 0,
     0x3A, 1, 0, 0x01,  // As in the verified BSP sequence
-    0x36, 1, 0, 0x00,  // MADCTL: native portrait, RGB
+    0x36, 1, 0, 0x00,  // MADCTL: native portrait, RGB (replaced by g_madctl, see sendInitSequence)
     0x35, 1, 20, 0x01,  // TEON
 };
 
 esp_lcd_panel_io_handle_t g_io = nullptr;
+uint8_t g_madctl = 0x00;   // 0x00 native portrait, 0xC0 = MX|MY (rotated 180 degrees)
 bool g_ok = false;
 bool g_panelOk = false;
 const char *g_fail = "";
@@ -226,12 +227,13 @@ bool sendInitSequence()
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(150));
-    const uint8_t madctl = 0x00, colmod = 0x55;   // RGB order, RGB565
-    txParam(0x36, &madctl, 1);
+    const uint8_t colmod = 0x55;   // RGB565
+    txParam(0x36, &g_madctl, 1);
     txParam(0x3A, &colmod, 1);
     for (size_t i = 0; i + 2 < sizeof(kInitSeq);) {
         const uint8_t cmd = kInitSeq[i], len = kInitSeq[i + 1], wait = kInitSeq[i + 2];
-        if (txParam(cmd, len ? &kInitSeq[i + 3] : nullptr, len) != ESP_OK) {
+        const uint8_t *data = cmd == 0x36 && len == 1 ? &g_madctl : len ? &kInitSeq[i + 3] : nullptr;
+        if (txParam(cmd, data, len) != ESP_OK) {
             ESP_LOGE(TAG, "init cmd 0x%02X failed", cmd);
             g_fail = "init-sekvensen";
             return false;
@@ -647,6 +649,22 @@ bool begin()
              g_teActive ? "on" : "off");
     return g_ok;
 }
+
+void setRotation(bool rot180)
+{
+    const uint8_t v = rot180 ? 0xC0 : 0x00;
+    if (v == g_madctl) return;
+    g_madctl = v;
+    if (!g_panelOk) return;   // begin() sends it with the init sequence
+    txParam(0x36, &g_madctl, 1);
+    ESP_LOGI(TAG, "MADCTL 0x%02X (rotation %d)", g_madctl, rot180 ? 180 : 0);
+    if (g_ok) {
+        lv_obj_invalidate(lv_screen_active());
+        lv_obj_invalidate(lv_layer_top());
+    }
+}
+
+bool rotated() { return g_madctl == 0xC0; }
 
 bool ok() { return g_ok; }
 bool panelOk() { return g_panelOk; }

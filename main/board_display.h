@@ -33,6 +33,13 @@ bool startTask();                   // LVGL handler task on core 1
 inline bool lock(uint32_t timeoutMs = 0) { return MyLvgl::lock(timeoutMs); }
 inline void unlock() { MyLvgl::unlock(); }
 Stats stats();
+// v0.5.6: 180-degree rotation through MADCTL (0x36) MX|MY = 0xC0 - the controller mirrors the
+// memory address order, so LVGL, the flush windows and the 4-px alignment stay unchanged.
+// Can be called before begin() (used by the init sequence) or later with the LVGL lock held
+// (sends MADCTL and invalidates the screen). NOT verified on hardware yet; fallback if the
+// image is offset/garbled: lv_display_set_rotation(LV_DISPLAY_ROTATION_180) (software, slower).
+void setRotation(bool rot180);
+bool rotated();
 
 }  // namespace Display
 

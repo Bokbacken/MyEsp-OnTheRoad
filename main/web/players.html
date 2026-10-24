@@ -27,7 +27,8 @@
 <div class="card">
   <p class="muted">Upp till 200 spelare med unika namn (skiftläget spelar ingen roll: "Anna" och
   "anna" räknas som samma). Spelarna väljs på enheten innan ett spel startar. Varje spelare har
-  ett fast id, så framtida statistik följer med vid namnbyte. Att ta bort en spelare kräver
+  ett fast id, så framtida statistik följer med vid namnbyte. En personlig PIN (4 siffror) krävs
+  för att spela via webben (/play); PIN:en visas aldrig, bara om den är satt. Att ta bort en spelare kräver
   admin-PIN om en sådan är satt.</p>
   <p id="fs-warn" class="muted" hidden><b>Lagringen (FFat) är inte tillgänglig – ändringar sparas inte.</b></p>
 </div>
@@ -37,6 +38,8 @@
     <legend>Ny spelare</legend>
     <label for="new-name">Namn (1–23 tecken)</label>
     <input type="text" id="new-name" maxlength="23" autocomplete="off">
+    <label for="new-pin">PIN för webbspel (4 siffror, valfri)</label>
+    <input type="password" id="new-pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off">
     <div class="row"><button type="submit" class="primary">Lägg till</button></div>
   </fieldset>
 </form>
@@ -72,7 +75,8 @@ function render() {
   const shown = players.filter(p => !q || p.name.toLowerCase().includes(q));
   $('list').innerHTML = shown.map(p =>
     '<li><span class="prio">#' + p.id + '</span><span class="name">' + esc(p.name) +
-    '</span><span class="muted">' + fmtDate(p.created) + '</span>' +
+    '</span><span class="muted">' + fmtDate(p.created) + (p.has_pin ? ' · PIN ✓' : '') + '</span>' +
+    '<button type="button" data-pin="' + p.id + '" title="Sätt PIN">&#128273;</button>' +
     '<button type="button" data-ren="' + p.id + '" title="Byt namn">&#9998;</button>' +
     '<button type="button" class="danger" data-del="' + p.id + '" title="Ta bort">&#10005;</button></li>').join('');
   $('empty').hidden = players.length > 0;
@@ -107,9 +111,12 @@ $('add-form').addEventListener('submit', async e => {
   e.preventDefault();
   const name = $('new-name').value.trim();
   if (!name) return toast('Skriv ett namn', false);
+  const pin = $('new-pin').value.trim();
+  if (pin && !/^[0-9]{4}$/.test(pin)) return toast('PIN ska vara exakt 4 siffror', false);
   try {
-    await post({action: 'add', name});
+    await post(pin ? {action: 'add', name, player_pin: pin} : {action: 'add', name});
     $('new-name').value = '';
+    $('new-pin').value = '';
     toast('Lade till ' + name);
   } catch (err) { toast(err.message, false); }
 });
@@ -117,11 +124,17 @@ $('filter').addEventListener('input', render);
 $('list').addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
-  const id = Number(b.dataset.ren || b.dataset.del);
+  const id = Number(b.dataset.ren || b.dataset.del || b.dataset.pin);
   const p = players.find(x => x.id === id);
   if (!p) return;
   try {
-    if (b.dataset.ren) {
+    if (b.dataset.pin) {
+      const pin = prompt('Ny PIN för ' + p.name + ' (4 siffror, tomt = ta bort)', '');
+      if (pin === null) return;
+      if (pin.trim() && !/^[0-9]{4}$/.test(pin.trim())) return toast('PIN ska vara exakt 4 siffror', false);
+      await post({action: 'setpin', id, player_pin: pin.trim()});
+      toast(pin.trim() ? 'PIN sparad' : 'PIN borttagen');
+    } else if (b.dataset.ren) {
       const name = prompt('Nytt namn för ' + p.name, p.name);
       if (name === null || name.trim() === p.name) return;
       await post({action: 'rename', id, name: name.trim()});

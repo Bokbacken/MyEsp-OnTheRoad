@@ -13,6 +13,7 @@
 #include "board_touch.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "game_live.h"
@@ -219,6 +220,7 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "roll_anim_ms", c.rollAnimMs);
     cJSON_AddBoolToObject(o, "maxi_saved_rolls", c.maxiSavedRolls);
     cJSON_AddNumberToObject(o, "throw_mode", c.throwMode);
+    cJSON_AddNumberToObject(o, "rotation", c.rotation);
     cJSON_AddStringToObject(o, "lang", c.lang);
     cJSON *langs = cJSON_AddArrayToObject(o, "langs");
     for (int i = 0; i < Lang::count(); i++) {
@@ -244,6 +246,10 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;
     if (q.getInt("throw_mode", 0, 1, v, bad)) next.throwMode = (uint8_t)v;
+    if (q.getInt("rotation", 0, 180, v, bad)) {
+        if (v != 0 && v != 180) bad = true;
+        else next.rotation = (uint16_t)v;
+    }
     if (bad) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NUMBER));
     if (q.getBool("led_enabled", b)) next.ledEnabled = b;
     if (q.getBool("maxi_saved_rolls", b)) next.maxiSavedRolls = b;
@@ -442,13 +448,14 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
         cJSON_AddBoolToObject(o, "has_rolled", g.hasRolled());
         cJSON_AddNumberToObject(o, "bonus_threshold", Yatzy::bonusThreshold(var));
         cJSON_AddNumberToObject(o, "bonus_points", Yatzy::bonusPoints(var));
-        if (s->code) cJSON_AddNumberToObject(o, "code", s->code);
         cJSON *wp = cJSON_AddArrayToObject(o, "web_players");
         for (int p = 0; p < g.playerCount() && p < YATZY_MAX_PLAYERS; p++) {
             if (!s->web[p]) continue;
             cJSON *e = cJSON_CreateObject();
             cJSON_AddNumberToObject(e, "player", p);
             cJSON_AddNumberToObject(e, "id", s->pid[p]);
+            cJSON_AddStringToObject(e, "name", g.player(p).name);
+            cJSON_AddBoolToObject(e, "has_pin", s->pid[p] && Players::hasPin(s->pid[p]));   // Never the PIN itself
             cJSON_AddBoolToObject(e, "connected", s->conn[p] > 0);
             cJSON_AddItemToArray(wp, e);
         }
@@ -522,13 +529,18 @@ static esp_err_t handleGame(httpd_req_t *r)
 // /ws/game - interactive web play (page /play).
 //
 // Client -> device (text frames, JSON):
-//   {"cmd":"join","code":1234,"player":2}   bind to seat 2 (must be a web seat); no "player" = spectator
+//   {"cmd":"join","player":2,"pin":"1234"}  bind to seat 2 (a web seat) with that player's personal PIN
+//   {"cmd":"join"}                           watch only (spectator, no PIN)
 //   {"cmd":"hold","die":N}                   toggle hold of die N (0-based)
 //   {"cmd":"roll"}                           roll the free dice (the console animates the throw)
 //   {"cmd":"choose","cat":ID}                write the box with category id ID (see "categories")
 // Device -> client:
 //   {"type":"joined","you":seat|-1}
-//   {"type":"error","error":"code|seat|join|full|cmd|turn","msg":"..."}
+//   {"type":"error","error":"nogame|seat|pin|nopin|locked|join|full|cmd|turn","msg":"...","retry_s":n}
+//     pin: wrong PIN; nopin: the player has no PIN (set it on the console or /players);
+//     locked: too many wrong PINs, retry after retry_s seconds.
+// v0.5.6: the shared 4-digit game code is gone. Bindings carry GameLive's internal session id;
+// a new game (or leaving the game) drops every client back to the lobby.
 //   {"type":"state","you":seat|-1,"joined":bool, ...same fields as /api/game...}  on every change
 //
 // All client bookkeeping and every send run in the httpd task (handler + httpd_queue_work), so
@@ -538,16 +550,28 @@ static esp_err_t handleGame(httpd_req_t *r)
 static constexpr int WS_MAX_CLIENTS = 4;
 static constexpr size_t WS_MAX_FRAME = 256;
 
+static constexpr int WS_PIN_TRIES = 5;             // Wrong PINs per connection before a lockout
+static constexpr int WS_SEAT_TRIES = 10;           // Wrong PINs per seat (all connections) per game
+static constexpr int64_t WS_LOCK_MS = 60 * 1000;
+
 struct WsClient {
-    int fd;            // -1 = free slot
+    int fd;              // -1 = free slot
     bool joined;
-    int8_t seat;       // -1 = spectator
-    uint16_t code;     // Code used to join (a new game invalidates the binding)
-    bool fresh;        // Needs a state frame even if the version did not change
+    int8_t seat;         // -1 = spectator
+    uint32_t session;    // GameLive session at join (a new game invalidates the binding)
+    bool fresh;          // Needs a state frame even if the version did not change
+    uint8_t pinFails;    // Wrong PINs on this connection
+    int64_t lockUntil;   // ms (esp_timer) until which joins are refused
 };
 
-static WsClient s_ws[WS_MAX_CLIENTS] = {{-1, false, -1, 0, false}, {-1, false, -1, 0, false},
-                                        {-1, false, -1, 0, false}, {-1, false, -1, 0, false}};
+static constexpr WsClient WS_FREE = {-1, false, -1, 0, false, 0, 0};
+static WsClient s_ws[WS_MAX_CLIENTS] = {WS_FREE, WS_FREE, WS_FREE, WS_FREE};
+// Guessing protection across reconnects: per seat, reset when a new game starts.
+static uint8_t s_seatFails[YATZY_MAX_PLAYERS] = {};
+static int64_t s_seatLockUntil[YATZY_MAX_PLAYERS] = {};
+static uint32_t s_seatFailSession = 0;
+
+static int64_t nowMs() { return esp_timer_get_time() / 1000; }
 static volatile int s_wsCount = 0;
 static volatile bool s_wsWorkQueued = false;
 static uint32_t s_wsSentVersion = 0;
@@ -563,12 +587,19 @@ static void wsSendText(int fd, const char *txt)
     httpd_ws_send_frame_async(MyWeb::handle(), fd, &f);
 }
 
-static void wsSendError(int fd, const char *code, Str msg)
+static void wsSendError(int fd, const char *code, Str msg, int retryS = 0)
 {
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "type", "error");
     cJSON_AddStringToObject(o, "error", code);
-    cJSON_AddStringToObject(o, "msg", tr(msg));
+    if (retryS > 0) {
+        char m[96];
+        snprintf(m, sizeof(m), tr(msg), retryS);
+        cJSON_AddStringToObject(o, "msg", m);
+        cJSON_AddNumberToObject(o, "retry_s", retryS);
+    } else {
+        cJSON_AddStringToObject(o, "msg", tr(msg));
+    }
     char *txt = cJSON_PrintUnformatted(o);
     cJSON_Delete(o);
     if (txt) {
@@ -603,7 +634,7 @@ static bool wsReapDead(httpd_handle_t hd)
     bool changed = false;
     for (WsClient &c : s_ws) {
         if (c.fd >= 0 && httpd_ws_get_fd_info(hd, c.fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
-            c = {-1, false, -1, 0, false};
+            c = WS_FREE;
             changed = true;
         }
     }
@@ -620,7 +651,8 @@ static void wsBroadcastWork(void *)
     bool changed = wsReapDead(hd);
     GameLive::get(*s_wsSnap);
     for (WsClient &c : s_ws) {
-        if (c.fd >= 0 && c.joined && c.code != s_wsSnap->code) {   // Game left / new code
+        const bool live = s_wsSnap->active && s_wsSnap->game.started();
+        if (c.fd >= 0 && c.joined && (!live || c.session != s_wsSnap->session)) {   // Game left / new game
             c.joined = false;
             c.seat = -1;
             c.fresh = true;
@@ -696,35 +728,62 @@ static void wsHandleText(int fd, const char *txt)
     }
     GameLive::get(*s);
     if (strcmp(cmd, "join") == 0) {
-        const cJSON *jk = cJSON_GetObjectItem(j, "code");
-        long code = cJSON_IsNumber(jk) ? (long)jk->valuedouble : cJSON_IsString(jk) ? atol(jk->valuestring) : 0;
         const cJSON *jp = cJSON_GetObjectItem(j, "player");
+        const cJSON *jpin = cJSON_GetObjectItem(j, "pin");
+        const char *pin = cJSON_IsString(jpin) ? jpin->valuestring : "";
         const bool hasGame = s->active && s->game.started();
-        if (!hasGame || s->code == 0 || code != s->code) {
-            wsSendError(fd, "code", Str::WEB_ERR_WS_CODE);
-        } else {
-            int seat = -1;
-            if (cJSON_IsNumber(jp)) {
-                seat = jp->valueint;
-                if (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS || !s->web[seat]) {
-                    wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
-                    seat = -2;
+        const int64_t now = nowMs();
+        if (s_seatFailSession != s->session) {   // New game: forget old per-seat failures
+            s_seatFailSession = s->session;
+            memset(s_seatFails, 0, sizeof(s_seatFails));
+            memset(s_seatLockUntil, 0, sizeof(s_seatLockUntil));
+        }
+        int seat = -1;
+        if (cJSON_IsNumber(jp)) seat = jp->valueint;
+        if (!hasGame) {
+            wsSendError(fd, "nogame", Str::WEB_ERR_WS_NOGAME);
+            seat = -2;
+        } else if (seat != -1 && (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS || !s->web[seat])) {
+            wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
+            seat = -2;
+        } else if (seat >= 0) {
+            const uint16_t pid = s->pid[seat];
+            const int64_t until = c->lockUntil > s_seatLockUntil[seat] ? c->lockUntil : s_seatLockUntil[seat];
+            if (until > now) {
+                wsSendError(fd, "locked", Str::WEB_ERR_WS_LOCKED, (int)((until - now + 999) / 1000));
+                seat = -2;
+            } else if (!pid || !Players::hasPin(pid)) {
+                wsSendError(fd, "nopin", Str::WEB_ERR_WS_NOPIN);
+                seat = -2;
+            } else if (!Players::checkPin(pid, pin)) {
+                if (++c->pinFails >= WS_PIN_TRIES) {
+                    c->pinFails = 0;
+                    c->lockUntil = now + WS_LOCK_MS;
                 }
-            }
-            if (seat >= -1) {
-                c->joined = true;
-                c->seat = (int8_t)seat;
-                c->code = s->code;
-                c->fresh = true;
-                char buf[48];
-                snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
-                wsSendText(fd, buf);
-                wsPublishConnections();
-                wsQueueBroadcast();
+                if (++s_seatFails[seat] >= WS_SEAT_TRIES) {
+                    s_seatFails[seat] = 0;
+                    s_seatLockUntil[seat] = now + WS_LOCK_MS;
+                }
+                MyLog::event("web", "wrong PIN for seat %d", seat);
+                wsSendError(fd, "pin", Str::WEB_ERR_WS_PIN);
+                seat = -2;
+            } else {
+                c->pinFails = 0;
             }
         }
+        if (seat >= -1) {
+            c->joined = true;
+            c->seat = (int8_t)seat;
+            c->session = s->session;
+            c->fresh = true;
+            char buf[48];
+            snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
+            wsSendText(fd, buf);
+            wsPublishConnections();
+            wsQueueBroadcast();
+        }
     } else if (strcmp(cmd, "hold") == 0 || strcmp(cmd, "roll") == 0 || strcmp(cmd, "choose") == 0) {
-        if (!c->joined || c->seat < 0 || c->code != s->code) {
+        if (!c->joined || c->seat < 0 || c->session != s->session || !s->active) {
             wsSendError(fd, "join", Str::WEB_ERR_WS_JOIN);
         } else if (s->game.currentPlayer() != c->seat || s->game.finished()) {
             wsSendError(fd, "turn", Str::WEB_ERR_WS_TURN);
@@ -762,7 +821,9 @@ static WsClient *wsRegister(httpd_handle_t hd, int fd)
         httpd_sess_trigger_close(hd, fd);
         return nullptr;
     }
-    *c = {fd, false, -1, 0, true};
+    *c = WS_FREE;
+    c->fd = fd;
+    c->fresh = true;
     wsPublishConnections();
     wsQueueBroadcast();
     return c;
@@ -811,7 +872,8 @@ static bool wsBegin()
 // ----------------------------------------------------------------------------------------
 // /api/players
 // ----------------------------------------------------------------------------------------
-// {"ok":true,"count":n,"max":200,"fs_ok":b,"players":[{"id","name","created"}...]} sorted by name.
+// {"ok":true,"count":n,"max":200,"fs_ok":b,"players":[{"id","name","created","has_pin"}...]} sorted
+// by name. The PIN itself is never sent.
 static esp_err_t sendPlayers(httpd_req_t *r)
 {
     PlayerDb *db = (PlayerDb *)psAlloc(sizeof(PlayerDb));
@@ -831,6 +893,7 @@ static esp_err_t sendPlayers(httpd_req_t *r)
         cJSON_AddNumberToObject(e, "id", p.id);
         cJSON_AddStringToObject(e, "name", p.name);
         cJSON_AddNumberToObject(e, "created", p.created);
+        cJSON_AddBoolToObject(e, "has_pin", p.pin[0] != 0);
         cJSON_AddItemToArray(arr, e);
     }
     free(db);
@@ -839,23 +902,36 @@ static esp_err_t sendPlayers(httpd_req_t *r)
 
 static esp_err_t handlePlayersGet(httpd_req_t *r) { return sendPlayers(r); }
 
-// action=add (name) | rename (id, name) | remove (id; admin PIN). Answers with the new list.
+// action=add (name[, player_pin]) | rename (id, name[, player_pin]) | setpin (id, player_pin; ""
+// clears) | remove (id; admin PIN). Answers with the new list. The player's PIN uses the field
+// "player_pin" because "pin" is the admin PIN (MyWeb::Req::adminAllowed). Setting a PIN on a
+// player without one is free; changing or clearing an existing PIN needs the admin PIN (if set).
 static esp_err_t handlePlayersPost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
-    char act[16], name[PLAYER_NAME_CAP * 2];
+    char act[16], name[PLAYER_NAME_CAP * 2], pin[16] = "";
     if (!q.get("action", act, sizeof(act))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ACTION_MISSING));
     const bool hasName = q.get("name", name, sizeof(name));
+    const bool hasPin = q.has("player_pin");
+    if (hasPin && !q.get("player_pin", pin, sizeof(pin))) pin[0] = 0;
+    if (hasPin && !PlayerDb::validPin(pin, true)) return MyWeb::sendError(r, 400, trPlayerErr((int)PlayerErr::BAD_PIN));
     long id = 0;
     bool bad = false;
     int res;
     if (strcmp(act, "add") == 0) {
         if (!hasName) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NAME));
-        res = Players::add(name);
+        res = Players::add(name, pin);
         if (res > 0) res = 0;
-    } else if (strcmp(act, "rename") == 0) {
-        if (!hasName || !q.getInt("id", 1, 65535, id, bad)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ID_NAME));
-        res = Players::rename((uint16_t)id, name);
+    } else if (strcmp(act, "rename") == 0 || strcmp(act, "setpin") == 0) {
+        const bool ren = act[0] == 'r';
+        if (!q.getInt("id", 1, 65535, id, bad) || (ren && !hasName)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ID_NAME));
+        if (!ren && !hasPin) return MyWeb::sendError(r, 400, trPlayerErr((int)PlayerErr::BAD_PIN));
+        if (hasPin && Players::hasPin((uint16_t)id) && !q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+        res = ren ? Players::rename((uint16_t)id, name) : 0;
+        if (res == 0 && hasPin && (pin[0] || Players::hasPin((uint16_t)id))) {
+            res = Players::setPin((uint16_t)id, pin);
+            if (res == 0) MyLog::event("players", "PIN of player %ld %s (web)", id, pin[0] ? "set" : "cleared");
+        }
     } else if (strcmp(act, "remove") == 0) {
         if (!q.getInt("id", 1, 65535, id, bad)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ID));
         if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));

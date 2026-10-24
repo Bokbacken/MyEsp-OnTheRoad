@@ -79,7 +79,7 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 
 ## v0.5.5 – Webbspel: klienter registreras igen 🔧 (inte HW-testad)
 - [x] `/ws/game`: ESP-IDF 6.x anropar inte handlern vid WebSocket-handskakningen, så klienten registrerades aldrig och `join` ignorerades tyst (varken rätt eller fel kod gav svar). Klienten registreras nu vid första meddelandet (`wsRegister`)
-- [ ] HW-test (anslutning från mobil, rätt och fel kod)
+- [x] HW-test (anslutning från mobil, rätt och fel kod) – verifierat av Kent
 
 ## v0.5.4 – Webbspel: auto-join och spökanslutningar 🔧 (inte HW-testad)
 - [x] `/play`: auto-join till enda webbspelaren sker så länge mobilen är åskådare (`you < 0`), även om platsen redan rapporteras som ansluten (race när join-kommandona processas utan state-frame emellan)
@@ -89,6 +89,23 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 ## v0.5.3 – Webbspel: tydligare anslutning i `/play` 🔧 (inte HW-testad)
 - [x] `/play`: meddelande vid för kort kod, Anslut-knappen visar "Ansluter..." (återställs efter 5 s utan svar), besked när WebSocket inte är öppen än, felmeddelandet scrollas in i bild på mobil, `?debug=1` loggar WS-trafik i konsolen
 - [ ] HW-test (anslutning från mobil)
+
+## v0.5.6 – Rotation, personlig PIN och ny `/play` 🔧 (inte HW-testad)
+- [x] **Rotation 180°:** nytt fält `rotation` (0/180, standard 0 = USB nedåt) i `AppConfig`, sparas i NVS; val i Inställningar på enheten (förhandsvisas direkt, återställs vid Avbryt) och på webben (`/api/config`)
+- [x] Display: rotation via MADCTL (0x36) = 0xC0 (MX|MY) i `sendInitSequence` och vid byte under drift; skärmen ritas om. Touch: x/y speglas i `pointerRead` när roterad. **Obs:** MADCTL-spegling på ST77922 över QSPI är oprövad – om bilden hamnar förskjuten/fel är reservplanen LVGL-mjukvarurotation (`lv_display_set_rotation`), ej implementerad än
+- [x] **Personlig PIN** (4 siffror) per spelare: `PlayerRec.pin`, `validPin/hasPin/checkPin/setPin`, spelarfilen version 2 med automatisk migrering från v1. PIN skickas aldrig ut, bara `has_pin`
+- [x] Enheten: nytt numeriskt tangentbord (`ui_numpad`, stora knappar 0–9, ⌫, OK/Avbryt). Visas när en spelare utan PIN markeras som webbspelare, och (valfritt) vid registrering av ny spelare
+- [x] `/players`: PIN kan sättas/tas bort per spelare och anges vid ny spelare; listan visar "PIN ✓"
+- [x] **Spelkoden borttagen** helt (spelhuvud, `/game`, protokoll). Ersatt av internt sessions-id i `GameLive` som räknas upp vid varje nytt spel – gamla anslutningar blir ogiltiga automatiskt
+- [x] WebSocket-protokoll: `{"cmd":"join","player":plats,"pin":"1234"}` (utan player = åskådare). Felkoder `nogame`, `seat`, `pin`, `nopin` (spelaren saknar PIN – sätt den på enheten eller `/players`), `locked` (med `retry_s`). Gissningsskydd: 5 fel per anslutning och 5 fel per plats ger 60 s spärr
+- [x] Ny `/play`: startar som åskådare, lista över webbspelare (namn + ansluten), klick → PIN-tangentbord på webben; plats+PIN sparas i localStorage för automatisk återanslutning (rensas vid PIN-fel); hold/roll/choose oförändrade
+- [x] `/` (översikt): tydliga knappar till Live (`/game`) och Spela (`/play`)
+- [x] Värdtester: PIN-validering och migrering v1 → v2 (test_core 360/360), test_lang 228 strängar
+- [ ] HW-test (rotation 0/180 inkl. touch, PIN-dialog, join med rätt/fel PIN, spärr, återanslutning)
+
+## v0.5.7 – Responsiv layout ⏳
+- [ ] `/play` på bred skärm (≥ 900 px): kolumner med tärningar/kast och hela poänglistan, bara egen kolumn klickbar
+- [ ] `/game`: delad vy (aktuellt spel vänster, komplett poänglista höger) för stor skärm; ev. animerade tärningar via `/ws/game`
 
 ## v0.6.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering

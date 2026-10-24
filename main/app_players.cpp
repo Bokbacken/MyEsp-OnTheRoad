@@ -15,7 +15,7 @@ static const char *TAG = "players";
 namespace Players {
 
 static constexpr uint32_t MAGIC = 0x50525450;   // "PTRP"
-static constexpr uint16_t VERSION = 1;
+static constexpr uint16_t VERSION = 2;   // v2 (v0.5.6): PlayerRec with PIN; v1 is migrated
 
 struct Header {
     uint32_t magic;
@@ -43,21 +43,30 @@ static bool saveLocked()
     return ok;
 }
 
-static bool loadFile(const char *path)
+// Returns 2 for a current file, 1 for a migrated v1 file, 0 if unreadable.
+static int loadFile(const char *path)
 {
     FILE *f = fopen(path, "rb");
-    if (!f) return false;
+    if (!f) return 0;
     Header h = {};
-    bool ok = fread(&h, 1, sizeof(h), f) == sizeof(h) && h.magic == MAGIC && h.version == VERSION &&
-              h.recSize == sizeof(PlayerRec) && h.dbSize == sizeof(PlayerDb) &&
-              fread(s_db, 1, sizeof(PlayerDb), f) == sizeof(PlayerDb);
-    fclose(f);
-    if (!ok || s_db->count > PLAYER_MAX) {
-        s_db->clear();
-        return false;
+    int res = 0;
+    if (fread(&h, 1, sizeof(h), f) == sizeof(h) && h.magic == MAGIC) {
+        if (h.version == VERSION && h.recSize == sizeof(PlayerRec) && h.dbSize == sizeof(PlayerDb)) {
+            if (fread(s_db, 1, sizeof(PlayerDb), f) == sizeof(PlayerDb) && s_db->count <= PLAYER_MAX) res = 2;
+        } else if (h.version == 1 && h.recSize == sizeof(PlayerRecV1) && h.dbSize == sizeof(PlayerDbV1)) {
+            PlayerDbV1 *old = (PlayerDbV1 *)heap_caps_malloc(sizeof(PlayerDbV1), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!old) old = (PlayerDbV1 *)malloc(sizeof(PlayerDbV1));
+            if (old && fread(old, 1, sizeof(PlayerDbV1), f) == sizeof(PlayerDbV1) && s_db->loadV1(*old)) res = 1;
+            free(old);
+        }
     }
-    for (int i = 0; i < s_db->count; i++) s_db->items[i].name[PLAYER_NAME_CAP - 1] = 0;
-    return true;
+    fclose(f);
+    if (!res) {
+        s_db->clear();
+        return 0;
+    }
+    s_db->sanitize();
+    return res;
 }
 
 bool begin()
@@ -83,8 +92,10 @@ bool begin()
     const char *candidates[] = {s_path, tmpNew, tmpOld};
     for (int i = 0; i < 3; i++) {
         if (!MyFat::exists(candidates[i])) continue;
-        if (loadFile(candidates[i])) {
-            if (i > 0) saveLocked();
+        int v = loadFile(candidates[i]);
+        if (v) {
+            if (v == 1) ESP_LOGI(TAG, "migrated %s from v1 (players get no PIN)", candidates[i]);
+            if (i > 0 || v == 1) saveLocked();
             break;
         }
         ESP_LOGW(TAG, "%s unreadable", candidates[i]);
@@ -112,11 +123,11 @@ int count()
     return s_db->count;
 }
 
-int add(const char *name)
+int add(const char *name, const char *pin)
 {
     if (!s_db) return (int)PlayerErr::INVALID;
     Lock l;
-    int r = s_db->add(name, (uint32_t)MyTime::now());
+    int r = s_db->add(name, (uint32_t)MyTime::now(), pin);
     if (r > 0) saveLocked();
     return r;
 }
@@ -137,6 +148,29 @@ int remove(uint16_t id)
     PlayerErr e = s_db->remove(id);
     if (e == PlayerErr::OK) saveLocked();
     return (int)e;
+}
+
+int setPin(uint16_t id, const char *pin)
+{
+    if (!s_db) return (int)PlayerErr::NOT_FOUND;
+    Lock l;
+    PlayerErr e = s_db->setPin(id, pin);
+    if (e == PlayerErr::OK) saveLocked();
+    return (int)e;
+}
+
+bool hasPin(uint16_t id)
+{
+    if (!s_db) return false;
+    Lock l;
+    return s_db->hasPin(id);
+}
+
+bool checkPin(uint16_t id, const char *pin)
+{
+    if (!s_db) return false;
+    Lock l;
+    return s_db->checkPin(id, pin);
 }
 
 bool name(uint16_t id, char *out, size_t cap)

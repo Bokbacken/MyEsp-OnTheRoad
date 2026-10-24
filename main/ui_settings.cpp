@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "board_backlight.h"
+#include "board_display.h"
 #include "app_config.h"
 #include "board_rgb.h"
 #include "board_touch.h"
@@ -22,12 +23,22 @@ static AppConfig s_edit;            // Working copy, committed on "Spara"
 static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo;
 static lv_timer_t *s_timer = nullptr;
 
+// Display (MADCTL) and touch mirroring together. Also called from the web server task, hence
+// the (recursive) LVGL lock.
+static void applyRotation(bool r180)
+{
+    DisplayLock l;
+    Display::setRotation(r180);
+    Touch::setRotation(r180);
+}
+
 void applyHardware()
 {
     const AppConfig &c = Config::get();
     Backlight::set(c.brightness);
     Rgb::setEnabled(c.ledEnabled);
     Rgb::setBrightness(c.ledBrightness);
+    applyRotation(c.rotation == 180);
 }
 
 static void refreshInfo(lv_timer_t *)
@@ -106,6 +117,7 @@ static void leave(bool save)
         Config::get().defaultVariant = s_edit.defaultVariant;
         Config::get().maxiSavedRolls = s_edit.maxiSavedRolls;
         Config::get().throwMode = s_edit.throwMode;
+        Config::get().rotation = s_edit.rotation;
         snprintf(Config::get().lang, sizeof(Config::get().lang), "%s", s_edit.lang);
         Config::save();
         Lang::setLang(Config::get().lang);
@@ -186,6 +198,15 @@ void show()
         Rgb::setEnabled(s_edit.ledEnabled);
     });
     sliderRow(disp, tr(Str::SET_LED_BRIGHTNESS), 0, 255, s_edit.ledBrightness, &s_ledVal, onLed);
+    // Rotation: previewed immediately (MADCTL + touch), kept on Save, reverted on Cancel.
+    Theme::label(disp, tr(Str::SET_ROTATION), &my_font_14, Theme::MUTED);
+    static char rotOpts[96];
+    snprintf(rotOpts, sizeof(rotOpts), "%s\n%s", tr(Str::SET_ROT_0), tr(Str::SET_ROT_180));
+    lv_obj_t *rd = styledDropdown(disp, rotOpts, s_edit.rotation == 180 ? 1 : 0);
+    lv_obj_add_event_cb(rd, [](lv_event_t *e) {
+        s_edit.rotation = lv_dropdown_get_selected(lv_event_get_target_obj(e)) ? 180 : 0;
+        applyRotation(s_edit.rotation == 180);
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *game = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(game, LV_FLEX_FLOW_COLUMN);

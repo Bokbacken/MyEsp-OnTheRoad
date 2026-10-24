@@ -98,6 +98,8 @@ extern "C" void app_main(void)
     Rgb::setEnabled(cfg.ledEnabled);
     Backlight::begin(0);   // Dark until the panel holds a defined image
 
+    Display::setRotation(cfg.rotation == 180);   // Sent as MADCTL with the init sequence (v0.5.6)
+    Touch::setRotation(cfg.rotation == 180);
     const bool displayOk = Display::begin();
     const bool panelOk = Display::panelOk();
     ESP_LOGI(TAG, "display %s (panel %s%s%s)", displayOk ? "ok" : "FAILED", panelOk ? "ok" : "FAILED",

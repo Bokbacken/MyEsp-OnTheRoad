@@ -28,10 +28,7 @@ void setActive(bool active)
         s_snap.active = active;
         s_snap.rolling = false;
         s_snap.shaking = false;
-        if (!active) {   // Game left: the code dies, web clients drop to the lobby
-            s_snap.code = 0;
-            s_qLen = 0;
-        }
+        if (!active) s_qLen = 0;   // Game left: web clients drop to the lobby (see app_web)
         s_snap.version++;
     }
     portEXIT_CRITICAL(&s_mux);
@@ -62,10 +59,10 @@ void get(Snapshot &out)
     portEXIT_CRITICAL(&s_mux);
 }
 
-void setSeats(uint16_t code, const bool *web, const uint16_t *pids, int n)
+void setSeats(const bool *web, const uint16_t *pids, int n)
 {
     portENTER_CRITICAL(&s_mux);
-    s_snap.code = code;
+    if (++s_snap.session == 0) s_snap.session = 1;
     for (int i = 0; i < YATZY_MAX_PLAYERS; i++) {
         s_snap.web[i] = i < n && web && web[i];
         s_snap.pid[i] = i < n && pids ? pids[i] : 0;
@@ -90,10 +87,10 @@ void setConnections(const uint8_t *conn, int n)
     portEXIT_CRITICAL(&s_mux);
 }
 
-uint16_t code()
+uint32_t session()
 {
     portENTER_CRITICAL(&s_mux);
-    uint16_t c = s_snap.code;
+    uint32_t c = s_snap.session;
     portEXIT_CRITICAL(&s_mux);
     return c;
 }

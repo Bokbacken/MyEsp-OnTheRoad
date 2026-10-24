@@ -133,6 +133,7 @@ extern const Entry LANG_EN[] = {
     {Str::PERR_DUPLICATE, "The name already exists"},
     {Str::PERR_FULL, "Max 200 players"},
     {Str::PERR_NOT_FOUND, "The player does not exist"},
+    {Str::PERR_BAD_PIN, "The PIN must be 4 digits"},
 
     {Str::MENU_CHOOSE_GAME, "Choose game"},
     {Str::MENU_SUB_YATZY, "5 dice • 15 boxes • bonus 50"},
@@ -189,9 +190,8 @@ extern const Entry LANG_EN[] = {
     {Str::GAME_SUGGESTIONS, "Suggestions"},
     {Str::GAME_PICK_BOX_BTN, "Pick box"},
     {Str::GAME_WEB_WAIT, "Waiting for %s via the web..."},
-    {Str::GAME_WEB_CONNECT, "Join: http://%s/play\nCode: %04u"},
+    {Str::GAME_WEB_CONNECT, "Open http://%s/play\npick your name and enter your PIN"},
     {Str::GAME_WEB_CONNECTED, "%s is connected and playing on the web"},
-    {Str::GAME_CODE, "Code %04u"},
 
     {Str::RES_TITLE, "Results"},
     {Str::RES_AGAIN, "Play again"},
@@ -236,12 +236,26 @@ extern const Entry LANG_EN[] = {
     {Str::BOOT_FAILURES, "Errors found - continuing shortly"},
     {Str::BOOT_DONE, "Done!"},
 
-    {Str::WEB_ERR_WS_CODE, "Wrong code or no game running"},
+    {Str::WEB_ERR_WS_NOGAME, "No game running"},
+    {Str::WEB_ERR_WS_PIN, "Wrong PIN"},
+    {Str::WEB_ERR_WS_NOPIN, "The player has no PIN. Set a PIN on the device or on the Players page (/players)."},
+    {Str::WEB_ERR_WS_LOCKED, "Too many wrong PINs - try again in %d s"},
     {Str::WEB_ERR_WS_SEAT, "That seat is not played via the web"},
-    {Str::WEB_ERR_WS_JOIN, "Join with the game code first"},
+    {Str::WEB_ERR_WS_JOIN, "Pick your name and enter your PIN first"},
     {Str::WEB_ERR_WS_FULL, "Too many web clients (max 4)"},
     {Str::WEB_ERR_WS_CMD, "Unknown command"},
     {Str::WEB_ERR_WS_TURN, "It is not your turn"},
+
+    {Str::PIN_TITLE_FOR, "PIN for %s"},
+    {Str::PIN_INFO_WEB, "Choose a personal PIN (4 digits). It is used to play via the web (/play)."},
+    {Str::PIN_INFO_NEW, "Optional: a personal PIN (4 digits) is needed to play via the web."},
+    {Str::PIN_SKIP, "Skip"},
+    {Str::PIN_WEB_TITLE, "Play via the web"},
+    {Str::PIN_GUEST_NO_WEB, "Guests cannot play via the web. Choose a registered player (with a PIN)."},
+
+    {Str::SET_ROTATION, "Screen rotation"},
+    {Str::SET_ROT_0, "0° (USB down)"},
+    {Str::SET_ROT_180, "180° (USB up)"},
 };
 
 extern const LangDef DEF_EN = {"en", "English", LANG_EN, sizeof(LANG_EN) / sizeof(LANG_EN[0])};

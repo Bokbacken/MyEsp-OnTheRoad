@@ -26,6 +26,7 @@ struct AppConfig {
     char adminPin[9];        // 4-8 digits; empty = no admin protection (OTA, reset, deletions)
     char tz[48];             // POSIX TZ string for the clock (default Sweden CET/CEST)
     char lang[4];            // UI language code ("sv" default, "en"); see main/lang/lang.h
+    uint16_t rotation;       // Display rotation in degrees: 0 (USB down, default) or 180 (v0.5.6)
 };
 
 namespace Config {

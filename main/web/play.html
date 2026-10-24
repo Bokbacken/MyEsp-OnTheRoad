@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="/style.css">
 <style>
 body { max-width: 34rem; }
-input[type=text].code-in { font-size: 2rem; letter-spacing: .4em; text-align: center; width: 9rem; }
 .turn { font-size: 1.15rem; margin: .2rem 0; }
 .turn b { color: var(--otr-orange); }
 .mine { color: var(--otr-green); font-weight: 700; }
@@ -27,12 +26,33 @@ input[type=text].code-in { font-size: 2rem; letter-spacing: .4em; text-align: ce
 .cats li.done { opacity: .55; }
 .cats .pts { font-weight: 700; font-variant-numeric: tabular-nums; }
 .cats .zero { color: var(--otr-muted); }
-.seats button { width: 100%; margin: .3rem 0; }
+.seats button { width: 100%; margin: .3rem 0; display: flex; justify-content: space-between; align-items: center; font-size: 1.1rem; }
+.seats .tag { font-size: .85rem; opacity: .85; }
 .score th, .score td { width: auto; text-align: center; white-space: nowrap; padding: .3rem .4rem; font-size: .9rem; }
 .score th:first-child, .score td:first-child { text-align: left; }
 .score .cur { background: rgba(255, 156, 61, .14); }
 .score .sum td { font-weight: 700; border-top: 2px solid var(--otr-line); }
 .msg { min-height: 1.3rem; }
+/* PIN pad (overlay) */
+.pad-bg { position: fixed; inset: 0; background: rgba(5, 10, 18, .85); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.pad { width: min(22rem, 94vw); background: var(--otr-panel); border: 1px solid var(--otr-line); border-radius: 1rem; padding: 1rem; }
+.pad h3 { margin: 0 0 .6rem; text-align: center; }
+.pin-cells { display: flex; gap: .6rem; justify-content: center; margin: .4rem 0 .3rem; }
+.pin-cells span { width: 3rem; height: 3.4rem; border: 2px solid var(--otr-line); border-radius: .6rem; display: flex;
+  align-items: center; justify-content: center; font-size: 2rem; background: var(--otr-panel-raised); }
+.pin-cells span.cur { border-color: var(--otr-orange); }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: .4rem; }
+.keys button { font-size: 1.6rem; padding: .7rem 0; margin: 0; }
+.pad .row { margin-top: .6rem; display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.pad .row button { margin: 0; }
+.pad .msg { text-align: center; }
+/* Wide / landscape screens: play column + full score sheet side by side */
+@media (min-width: 900px) {
+  body { max-width: 78rem; }
+  #live { display: grid; grid-template-columns: minmax(22rem, 30rem) 1fr; gap: 1rem; align-items: start; }
+  #live > .col { min-width: 0; }
+  #live .score th, #live .score td { font-size: 1rem; padding: .35rem .6rem; }
+}
 </style>
 </head>
 <body>
@@ -44,43 +64,63 @@ input[type=text].code-in { font-size: 2rem; letter-spacing: .4em; text-align: ce
   </div>
 </header>
 
-<!-- 1. Lobby: enter the 4-digit code shown on the console -->
+<!-- 1. No game running -->
 <div id="lobby" class="card" hidden>
-  <h3 data-t="enter_code">Ange spelkoden</h3>
-  <p class="muted" data-t="code_hint">Koden visas på enheten och på sidan Live.</p>
-  <form id="code-form" class="row">
-    <input type="text" id="code" class="code-in" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off">
-    <button type="submit" class="primary" id="join-btn" data-t="join">Anslut</button>
-  </form>
-  <p class="msg bad" id="lobby-msg"></p>
+  <h3 data-t="no_game_t">Inget spel pågår</h3>
+  <p class="muted" id="lobby-msg" data-t="no_game">Starta ett spel på enheten och markera dina spelare med webbknappen. Sidan uppdateras av sig själv.</p>
+  <p><a href="/" data-t="home">Till startsidan</a></p>
 </div>
 
 <!-- 2. Seat: which web player am I? -->
 <div id="seats" class="card seats" hidden>
   <h3 data-t="who">Vem spelar du?</h3>
+  <p class="muted" data-t="who_hint">Tryck på ditt namn och ange din PIN.</p>
   <div id="seat-list"></div>
   <button class="secondary" id="watch" data-t="watch">Titta bara</button>
   <p class="msg bad" id="seat-msg"></p>
 </div>
 
-<!-- 3. Live: dice, roll, boxes -->
+<!-- 3. Live: dice, roll, boxes | score sheet -->
 <div id="live" hidden>
-  <div class="card">
-    <div class="muted" id="info">–</div>
-    <div class="turn" id="turn">–</div>
-    <div class="dice" id="dice"></div>
-    <div class="muted" id="hint" style="text-align:center"></div>
-    <button class="primary big" id="roll" disabled>–</button>
-    <p class="msg bad" id="live-msg"></p>
+  <div class="col">
+    <div class="card">
+      <div class="muted" id="info">–</div>
+      <div class="turn" id="turn">–</div>
+      <div class="dice" id="dice"></div>
+      <div class="muted" id="hint" style="text-align:center"></div>
+      <button class="primary big" id="roll" disabled>–</button>
+      <p class="msg bad" id="live-msg"></p>
+    </div>
+    <div class="card" id="cat-card" hidden>
+      <h3 data-t="choose">Välj ruta</h3>
+      <ul class="cats" id="cats"></ul>
+      <button class="primary big" id="write" disabled>–</button>
+    </div>
   </div>
-  <div class="card" id="cat-card" hidden>
-    <h3 data-t="choose">Välj ruta</h3>
-    <ul class="cats" id="cats"></ul>
-    <button class="primary big" id="write" disabled>–</button>
+  <div class="col">
+    <h2 data-t="protocol">Protokoll</h2>
+    <div class="card table-wrap"><table class="score" id="score"></table></div>
+    <div class="row"><button class="secondary" id="leave" data-t="leave">Byt spelare</button></div>
   </div>
-  <h2 data-t="protocol">Protokoll</h2>
-  <div class="card table-wrap"><table class="score" id="score"></table></div>
-  <div class="row"><button class="secondary" id="leave" data-t="leave">Byt kod / spelare</button></div>
+</div>
+
+<!-- PIN pad -->
+<div class="pad-bg" id="pad" hidden>
+  <div class="pad">
+    <h3 id="pad-title">PIN</h3>
+    <div class="pin-cells" id="pin-cells"><span></span><span></span><span></span><span></span></div>
+    <p class="msg bad" id="pad-msg"></p>
+    <div class="keys" id="keys">
+      <button>1</button><button>2</button><button>3</button>
+      <button>4</button><button>5</button><button>6</button>
+      <button>7</button><button>8</button><button>9</button>
+      <button data-k="del" class="secondary">&#9003;</button><button>0</button><span></span>
+    </div>
+    <div class="row">
+      <button class="secondary" id="pad-cancel" data-t="cancel">Avbryt</button>
+      <button class="primary" id="pad-ok" disabled>OK</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -88,31 +128,39 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const T = {
   sv: {sub: 'Webbspel', connecting: 'ansluter...', online: 'ansluten', offline: 'ingen kontakt – försöker igen',
-       enter_code: 'Ange spelkoden', code_hint: 'Koden visas på enheten och på sidan Live.', join: 'Anslut',
-       who: 'Vem spelar du?', watch: 'Titta bara', choose: 'Välj ruta', protocol: 'Protokoll', leave: 'Byt kod / spelare',
-       no_game: 'Inget spel pågår på enheten.', expired: 'Spelet är slut eller har startats om – ange den nya koden.',
+       no_game_t: 'Inget spel pågår', home: 'Till startsidan',
+       no_game: 'Starta ett spel på enheten och markera dina spelare med webbknappen. Sidan uppdateras av sig själv.',
+       who: 'Vem spelar du?', who_hint: 'Tryck på ditt namn och ange din PIN.', watch: 'Titta bara',
+       choose: 'Välj ruta', protocol: 'Protokoll', leave: 'Byt spelare', cancel: 'Avbryt',
        no_web: 'Ingen spelare är markerad som webbspelare. Du kan titta på spelet.',
+       connected_tag: 'ansluten', nopin_tag: 'ingen PIN', pin_for: 'PIN för {0}',
+       expired: 'Ett nytt spel har startat – välj ditt namn igen.',
        round: 'Omgång {0} av {1}', turn: 'Tur', you: 'din tur!', spectator: 'Du tittar', playing_as: 'Du spelar som {0}',
        roll: 'Kasta ({0} kvar)', roll_none: 'Inga kast kvar', wait: 'Väntar på {0}...', rolling: 'Tärningarna rullar...',
        tap_hold: 'Tryck på en tärning för att hålla / släppa den.', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
        sum: 'Summa', total: 'Totalt', over: 'Spelet är slut', winner: 'Vinnare: {0}',
-       err_code: 'Fel kod eller inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
-       err_join: 'Anslut med koden först.', err_full: 'För många webbklienter (max 4).', err_turn: 'Det är inte din tur.',
-       err_cmd: 'Kommandot kunde inte utföras.', joining: 'Ansluter...', err_short: 'Koden måste vara exakt 4 siffror.',
-       err_wait: 'Ansluter, försök igen om en sekund...'},
+       err_nogame: 'Inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
+       err_pin: 'Fel PIN – försök igen.', err_nopin: 'Spelaren har ingen PIN. Sätt en PIN på enheten eller på sidan Spelare (/players).',
+       err_locked: 'För många fel PIN – försök igen om {0} s.',
+       err_join: 'Välj ditt namn och ange PIN först.', err_full: 'För många webbklienter (max 4).', err_turn: 'Det är inte din tur.',
+       err_cmd: 'Kommandot kunde inte utföras.', joining: 'Ansluter...', err_wait: 'Ingen kontakt med enheten än, försök igen om en sekund.'},
   en: {sub: 'Web play', connecting: 'connecting...', online: 'connected', offline: 'no contact – retrying',
-       enter_code: 'Enter the game code', code_hint: 'The code is shown on the device and on the Live page.', join: 'Join',
-       who: 'Who are you playing?', watch: 'Just watch', choose: 'Choose a box', protocol: 'Score sheet', leave: 'Change code / player',
-       no_game: 'No game is running on the device.', expired: 'The game ended or was restarted – enter the new code.',
+       no_game_t: 'No game running', home: 'Home',
+       no_game: 'Start a game on the device and mark your players with the web button. This page updates by itself.',
+       who: 'Who are you playing?', who_hint: 'Tap your name and enter your PIN.', watch: 'Just watch',
+       choose: 'Choose a box', protocol: 'Score sheet', leave: 'Change player', cancel: 'Cancel',
        no_web: 'No player is marked as a web player. You can watch the game.',
+       connected_tag: 'connected', nopin_tag: 'no PIN', pin_for: 'PIN for {0}',
+       expired: 'A new game has started – pick your name again.',
        round: 'Round {0} of {1}', turn: 'Turn', you: 'your turn!', spectator: 'You are watching', playing_as: 'You play as {0}',
        roll: 'Roll ({0} left)', roll_none: 'No rolls left', wait: 'Waiting for {0}...', rolling: 'Dice rolling...',
        tap_hold: 'Tap a die to hold / release it.', write: 'Write {0} pts in {1}', pick: 'Choose a box',
        sum: 'Sum', total: 'Total', over: 'The game is over', winner: 'Winner: {0}',
-       err_code: 'Wrong code or no game running.', err_seat: 'That seat is not played via the web.',
-       err_join: 'Join with the code first.', err_full: 'Too many web clients (max 4).', err_turn: 'It is not your turn.',
-       err_cmd: 'The command could not be executed.', joining: 'Connecting...', err_short: 'Code must be exactly 4 digits.',
-       err_wait: 'Connecting, try again in a second...'}
+       err_nogame: 'No game running.', err_seat: 'That seat is not played via the web.',
+       err_pin: 'Wrong PIN – try again.', err_nopin: 'The player has no PIN. Set a PIN on the device or on the Players page (/players).',
+       err_locked: 'Too many wrong PINs – try again in {0} s.',
+       err_join: 'Pick your name and enter your PIN first.', err_full: 'Too many web clients (max 4).', err_turn: 'It is not your turn.',
+       err_cmd: 'The command could not be executed.', joining: 'Connecting...', err_wait: 'No contact with the device yet, try again in a second.'}
 };
 let L = 'sv';
 const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
@@ -134,38 +182,29 @@ function dieSvg(v, held, rolling, i) {
 }
 
 // --- State ---------------------------------------------------------------------------------
+// Protocol (v0.5.6): {"cmd":"join"} = watch; {"cmd":"join","player":seat,"pin":"1234"} = play.
+// localStorage otr_play = {seat, name, pin}: automatic re-join while the same player is on that seat.
 const params = new URLSearchParams(location.search);
-let code = (params.get('code') || '').replace(/\D/g, '').slice(0, 4);
-let wantSeat = params.has('player') ? parseInt(params.get('player'), 10) : null;   // null = ask
-let ws = null, g = null, you = -1, joined = false, everJoined = false, sel = null, retry = 0;
-const stored = () => { try { return JSON.parse(localStorage.getItem('otr_play') || '{}'); } catch (e) { return {}; } };
-if (code && wantSeat === null && stored().code === code) wantSeat = stored().seat;
+const DEBUG = params.get('debug') === '1';   // ?debug=1 logs WS traffic to the console
+let ws = null, g = null, you = -1, joined = false, sel = null, retry = 0;
+let mode = 'ask';          // ask = seat list, watch = spectator by choice, seat = joined/joining a seat
+let pending = null;        // {seat, name, pin} join in flight
+let padSeat = null, padName = '', pin = '';
+const stored = () => { try { return JSON.parse(localStorage.getItem('otr_play') || 'null'); } catch (e) { return null; } };
+const forget = () => localStorage.removeItem('otr_play');
 
 function show(view) { ['lobby', 'seats', 'live'].forEach(v => $(v).hidden = v !== view); }
-const DEBUG = params.get('debug') === '1';   // ?debug=1 logs WS traffic to the console
 function send(o) {
-  if (DEBUG) console.log('[WS out]', o, ws ? 'readyState=' + ws.readyState : 'no socket');
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
+  if (DEBUG) console.log('[WS out]', o.cmd === 'join' && o.pin ? Object.assign({}, o, {pin: '****'}) : o,
+                          ws ? 'readyState=' + ws.readyState : 'no socket');
+  if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; }
+  return false;
 }
-// Lobby message, scrolled into view (the phone keyboard may hide it)
-function lobbyMsg(txt) {
-  $('lobby-msg').textContent = txt;
-  if (txt) $('lobby-msg').scrollIntoView({behavior: 'smooth', block: 'nearest'});
-}
-// "Join" button feedback: busy until a reply (joined/error) or 5 s timeout
-let joinTimer = null;
-function joinBusy(on) {
-  const b = $('join-btn');
-  clearTimeout(joinTimer);
-  b.disabled = on;
-  b.textContent = t(on ? 'joining' : 'join');
-  if (on) joinTimer = setTimeout(() => joinBusy(false), 5000);
-}
-function join(seat) {
-  const o = {cmd: 'join', code: parseInt(code, 10)};
-  if (seat !== null && seat >= 0) o.player = seat;
-  wantSeat = seat;
-  send(o);
+const watchJoin = () => send({cmd: 'join'});
+function seatJoin(seat, name, p) {
+  pending = {seat, name, pin: p};
+  mode = 'seat';
+  if (!send({cmd: 'join', player: seat, pin: p})) { padMsg(t('err_wait')); pending = null; mode = 'ask'; }
 }
 
 function connect() {
@@ -175,7 +214,7 @@ function connect() {
     joined = false;   // A new socket starts unbound
     $('dot').className = 'dot ok';
     $('conn').textContent = t('online');
-    if (code) join(wantSeat === null ? -1 : wantSeat);   // Spectator first when the seat is not known yet
+    watchJoin();      // Spectator first: the state tells us who sits where
   };
   ws.onclose = () => {
     $('dot').className = 'dot bad';
@@ -187,27 +226,39 @@ function connect() {
     try { m = JSON.parse(ev.data); } catch (e) { return; }
     if (DEBUG) console.log('[WS in]', m);
     if (m.type === 'state') onState(m);
-    else if (m.type === 'joined') {
-      joinBusy(false);
-      you = m.you;
-      joined = everJoined = true;
-      if (you >= 0) localStorage.setItem('otr_play', JSON.stringify({code, seat: you}));
-    } else if (m.type === 'error') onError(m);
+    else if (m.type === 'joined') onJoined(m);
+    else if (m.type === 'error') onError(m);
   };
 }
 
+function onJoined(m) {
+  you = m.you;
+  joined = true;
+  if (you >= 0 && pending && pending.seat === you) {
+    localStorage.setItem('otr_play', JSON.stringify(pending));
+    padClose();
+  }
+  pending = null;
+}
+
 function onError(m) {
-  joinBusy(false);
-  const txt = t('err_' + m.error) !== 'err_' + m.error ? t('err_' + m.error) : m.msg;
-  if (m.error === 'code') {
+  const own = t('err_' + m.error, m.retry_s || '');
+  const txt = own !== 'err_' + m.error ? own : m.msg;
+  if (m.error === 'nogame') {
     joined = false;
     show('lobby');
-    lobbyMsg(txt);
-  } else if (m.error === 'seat') {   // Stale seat: ask again
-    localStorage.removeItem('otr_play');
-    delete $('seats').dataset.done;
-    $('seat-msg').textContent = txt;
-    join(-1);
+  } else if (m.error === 'pin' || m.error === 'nopin' || m.error === 'locked' || m.error === 'seat') {
+    // Join with a seat failed: drop the saved PIN, stay a spectator and let the user retry
+    forget();
+    pending = null;
+    mode = 'ask';
+    if (m.error === 'nopin' || m.error === 'seat' || $('pad').hidden) {
+      padClose();
+      $('seat-msg').textContent = txt;
+      if (g && g.active) { renderSeats(); show('seats'); }
+    } else {
+      padMsg(txt, true);   // Wrong PIN / locked: stay in the pad, start over
+    }
   } else {
     $('live-msg').textContent = txt;
     setTimeout(() => { $('live-msg').textContent = ''; }, 2500);
@@ -216,31 +267,78 @@ function onError(m) {
 
 function onState(m) {
   if (m.lang) setLang(m.lang);
+  const wasSeat = joined && you >= 0;
   g = m;
   you = m.joined ? m.you : -1;
+  if (!m.active) {
+    joined = false;
+    show('lobby');
+    return;
+  }
   if (!m.joined) {
-    if (everJoined && joined) { joined = false; lobbyMsg(t('expired')); }
-    if (!code || !m.active) {
-      if (!m.active && code) { joinBusy(false); lobbyMsg(t('no_game')); }
-      show('lobby');
-    }
+    // New game / game restarted: the device dropped our binding. Re-join as spectator.
+    if (wasSeat) $('seat-msg').textContent = t('expired');
+    joined = false;
+    if (mode === 'seat' && !pending) mode = 'ask';
+    watchJoin();
     return;
   }
   joined = true;
   const wp = m.web_players || [];
-  if (wantSeat === null || (wantSeat === -1 && you === -1 && !$('seats').dataset.done)) {
-    // Ask which web seat this phone plays (or watch)
-    $('seats').dataset.done = '1';
-    if (wp.length === 1 && you < 0) { join(wp[0].player); return; }
-    $('seat-list').innerHTML = wp.length ? wp.map(w =>
-      `<button class="primary" data-seat="${w.player}">&#128246; ${esc(m.players[w.player].name)}${w.connected ? ' ✓' : ''}</button>`).join('')
-      : `<p class="muted">${t('no_web')}</p>`;
+  if (you < 0 && mode !== 'watch' && !pending) {
+    // Saved player still on the same seat in this game? Re-join silently with the saved PIN.
+    const s = stored();
+    const w = s && wp.find(x => x.player === s.seat);
+    if (w && w.name === s.name && w.has_pin && s.pin) { seatJoin(s.seat, s.name, s.pin); return; }
+    if (s && (!w || w.name !== s.name)) forget();
+    renderSeats();
     show('seats');
     return;
   }
   show('live');
   render();
 }
+
+function renderSeats() {
+  const wp = (g && g.web_players) || [];
+  $('seat-list').innerHTML = wp.length ? wp.map(w =>
+    `<button class="primary" data-seat="${w.player}" data-name="${esc(w.name)}"><span>&#128246; ${esc(w.name)}</span>` +
+    `<span class="tag">${w.connected ? '&#10003; ' + t('connected_tag') : !w.has_pin ? t('nopin_tag') : ''}</span></button>`).join('')
+    : `<p class="muted">${t('no_web')}</p>`;
+}
+
+// --- PIN pad -------------------------------------------------------------------------------
+function padOpen(seat, name) {
+  padSeat = seat; padName = name; pin = '';
+  $('pad-title').textContent = t('pin_for', name);
+  padMsg('');
+  padDraw();
+  $('pad').hidden = false;
+}
+function padClose() { $('pad').hidden = true; pin = ''; padSeat = null; }
+function padMsg(txt, clear) { $('pad-msg').textContent = txt; if (clear) { pin = ''; padDraw(); } }
+function padDraw() {
+  [...$('pin-cells').children].forEach((c, i) => { c.textContent = i < pin.length ? '•' : ''; c.className = i === pin.length ? 'cur' : ''; });
+  $('pad-ok').disabled = pin.length !== 4;
+}
+function padKey(k) {
+  if (k === 'del') pin = pin.slice(0, -1);
+  else if (/^\d$/.test(k) && pin.length < 4) pin += k;
+  $('pad-msg').textContent = '';
+  padDraw();
+  if (pin.length === 4 && k !== 'del') padOk();   // Submit on the 4th digit
+}
+function padOk() { if (pin.length === 4 && padSeat !== null && !pending) seatJoin(padSeat, padName, pin); }
+$('keys').addEventListener('click', e => { const b = e.target.closest('button'); if (b) padKey(b.dataset.k || b.textContent); });
+$('pad-ok').onclick = padOk;
+$('pad-cancel').onclick = padClose;
+document.addEventListener('keydown', e => {
+  if ($('pad').hidden) return;
+  if (/^\d$/.test(e.key)) padKey(e.key);
+  else if (e.key === 'Backspace') padKey('del');
+  else if (e.key === 'Enter') padOk();
+  else if (e.key === 'Escape') padClose();
+});
 
 // --- Rendering -----------------------------------------------------------------------------
 function render() {
@@ -278,7 +376,7 @@ function render() {
     $('write').textContent = sc ? t('write', sc.potential, sc.name) : t('pick');
   }
 
-  // Compact score sheet
+  // Score sheet: every player, every box (read-only)
   const cc = i => (!g.finished && i === g.current) ? ' class="cur"' : '';
   const cell = v => v === null ? '<td class="muted">·</td>' : '<td>' + v + '</td>';
   let h = '<thead><tr><th></th>' + P.map((p, i) => '<th' + cc(i) + '>' + esc(p.name) + (p.web ? ' &#128246;' : '') + '</th>').join('') + '</tr></thead><tbody>';
@@ -300,25 +398,13 @@ function render() {
 }
 
 // --- Input ---------------------------------------------------------------------------------
-$('code-form').addEventListener('submit', e => {
-  e.preventDefault();
-  const c = $('code').value.replace(/\D/g, '');
-  if (c.length !== 4) { lobbyMsg(t('err_short')); return; }
-  code = c;
-  history.replaceState(null, '', '/play?code=' + code);
-  lobbyMsg('');
-  delete $('seats').dataset.done;
-  wantSeat = stored().code === code ? stored().seat : null;
-  joinBusy(true);
-  join(wantSeat === null ? -1 : wantSeat);
-  // Socket not open yet: onopen() will join with this code automatically, but tell the user
-  if (!ws || ws.readyState !== 1) lobbyMsg(t('err_wait'));
-});
 $('seat-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-seat]');
-  if (b) { $('seat-msg').textContent = ''; join(parseInt(b.dataset.seat, 10)); }
+  if (!b) return;
+  $('seat-msg').textContent = '';
+  padOpen(parseInt(b.dataset.seat, 10), b.dataset.name);
 });
-$('watch').onclick = () => { wantSeat = -1; localStorage.removeItem('otr_play'); join(-1); if (g) { show('live'); render(); } };
+$('watch').onclick = () => { mode = 'watch'; forget(); if (g && g.active) { show('live'); render(); } };
 $('dice').addEventListener('click', e => {
   const d = e.target.closest('.die');
   if (d && $('dice').classList.contains('act')) send({cmd: 'hold', die: parseInt(d.dataset.i, 10)});
@@ -333,17 +419,14 @@ $('cats').addEventListener('click', e => {
 });
 $('write').onclick = () => { if (sel !== null) { send({cmd: 'choose', cat: sel}); sel = null; } };
 $('leave').onclick = () => {
-  localStorage.removeItem('otr_play');
-  code = ''; wantSeat = null; joined = everJoined = false;
-  delete $('seats').dataset.done;
-  $('code').value = '';
-  history.replaceState(null, '', '/play');
+  forget();
+  mode = 'ask'; pending = null; you = -1;
+  $('seat-msg').textContent = '';
   if (ws) ws.close();   // Reconnects as a fresh, unbound client
-  show('lobby');
+  if (g && g.active) { renderSeats(); show('seats'); }
 };
 
-$('code').value = code;
-show(code ? 'live' : 'lobby');
+show('none');   // Nothing until the first state / error
 connect();
 </script>
 </body>

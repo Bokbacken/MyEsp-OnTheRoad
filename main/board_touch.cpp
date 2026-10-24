@@ -31,6 +31,7 @@ volatile uint32_t g_irq = 0;
 uint32_t g_irqSeen = 0;
 uint32_t g_lastPoll = 0;
 lv_indev_t *g_indev = nullptr;
+volatile bool g_rot180 = false;   // v0.5.6: panel turned 180 degrees (MADCTL MX|MY)
 i2c_master_bus_handle_t g_bus = nullptr;
 i2c_master_dev_handle_t g_dev = nullptr;
 
@@ -119,8 +120,9 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         }
     }
     g_info.irqCount = irq;
-    *outX = (int16_t)g_info.lastX;
-    *outY = (int16_t)g_info.lastY;
+    // The touch controller reports panel-native coordinates; mirror them with the display.
+    *outX = (int16_t)(g_rot180 ? LCD_H_RES - 1 - g_info.lastX : g_info.lastX);
+    *outY = (int16_t)(g_rot180 ? LCD_V_RES - 1 - g_info.lastY : g_info.lastY);
     return g_info.pressed;
 }
 
@@ -189,6 +191,8 @@ int scanResults(uint8_t *addrs, int max)
     for (int i = 0; i < n; i++) addrs[i] = g_scan[i];
     return n;
 }
+
+void setRotation(bool rot180) { g_rot180 = rot180; }
 
 bool deviceFound(uint8_t addr)
 {

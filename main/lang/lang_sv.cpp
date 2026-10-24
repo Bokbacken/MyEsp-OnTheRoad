@@ -133,6 +133,7 @@ extern const Entry LANG_SV[] = {
     {Str::PERR_DUPLICATE, "Namnet finns redan"},
     {Str::PERR_FULL, "Max 200 spelare"},
     {Str::PERR_NOT_FOUND, "Spelaren finns inte"},
+    {Str::PERR_BAD_PIN, "PIN måste vara 4 siffror"},
 
     {Str::MENU_CHOOSE_GAME, "Välj spel"},
     {Str::MENU_SUB_YATZY, "5 tärningar • 15 rutor • bonus 50"},
@@ -189,9 +190,8 @@ extern const Entry LANG_SV[] = {
     {Str::GAME_SUGGESTIONS, "Förslag"},
     {Str::GAME_PICK_BOX_BTN, "Välj ruta"},
     {Str::GAME_WEB_WAIT, "Väntar på %s via webben..."},
-    {Str::GAME_WEB_CONNECT, "Anslut: http://%s/play\nKod: %04u"},
+    {Str::GAME_WEB_CONNECT, "Öppna http://%s/play\nvälj ditt namn och ange din PIN"},
     {Str::GAME_WEB_CONNECTED, "%s är ansluten och spelar på webben"},
-    {Str::GAME_CODE, "Kod %04u"},
 
     {Str::RES_TITLE, "Resultat"},
     {Str::RES_AGAIN, "Spela igen"},
@@ -236,12 +236,26 @@ extern const Entry LANG_SV[] = {
     {Str::BOOT_FAILURES, "Fel hittades - fortsätter om en stund"},
     {Str::BOOT_DONE, "Klart!"},
 
-    {Str::WEB_ERR_WS_CODE, "Fel kod eller inget spel pågår"},
+    {Str::WEB_ERR_WS_NOGAME, "Inget spel pågår"},
+    {Str::WEB_ERR_WS_PIN, "Fel PIN"},
+    {Str::WEB_ERR_WS_NOPIN, "Spelaren har ingen PIN. Sätt en PIN på enheten eller på sidan Spelare (/players)."},
+    {Str::WEB_ERR_WS_LOCKED, "För många fel PIN - försök igen om %d s"},
     {Str::WEB_ERR_WS_SEAT, "Den platsen spelas inte via webben"},
-    {Str::WEB_ERR_WS_JOIN, "Anslut med spelkoden först"},
+    {Str::WEB_ERR_WS_JOIN, "Välj ditt namn och ange PIN först"},
     {Str::WEB_ERR_WS_FULL, "För många webbklienter (max 4)"},
     {Str::WEB_ERR_WS_CMD, "Okänt kommando"},
     {Str::WEB_ERR_WS_TURN, "Det är inte din tur"},
+
+    {Str::PIN_TITLE_FOR, "PIN för %s"},
+    {Str::PIN_INFO_WEB, "Välj en personlig PIN (4 siffror). Den används för att spela via webben (/play)."},
+    {Str::PIN_INFO_NEW, "Valfritt: en personlig PIN (4 siffror) behövs för att spela via webben."},
+    {Str::PIN_SKIP, "Hoppa över"},
+    {Str::PIN_WEB_TITLE, "Spela via webben"},
+    {Str::PIN_GUEST_NO_WEB, "Gäster kan inte spela via webben. Välj en registrerad spelare (med PIN)."},
+
+    {Str::SET_ROTATION, "Skärmrotation"},
+    {Str::SET_ROT_0, "0° (USB nedåt)"},
+    {Str::SET_ROT_180, "180° (USB uppåt)"},
 };
 
 extern const LangDef DEF_SV = {"sv", "Svenska", LANG_SV, sizeof(LANG_SV) / sizeof(LANG_SV[0])};

@@ -31,6 +31,9 @@ bool deviceFound(uint8_t addr);
 i2c_master_bus_handle_t bus();   // For future devices on the shared bus (ES8311, ...)
 
 lv_indev_t *indev();
+// v0.5.6: mirror the reported point (x' = 319 - x, y' = 479 - y) to match Display::setRotation.
+// Info::lastX/lastY stay panel-native.
+void setRotation(bool rot180);
 Info info();
 
 }  // namespace Touch

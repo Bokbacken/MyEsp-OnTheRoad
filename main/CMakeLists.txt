@@ -2,7 +2,7 @@ idf_component_register(
   SRCS "app_main.cpp" "app_config.cpp" "app_players.cpp" "app_web.cpp"
        "board_backlight.cpp" "board_display.cpp" "board_rgb.cpp" "board_touch.cpp"
        "dice_cup.cpp" "game_live.cpp" "game_yatzy.cpp"
-       "ui_boot.cpp" "ui_clock.cpp" "ui_ota.cpp" "ui_settings.cpp" "ui_wifi.cpp" "ui_yatzy.cpp"
+       "ui_boot.cpp" "ui_clock.cpp" "ui_numpad.cpp" "ui_ota.cpp" "ui_settings.cpp" "ui_wifi.cpp" "ui_yatzy.cpp"
        "lang/lang.cpp" "lang/lang_sv.cpp" "lang/lang_en.cpp"
   INCLUDE_DIRS "." "lang"
   REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui

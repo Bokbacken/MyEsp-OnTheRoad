@@ -57,6 +57,7 @@ void begin()
             p.getStr("admin_pin", g_cfg.adminPin, sizeof(g_cfg.adminPin));
             p.getStr("tz", g_cfg.tz, sizeof(g_cfg.tz));
             p.getStr("lang", g_cfg.lang, sizeof(g_cfg.lang));
+            g_cfg.rotation = p.getU16("rotation", 0) == 180 ? 180 : 0;
         }
     }
     if (!validHostname(g_cfg.hostname)) strcpy(g_cfg.hostname, "ontheroad");
@@ -86,6 +87,7 @@ bool save()
     ok &= p.setStr("admin_pin", g_cfg.adminPin);
     ok &= p.setStr("tz", g_cfg.tz);
     ok &= p.setStr("lang", g_cfg.lang);
+    ok &= p.setU16("rotation", g_cfg.rotation == 180 ? 180 : 0);
     return p.commit() && ok;
 }
 

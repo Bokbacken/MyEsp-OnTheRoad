@@ -82,6 +82,11 @@
     <legend>Display och LED</legend>
     <label for="brightness">Skärmljusstyrka: <b id="brightness-val">–</b> %</label>
     <input type="range" id="brightness" name="brightness" min="5" max="100" step="1">
+    <label for="rotation">Skärmrotation</label>
+    <select id="rotation" name="rotation">
+      <option value="0">0° (USB nedåt)</option>
+      <option value="180">180° (USB uppåt)</option>
+    </select>
     <label class="check"><input type="checkbox" id="led_enabled" name="led_enabled"> RGB-LED aktiv</label>
     <label for="led_brightness">LED-ljusstyrka: <b id="led-val">–</b></label>
     <input type="range" id="led_brightness" name="led_brightness" min="0" max="255" step="1">
@@ -184,6 +189,7 @@ function fill(c) {
   $('pin-state').textContent = c.admin_pin_set ? '(satt)' : '(ingen – öppen åtkomst)';
   $('pin-old').disabled = !c.admin_pin_set;
   $('brightness').value = c.brightness; updB();
+  if (c.rotation !== undefined) $('rotation').value = c.rotation;
   $('led_brightness').value = c.led_brightness; updL();
   $('led_enabled').checked = c.led_enabled;
   $('default_variant').value = c.default_variant;
@@ -357,6 +363,7 @@ $('cfg-form').addEventListener('submit', async e => {
   if (!/^[A-Za-z0-9-]{1,31}$/.test(host)) return toast('Värdnamn: 1–31 tecken a–z, 0–9 och -', false);
   const data = {
     brightness: $('brightness').value,
+    rotation: $('rotation').value,
     led_brightness: $('led_brightness').value,
     led_enabled: $('led_enabled').checked ? '1' : '0',
     default_variant: $('default_variant').value,
