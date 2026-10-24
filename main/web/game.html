@@ -69,7 +69,7 @@
       <div class="muted" id="round">–</div>
     </div>
     <div class="turn" id="turn">–</div>
-    <div class="dice" id="dice"></div>
+    <div id="felt"><div class="dice" id="dice"></div></div>
     <div class="muted" id="rolls">–</div>
     <div class="winner" id="winner" hidden></div>
   </div>
@@ -129,6 +129,8 @@ const FACE_VAL = {front:1, back:6, right:2, left:5, top:3, bottom:4};
 const FACE_ROT = {1:[0,0], 2:[0,-90], 3:[-90,0], 4:[90,0], 5:[0,90], 6:[0,180]};
 
 let _dieRx = [], _dieRy = [];
+let _dieVal = [];               // Last value each die was turned to (0 = unrolled / spinning)
+let _dieRot = [], _dieDy = [];  // Scatter on the felt: 2D tilt (deg) and vertical offset (px)
 let _rollAnim = null;
 let _dieSz = 3.5, _dieHalf = 1.75;  // rem; overridden per page
 
@@ -151,6 +153,9 @@ function buildDice3D(container, n) {
   container.innerHTML = '';
   _dieRx = Array(n).fill(0);
   _dieRy = Array(n).fill(0);
+  _dieVal = Array(n).fill(0);
+  _dieRot = Array(n).fill(0);
+  _dieDy = Array(n).fill(0);
   const sz = _dieSz;
   for (let i = 0; i < n; i++) {
     const wrap = document.createElement('div');
@@ -180,38 +185,69 @@ function _d3(container, i) {
   return w ? w.querySelector('.die-3d') : null;
 }
 
+const SCATTER_MAX_ROT = 18;   // Spectator view: fixed 'normal' scatter, no cup
+
+// Tilt/offset a die on the felt. `reroll` picks a new random scatter (only when it lands with a
+// new value); otherwise the stored scatter is reused so hold/release and re-renders never jitter.
+function applyScatter(container, i, isHeld, reroll = false) {
+  const wrap = container.children[i];
+  if (!wrap) return;
+  if (reroll) {
+    const maxRot = SCATTER_MAX_ROT;
+    _dieRot[i] = (Math.random() * 2 - 1) * maxRot;
+    _dieDy[i] = Math.random() * 14 - 7;
+  }
+  wrap.style.transform = isHeld
+    ? `translateY(.38rem) rotate(${(_dieRot[i] * 0.15).toFixed(1)}deg)`
+    : `translateY(${_dieDy[i].toFixed(1)}px) rotate(${_dieRot[i].toFixed(1)}deg)`;
+}
+
 function setDieValue(container, i, val, held) {
   const wrap = container.children[i];
   if (!wrap) return;
+  // Skip rotation animation if value unchanged (prevents spin-on-hold bug)
+  const prevVal = _dieVal[i] || 0;
+  _dieVal[i] = val || 0;
+  const valueChanged = val !== prevVal;
   const d3 = wrap.querySelector('.die-3d');
   wrap.classList.toggle('held-wrap', !!held);
   wrap.classList.toggle('unrolled', !val);
   d3.classList.toggle('held-3d', !!held);
-  if (val) {
+  if (val && valueChanged) {
     d3.classList.add('landing');
     const [bx, by] = FACE_ROT[val] || [0, 0];
-    // Approach from current angle: nearest 360 + target offset
-    _dieRx[i] = Math.round(_dieRx[i] / 360) * 360 + bx;
-    _dieRy[i] = Math.round(_dieRy[i] / 360) * 360 + by;
+    // Always approach the target face along the shortest path (max 180° per axis)
+    const cRx = _dieRx[i] % 360;
+    const cRy = _dieRy[i] % 360;
+    const dRx = ((bx - cRx) + 540) % 360 - 180;
+    const dRy = ((by - cRy) + 540) % 360 - 180;
+    _dieRx[i] = _dieRx[i] + dRx;
+    _dieRy[i] = _dieRy[i] + dRy;
     d3.style.transform = `rotateX(${_dieRx[i]}deg) rotateY(${_dieRy[i]}deg)`;
   }
+  applyScatter(container, i, held, !!val && valueChanged);
 }
 
-function startRollingAnim(container, rollingIdx) {
+function startRollingAnim(container, rollingIdx, spinFactor = 1.0) {
   if (_rollAnim) return;
-  // Remove landing class on rolling dice for snappy spinning
   rollingIdx.forEach(i => {
     const d3 = _d3(container, i);
-    if (d3) d3.classList.remove('landing');
+    if (d3) d3.classList.remove('landing');   // Snappy spinning
+    // Reset scatter during roll
+    const wrap = container.children[i];
+    if (wrap) wrap.style.transform = `rotate(0deg)`;
+    // Forget the old value: the die must land (and re-scatter) even if it shows the same face again
+    _dieVal[i] = 0;
   });
+  const baseSpeed = 95 / spinFactor;
   _rollAnim = setInterval(() => {
     rollingIdx.forEach(i => {
-      _dieRx[i] += 80 + Math.random() * 200;
-      _dieRy[i] += 80 + Math.random() * 200;
+      _dieRx[i] += (80 + Math.random() * 200) * spinFactor;
+      _dieRy[i] += (80 + Math.random() * 200) * spinFactor;
       const d3 = _d3(container, i);
       if (d3) d3.style.transform = `rotateX(${_dieRx[i]}deg) rotateY(${_dieRy[i]}deg)`;
     });
-  }, 95);
+  }, Math.round(baseSpeed));
 }
 
 function stopRollingAnim() {
@@ -242,7 +278,7 @@ function render(g) {
   $('turn').innerHTML = g.finished ? t('final') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (cur.web ? ' 📶' : '') +
     (g.rolling ? ' <span class="muted">· ' + t('rolling') + '</span>' : g.shaking ? ' <span class="muted">· ' + t('shaking') + '</span>' : g.choosing ? ' <span class="muted">· ' + t('choosing') + '</span>' : '');
   if (g.finished) {
-    stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = [];
+    stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = []; _dieVal = []; _dieRot = []; _dieDy = [];
   } else {
     buildDice3D($('dice'), g.dice.length);
     const rolling = g.rolling || g.shaking;
