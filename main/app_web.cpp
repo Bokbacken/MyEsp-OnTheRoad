@@ -457,6 +457,15 @@ static void addDice(cJSON *o, const uint8_t *d, int n, bool show)
     for (int i = 0; i < n; i++) cJSON_AddItemToArray(dice, cJSON_CreateNumber(show ? d[i] : 0));
 }
 
+// v0.7.1: while the dice roll the snapshot is the pre-roll state; "roll_mask" says which dice are in
+// the air (the web animates those and does not treat them as held).
+static void addRollMask(cJSON *o, const GameLive::Snapshot &snap, int n)
+{
+    if (!snap.rolling) return;
+    cJSON *m = cJSON_AddArrayToObject(o, "roll_mask");
+    for (int i = 0; i < n; i++) cJSON_AddItemToArray(m, cJSON_CreateBool((snap.rollMask >> i) & 1));
+}
+
 static cJSON *addPlayerBase(cJSON *pa, const GameLive::Snapshot &snap, int p, const char *name, int total)
 {
     cJSON *e = cJSON_CreateObject();
@@ -473,6 +482,7 @@ static void addOtherGame(cJSON *o, const GameLive::Snapshot &snap)
     cJSON_AddBoolToObject(o, "rolling", snap.rolling);
     cJSON_AddNumberToObject(o, "current", GameLive::currentPlayer(snap));
     cJSON_AddNumberToObject(o, "num_dice", GameLive::diceCount(snap));
+    addRollMask(o, snap, GameLive::diceCount(snap));
     cJSON_AddBoolToObject(o, "finished", GameLive::finished(snap));
     addWebPlayers(o, snap);
     switch (snap.gameType) {
@@ -583,6 +593,7 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
         const YatzyVariant var = g.variant();
         cJSON_AddBoolToObject(o, "rolling", s->rolling);
         cJSON_AddBoolToObject(o, "shaking", s->shaking);
+        addRollMask(o, snap, g.diceCount());
         cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
         cJSON_AddBoolToObject(o, "finished", g.finished());
         cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");

@@ -79,6 +79,12 @@ Dispatch sker med `switch (GameType)` – inga virtuella funktioner ännu. Motor
 ## 5. Webbprotokoll (sammandrag)
 
 Gemensamt för alla spel: `game_type`, `name`, `current`, `finished`, `rolling`, `dice[]`, `players[]`
+
+**Dolda värden medan tärningarna rullar (v0.7.1):** ett kast avslöjar inga värden förrän tärningarna har
+stannat. Pig/Farkle/SCC kastar på en kopia av motorn som ersätter motorn först när animationen är klar;
+Yatzy publicerar läget före kastet så länge `rolling` är sant. Under `rolling` är alltså hela
+snapshoten (tärningar, turpoäng, bust, skepp/kapten/besättning, poäng) läget *före* kastet, och
+`roll_mask[]` anger vilka tärningar som är i luften (webben animerar dem och visar dem inte som hållna).
 (`name`, `total`, `web`), `web_players[]`, `ranking[]` när spelet är slut.
 
 | `game_type` | Extra fält |

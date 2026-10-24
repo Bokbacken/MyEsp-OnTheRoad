@@ -632,7 +632,9 @@ function renderMini() {
   const P = g.players, cur = P[g.current] || {name: '?'}, gt = g.game_type;
   const mine = you >= 0 && you === g.current && !g.finished;
   const n = (g.dice || []).length;
-  const held = i => !!(g.held && g.held[i]);
+  // Dice in the air (roll_mask) are never shown as held; their new values are not known yet
+  const air = i => !!(g.rolling && g.roll_mask && g.roll_mask[i]);
+  const held = i => !!(g.held && g.held[i]) && !air(i);
   // Dice the player may not toggle: Farkle dice set aside on an earlier roll, SCC ship/captain/crew
   const fixed = i => gt === 'farkle' ? !!(g.locked && g.locked[i]) : gt === 'scc' ? !!(g.role && g.role[i]) : false;
   _cupLoaded = false; _cupPouring = false; _awaitRoll = false;
@@ -662,7 +664,7 @@ function renderMini() {
     buildDice3D($('dice'), n);
     Array.from($('dice').children).forEach(w => w.classList.remove('going-to-cup'));
     if (g.rolling) {
-      startRollingAnim($('dice'), g.dice.map((_, i) => held(i) ? -1 : i).filter(i => i >= 0), THROW_STYLES.normal.spinFactor);
+      startRollingAnim($('dice'), g.dice.map((_, i) => (g.roll_mask ? air(i) : !held(i)) ? i : -1).filter(i => i >= 0), THROW_STYLES.normal.spinFactor);
     } else {
       stopRollingAnim();
       g.dice.forEach((v, i) => setDieValue($('dice'), i, v, held(i)));
@@ -809,7 +811,7 @@ function renderYatzy() {
     const rolling = g.rolling || g.shaking;
     if (rolling || !mine || g.rolls_left !== _awaitLeft) _awaitRoll = false;   // Roll started / already done
     if (rolling) {
-      const rollingIdx = g.dice.map((_, i) => !g.held[i] ? i : -1).filter(i => i >= 0);
+      const rollingIdx = g.dice.map((_, i) => (g.roll_mask ? g.roll_mask[i] : !g.held[i]) ? i : -1).filter(i => i >= 0);
       startRollingAnim($('dice'), rollingIdx, (THROW_STYLES[_throwStyle] || THROW_STYLES.normal).spinFactor);
     } else {
       stopRollingAnim();
@@ -821,7 +823,7 @@ function renderYatzy() {
     g.dice.forEach((v, i) => {
       const src = $('dice').children[i];
       if (!src) return;
-      const held = !!g.held[i];   // Held dice stay parked on the strip, also while the others are thrown
+      const held = !!g.held[i] && !(g.rolling && g.roll_mask && g.roll_mask[i]);   // Held dice stay parked on the strip, also while the others are thrown
       src.style.display = (held || ((_cupLoaded || _awaitRoll) && !rolling)) ? 'none' : '';   // Free dice are in the cup
       if (!held) return;
       const clone = src.cloneNode(true);

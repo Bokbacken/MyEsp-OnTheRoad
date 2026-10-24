@@ -319,6 +319,59 @@ static void testScc()
     CHECK_EQ(order[0], 0);
 }
 
+// v0.7.1: the UI rolls on a copy of the engine and only commits it when the dice have stopped, so
+// the shown state must be untouched by the roll and the committed copy must carry the full result.
+static PigGame g_pigCopy;
+static SccGame g_sccCopy;
+static void testRollOnCopy()
+{
+    Script s;
+    PigGame &g = g_pig;
+    g.reset(PigVariant::TWO_DICE);
+    g.clearPlayers();
+    g.addPlayer("A");
+    g.addPlayer("B");
+    g.setRng(scripted, &s);
+    g.start();
+    s.set({3, 4});
+    CHECK_EQ(g.roll(), 1);
+    CHECK_EQ(g.bank(), 1);   // A: 7, B to play
+    s.set({1, 1});
+    g_pigCopy = g;
+    g_pigCopy.setRng(scripted, &s);
+    CHECK_EQ(g.currentPlayer(), 1);
+    PigGame shown = g;       // What the screen / web show while B's dice are in the air
+    CHECK_EQ(g_pigCopy.roll(), 1);
+    CHECK_EQ(shown.turnTotal(), 0);
+    CHECK_EQ(shown.hasBusted(), 0);
+    CHECK_EQ(shown.hasRolled(), 0);
+    CHECK_EQ(g.hasRolled(), 0);
+    CHECK_EQ(g_pigCopy.hasBusted(), 1);
+    g = g_pigCopy;           // Dice stopped: commit
+    CHECK_EQ(g.hasBusted(), 1);
+    CHECK_EQ(g.dice()[0], 1);
+    CHECK_EQ(g.dice()[1], 1);
+
+    Script s2;
+    SccGame &c = g_scc;
+    c.reset(3);
+    c.clearPlayers();
+    c.addPlayer("A");
+    c.setRng(scripted, &s2);
+    c.start();
+    s2.set({6, 5, 4, 3, 2});
+    g_sccCopy = c;
+    CHECK_EQ(g_sccCopy.roll(), 1);
+    CHECK_EQ(c.hasShip(), 0);       // Nothing revealed on the shown game
+    CHECK_EQ(c.cargoScore(), 0);
+    CHECK_EQ(c.rollsLeft(), 3);
+    CHECK_EQ(g_sccCopy.hasCrew(), 1);
+    CHECK_EQ(g_sccCopy.cargoScore(), 5);
+    c = g_sccCopy;
+    CHECK_EQ(c.hasCrew(), 1);
+    CHECK_EQ(c.cargoScore(), 5);
+}
+
 int main()
 {
     testPigOneDie();
@@ -327,6 +380,7 @@ int main()
     testFarkleTurn();
     testFarkleEndGame();
     testScc();
+    testRollOnCopy();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

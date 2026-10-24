@@ -23,7 +23,9 @@ namespace GameLive {
 struct Snapshot {
     uint32_t version;
     bool active;          // A game screen is open (false after "Avsluta" / before the first game)
-    bool rolling;         // Dice animation running (dice values are already final)
+    bool rolling;         // Dice animation running. v0.7.1: the snapshot then holds the state from
+                          // BEFORE the roll - the new values are not revealed until the dice stop.
+    uint8_t rollMask;     // While rolling: bit i = die i is in the air
     bool resultPhase;     // Console shows the score table (choosing a box)
     bool shaking;         // Player is shaking the dice cup on the console
     uint32_t session;                      // Bumped by setSeats(); 0 = no game yet (internal)
@@ -55,10 +57,11 @@ struct Cmd {
     int8_t player;   // Seat of the sending client (checked again on the UI side)
 };
 
-void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase);
-void publish(const PigGame &g, bool active, bool rolling);
-void publish(const FarkleGame &g, bool active, bool rolling);
-void publish(const SccGame &g, bool active, bool rolling, bool resultPhase);
+// While rolling, pass the game as it was before the roll plus the mask of dice in the air.
+void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase, uint8_t rollMask = 0);
+void publish(const PigGame &g, bool active, bool rolling, uint8_t rollMask = 0);
+void publish(const FarkleGame &g, bool active, bool rolling, uint8_t rollMask = 0);
+void publish(const SccGame &g, bool active, bool rolling, bool resultPhase, uint8_t rollMask = 0);
 void setActive(bool active);
 void setShaking(bool shaking);   // Bumps the version only on change
 uint32_t version();

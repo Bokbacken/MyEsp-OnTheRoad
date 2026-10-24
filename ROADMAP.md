@@ -115,6 +115,12 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.7.1 – Tärningsvärden avslöjas först när tärningarna stannat ✅ 🔧 (inte HW-testad)
+- [x] Pig/Farkle/SCC: kastet görs på en kopia av motorn som ersätter den först när tärningarna stannat – turpoäng, bust/Farkle, skepp/kapten/besättning, last och poängtavla visar läget före kastet tills dess; ledtråden visar "Tärningarna rullar..."
+- [x] Yatzy + alla spel på webben: snapshoten under `rolling` är läget före kastet + `roll_mask[]` (tärningar i luften); `/play` och `/game` använder masken
+- [x] Värdtester: test_games 137/137 (nytt: kast på kopia)
+- [ ] HW-test: Pig 1/2, Farkle (inkl. hot dice), SCC, Yatzy – på enheten och i `/play` / `/game`
+
 ## v0.7.0 – Äventyrsmotor, proof of concept ✅ 🔧 (inte HW-testad)
 - [x] `components/otr_engine`: `Otr::World` (terräng/objekt/spelare, händelser) + 60 × 60 testvärld – separat modul, tärningsspelen orörda
 - [x] `main/ui_adventure.cpp`: egen tile-renderare på RGB565-canvas i PSRAM, mjuk scroll, zoom 32/16 px, styrplatta, Slå, fps-statistik; menykort "Äventyr (test)"

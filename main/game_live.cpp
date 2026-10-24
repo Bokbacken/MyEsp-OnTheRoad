@@ -12,49 +12,53 @@ static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static Cmd s_q[CMD_QUEUE];
 static int s_qHead = 0, s_qLen = 0;
 
-void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase)
+void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase, uint8_t rollMask)
 {
     portENTER_CRITICAL(&s_mux);
     s_snap.gameType = GameType::YATZY;
     s_snap.game = g;
     s_snap.active = active;
     s_snap.rolling = rolling;
+    s_snap.rollMask = rolling ? rollMask : 0;
     s_snap.resultPhase = resultPhase;
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
 }
 
-void publish(const PigGame &g, bool active, bool rolling)
+void publish(const PigGame &g, bool active, bool rolling, uint8_t rollMask)
 {
     portENTER_CRITICAL(&s_mux);
     s_snap.gameType = GameType::PIG;
     s_snap.pig = g;
     s_snap.active = active;
     s_snap.rolling = rolling;
+    s_snap.rollMask = rolling ? rollMask : 0;
     s_snap.resultPhase = false;
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
 }
 
-void publish(const FarkleGame &g, bool active, bool rolling)
+void publish(const FarkleGame &g, bool active, bool rolling, uint8_t rollMask)
 {
     portENTER_CRITICAL(&s_mux);
     s_snap.gameType = GameType::FARKLE;
     s_snap.farkle = g;
     s_snap.active = active;
     s_snap.rolling = rolling;
+    s_snap.rollMask = rolling ? rollMask : 0;
     s_snap.resultPhase = false;
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
 }
 
-void publish(const SccGame &g, bool active, bool rolling, bool resultPhase)
+void publish(const SccGame &g, bool active, bool rolling, bool resultPhase, uint8_t rollMask)
 {
     portENTER_CRITICAL(&s_mux);
     s_snap.gameType = GameType::SCC;
     s_snap.scc = g;
     s_snap.active = active;
     s_snap.rolling = rolling;
+    s_snap.rollMask = rolling ? rollMask : 0;
     s_snap.resultPhase = resultPhase;
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
@@ -127,6 +131,7 @@ void setActive(bool active)
     if (s_snap.active != active) {
         s_snap.active = active;
         s_snap.rolling = false;
+        s_snap.rollMask = 0;
         s_snap.shaking = false;
         if (!active) s_qLen = 0;   // Game left: web clients drop to the lobby (see app_web)
         s_snap.version++;

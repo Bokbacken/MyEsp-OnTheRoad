@@ -311,7 +311,7 @@ function render(g) {
     buildDice3D($('dice'), g.dice.length);
     const rolling = g.rolling || g.shaking;
     if (rolling) {
-      const rollingIdx = g.dice.map((_, i) => !g.held[i] ? i : -1).filter(i => i >= 0);
+      const rollingIdx = g.dice.map((_, i) => (g.roll_mask ? g.roll_mask[i] : !g.held[i]) ? i : -1).filter(i => i >= 0);
       startRollingAnim($('dice'), rollingIdx);
     } else {
       stopRollingAnim();
@@ -355,12 +355,13 @@ function renderOther(g) {
     : t('round_n', g.round) + ' · ' + t('target', g.target) + (g.final_round ? ' · ' + t('final_round') : '');
   $('turn').innerHTML = g.finished ? t('final') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (cur.web ? ' 📶' : '') +
     (g.rolling ? ' <span class="muted">· ' + t('rolling') + '</span>' : '');
-  const held = i => !!(g.held && g.held[i]);
+  const air = i => !!(g.rolling && g.roll_mask && g.roll_mask[i]);   // v0.7.1: in the air, value unknown
+  const held = i => !!(g.held && g.held[i]) && !air(i);
   if (g.finished) {
     stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = []; _dieVal = []; _dieRot = []; _dieX = []; _dieY = []; _diePlaced = [];
   } else {
     buildDice3D($('dice'), g.dice.length);
-    if (g.rolling) startRollingAnim($('dice'), g.dice.map((_, i) => held(i) ? -1 : i).filter(i => i >= 0));
+    if (g.rolling) startRollingAnim($('dice'), g.dice.map((_, i) => (g.roll_mask ? air(i) : !held(i)) ? i : -1).filter(i => i >= 0));
     else { stopRollingAnim(); g.dice.forEach((v, i) => setDieValue($('dice'), i, v, held(i))); }
   }
   let st = '';

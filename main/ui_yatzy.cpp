@@ -758,6 +758,10 @@ static int s_sugCount = 0;
 static RowInfo s_rows[1 + YATZY_CATEGORY_COUNT + 3];
 static int s_rowCount = 0;
 static int s_rolling = 0;
+// v0.7.1: the game as it was before the current roll. While the dice are in the air the web gets
+// this copy (plus the mask of dice in the air), so the new values are not revealed before they stop.
+static YatzyGame s_preRoll;
+static uint8_t s_preRollMask = 0;
 static YatzyCategory s_selected = YatzyCategory::COUNT;
 static YatzyCategory s_best = YatzyCategory::COUNT;
 
@@ -1260,6 +1264,10 @@ static void startRoll(const DiceCup::ThrowParams *tp)
         rollingMask[i] = first || !s_game.held(i);
         if (rollingMask[i]) count++;
     }
+    s_preRoll = s_game;
+    s_preRollMask = 0;
+    for (int i = 0; i < s_game.diceCount(); i++)
+        if (rollingMask[i]) s_preRollMask |= (uint8_t)(1u << i);
     if (!s_game.roll()) return;
     s_selected = s_best = YatzyCategory::COUNT;
     s_sugCount = 0;
@@ -2010,7 +2018,8 @@ static void refreshActions()
         setVisible(s_cupHide, s_game.hasRolled());
         setVisible(s_cupHint, !s_cupHintDone);
     }
-    GameLive::publish(s_game, true, s_rolling != 0, s_phase == Phase::RESULT);   // Web live view
+    if (s_rolling) GameLive::publish(s_preRoll, true, true, false, s_preRollMask);   // Values hidden until the dice stop
+    else GameLive::publish(s_game, true, false, s_phase == Phase::RESULT);            // Web live view
 }
 
 static void quitEvent(lv_event_t *e)
@@ -2434,6 +2443,13 @@ static lv_obj_t *s_mBig, *s_mSub, *s_mHint, *s_mFlash, *s_mFlashText;
 static lv_obj_t *s_mChip[3];
 static lv_obj_t *s_mActBtn, *s_mActLabel, *s_mRollBtn, *s_mRollLabel;
 static bool s_mRolling = false;
+// v0.7.1: a roll is made on a copy of the engine; the copy replaces the engine only when the dice
+// have stopped (mCommitRoll). Until then everything - turn total, busts, ship/captain/crew, the
+// scoreboard and the web snapshot - still shows the state from before the roll.
+static PigGame s_pigRolled;
+static FarkleGame s_farkleRolled;
+static SccGame s_sccRolled;
+static uint8_t s_mRollBits = 0;
 static bool s_mPending = false;   // Bust / Farkle / SCC turn end shown, engine not advanced yet
 static uint32_t s_mRollStart = 0;
 
@@ -2485,9 +2501,9 @@ static bool mDieDown(int i)   // In the nest strip
 static void mPublish()
 {
     switch (s_gameType) {
-    case GameType::PIG: GameLive::publish(s_pig, true, s_mRolling); break;
-    case GameType::FARKLE: GameLive::publish(s_farkle, true, s_mRolling); break;
-    default: GameLive::publish(s_scc, true, s_mRolling, s_scc.finished()); break;
+    case GameType::PIG: GameLive::publish(s_pig, true, s_mRolling, s_mRollBits); break;
+    case GameType::FARKLE: GameLive::publish(s_farkle, true, s_mRolling, s_mRollBits); break;
+    default: GameLive::publish(s_scc, true, s_mRolling, s_scc.finished(), s_mRollBits); break;
     }
 }
 
@@ -2567,7 +2583,8 @@ static void miniRefresh()
         lv_label_set_text_fmt(s_roundLabel, tr(Str::G_ROUND_N), s_pig.round());
         lv_label_set_text_fmt(s_mBig, tr(Str::G_TURN_N), s_pig.turnTotal());
         lv_label_set_text_fmt(s_mSub, "%s %d", LV_SYMBOL_RIGHT, s_pig.total(s_pig.currentPlayer()) + s_pig.turnTotal());
-        if (!s_mPending) lv_label_set_text(s_mHint, tr(s_pig.hasRolled() ? Str::G_PIG_HINT : Str::G_PIG_FIRST));
+        if (!s_mPending) lv_label_set_text(s_mHint, tr(s_mRolling ? Str::GAME_HINT_ROLLING
+                                                       : s_pig.hasRolled() ? Str::G_PIG_HINT : Str::G_PIG_FIRST));
         lv_label_set_text_fmt(s_mActLabel, tr(Str::G_BANK_N), s_pig.turnTotal());
         setBtn(s_mActBtn, idle && s_pig.canBank());
         setBtn(s_mRollBtn, idle && s_pig.canRoll());
@@ -2584,7 +2601,9 @@ static void miniRefresh()
             const char *h = tr(Str::G_HOLD_HINT);
             bool anyHeld = false;
             for (int i = 0; i < FARKLE_DICE; i++) anyHeld |= g.held(i) && !g.locked(i);
-            if (!g.hasRolled()) {
+            if (s_mRolling) {
+                h = tr(Str::GAME_HINT_ROLLING);
+            } else if (!g.hasRolled()) {
                 h = g.finalRound() ? tr(Str::G_FINAL_ROUND) : tr(Str::G_PIG_FIRST);
                 if (g.finalRound()) col = Theme::GOLD;
             } else if (g.hotDice()) {
@@ -2613,7 +2632,8 @@ static void miniRefresh()
         sccChip(2, g.hasCrew());
         lv_label_set_text_fmt(s_mBig, tr(Str::G_CARGO_N), g.cargoScore());
         if (!s_mPending) {
-            lv_label_set_text(s_mHint, tr(g.hasCrew() ? Str::G_SCC_CARGO_HINT : Str::G_SCC_HINT));
+            lv_label_set_text(s_mHint, tr(s_mRolling ? Str::GAME_HINT_ROLLING
+                                             : g.hasCrew() ? Str::G_SCC_CARGO_HINT : Str::G_SCC_HINT));
             lv_obj_set_style_text_color(s_mHint, Theme::c(Theme::MUTED), 0);
         }
         lv_label_set_text_fmt(s_mActLabel, tr(Str::G_SAVE_N), g.cargoScore());
@@ -2713,6 +2733,18 @@ static void mRollLanded()
     miniRefresh();
 }
 
+// The dice have stopped: the rolled copy becomes the game.
+static void mCommitRoll()
+{
+    switch (s_gameType) {
+    case GameType::PIG: s_pig = s_pigRolled; break;
+    case GameType::FARKLE: s_farkle = s_farkleRolled; break;
+    default: s_scc = s_sccRolled; break;
+    }
+    s_mRolling = false;
+    s_mRollBits = 0;
+}
+
 static void mRollTimer(lv_timer_t *t)
 {
     const uint32_t gen = (uint32_t)(uintptr_t)lv_timer_get_user_data(t);
@@ -2723,7 +2755,7 @@ static void mRollTimer(lv_timer_t *t)
     const uint32_t el = lv_tick_elaps(s_mRollStart);
     if (el >= M_ROLL_MS) {
         lv_timer_delete(t);
-        s_mRolling = false;
+        mCommitRoll();   // Only now are the new values known
         mRollLanded();
         return;
     }
@@ -2747,13 +2779,17 @@ static void mRoll()
         default: s_mRollMask[i] = !s_scc.held(i); break;
         }
     }
+    // Roll on a copy: the engine (what the screen and the web show) is untouched until the dice stop
     bool ok;
     switch (s_gameType) {
-    case GameType::PIG: ok = s_pig.roll(); break;
-    case GameType::FARKLE: ok = s_farkle.roll(); break;
-    default: ok = s_scc.roll(); break;
+    case GameType::PIG: s_pigRolled = s_pig; ok = s_pigRolled.roll(); break;
+    case GameType::FARKLE: s_farkleRolled = s_farkle; ok = s_farkleRolled.roll(); break;
+    default: s_sccRolled = s_scc; ok = s_sccRolled.roll(); break;
     }
     if (!ok) return;
+    s_mRollBits = 0;
+    for (int i = 0; i < s_mDice; i++)
+        if (s_mRollMask[i]) s_mRollBits |= (uint8_t)(1u << i);
     s_mRolling = true;
     s_mRollStart = lv_tick_get();
     for (int i = 0; i < s_mDice; i++) {
@@ -2816,6 +2852,7 @@ static void showMini()
     s_cupArea = nullptr;
     s_webBlock = s_webPanel = s_webText = nullptr;
     s_mRolling = s_mPending = false;
+    s_mRollBits = 0;
     s_mDice = s_gameType == GameType::PIG ? s_pig.numDice() : (s_gameType == GameType::FARKLE ? FARKLE_DICE : SCC_DICE);
     s_mSize = s_mDice == 6 ? 46 : 52;   // The two cached sprite sizes (shared with Yatzy)
     s_mScale = s_mDice <= 2 ? ZOOM_100 * 3 / 2 : ZOOM_100;   // Pig: bigger dice
