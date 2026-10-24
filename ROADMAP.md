@@ -77,6 +77,10 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] `/api/game` har nya fält `code`, `web_players`, `lang`, `can_roll`, `has_rolled`, `potential` per ruta (bakåtkompatibelt)
 - [ ] HW-test (språkbyte, msgbox, webbspel med 1–2 mobiler)
 
+## v0.5.3 – Webbspel: tydligare anslutning i `/play` 🔧 (inte HW-testad)
+- [x] `/play`: meddelande vid för kort kod, Anslut-knappen visar "Ansluter..." (återställs efter 5 s utan svar), besked när WebSocket inte är öppen än, felmeddelandet scrollas in i bild på mobil, `?debug=1` loggar WS-trafik i konsolen
+- [ ] HW-test (anslutning från mobil)
+
 ## v0.6.0 – Del B: historik och statistik ⏳
 - [ ] Spara varje avslutat spel på FFat: datum/tid (+ klockans säkerhet), variant/läge, spelar-id, poäng per ruta, slutpoäng, placering
 - [ ] Statistik per spelare: antal spel, vinster, snitt, bästa, Yatzy-antal, bonusfrekvens – per variant

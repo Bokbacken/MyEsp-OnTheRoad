@@ -4,8 +4,8 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.5.2 – Swedish/English user interface (i18n), Latin-1 font fix for message boxes and
-> interactive web play from a phone (`/play`, WebSocket, 4-digit game code). v0.5.2 builds with
+> **Status:** v0.5.3 – clearer join feedback and error handling on `/play`, on top of v0.5.2: Swedish/English user interface (i18n), Latin-1 font fix for message boxes and
+> interactive web play from a phone (`/play`, WebSocket, 4-digit game code). v0.5.3 builds with
 > 0 errors / 0 warnings and passes the host tests, but is **not yet tested on hardware** (nor is v0.5.1's
 > dice cup). v0.5.0's RTC and
 > sprite dice animation are hardware-verified; v0.2.0 is hardware-verified. See [ROADMAP.md](ROADMAP.md).
