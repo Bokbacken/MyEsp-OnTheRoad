@@ -224,129 +224,38 @@ code { color: var(--otr-teal); }
   transform: translate(-50%,-50%);
 }
 .die-3d.held-3d .face { border-color: var(--otr-orange); border-width: 3px; }
-/* Held glow (offset/rotation is set inline by JS; play.html moves held dice to #held-tray) */
+/* Held glow (offset/rotation is set inline by JS; play.html moves held dice to #felt-held) */
 .die-wrap.held-wrap { filter: drop-shadow(0 0 .55rem rgba(255,156,61,.6)); }
 .die-wrap.unrolled .face { opacity: .28; }
 .dice.act .die-wrap { cursor: pointer; }
-/* Felt table */
-#felt {
-  position: relative;
-  background: radial-gradient(ellipse at 50% 60%, #1c5228 0%, #112b18 55%, #0a1c0f 100%);
-  border-radius: .9rem;
-  border: 3px solid #0a150c;
-  box-shadow: inset 0 0 40px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.45);
-  padding: .8rem .6rem;
-  margin: .5rem 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: .5rem 0;
-  flex-wrap: wrap;
-  min-height: 9rem;
-  overflow: visible;
-}
-/* Cup wrapper, left-aligned in the felt */
-#cup-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: .25rem;
-  margin-right: .5rem;
-  flex-shrink: 0;
-}
-/* Leather cup */
-#cup {
-  position: relative;
-  width: 52px;
-  height: 78px;
-  cursor: pointer;
-  transition: transform .12s ease;
-  transform-origin: 50% 85%;
-  user-select: none;
-  -webkit-user-select: none;
-}
-#cup::before {  /* Cup body - trapezoid */
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    repeating-linear-gradient(
-      180deg,
-      rgba(255,255,255,.04) 0px, rgba(255,255,255,.04) 2px,
-      transparent 2px, transparent 6px
-    ),
-    linear-gradient(165deg, #7a4020 0%, #4e2410 35%, #2c1208 65%, #180a03 100%);
-  clip-path: polygon(12% 0%, 88% 0%, 100% 100%, 0% 100%);
-  border-radius: 0 0 15% 15%;
-}
-#cup::after {  /* Rim highlight */
-  content: '';
-  position: absolute;
-  top: -5px; left: 4%; right: 4%;
-  height: 10px;
-  background: linear-gradient(180deg, #8b4a24 0%, #5a2d10 100%);
-  border-radius: 4px 4px 0 0;
-  box-shadow: 0 -2px 4px rgba(0,0,0,.4);
-}
-#cup-label {
-  font-size: .72rem;
-  color: rgba(255,255,255,.45);
-  text-align: center;
-  letter-spacing: .03em;
-}
-/* Click zones (invisible, on top of cup) */
-.cup-zone {
-  position: absolute;
-  left: 0; right: 0;
-  cursor: pointer;
-  z-index: 2;
-}
-.cup-zone[data-zone="top"]  { top: 0;    height: 33%; }
-.cup-zone[data-zone="mid"]  { top: 33%;  height: 34%; }
-.cup-zone[data-zone="bot"]  { top: 67%;  height: 33%; }
-/* Zone hover glints */
-.cup-zone:hover { background: rgba(255,255,255,.06); border-radius: inherit; }
-/* Cup pour animations */
-@keyframes cup-pour-gentle   { 0%{transform:rotate(0)}  25%{transform:rotate(-22deg) translate(-2px,-5px)} 65%{transform:rotate(-22deg) translate(-2px,-5px)} 100%{transform:rotate(0)} }
-@keyframes cup-pour-normal   { 0%{transform:rotate(0)}  20%{transform:rotate(-38deg) translate(-4px,-8px)} 60%{transform:rotate(-38deg) translate(-4px,-8px)} 100%{transform:rotate(0)} }
-@keyframes cup-pour-vigorous { 0%{transform:rotate(0)}  10%{transform:rotate(-52deg) translate(-6px,-10px)} 15%{transform:rotate(-44deg) translate(-4px,-8px)} 20%{transform:rotate(-54deg) translate(-7px,-11px)} 55%{transform:rotate(-52deg) translate(-6px,-10px)} 100%{transform:rotate(0)} }
-#cup.pour-gentle   { animation: cup-pour-gentle  .85s cubic-bezier(.4,0,.2,1) forwards; }
-#cup.pour-normal   { animation: cup-pour-normal   .90s cubic-bezier(.4,0,.2,1) forwards; }
-#cup.pour-vigorous { animation: cup-pour-vigorous 1.0s cubic-bezier(.4,0,.2,1) forwards; }
-#cup.disabled-cup { opacity: .35; cursor: default; pointer-events: none; }
-/* Dice inside the felt (scattered, not in a separate row) */
-#felt .dice {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem;
-  justify-content: center;
-  align-items: center;
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  background: none;
-}
-/* Die scatter: each die-wrap gets a random rotate() set via JS */
-#felt .die-wrap { transition: transform .5s cubic-bezier(.22,.61,.36,1); }
-/* Held dice: a distinct tray below the felt */
-#held-tray {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .4rem;
-  justify-content: center;
-  padding: .3rem .4rem;
-  min-height: 0;
-  margin: .15rem 0 .3rem;
-}
-#held-tray:empty { display: none; }
-#held-tray .die-wrap { cursor: pointer; }
-/* Cup-roll info (rolls left text beside the cup) */
-#cup-info {
-  font-size: .8rem;
-  color: rgba(255,255,255,.55);
-  text-align: center;
-  white-space: nowrap;
-}
+/* Casino table (v0.5.10): felt playfield + orange held strip + round cup (bird's-eye) */
+#felt { position: relative; background: radial-gradient(ellipse at 50% 60%, #1c5228 0%, #112b18 55%, #0a1c0f 100%); border-radius: .9rem; border: 3px solid #0a150c; box-shadow: inset 0 0 40px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.45); margin: .5rem 0; min-height: min(55vw, 300px); overflow: hidden; }
+#felt .dice { position: absolute; inset: 0; display: block; margin: 0; min-height: 0; background: none; }
+#felt .dice .die-wrap { position: absolute; transform-origin: center center; transition: left .72s cubic-bezier(.22,.61,.36,1), top .72s cubic-bezier(.22,.61,.36,1), transform .5s cubic-bezier(.22,.61,.36,1); }
+#felt-held { background: linear-gradient(to bottom, #ea7e00, #c86800); border: 3px solid #0a150c; border-top: 2px solid #f0a550; border-radius: 0 0 .9rem .9rem; min-height: 4.2rem; padding: .35rem .5rem; display: flex; justify-content: center; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
+#cup-round-wrap { display: flex; flex-direction: column; align-items: center; gap: .45rem; margin: .5rem auto; }
+#cup-round { position: relative; width: min(155px, 42vw); height: min(155px, 42vw); border-radius: 50%; background: #1a7235; padding: 8px; box-shadow: 0 5px 22px rgba(0,0,0,.6), inset 0 2px 5px rgba(255,255,255,.1), 0 0 0 2px #0a150c; cursor: pointer; user-select: none; -webkit-user-select: none; transition: transform .08s ease; }
+#cup-round.disabled-cup-r { opacity: .35; cursor: default; pointer-events: none; }
+.cup-inner { width: 100%; height: 100%; border-radius: 50%; overflow: hidden; position: relative; background: radial-gradient(circle at 38% 35%, #8b3e1c 0%, #6a2a0e 30%, #4a1a06 60%, #260c01 100%); box-shadow: inset 0 5px 14px rgba(0,0,0,.7), inset 0 -2px 6px rgba(255,200,100,.05); }
+.cup-inner::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 28% 30%, rgba(255,255,255,.22) 4%, transparent 5%), radial-gradient(circle at 68% 24%, rgba(255,255,255,.22) 4%, transparent 5%), radial-gradient(circle at 24% 65%, rgba(255,255,255,.20) 4%, transparent 5%), radial-gradient(circle at 65% 68%, rgba(255,255,255,.20) 4%, transparent 5%), radial-gradient(circle at 47% 47%, rgba(255,255,255,.16) 3.5%, transparent 4.5%), radial-gradient(circle at 74% 46%, rgba(255,255,255,.16) 3.5%, transparent 4.5%); pointer-events: none; }
+.cup-zone-r { position: absolute; z-index: 2; cursor: pointer; }
+.cup-zone-r[data-zone="left"] { left:0; top:18%; width:30%; height:64%; }
+.cup-zone-r[data-zone="right"] { right:0; top:18%; width:30%; height:64%; }
+.cup-zone-r[data-zone="top"] { left:25%; right:25%; top:0; height:38%; }
+.cup-zone-r[data-zone="mid"] { left:25%; right:25%; top:38%; height:24%; }
+.cup-zone-r[data-zone="bot"] { left:25%; right:25%; bottom:0; height:38%; }
+.cup-zone-r:hover { background: rgba(255,255,255,.07); }
+@keyframes cup-r-vigorous { 0%{transform:rotate(0) scale(1)} 15%{transform:rotate(-22deg) scale(1.05) translate(-3px,-4px)} 30%{transform:rotate(18deg) scale(1.03) translate(2px,-2px)} 48%{transform:rotate(-16deg) scale(1.04) translate(-2px,-3px)} 65%{transform:rotate(10deg) scale(1.02)} 83%{transform:rotate(-4deg)} 100%{transform:rotate(0) scale(1)} }
+@keyframes cup-r-normal { 0%{transform:rotate(0)} 20%{transform:rotate(-14deg) translate(-2px,-3px)} 50%{transform:rotate(11deg) translate(1px,-1px)} 75%{transform:rotate(-5deg)} 100%{transform:rotate(0)} }
+@keyframes cup-r-gentle { 0%{transform:rotate(0)} 30%{transform:rotate(-8deg) translate(-1px,-2px)} 65%{transform:rotate(5deg)} 100%{transform:rotate(0)} }
+@keyframes cup-r-spin-left { 0%{transform:rotate(0)} 25%{transform:rotate(-48deg) scale(1.05)} 55%{transform:rotate(-44deg)} 78%{transform:rotate(-10deg)} 100%{transform:rotate(0)} }
+@keyframes cup-r-spin-right { 0%{transform:rotate(0)} 25%{transform:rotate(48deg) scale(1.05)} 55%{transform:rotate(44deg)} 78%{transform:rotate(10deg)} 100%{transform:rotate(0)} }
+#cup-round.anim-vigorous { animation: cup-r-vigorous 1.0s cubic-bezier(.4,0,.2,1) forwards; }
+#cup-round.anim-normal { animation: cup-r-normal 0.9s cubic-bezier(.4,0,.2,1) forwards; }
+#cup-round.anim-gentle { animation: cup-r-gentle 0.85s cubic-bezier(.4,0,.2,1) forwards; }
+#cup-round.anim-spin-left { animation: cup-r-spin-left 0.85s cubic-bezier(.4,0,.2,1) forwards; }
+#cup-round.anim-spin-right { animation: cup-r-spin-right 0.85s cubic-bezier(.4,0,.2,1) forwards; }
+#cup-info-r { font-size: .82rem; text-align: center; color: rgba(255,255,255,.5); white-space: nowrap; }
 
 @media (max-width: 700px) {
   body { padding: .6rem .6rem 2rem; font-size: 15px; }
@@ -356,5 +265,4 @@ code { color: var(--otr-teal); }
   nav.otr-nav a { padding: .6rem .3rem; font-size: .92rem; }
   th { width: 48%; }
   .stat { font-size: 1.35rem; }
-  #cup { width: 44px; height: 66px; }
 }
