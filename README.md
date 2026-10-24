@@ -4,7 +4,8 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
+> **Status:** v0.8.0 – adventure engine with tap-to-walk, energy/lives, Minfältet and per-player saves (not
+> hardware-tested; see ROADMAP). Earlier: v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
 > personal 4-digit player PINs (player file v2 with automatic v1 migration, on-device numeric keypad),
 > and a new `/play` flow: pick your name, enter your PIN (no shared game code any more; web seats are
 > bound to an internal session id, with a 5-attempt lockout). The overview page links to Live and Play.
@@ -14,10 +15,14 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
-- **Adventure engine test (v0.7.0, not yet hardware-tested)** – separate module (`components/otr_engine`
-  + `main/ui_adventure.cpp`): a 60 × 60 tile test world with its own tile renderer on a PSRAM canvas, smooth
-  scrolling camera, 32/16 px zoom, arrow pad, "Slå" (hit), pushable rocks, keys/doors, boat, lava, plates and
-  gates, and live fps statistics. See [docs/ENGINE_2D_BRIEF.md](docs/ENGINE_2D_BRIEF.md).
+- **Adventure engine (v0.8.0, not yet hardware-tested)** – separate module (`components/otr_engine`
+  + `main/ui_adventure.cpp`): own tile renderer on a PSRAM canvas, smooth camera, 32/16 px zoom. Two worlds:
+  the 60 × 60 *Testvärlden* (rocks, keys/doors, boat, lava, plates/gates) and the minesweeper-style
+  *Minfältet* (fog, number hints, flood reveal, flags). Tap-to-walk with A* (Pro / Assistent mode, the
+  assistant stops before deadly lava, unknown ground or water without boat), arrow pad with STOP, energy
+  bar, potions/hearts, lives (finite or infinite), protective suit, hidden treasures under crates/bushes/
+  walls/rocks/doors, and per-player saves on FFat (Continue / New game). See
+  [docs/ENGINE_2D_BRIEF.md](docs/ENGINE_2D_BRIEF.md).
 - **Board support** – ST77922 over QSPI (40 MHz) with LVGL 9 partial PSRAM draw buffers (`esp_lcd`), I2C capacitive
   touch (0x55), LEDC PWM backlight on GPIO41, WS2812 status LED on GPIO40.
 - **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, RTC, storage, Wi-Fi, web)

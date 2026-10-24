@@ -115,6 +115,19 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.8.0 – Äventyrsmotorn: gå med tryck, energi, liv, skatter, Minfältet, sparning ✅ 🔧 (inte HW-testad)
+- [x] Tryck för att gå: A* (begränsad, 60 × 60), steg för steg runt hinder, snäpp inom 1/3 ruta, "Dit kan jag inte gå" vid hinder; tryck på figuren = slå; STOP mitt i styrplattan
+- [x] Läge Pro / Assistent (NVS), Assistenten stannar före dödlig lava ("Det ser farligt ut!") och okänd mark; båt krävs för vatten
+- [x] Energi (start 8, tak 20, stapel uppe till höger), dryck och hjärta, liv (ändliga eller oändliga = "använda liv"), game over med Börja om / Fortsätt
+- [x] Skyddsdräkt: 3 + 1 laddning per permanent extra maxenhet, lava 3 / mina 4 energi
+- [x] Datadrivna skatter under låda, buske, sprucken vägg, sten och dörr
+- [x] Ny värld "Minfältet" (minröjarsiffror, flood fill, flaggor, 3 liv) + världsväljare
+- [x] Sparning per spelare och värld på FFat (versionerat format + CRC32, tål trasiga filer), Fortsätt / Nytt spel, gäst sparas inte
+- [x] Kompakt rubrik + meny (läge, spara, börja om, lämna), sv + en
+- [x] Värdtester: test_adventure 628, test_lang 1393 (341 strängar)
+- [ ] HW-test: tryck-gång och snäpp, render-tid (~7 ms), sparning/laddning, Minfältet
+- [ ] Senare: planeraren puttar stenar / förutser båt, riktiga tilesets
+
 ## v0.7.2 – Webbplats som förvalts med WiFi-ikonen kan lämnas tillbaka ✅ 🔧 (inte HW-testad)
 - [x] Bugg: förvald webbplats (WiFi-ikonen i spelarlistan) låstes kvar i "Väntar på ... via webben" efter "Fortsätt på enheten" – `s_web[]` rensades aldrig
 - [x] `leave` från `/play` (både "Fortsätt på enheten" och "Byt spelare") släpper platsen: `GameLive::releaseWeb()` rensar webbflaggan i snapshoten (ingen ny session) och UI:t rensar `s_web[plats]` – enheten fortsätter lokalt direkt, webben kan ta platsen igen senare

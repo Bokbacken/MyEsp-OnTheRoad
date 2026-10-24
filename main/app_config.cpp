@@ -32,6 +32,7 @@ void defaults(AppConfig &c)
     c.rollAnimMs = 800;
     c.maxiSavedRolls = true;
     c.throwMode = 0;
+    c.advMode = 0;
     strcpy(c.tz, DEFAULT_TZ);
     strcpy(c.lang, "sv");
 }
@@ -57,6 +58,7 @@ void begin()
             p.getStr("admin_pin", g_cfg.adminPin, sizeof(g_cfg.adminPin));
             p.getStr("tz", g_cfg.tz, sizeof(g_cfg.tz));
             p.getStr("lang", g_cfg.lang, sizeof(g_cfg.lang));
+            g_cfg.advMode = p.getU8("adv_mode", 0) > 1 ? 0 : p.getU8("adv_mode", 0);
             g_cfg.rotation = p.getU16("rotation", 0) == 180 ? 180 : 0;
         }
     }
@@ -87,6 +89,7 @@ bool save()
     ok &= p.setStr("admin_pin", g_cfg.adminPin);
     ok &= p.setStr("tz", g_cfg.tz);
     ok &= p.setStr("lang", g_cfg.lang);
+    ok &= p.setU8("adv_mode", g_cfg.advMode);
     ok &= p.setU16("rotation", g_cfg.rotation == 180 ? 180 : 0);
     return p.commit() && ok;
 }

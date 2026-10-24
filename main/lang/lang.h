@@ -265,6 +265,50 @@
     X(ADV_HELP) \
     X(ADV_RESTART_Q) \
     X(ADV_RESTART) \
+    X(ADV_SETUP_TITLE) \
+    X(ADV_WORLD_TEST) \
+    X(ADV_WORLD_MINES) \
+    X(ADV_WORLD_TEST_DESC) \
+    X(ADV_WORLD_MINES_DESC) \
+    X(ADV_WHO) \
+    X(ADV_GUEST) \
+    X(ADV_HAS_SAVE) \
+    X(ADV_CONTINUE_Q) \
+    X(ADV_CONTINUE) \
+    X(ADV_NEW_GAME) \
+    X(ADV_LOAD_FAIL) \
+    X(ADV_KEYS) \
+    X(ADV_ENERGY) \
+    X(ADV_LIVES) \
+    X(ADV_LIVES_USED) \
+    X(ADV_SUIT_TAG) \
+    X(ADV_CANT_GO) \
+    X(ADV_NO_WAY) \
+    X(ADV_DANGER) \
+    X(ADV_NEED_BOAT_GO) \
+    X(ADV_UNKNOWN) \
+    X(ADV_SUIT_OK) \
+    X(ADV_TREASURE) \
+    X(ADV_POTION) \
+    X(ADV_HEART) \
+    X(ADV_SUIT) \
+    X(ADV_LIFE) \
+    X(ADV_SUIT_USED) \
+    X(ADV_MINE) \
+    X(ADV_DIED) \
+    X(ADV_DIED_LEFT) \
+    X(ADV_GAME_OVER_Q) \
+    X(ADV_CHECKPOINT) \
+    X(ADV_EXIT) \
+    X(ADV_SAVED) \
+    X(ADV_SAVE_FAIL) \
+    X(ADV_MENU_TITLE) \
+    X(ADV_MODE_PRO) \
+    X(ADV_MODE_ASSIST) \
+    X(ADV_MODE_HELP) \
+    X(ADV_SAVE) \
+    X(ADV_LEAVE) \
+    X(ADV_HELP_MINES) \
     X(WEB_ERR_NUMBER) \
     X(WEB_ERR_TZ) \
     X(WEB_ERR_PIN) \

@@ -10,9 +10,12 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "app_config.h"
+#include "app_players.h"
 #include "board_rgb.h"
 #include "lang.h"
 #include "my_lvgl.h"
+#include "my_storage.h"
 #include "my_theme.h"
 #include "otr_maps.h"
 #include "otr_world.h"
@@ -45,6 +48,8 @@ enum Spr : uint8_t {
     S_WATER0, S_WATER1, S_BRIDGE, S_LAVA0, S_LAVA1, S_BASALT, S_PLATE, S_GATE_C, S_GATE_O,
     S_ROCK, S_CRATE, S_KEY, S_DOOR, S_BOAT, S_GEM,
     S_PL_UP, S_PL_RIGHT, S_PL_DOWN, S_PL_LEFT, S_IMPACT,
+    S_CHECK, S_CHECK_ON, S_EXIT, S_CRATER, S_FOG, S_FLAG, S_BUSH, S_POTION, S_HEART, S_SUIT, S_LIFE,
+    S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
     S_COUNT
 };
 
@@ -57,8 +62,15 @@ static Sprites *s_spr = nullptr;
 static Otr::World *s_world = nullptr;
 static uint16_t *s_fb = nullptr;   // Canvas buffer VIEW_W x VIEW_H
 
+static Otr::Planner *s_planner = nullptr;   // ~90 kB A* work area
+static Otr::Path *s_path = nullptr;
+static uint8_t *s_saveBuf = nullptr;         // Save file image
+static constexpr size_t SAVE_CAP = 32 * 1024;   // >= World::saveSize() for 64 x 64
+
 // Screen objects
-static lv_obj_t *s_scr, *s_canvas, *s_stats, *s_perf, *s_toast;
+static lv_obj_t *s_scr, *s_canvas, *s_toast, *s_dialog;
+static lv_obj_t *s_activeScr;                // Screen that owns the PSRAM buffers (freed on its delete)
+static lv_obj_t *s_gemsLbl, *s_keysLbl, *s_bar, *s_barLbl, *s_livesLbl, *s_suitLbl;
 static lv_timer_t *s_timer;
 
 // View / animation state
@@ -73,8 +85,16 @@ static int s_fxX = -1, s_fxY = -1;            // Impact effect cell
 static uint32_t s_fxT0;
 static uint32_t s_toastUntil;
 static int s_hold = -1;                       // Held direction (Dir) or -1
-static bool s_tapPlayer;
-static uint32_t s_pressT0;
+static bool s_longDone;                       // Long press used (flag): ignore the release
+static int s_pathPos = -1;                    // Tap-to-walk: next step in s_path, -1 = idle
+static bool s_replanned;                      // NEED_BOAT walk already re-planned once
+// Game session
+static int s_worldIdx;                        // Index in Otr::WORLDS
+static uint16_t s_playerId;                   // 0 = guest (never saved)
+static bool s_saveWanted;                     // Save when idle (checkpoint)
+static uint32_t s_lastSaveMs, s_savedRev;
+static int s_savedSteps;
+static char s_perfText[48];
 static bool s_dirty = true;
 static uint32_t s_lastRev, s_lastFrame;
 static int32_t s_lastCamX = -1, s_lastCamY = -1;
@@ -397,6 +417,103 @@ static void makeArt(Sprites *sp)
     }
     disc(b[S_IMPACT], 16.f, 16.f, 3.5f, rgb(255, 255, 255));
 
+    // ---- v0.8.0 tiles / items -----------------------------------------------------------
+    for (int on = 0; on < 2; on++) {   // Checkpoint: stone ring with a flag (gold once active)
+        uint16_t *s = b[on ? S_CHECK_ON : S_CHECK];
+        artGrass(s, 3);
+        disc(s, 16.f, 22.f, 9.f, rgb(120, 118, 112));
+        disc(s, 16.f, 22.f, 6.5f, rgb(164, 160, 150));
+        rect(s, 15, 4, 16, 22, rgb(60, 44, 30));
+        const uint16_t f = on ? rgb(255, 210, 60) : rgb(200, 200, 210);
+        for (int y = 4; y < 12; y++) rect(s, 17, y, 17 + (y < 8 ? y - 3 : 12 - y) * 2, y, f);
+    }
+    artGrass(b[S_EXIT], 4);   // Exit: stone arch with stairs going down
+    rect(b[S_EXIT], 3, 2, 28, 30, rgb(96, 92, 100));
+    rect(b[S_EXIT], 7, 6, 24, 30, rgb(20, 18, 28));
+    for (int i = 0; i < 4; i++) rect(b[S_EXIT], 8 + i * 2, 12 + i * 5, 23 - i * 2, 13 + i * 5, rgb(110 - i * 20, 104 - i * 20, 90 - i * 18));
+    rect(b[S_EXIT], 3, 2, 28, 4, rgb(150, 146, 156));
+    artGrass(b[S_CRATER], 5);
+    disc(b[S_CRATER], 16.f, 17.f, 12.f, rgb(70, 52, 34));
+    disc(b[S_CRATER], 16.f, 17.f, 8.5f, rgb(40, 28, 20));
+    disc(b[S_CRATER], 14.f, 15.f, 3.f, rgb(24, 18, 14));
+    for (int i = 0; i < 6; i++) px(b[S_CRATER], (int)(hash3(i, 1, 9) % 30) + 1, (int)(hash3(i, 2, 9) % 30) + 1, rgb(90, 70, 50));
+    // Fog: raised minesweeper block (light top / left, dark bottom / right)
+    fillNoise(b[S_FOG], 112, 132, 112, 5, 13);
+    rect(b[S_FOG], 0, 0, 31, 2, rgb(178, 196, 176));
+    rect(b[S_FOG], 0, 0, 2, 31, rgb(160, 180, 158));
+    rect(b[S_FOG], 0, 29, 31, 31, rgb(62, 76, 62));
+    rect(b[S_FOG], 29, 0, 31, 31, rgb(70, 86, 70));
+    fillKey(b[S_FLAG]);
+    rect(b[S_FLAG], 13, 6, 14, 26, rgb(30, 30, 34));
+    rect(b[S_FLAG], 9, 25, 19, 27, rgb(30, 30, 34));
+    for (int y = 6; y < 17; y++) rect(b[S_FLAG], 15, y, 15 + (y < 11 ? (y - 5) * 2 : (16 - y) * 2), y, rgb(230, 40, 40));
+    fillKey(b[S_BUSH]);
+    disc(b[S_BUSH], 16.f, 26.f, 9.f, rgb(26, 60, 26));
+    ball(b[S_BUSH], 10.f, 19.f, 8.f, 46, 130, 50, 31, 12);
+    ball(b[S_BUSH], 22.f, 19.f, 8.f, 46, 130, 50, 32, 12);
+    ball(b[S_BUSH], 16.f, 13.f, 9.f, 60, 150, 60, 33, 12);
+    for (int i = 0; i < 5; i++) disc(b[S_BUSH], (float)(hash3(i, 1, 34) % 18) + 7, (float)(hash3(i, 2, 34) % 14) + 9, 1.3f, rgb(220, 60, 80));
+    fillKey(b[S_POTION]);
+    rect(b[S_POTION], 13, 4, 18, 7, rgb(150, 100, 60));
+    rect(b[S_POTION], 13, 8, 18, 13, rgb(200, 220, 230));
+    disc(b[S_POTION], 16.f, 20.f, 8.5f, rgb(200, 220, 230));
+    disc(b[S_POTION], 16.f, 21.f, 7.f, rgb(60, 220, 120));
+    rect(b[S_POTION], 9, 15, 23, 17, rgb(200, 220, 230));
+    disc(b[S_POTION], 13.f, 18.f, 1.8f, rgb(220, 255, 230));
+    for (int k = 0; k < 2; k++) {   // Heart (red) and extra life (green with a plus)
+        uint16_t *s = b[k ? S_LIFE : S_HEART];
+        const int r = k ? 70 : 230, g = k ? 210 : 40, bl = k ? 90 : 60;
+        fillKey(s);
+        ball(s, 11.f, 12.f, 6.5f, r, g, bl, 0, 0);
+        ball(s, 21.f, 12.f, 6.5f, r, g, bl, 0, 0);
+        for (int y = 12; y < 28; y++) {
+            const int half = (27 - y) * 13 / 15;
+            rect(s, 16 - half, y, 15 + half, y, rgb(r * 8 / 10, g * 8 / 10, bl * 8 / 10));
+        }
+        disc(s, 10.f, 10.f, 2.f, rgb(255, 230, 230));
+        if (k) {
+            rect(s, 14, 10, 17, 22, rgb(255, 255, 255));
+            rect(s, 10, 14, 21, 17, rgb(255, 255, 255));
+        }
+    }
+    fillKey(b[S_SUIT]);   // Silver suit with an orange helmet visor
+    rect(b[S_SUIT], 9, 14, 22, 26, rgb(196, 200, 210));
+    rect(b[S_SUIT], 5, 15, 8, 23, rgb(170, 174, 186));
+    rect(b[S_SUIT], 23, 15, 26, 23, rgb(170, 174, 186));
+    rect(b[S_SUIT], 10, 27, 14, 30, rgb(120, 124, 136));
+    rect(b[S_SUIT], 17, 27, 21, 30, rgb(120, 124, 136));
+    rect(b[S_SUIT], 9, 20, 22, 21, rgb(255, 140, 40));
+    disc(b[S_SUIT], 16.f, 9.f, 7.f, rgb(214, 218, 226));
+    rect(b[S_SUIT], 11, 7, 20, 11, rgb(255, 150, 30));
+    rect(b[S_SUIT], 12, 7, 15, 8, rgb(255, 220, 150));
+    fillKey(b[S_MINE]);
+    for (int i = 0; i < 8; i++) {
+        const float a = i * 0.785f;
+        line(b[S_MINE], 16, 16, 16 + (int)(cosf(a) * 13), 16 + (int)(sinf(a) * 13), rgb(30, 30, 34), 2);
+    }
+    ball(b[S_MINE], 16.f, 16.f, 9.f, 70, 70, 80, 0, 0);
+    disc(b[S_MINE], 13.f, 13.f, 2.f, rgb(230, 230, 240));
+    disc(b[S_MINE], 19.f, 19.f, 1.8f, rgb(230, 40, 40));
+    // Minesweeper digits 1..8 on a pale chip, classic colours, 5 x 7 glyphs drawn at 2x
+    static const uint8_t GLYPH[8][7] = {
+        {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
+        {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E}, {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02},
+        {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E}, {0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E},
+        {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}, {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E},
+    };
+    static const uint8_t DIGIT_RGB[8][3] = {{25, 60, 220}, {20, 130, 40}, {210, 30, 30}, {20, 20, 130},
+                                            {130, 20, 20}, {0, 128, 128}, {20, 20, 20}, {100, 100, 100}};
+    for (int d = 0; d < 8; d++) {
+        uint16_t *s = b[S_NUM1 + d];
+        fillKey(s);
+        rect(s, 9, 7, 22, 24, rgb(236, 232, 210));
+        rect(s, 8, 8, 23, 23, rgb(236, 232, 210));
+        const uint16_t c = rgb(DIGIT_RGB[d][0], DIGIT_RGB[d][1], DIGIT_RGB[d][2]);
+        for (int y = 0; y < 7; y++)
+            for (int x = 0; x < 5; x++)
+                if (GLYPH[d][y] & (0x10 >> x)) rect(s, 11 + x * 2, 9 + y * 2, 12 + x * 2, 10 + y * 2, c);
+    }
+
     // 16 px copies: 2x2 box filter; a pixel stays transparent when 2+ source pixels are.
     for (int i = 0; i < S_COUNT; i++)
         for (int y = 0; y < SPR / 2; y++)
@@ -460,6 +577,10 @@ static int terrainSprite(int x, int y, int frame)
     case Tile::BASALT: return S_BASALT;
     case Tile::PLATE: return S_PLATE;
     case Tile::GATE: return s_world->gatesOpen() ? S_GATE_O : S_GATE_C;
+    case Tile::CHECKPOINT:
+        return x == s_world->checkpointX() && y == s_world->checkpointY() ? S_CHECK_ON : S_CHECK;
+    case Tile::EXIT: return S_EXIT;
+    case Tile::CRATER: return S_CRATER;
     default: return S_WALL;
     }
 }
@@ -473,6 +594,11 @@ static int objSprite(Obj o)
     case Obj::DOOR: return S_DOOR;
     case Obj::BOAT: return S_BOAT;
     case Obj::GEM: return S_GEM;
+    case Obj::BUSH: return S_BUSH;
+    case Obj::POTION: return S_POTION;
+    case Obj::HEART: return S_HEART;
+    case Obj::SUIT: return S_SUIT;
+    case Obj::LIFE: return S_LIFE;
     default: return -1;
     }
 }
@@ -507,19 +633,42 @@ static void camera(int ppx, int ppy, int32_t &cx, int32_t &cy)
     cy = cy < 0 ? 0 : cy > wh - VIEW_H ? wh - VIEW_H : cy;
 }
 
+static void currentCamera(int32_t &camX, int32_t &camY)
+{
+    int ppx, ppy;
+    playerPixel(nowMs(), ppx, ppy);
+    camera(ppx, ppy, camX, camY);
+}
+
 static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, int frame)
 {
     const int64_t t0 = esp_timer_get_time();
+    const Otr::World &w = *s_world;
     const int ts = s_ts;
+    const bool fog = w.fog(), over = w.gameOver();
     const int tx0 = camX / ts, ty0 = camY / ts;
     const int tx1 = (camX + VIEW_W - 1) / ts, ty1 = (camY + VIEW_H - 1) / ts;
     const bool rockSliding = s_rockAnim && moveProgress(now) < 1.f;
     for (int ty = ty0; ty <= ty1; ty++)
         for (int tx = tx0; tx <= tx1; tx++) {
             const int sx = tx * ts - camX, sy = ty * ts - camY;
+            if (over && w.rawObj(tx, ty) == Obj::MINE) {   // Game over: show where the mines were
+                blit(terrainSprite(tx, ty, frame), sx, sy, false);
+                blit(S_MINE, sx, sy, true);
+                continue;
+            }
+            if (fog && !w.revealed(tx, ty)) {
+                blit(S_FOG, sx, sy, false);
+                if (w.flagged(tx, ty)) blit(S_FLAG, sx, sy, true);
+                continue;
+            }
             blit(terrainSprite(tx, ty, frame), sx, sy, false);
+            if (fog) {
+                const int n = w.mineHint(tx, ty);
+                if (n > 0 && w.tile(tx, ty) != Tile::WALL && w.tile(tx, ty) != Tile::TREE) blit(S_NUM1 + n - 1, sx, sy, true);
+            }
             if (rockSliding && tx == s_rockToX && ty == s_rockToY) continue;   // Drawn below
-            const int o = objSprite(s_world->obj(tx, ty));
+            const int o = objSprite(w.obj(tx, ty));
             if (o >= 0) blit(o, sx, sy, o != S_DOOR);
         }
     if (rockSliding) {
@@ -528,8 +677,8 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
         const int ry = (int)lroundf((s_rockFromY + (s_rockToY - s_rockFromY) * t) * ts);
         blit(S_ROCK, rx - camX, ry - camY, true);
     }
-    if (s_world->sailing()) blit(S_BOAT, ppx - camX, ppy - camY + ts / 8, true);
-    blit(S_PL_UP + (int)s_world->facing(), ppx - camX, ppy - camY - (s_world->sailing() ? ts / 8 : 0), true);
+    if (w.sailing()) blit(S_BOAT, ppx - camX, ppy - camY + ts / 8, true);
+    blit(S_PL_UP + (int)w.facing(), ppx - camX, ppy - camY - (w.sailing() ? ts / 8 : 0), true);
     if (s_fxX >= 0 && now - s_fxT0 < FX_MS) blit(S_IMPACT, s_fxX * ts - camX, s_fxY * ts - camY, true);
     s_renderUs = (uint32_t)(esp_timer_get_time() - t0);
 }
@@ -539,43 +688,206 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
 // ----------------------------------------------------------------------------------------
 static void updateStats()
 {
-    char buf[96];
-    snprintf(buf, sizeof(buf), tr(Str::ADV_STATS), s_world->gems(), s_world->gemsTotal(), s_world->keys());
-    if (s_world->hasBoat()) strncat(buf, tr(Str::ADV_BOAT_TAG), sizeof(buf) - strlen(buf) - 1);
-    lv_label_set_text(s_stats, buf);
+    const Otr::World &w = *s_world;
+    char buf[64];
+    snprintf(buf, sizeof(buf), tr(Str::ADV_STATS), w.gems(), w.gemsTotal());
+    lv_label_set_text(s_gemsLbl, buf);
+    snprintf(buf, sizeof(buf), tr(Str::ADV_KEYS), w.keys());
+    if (w.hasBoat()) strncat(buf, tr(Str::ADV_BOAT_TAG), sizeof(buf) - strlen(buf) - 1);
+    lv_label_set_text(s_keysLbl, buf);
+    // Energy bar: green, gold below half, red at a quarter
+    const int e = w.energy(), m = w.maxEnergy();
+    lv_bar_set_range(s_bar, 0, m);
+    lv_bar_set_value(s_bar, e, LV_ANIM_OFF);
+    const uint32_t col = e * 4 <= m ? Theme::RED : e * 2 <= m ? Theme::GOLD : Theme::GREEN;
+    lv_obj_set_style_bg_color(s_bar, Theme::c(col), LV_PART_INDICATOR);
+    snprintf(buf, sizeof(buf), tr(Str::ADV_ENERGY), e, m);
+    lv_label_set_text(s_barLbl, buf);
+    if (w.livesLeft() == Otr::LIVES_INFINITE) snprintf(buf, sizeof(buf), tr(Str::ADV_LIVES_USED), w.livesUsed());
+    else snprintf(buf, sizeof(buf), tr(Str::ADV_LIVES), w.livesLeft());
+    lv_label_set_text(s_livesLbl, buf);
+    snprintf(buf, sizeof(buf), tr(Str::ADV_SUIT_TAG), w.suitCharges());
+    lv_label_set_text(s_suitLbl, buf);
+    lv_obj_set_hidden(s_suitLbl, w.suitCharges() <= 0);
 }
 
-static void toast(const char *text, uint32_t color = Theme::TEXT)
+static void toast(const char *text, uint32_t color = Theme::TEXT, uint32_t ms = TOAST_MS)
 {
     lv_label_set_text(s_toast, text);
     lv_obj_set_style_text_color(s_toast, Theme::c(color), 0);
     lv_obj_set_hidden(s_toast, false);
-    s_toastUntil = nowMs() + TOAST_MS;
+    s_toastUntil = nowMs() + ms;
+}
+
+static void closeDialog()
+{
+    if (s_dialog) lv_msgbox_close(s_dialog);
+    s_dialog = nullptr;
+}
+
+// ----------------------------------------------------------------------------------------
+// Save / load: /ffat/adv_<player id>_<world id>.sav = World::save() image (versioned, CRC32)
+// ----------------------------------------------------------------------------------------
+static void savePath(char *out, size_t cap, uint16_t pid, int worldIdx)
+{
+    char rel[32];
+    snprintf(rel, sizeof(rel), "/adv_%u_%u.sav", (unsigned)pid, (unsigned)Otr::WORLDS[worldIdx].id);
+    MyFat::path(out, cap, rel);
+}
+
+static bool hasSave(uint16_t pid, int worldIdx)
+{
+    if (!pid || !MyFat::mounted()) return false;
+    char p[96];
+    savePath(p, sizeof(p), pid, worldIdx);
+    return MyFat::exists(p);
+}
+
+// Restores the current player's save into the (freshly loaded) world. False = world unchanged.
+static bool loadSave()
+{
+    if (!hasSave(s_playerId, s_worldIdx)) return false;
+    char p[96];
+    savePath(p, sizeof(p), s_playerId, s_worldIdx);
+    FILE *f = fopen(p, "rb");
+    if (!f) return false;
+    const size_t n = fread(s_saveBuf, 1, SAVE_CAP, f);
+    fclose(f);
+    const bool ok = s_world->restore(s_saveBuf, n);
+    if (!ok) ESP_LOGW(TAG, "%s: invalid save (%u B)", p, (unsigned)n);
+    return ok;
+}
+
+static void markSaved()
+{
+    s_savedRev = s_world->revision();
+    s_savedSteps = s_world->steps();
+    s_lastSaveMs = nowMs();
+    s_saveWanted = false;
+}
+
+// Guests and finished (game over) states are never written.
+static bool saveNow()
+{
+    s_saveWanted = false;
+    if (!s_playerId || s_world->gameOver() || !MyFat::mounted()) return false;
+    const size_t n = s_world->save(s_saveBuf, SAVE_CAP);
+    char p[96];
+    savePath(p, sizeof(p), s_playerId, s_worldIdx);
+    const int64_t t0 = esp_timer_get_time();
+    const bool ok = n && MyFat::writeAtomic(p, nullptr, 0, s_saveBuf, n);
+    ESP_LOGI(TAG, "save %s: %s (%u B, %d ms)", p, ok ? "ok" : "FAILED", (unsigned)n, (int)((esp_timer_get_time() - t0) / 1000));
+    if (ok) markSaved();
+    return ok;
 }
 
 // ----------------------------------------------------------------------------------------
 // Actions
 // ----------------------------------------------------------------------------------------
 static bool busy(uint32_t now) { return s_moveMs && now - s_moveT0 < s_moveMs; }
+static Otr::WalkMode walkMode() { return Config::get().advMode == 1 ? Otr::WalkMode::PRO : Otr::WalkMode::ASSIST; }
 
-static void doMove(Dir d)
+static void stopPath() { s_pathPos = -1; }
+static void showGameOver();
+
+static void snapPlayer()
+{
+    s_fromX = s_world->playerX();
+    s_fromY = s_world->playerY();
+    s_moveMs = 0;
+    s_rockAnim = false;
+}
+
+// Feedback for the item / treasure / checkpoint events of one move or hit.
+static void eventToasts(uint32_t ev)
+{
+    const Otr::World &w = *s_world;
+    char buf[80];
+    if (ev & Otr::EV_ALL_GEMS) {
+        toast(tr(Str::ADV_ALL_GEMS), Theme::GOLD);
+        Rgb::effectFlash(255, 210, 60, 900);
+    } else if (ev & Otr::EV_GEM) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_GEM), w.gems(), w.gemsTotal());
+        toast(buf, Theme::TEAL);
+        Rgb::effectFlash(40, 200, 255, 250);
+    } else if (ev & Otr::EV_SUIT) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_SUIT), w.suitCharges());
+        toast(buf, Theme::ACCENT);
+        Rgb::effectFlash(255, 150, 40, 400);
+    } else if (ev & Otr::EV_HEART) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_HEART), w.maxEnergy());
+        toast(buf, Theme::RED);
+        Rgb::effectFlash(255, 40, 80, 400);
+    } else if (ev & Otr::EV_LIFE) {
+        toast(tr(Str::ADV_LIFE), Theme::GREEN);
+        Rgb::effectFlash(60, 255, 100, 400);
+    } else if (ev & Otr::EV_POTION) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_POTION), w.energy(), w.maxEnergy());
+        toast(buf, Theme::GREEN);
+        Rgb::effectFlash(60, 255, 140, 250);
+    } else if (ev & Otr::EV_KEY) {
+        toast(tr(Str::ADV_KEY), Theme::GOLD);
+    } else if (ev & Otr::EV_BOAT) {
+        toast(tr(Str::ADV_BOAT), Theme::GOLD);
+    } else if (ev & Otr::EV_EXIT) {
+        toast(tr(Str::ADV_EXIT), Theme::GOLD, 3500);
+        Rgb::effectFlash(255, 210, 60, 1200);
+    } else if (ev & Otr::EV_CHECKPOINT) {
+        toast(tr(Str::ADV_CHECKPOINT), Theme::GREEN);
+    } else if (ev & Otr::EV_TREASURE) {
+        toast(tr(Str::ADV_TREASURE), Theme::GOLD);
+        Rgb::effectFlash(255, 230, 120, 200);
+    } else if (ev & Otr::EV_DOOR) {
+        toast(tr(Str::ADV_DOOR), Theme::GREEN);
+    } else if (ev & Otr::EV_NEED_KEY) {
+        toast(tr(Str::ADV_NEED_KEY), Theme::ACCENT);
+    } else if (ev & Otr::EV_GATE_OPEN) {
+        toast(tr(Str::ADV_GATE_OPEN), Theme::GREEN);
+        Rgb::effectFlash(60, 255, 120, 300);
+    } else if (ev & Otr::EV_GATE_CLOSE) {
+        toast(tr(Str::ADV_GATE_CLOSE), Theme::ACCENT);
+    } else if (ev & Otr::EV_SPLASH) {
+        toast(tr(Str::ADV_SPLASH), Theme::BLUE);
+    } else if (ev & Otr::EV_SIZZLE) {
+        toast(tr(Str::ADV_SIZZLE), Theme::ACCENT);
+    } else if (ev & Otr::EV_SUIT_USED) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_SUIT_USED), w.suitCharges());
+        toast(buf, Theme::ACCENT, 1200);
+    }
+    if (ev & Otr::EV_CHECKPOINT) s_saveWanted = true;
+}
+
+// One step. Returns the world events (0 if the previous step is still animating).
+static uint32_t doMove(Dir d)
 {
     const uint32_t now = nowMs();
-    if (busy(now)) return;
+    if (busy(now) || s_world->gameOver()) return 0;
     const int fx = s_world->playerX(), fy = s_world->playerY();
     const int tx = fx + Otr::dirX(d), ty = fy + Otr::dirY(d);
     const bool wasRock = s_world->obj(tx, ty) == Obj::ROCK;
     const Tile targetTile = s_world->tile(tx, ty);
     const uint32_t ev = s_world->move(d);
     s_dirty = true;
+    char buf[80];
 
-    if (ev & Otr::EV_BURNED) {
-        s_fromX = s_world->playerX();
-        s_fromY = s_world->playerY();
-        s_moveMs = 0;
-        toast(tr(Str::ADV_BURNED), Theme::RED);
-        Rgb::effectFlash(255, 60, 20, 500);
-        return;
+    if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
+        snapPlayer();
+        if (ev & Otr::EV_MINE) {
+            s_fxX = tx;
+            s_fxY = ty;
+            s_fxT0 = now;
+        }
+        if (s_world->livesLeft() == Otr::LIVES_INFINITE || (ev & Otr::EV_GAME_OVER)) {
+            toast(tr(Str::ADV_DIED), Theme::RED, 3000);
+        } else {
+            snprintf(buf, sizeof(buf), tr(Str::ADV_DIED_LEFT), s_world->livesLeft());
+            toast(buf, Theme::RED, 3000);
+        }
+        Rgb::effectFlash(255, 30, 20, 900);
+        updateStats();
+        stopPath();
+        if (ev & Otr::EV_GAME_OVER) showGameOver();
+        return ev;
     }
     if (ev & Otr::EV_MOVED) {
         s_fromX = fx;
@@ -596,41 +908,31 @@ static void doMove(Dir d)
         s_bumpT0 = now;
     }
 
-    char buf[64];
-    if (ev & Otr::EV_ALL_GEMS) {
-        toast(tr(Str::ADV_ALL_GEMS), Theme::GOLD);
-        Rgb::effectFlash(255, 210, 60, 900);
-    } else if (ev & Otr::EV_GEM) {
-        snprintf(buf, sizeof(buf), tr(Str::ADV_GEM), s_world->gems(), s_world->gemsTotal());
-        toast(buf, Theme::TEAL);
-        Rgb::effectFlash(40, 200, 255, 250);
-    } else if (ev & Otr::EV_KEY) {
-        toast(tr(Str::ADV_KEY), Theme::GOLD);
-    } else if (ev & Otr::EV_BOAT) {
-        toast(tr(Str::ADV_BOAT), Theme::GOLD);
-    } else if (ev & Otr::EV_DOOR) {
-        toast(tr(Str::ADV_DOOR), Theme::GREEN);
-    } else if (ev & Otr::EV_NEED_KEY) {
-        toast(tr(Str::ADV_NEED_KEY), Theme::ACCENT);
-    } else if (ev & Otr::EV_GATE_OPEN) {
-        toast(tr(Str::ADV_GATE_OPEN), Theme::GREEN);
-        Rgb::effectFlash(60, 255, 120, 300);
-    } else if (ev & Otr::EV_GATE_CLOSE) {
-        toast(tr(Str::ADV_GATE_CLOSE), Theme::ACCENT);
-    } else if (ev & Otr::EV_SPLASH) {
-        toast(tr(Str::ADV_SPLASH), Theme::BLUE);
-    } else if (ev & Otr::EV_SIZZLE) {
-        toast(tr(Str::ADV_SIZZLE), Theme::ACCENT);
+    if (ev & Otr::EV_MINE) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_MINE), s_world->rules().mineDamage);
+        toast(buf, Theme::RED);
+        Rgb::effectFlash(255, 120, 20, 600);
+        s_fxX = tx;
+        s_fxY = ty;
+        s_fxT0 = now;
+    } else if (ev & Otr::EV_BURNED) {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_BURNED), s_world->rules().lavaDamage);
+        toast(buf, Theme::RED, 1400);
+        Rgb::effectFlash(255, 60, 20, 400);
     } else if ((ev & Otr::EV_BLOCKED) && targetTile == Tile::WATER && !s_world->hasBoat()) {
         toast(tr(Str::ADV_NEED_BOAT), Theme::BLUE);
+    } else {
+        eventToasts(ev);
     }
-    if (ev & (Otr::EV_GEM | Otr::EV_KEY | Otr::EV_BOAT | Otr::EV_DOOR)) updateStats();
+    if (ev & (Otr::EV_MINE | Otr::EV_BURNED)) eventToasts(ev & (Otr::EV_CHECKPOINT));
+    if (ev & ~(Otr::EV_MOVED | Otr::EV_BLOCKED)) updateStats();
+    return ev;
 }
 
 static void doHit()
 {
     const uint32_t now = nowMs();
-    if (busy(now)) return;
+    if (busy(now) || s_world->gameOver()) return;
     const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
     const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
     const uint32_t ev = s_world->hit();
@@ -643,23 +945,97 @@ static void doHit()
         s_fxT0 = now;
         Rgb::effectFlash(255, 255, 255, ev & Otr::EV_BROKE ? 200 : 80);
         if (!(ev & Otr::EV_BROKE) && s_world->tile(tx, ty) == Tile::CRACKED) toast(tr(Str::ADV_CRACK), Theme::MUTED);
+        if (ev & Otr::EV_TREASURE) eventToasts(Otr::EV_TREASURE);
     }
     s_dirty = true;
 }
 
-static void resetWorld()
+// Tap-to-walk: plan with A* and start walking. Messages for truncated paths come on arrival.
+static void walkTo(int tx, int ty)
 {
-    if (!s_world->load(Otr::TEST_WORLD, Otr::TEST_WORLD_H)) ESP_LOGE(TAG, "test world failed to load");
-    s_fromX = s_world->playerX();
-    s_fromY = s_world->playerY();
-    s_moveMs = 0;
-    s_rockAnim = false;
+    stopPath();
+    s_hold = -1;
+    const Otr::PlanResult r = s_planner->plan(*s_world, tx, ty, walkMode(), *s_path);
+    switch (r) {
+    case Otr::PlanResult::HERE: return;
+    case Otr::PlanResult::INVALID: toast(tr(Str::ADV_CANT_GO), Theme::MUTED, 1500); return;
+    case Otr::PlanResult::UNREACHABLE: toast(tr(Str::ADV_NO_WAY), Theme::MUTED, 1500); return;
+    case Otr::PlanResult::SUIT: {
+        char buf[80];
+        snprintf(buf, sizeof(buf), tr(Str::ADV_SUIT_OK), s_world->suitCharges());
+        toast(buf, Theme::ACCENT);
+        break;
+    }
+    default: break;
+    }
+    s_pathPos = 0;
+}
+
+static void finishPath()
+{
+    const Otr::PlanResult r = s_path->result;
+    const int gx = s_path->goalX, gy = s_path->goalY;
+    stopPath();
+    switch (r) {
+    case Otr::PlanResult::DANGER: toast(tr(Str::ADV_DANGER), Theme::RED); break;
+    case Otr::PlanResult::UNKNOWN: toast(tr(Str::ADV_UNKNOWN), Theme::GOLD); break;
+    case Otr::PlanResult::NEED_BOAT:
+        if (s_world->hasBoat() && !s_replanned) {   // Picked up the boat on the way: go on
+            s_replanned = true;
+            walkTo(gx, gy);
+            return;
+        }
+        toast(tr(Str::ADV_NEED_BOAT_GO), Theme::BLUE);
+        break;
+    default: break;
+    }
+    s_replanned = false;
+}
+
+static void resetWorld(bool showHelp = true)
+{
+    if (!s_world->load(Otr::WORLDS[s_worldIdx])) ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
+    snapPlayer();
+    stopPath();
+    s_hold = -1;
     s_fxX = -1;
     s_bumpT0 = 0;
     s_dirty = true;
     updateStats();
-    toast(tr(Str::ADV_HELP), Theme::MUTED);
-    s_toastUntil = nowMs() + 6000;
+    if (showHelp) toast(tr(s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP), Theme::MUTED, 6000);
+}
+
+static lv_obj_t *dialog(const char *text)
+{
+    closeDialog();
+    s_dialog = lv_msgbox_create(nullptr);
+    if (text) lv_msgbox_add_text(s_dialog, text);
+    return s_dialog;
+}
+
+static void showGameOver()
+{
+    lv_obj_t *mb = dialog(tr(Str::ADV_GAME_OVER_Q));
+    lv_obj_t *cont = lv_msgbox_add_footer_button(mb, tr(Str::ADV_CONTINUE));
+    lv_obj_t *restart = lv_msgbox_add_footer_button(mb, tr(Str::ADV_RESTART));
+    lv_obj_add_event_cb(cont, [](lv_event_t *) {
+        closeDialog();
+        // Continue from the last save if there is one (it never holds a game over), else one
+        // more life at the checkpoint.
+        Otr::World &w = *s_world;
+        if (!(s_playerId && loadSave() && !w.gameOver())) {
+            if (w.gameOver()) w.revive();
+        }
+        snapPlayer();
+        s_dirty = true;
+        updateStats();
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(restart, [](lv_event_t *) {
+        closeDialog();
+        resetWorld();
+        saveNow();
+    }, LV_EVENT_CLICKED, nullptr);
+    Theme::msgboxFonts(mb);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -668,7 +1044,18 @@ static void resetWorld()
 static void tick(lv_timer_t *)
 {
     const uint32_t now = nowMs();
-    if (s_hold >= 0 && !busy(now)) doMove((Dir)s_hold);
+    if (!s_dialog) {
+        if (s_hold >= 0 && !busy(now)) {
+            doMove((Dir)s_hold);
+        } else if (s_pathPos >= 0 && !busy(now)) {
+            if (s_pathPos >= s_path->len) {
+                finishPath();
+            } else {
+                const uint32_t ev = doMove((Dir)s_path->dirs[s_pathPos++]);
+                if (!(ev & Otr::EV_MOVED) || (ev & (Otr::EV_DIED | Otr::EV_MINE))) stopPath();
+            }
+        }
+    }
 
     int ppx, ppy;
     playerPixel(now, ppx, ppy);
@@ -696,15 +1083,22 @@ static void tick(lv_timer_t *)
         s_fromY = s_world->playerY();
     }
 
+    // Autosave when idle: after a checkpoint, and every minute if anything changed
+    const bool idle = !busy(now) && s_pathPos < 0 && s_hold < 0 && !s_dialog;
+    if (idle && s_playerId) {
+        const bool changed = s_world->revision() != s_savedRev || s_world->steps() != s_savedSteps;
+        if (s_saveWanted || (changed && now - s_lastSaveMs >= 60000)) saveNow();
+    }
+
     if (s_toastUntil && now > s_toastUntil) {
         s_toastUntil = 0;
         lv_obj_set_hidden(s_toast, true);
     }
-    if (now - s_statT0 >= 1000) {   // Our frames, our blit time, LVGL's flushed frames
+    if (now - s_statT0 >= 1000) {   // Our frames, our blit time, LVGL's flushed frames (shown in the menu)
         const MyLvgl::Stats st = MyLvgl::stats();
-        lv_label_set_text_fmt(s_perf, "%u/s  %u.%u ms  lcd %d fps", (unsigned)s_renders,
-                              (unsigned)(s_renders ? s_renderAccUs / s_renders / 1000 : 0),
-                              (unsigned)(s_renders ? s_renderAccUs / s_renders / 100 % 10 : 0), (int)(st.fps + 0.5f));
+        snprintf(s_perfText, sizeof(s_perfText), "%u/s  %u.%u ms  lcd %d fps", (unsigned)s_renders,
+                 (unsigned)(s_renders ? s_renderAccUs / s_renders / 1000 : 0),
+                 (unsigned)(s_renders ? s_renderAccUs / s_renders / 100 % 10 : 0), (int)(st.fps + 0.5f));
         s_renders = s_renderAccUs = 0;
         s_statT0 = now;
     }
@@ -718,6 +1112,7 @@ static void padEvent(lv_event_t *e)
     const int d = (int)(intptr_t)lv_event_get_user_data(e);
     const lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
+        stopPath();
         s_hold = d;
         doMove((Dir)d);
     } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) && s_hold == d) {
@@ -725,49 +1120,84 @@ static void padEvent(lv_event_t *e)
     }
 }
 
-// Finger in the viewport: walk towards it (dominant axis); a short tap on the player hits.
+// Viewport: tap = walk there (A*), tap on the hero = hit, long press (minefield) = flag.
 static void viewEvent(lv_event_t *e)
 {
     const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if (code == LV_EVENT_RELEASED && s_tapPlayer && nowMs() - s_pressT0 < 400) doHit();
-        s_hold = -1;
-        s_tapPlayer = false;
+    if (code == LV_EVENT_PRESSED) {
+        s_longDone = false;
         return;
     }
-    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) return;
+    if (code != LV_EVENT_LONG_PRESSED && code != LV_EVENT_RELEASED) return;
+    if (s_dialog || s_world->gameOver()) return;
     lv_point_t p;
     lv_indev_get_point(lv_indev_active(), &p);
-    int ppx, ppy;
-    playerPixel(nowMs(), ppx, ppy);
     int32_t camX, camY;
-    camera(ppx, ppy, camX, camY);
-    const int dx = p.x - (ppx - camX + s_ts / 2);
-    const int dy = (p.y - VIEW_Y) - (ppy - camY + s_ts / 2);
-    const int dead = s_ts * 3 / 4;
-    if (code == LV_EVENT_PRESSED) {
-        s_pressT0 = nowMs();
-        s_tapPlayer = abs(dx) < dead && abs(dy) < dead;
-    }
-    if (abs(dx) < dead && abs(dy) < dead) {
-        s_hold = -1;
+    currentCamera(camX, camY);
+    const float fx = (float)(p.x + camX) / s_ts, fy = (float)(p.y - VIEW_Y + camY) / s_ts;
+    if (code == LV_EVENT_LONG_PRESSED) {
+        if (!s_world->fog()) return;
+        s_longDone = true;
+        if (s_world->toggleFlag((int)floorf(fx), (int)floorf(fy))) {
+            s_dirty = true;
+            Rgb::effectFlash(255, 40, 40, 120);
+        }
         return;
     }
-    s_tapPlayer = false;
-    s_hold = abs(dx) > abs(dy) ? (int)(dx > 0 ? Dir::RIGHT : Dir::LEFT) : (int)(dy > 0 ? Dir::DOWN : Dir::UP);
+    if (s_longDone) return;
+    // On the hero (a bit generous): hit
+    const float hx = fx - (s_world->playerX() + 0.5f), hy = fy - (s_world->playerY() + 0.5f);
+    if (fabsf(hx) < 0.6f && fabsf(hy) < 0.6f) {
+        stopPath();
+        doHit();
+        return;
+    }
+    int tx, ty;
+    if (!Otr::Planner::pickTarget(*s_world, fx, fy, tx, ty)) {
+        toast(tr(Str::ADV_CANT_GO), Theme::MUTED, 1500);
+        return;
+    }
+    s_replanned = false;
+    walkTo(tx, ty);
 }
 
 static void freeAll()
 {
+    closeDialog();
     if (s_timer) lv_timer_delete(s_timer);
     s_timer = nullptr;
     heap_caps_free(s_fb);
     heap_caps_free(s_spr);
     heap_caps_free(s_world);
+    heap_caps_free(s_planner);
+    heap_caps_free(s_path);
+    heap_caps_free(s_saveBuf);
     s_fb = nullptr;
     s_spr = nullptr;
     s_world = nullptr;
+    s_planner = nullptr;
+    s_path = nullptr;
+    s_saveBuf = nullptr;
+    s_activeScr = nullptr;
+    s_scr = nullptr;
     s_hold = -1;
+    s_pathPos = -1;
+}
+
+// The buffers belong to the screen that is shown; they are freed when that screen is deleted
+// (after the fade-out, so the canvas never draws from freed memory).
+static void screenDeleted(lv_event_t *e)
+{
+    if (lv_event_get_current_target(e) == s_activeScr) freeAll();
+}
+
+static void leave()
+{
+    stopPath();
+    closeDialog();
+    if (s_timer) lv_timer_pause(s_timer);
+    saveNow();
+    UiYatzy::showMenu();
 }
 
 static lv_obj_t *padButton(lv_obj_t *scr, const char *sym, int32_t x, int32_t y, int32_t w, int32_t h, Dir d)
@@ -778,61 +1208,112 @@ static lv_obj_t *padButton(lv_obj_t *scr, const char *sym, int32_t x, int32_t y,
     return b;
 }
 
-void show()
-{
-    freeAll();
-    s_fb = (uint16_t *)heap_caps_aligned_alloc(64, VIEW_W * VIEW_H * 2, MALLOC_CAP_SPIRAM);
-    s_spr = (Sprites *)heap_caps_malloc(sizeof(Sprites), MALLOC_CAP_SPIRAM);
-    void *wmem = heap_caps_malloc(sizeof(Otr::World), MALLOC_CAP_SPIRAM);
-    if (!s_fb || !s_spr || !wmem) {
-        ESP_LOGE(TAG, "out of PSRAM");
-        heap_caps_free(wmem);
-        freeAll();
-        UiYatzy::showMenu();
-        return;
-    }
-    s_world = new (wmem) Otr::World;
-    const int64_t t0 = esp_timer_get_time();
-    makeArt(s_spr);
-    ESP_LOGI(TAG, "tile art generated in %d ms (%u B sprites, %u B frame)", (int)((esp_timer_get_time() - t0) / 1000),
-             (unsigned)sizeof(Sprites), (unsigned)(VIEW_W * VIEW_H * 2));
+static const char *modeText() { return tr(Config::get().advMode == 1 ? Str::ADV_MODE_PRO : Str::ADV_MODE_ASSIST); }
 
+static void toggleMode(lv_event_t *e)
+{
+    AppConfig &c = Config::get();
+    c.advMode = c.advMode == 1 ? 0 : 1;
+    Config::save();
+    lv_obj_t *b = (lv_obj_t *)lv_event_get_target(e);
+    lv_label_set_text(lv_obj_get_child(b, 0), modeText());
+}
+
+static lv_obj_t *menuButton(lv_obj_t *parent, const char *text, uint32_t color, lv_event_cb_t cb)
+{
+    lv_obj_t *b = Theme::button(parent, text, 250, 42, color);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
+    return b;
+}
+
+static void showMenu()
+{
+    stopPath();
+    s_hold = -1;
+    lv_obj_t *mb = dialog(nullptr);
+    lv_msgbox_add_title(mb, tr(Str::ADV_MENU_TITLE));
+    lv_msgbox_add_close_button(mb);
+    lv_obj_t *c = lv_msgbox_get_content(mb);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(c, 8, 0);
+    menuButton(c, modeText(), Theme::TEAL, toggleMode);
+    lv_obj_t *help = lv_label_create(c);
+    lv_label_set_text(help, tr(Str::ADV_MODE_HELP));
+    lv_label_set_long_mode(help, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_width(help, 250);
+    if (s_playerId) {
+        menuButton(c, tr(Str::ADV_SAVE), Theme::GREEN, [](lv_event_t *) {
+            const bool ok = saveNow();
+            closeDialog();
+            toast(tr(ok ? Str::ADV_SAVED : Str::ADV_SAVE_FAIL), ok ? Theme::GREEN : Theme::RED, 1500);
+        });
+    }
+    menuButton(c, tr(Str::ADV_RESTART), Theme::ACCENT, [](lv_event_t *) {
+        lv_obj_t *q = dialog(tr(Str::ADV_RESTART_Q));
+        lv_obj_t *yes = lv_msgbox_add_footer_button(q, tr(Str::ADV_RESTART));
+        lv_obj_t *no = lv_msgbox_add_footer_button(q, tr(Str::BTN_CANCEL));
+        lv_obj_add_event_cb(yes, [](lv_event_t *) {
+            closeDialog();
+            resetWorld();
+            saveNow();
+        }, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(no, [](lv_event_t *) { closeDialog(); }, LV_EVENT_CLICKED, nullptr);
+        Theme::msgboxFonts(q);
+    });
+    menuButton(c, tr(Str::ADV_LEAVE), Theme::RED, [](lv_event_t *) { leave(); });
+    lv_obj_t *perf = lv_label_create(c);
+    lv_label_set_text(perf, s_perfText);
+    Theme::msgboxFonts(mb);
+    lv_obj_set_style_text_font(help, &my_font_14, 0);
+    lv_obj_set_style_text_font(perf, &my_font_14, 0);
+    lv_obj_set_style_text_color(perf, Theme::c(Theme::MUTED), 0);
+    // The close button (x) only deletes the box: forget it
+    lv_obj_add_event_cb(mb, [](lv_event_t *e) {
+        if (lv_event_get_current_target(e) == s_dialog) s_dialog = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
+}
+
+// ----------------------------------------------------------------------------------------
+// Game screen
+// ----------------------------------------------------------------------------------------
+static void buildGame(bool loadFailed)
+{
     s_scr = Theme::screen();
+    s_activeScr = s_scr;
+    lv_obj_add_event_cb(s_scr, screenDeleted, LV_EVENT_DELETE, nullptr);
+
+    // Compact header: menu | gems / keys | energy bar, lives, suit charges
     lv_obj_t *hdr = lv_obj_create(s_scr);
     lv_obj_remove_style_all(hdr);
     lv_obj_set_size(hdr, VIEW_W, VIEW_Y);
     lv_obj_set_style_bg_color(hdr, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
     lv_obj_set_scrollable(hdr, false);
-    lv_obj_t *back = Theme::button(hdr, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_set_pos(back, 4, 4);
-    lv_obj_add_event_cb(back, [](lv_event_t *) {
-        freeAll();
-        UiYatzy::showMenu();
-    }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *title = Theme::label(hdr, tr(Str::ADV_TITLE), &my_font_18);
-    lv_obj_set_pos(title, 56, 2);
-    s_stats = Theme::label(hdr, "", &my_font_14, Theme::GOLD);
-    lv_obj_set_pos(s_stats, 56, 24);
-    s_perf = Theme::label(hdr, "", &my_font_14, Theme::MUTED);
-    lv_obj_align(s_perf, LV_ALIGN_TOP_RIGHT, -54, 4);
-    lv_obj_t *restart = Theme::button(hdr, LV_SYMBOL_REFRESH, 44, 36, Theme::LINE);
-    lv_obj_align(restart, LV_ALIGN_TOP_RIGHT, -4, 4);
-    lv_obj_add_event_cb(restart, [](lv_event_t *) {
-        static const char *btns[] = {nullptr};
-        (void)btns;
-        lv_obj_t *mb = lv_msgbox_create(nullptr);
-        lv_msgbox_add_text(mb, tr(Str::ADV_RESTART_Q));
-        lv_obj_t *yes = lv_msgbox_add_footer_button(mb, tr(Str::ADV_RESTART));
-        lv_obj_t *no = lv_msgbox_add_footer_button(mb, tr(Str::BTN_BACK));
-        lv_obj_add_event_cb(yes, [](lv_event_t *ev) {
-            resetWorld();
-            lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(ev));
-        }, LV_EVENT_CLICKED, mb);
-        lv_obj_add_event_cb(no, [](lv_event_t *ev) { lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(ev)); },
-                            LV_EVENT_CLICKED, mb);
-        Theme::msgboxFonts(mb);
-    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *menu = Theme::button(hdr, LV_SYMBOL_LIST, 40, 36, Theme::MUTED);
+    lv_obj_set_pos(menu, 2, 4);
+    lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+    s_gemsLbl = Theme::label(hdr, "", &my_font_14, Theme::GOLD);
+    lv_obj_set_pos(s_gemsLbl, 48, 4);
+    s_keysLbl = Theme::label(hdr, "", &my_font_14, Theme::MUTED);
+    lv_obj_set_pos(s_keysLbl, 48, 24);
+    constexpr int32_t BAR_X = 154, BAR_W = VIEW_W - BAR_X - 4;
+    s_bar = lv_bar_create(hdr);
+    lv_obj_set_pos(s_bar, BAR_X, 4);
+    lv_obj_set_size(s_bar, BAR_W, 17);
+    lv_obj_set_style_bg_color(s_bar, Theme::c(Theme::NEST_BG), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_bar, Theme::c(Theme::LINE), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_bar, 5, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_bar, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    s_barLbl = Theme::label(s_bar, "", &my_font_14, Theme::TEXT);
+    lv_obj_center(s_barLbl);
+    s_livesLbl = Theme::label(hdr, "", &my_font_14, Theme::TEXT);
+    lv_obj_set_pos(s_livesLbl, BAR_X, 25);
+    s_suitLbl = Theme::label(hdr, "", &my_font_14, Theme::ACCENT);
+    lv_obj_align(s_suitLbl, LV_ALIGN_TOP_RIGHT, -4, 25);
 
     // Viewport canvas
     s_canvas = lv_canvas_create(s_scr);
@@ -853,35 +1334,198 @@ void show()
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
-    // Controls: arrow pad (left), Slå + Zoom (right)
+    // Controls: arrow pad with STOP in the middle (left), Slå + Zoom (right)
     constexpr int32_t PW = 62, PH = 36;
     padButton(s_scr, LV_SYMBOL_UP, 4 + PW + 4, CTRL_Y, PW, PH, Dir::UP);
     padButton(s_scr, LV_SYMBOL_LEFT, 4, CTRL_Y + PH + 2, PW, PH, Dir::LEFT);
     padButton(s_scr, LV_SYMBOL_RIGHT, 4 + 2 * (PW + 4), CTRL_Y + PH + 2, PW, PH, Dir::RIGHT);
     padButton(s_scr, LV_SYMBOL_DOWN, 4 + PW + 4, CTRL_Y + 2 * (PH + 2), PW, PH, Dir::DOWN);
+    lv_obj_t *stop = Theme::button(s_scr, LV_SYMBOL_STOP, PW, PH, Theme::RED);
+    lv_obj_set_pos(stop, 4 + PW + 4, CTRL_Y + PH + 2);
+    lv_obj_add_event_cb(stop, [](lv_event_t *) {
+        stopPath();
+        s_hold = -1;
+    }, LV_EVENT_PRESSED, nullptr);
     lv_obj_t *hit = Theme::button(s_scr, tr(Str::ADV_HIT), 110, 66, Theme::ACCENT, true);
     lv_obj_set_pos(hit, 206, CTRL_Y);
-    lv_obj_add_event_cb(hit, [](lv_event_t *) { doHit(); }, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(hit, [](lv_event_t *) {
+        stopPath();
+        doHit();
+    }, LV_EVENT_PRESSED, nullptr);
     lv_obj_t *zoom = Theme::button(s_scr, tr(Str::ADV_ZOOM), 110, 40, Theme::TEAL);
     lv_obj_set_pos(zoom, 206, CTRL_Y + 70);
     lv_obj_add_event_cb(zoom, [](lv_event_t *) {
         s_ts = s_ts == 32 ? 16 : 32;
-        s_moveMs = 0;
-        s_rockAnim = false;
-        s_fromX = s_world->playerX();
-        s_fromY = s_world->playerY();
+        snapPlayer();
         s_dirty = true;
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_add_event_cb(s_scr, [](lv_event_t *) { freeAll(); }, LV_EVENT_DELETE, nullptr);
-
-    resetWorld();
+    snapPlayer();
+    s_fxX = -1;
+    s_bumpT0 = 0;
+    s_dirty = true;
+    updateStats();
+    toast(tr(loadFailed ? Str::ADV_LOAD_FAIL : s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP),
+          loadFailed ? Theme::RED : Theme::MUTED, 6000);
+    markSaved();
     s_lastCamX = s_lastCamY = -1;
     s_statT0 = nowMs();
     s_renders = s_renderAccUs = 0;
+    s_perfText[0] = 0;
     tick(nullptr);
     s_timer = lv_timer_create(tick, TICK_MS, nullptr);
     Theme::loadScreen(s_scr);
+    if (s_world->gameOver()) showGameOver();
+}
+
+static void startGame(bool cont)
+{
+    closeDialog();
+    if (!s_world->load(Otr::WORLDS[s_worldIdx])) {
+        ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
+        return;
+    }
+    bool failed = false;
+    if (cont && !loadSave()) {
+        failed = true;
+        s_world->load(Otr::WORLDS[s_worldIdx]);   // restore() leaves it untouched, but be explicit
+    }
+    stopPath();
+    buildGame(failed);
+}
+
+// ----------------------------------------------------------------------------------------
+// Setup screen: world chooser + player (registry or guest) + continue / new game
+// ----------------------------------------------------------------------------------------
+static lv_obj_t *s_worldBtn[Otr::WORLD_COUNT];
+static lv_obj_t *s_playerList;
+
+static void styleWorldButtons()
+{
+    for (int i = 0; i < Otr::WORLD_COUNT; i++) {
+        const bool sel = i == s_worldIdx;
+        lv_obj_set_style_border_color(s_worldBtn[i], Theme::c(sel ? Theme::GOLD : Theme::LINE), 0);
+        lv_obj_set_style_border_width(s_worldBtn[i], sel ? 3 : 2, 0);
+        lv_obj_set_style_bg_color(s_worldBtn[i], Theme::c(sel ? 0x2A3F5C : Theme::PANEL_RAISED), 0);
+    }
+}
+
+static void playerChosen(lv_event_t *e)
+{
+    s_playerId = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
+    if (!hasSave(s_playerId, s_worldIdx)) {
+        startGame(false);
+        return;
+    }
+    lv_obj_t *mb = dialog(tr(Str::ADV_CONTINUE_Q));
+    lv_obj_t *cont = lv_msgbox_add_footer_button(mb, tr(Str::ADV_CONTINUE));
+    lv_obj_t *fresh = lv_msgbox_add_footer_button(mb, tr(Str::ADV_NEW_GAME));
+    lv_obj_t *cancel = lv_msgbox_add_footer_button(mb, tr(Str::BTN_CANCEL));
+    lv_obj_add_event_cb(cont, [](lv_event_t *) { startGame(true); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(fresh, [](lv_event_t *) { startGame(false); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(cancel, [](lv_event_t *) { closeDialog(); }, LV_EVENT_CLICKED, nullptr);
+    Theme::msgboxFonts(mb);
+}
+
+static void addPlayerRow(const char *name, uint16_t id)
+{
+    char text[64];
+    snprintf(text, sizeof(text), "%s%s", name, hasSave(id, s_worldIdx) ? tr(Str::ADV_HAS_SAVE) : "");
+    lv_obj_t *b = Theme::button(s_playerList, text, 296, 42, id ? Theme::TEAL : Theme::LINE);
+    lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_LEFT_MID, 12, 0);
+    lv_obj_add_event_cb(b, playerChosen, LV_EVENT_CLICKED, (void *)(uintptr_t)id);
+}
+
+static void fillPlayerList()
+{
+    lv_obj_clean(s_playerList);
+    addPlayerRow(tr(Str::ADV_GUEST), 0);
+    PlayerDb *db = (PlayerDb *)heap_caps_malloc(sizeof(PlayerDb), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *idx = db ? (uint8_t *)heap_caps_malloc(PLAYER_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : nullptr;
+    if (db && idx && Players::ok()) {
+        Players::snapshot(*db);
+        const int n = db->sortedIndices(idx);
+        for (int i = 0; i < n; i++) addPlayerRow(db->items[idx[i]].name, db->items[idx[i]].id);
+    }
+    heap_caps_free(idx);
+    heap_caps_free(db);
+}
+
+static void buildSetup()
+{
+    lv_obj_t *scr = Theme::screen();
+    s_activeScr = scr;
+    lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
+    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_SETUP_TITLE));
+    lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) {
+        closeDialog();
+        UiYatzy::showMenu();   // Buffers are freed when this screen is deleted
+    }, LV_EVENT_CLICKED, nullptr);
+
+    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES};
+    static const Str DESCS[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST_DESC, Str::ADV_WORLD_MINES_DESC};
+    for (int i = 0; i < Otr::WORLD_COUNT; i++) {
+        lv_obj_t *b = Theme::button(scr, tr(NAMES[i]), 152, 74, Theme::LINE);
+        lv_obj_set_pos(b, 6 + i * 156, 52);
+        lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_TOP_MID, 0, 6);
+        lv_obj_t *d = Theme::label(b, tr(DESCS[i]), &my_font_14, Theme::MUTED);
+        lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_width(d, 140);
+        lv_obj_set_style_text_align(d, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, 0, -4);
+        lv_obj_add_event_cb(b, [](lv_event_t *e) {
+            s_worldIdx = (int)(intptr_t)lv_event_get_user_data(e);
+            styleWorldButtons();
+            fillPlayerList();
+        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        s_worldBtn[i] = b;
+    }
+    styleWorldButtons();
+    lv_obj_t *mode = Theme::button(scr, modeText(), 308, 38, Theme::TEAL);
+    lv_obj_set_pos(mode, 6, 134);
+    lv_obj_add_event_cb(mode, toggleMode, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *who = Theme::label(scr, tr(Str::ADV_WHO), &my_font_18, Theme::GOLD);
+    lv_obj_set_pos(who, 10, 180);
+    s_playerList = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_playerList);
+    lv_obj_set_pos(s_playerList, 6, 206);
+    lv_obj_set_size(s_playerList, 308, 480 - 206 - 4);
+    lv_obj_set_flex_flow(s_playerList, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_playerList, 6, 0);
+    lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);
+    fillPlayerList();
+    Theme::loadScreen(scr);
+}
+
+void show()
+{
+    freeAll();
+    s_fb = (uint16_t *)heap_caps_aligned_alloc(64, VIEW_W * VIEW_H * 2, MALLOC_CAP_SPIRAM);
+    s_spr = (Sprites *)heap_caps_malloc(sizeof(Sprites), MALLOC_CAP_SPIRAM);
+    void *wmem = heap_caps_malloc(sizeof(Otr::World), MALLOC_CAP_SPIRAM);
+    void *pmem = heap_caps_malloc(sizeof(Otr::Planner), MALLOC_CAP_SPIRAM);
+    s_path = (Otr::Path *)heap_caps_malloc(sizeof(Otr::Path), MALLOC_CAP_SPIRAM);
+    s_saveBuf = (uint8_t *)heap_caps_malloc(SAVE_CAP, MALLOC_CAP_SPIRAM);
+    if (!s_fb || !s_spr || !wmem || !pmem || !s_path || !s_saveBuf) {
+        ESP_LOGE(TAG, "out of PSRAM");
+        heap_caps_free(wmem);
+        heap_caps_free(pmem);
+        freeAll();
+        UiYatzy::showMenu();
+        return;
+    }
+    s_world = new (wmem) Otr::World;
+    s_planner = new (pmem) Otr::Planner;
+    memset(s_path, 0, sizeof(*s_path));
+    const int64_t t0 = esp_timer_get_time();
+    makeArt(s_spr);
+    ESP_LOGI(TAG, "tile art %d ms (%u B sprites, %u B frame, world %u B, planner %u B)",
+             (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)(VIEW_W * VIEW_H * 2),
+             (unsigned)sizeof(Otr::World), (unsigned)sizeof(Otr::Planner));
+    if (s_worldIdx < 0 || s_worldIdx >= Otr::WORLD_COUNT) s_worldIdx = 0;
+    buildSetup();
 }
 
 }  // namespace UiAdventure
