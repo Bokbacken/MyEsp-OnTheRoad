@@ -133,7 +133,7 @@ const T = {
        who: 'Vem spelar du?', who_hint: 'Tryck på ditt namn och ange din PIN.', watch: 'Titta bara',
        choose: 'Välj ruta', protocol: 'Protokoll', leave: 'Byt spelare', cancel: 'Avbryt',
        no_web: 'Ingen spelare är markerad som webbspelare. Du kan titta på spelet.',
-       connected_tag: 'ansluten', nopin_tag: 'ingen PIN', pin_for: 'PIN för {0}',
+       connected_tag: 'ansluten', nopin_tag: 'ingen PIN', rejoin_tag: 'sparad', pin_for: 'PIN för {0}',
        expired: 'Ett nytt spel har startat – välj ditt namn igen.',
        round: 'Omgång {0} av {1}', turn: 'Tur', you: 'din tur!', spectator: 'Du tittar', playing_as: 'Du spelar som {0}',
        roll: 'Kasta ({0} kvar)', roll_none: 'Inga kast kvar', wait: 'Väntar på {0}...', rolling: 'Tärningarna rullar...',
@@ -150,7 +150,7 @@ const T = {
        who: 'Who are you playing?', who_hint: 'Tap your name and enter your PIN.', watch: 'Just watch',
        choose: 'Choose a box', protocol: 'Score sheet', leave: 'Change player', cancel: 'Cancel',
        no_web: 'No player is marked as a web player. You can watch the game.',
-       connected_tag: 'connected', nopin_tag: 'no PIN', pin_for: 'PIN for {0}',
+       connected_tag: 'connected', nopin_tag: 'no PIN', rejoin_tag: 'saved', pin_for: 'PIN for {0}',
        expired: 'A new game has started – pick your name again.',
        round: 'Round {0} of {1}', turn: 'Turn', you: 'your turn!', spectator: 'You are watching', playing_as: 'You play as {0}',
        roll: 'Roll ({0} left)', roll_none: 'No rolls left', wait: 'Waiting for {0}...', rolling: 'Dice rolling...',
@@ -248,11 +248,24 @@ function onError(m) {
     joined = false;
     show('lobby');
   } else if (m.error === 'pin' || m.error === 'nopin' || m.error === 'locked' || m.error === 'seat') {
-    // Join with a seat failed: drop the saved PIN, stay a spectator and let the user retry
+    // Join with a seat failed
     forget();
+    const failSeat = pending ? pending.seat : -1;
+    const failName = pending ? pending.name : '';
     pending = null;
     mode = 'ask';
-    if (m.error === 'nopin' || m.error === 'seat' || $('pad').hidden) {
+    if ($('pad').hidden) {
+      // Pad was not open: silent re-join with saved PIN failed
+      if ((m.error === 'pin' || m.error === 'locked') && failSeat >= 0) {
+        // Wrong or expired saved PIN: open pad so user can enter it manually
+        padOpen(failSeat, failName);
+        padMsg(txt);
+      } else {
+        // nopin or seat error: back to seat list
+        $('seat-msg').textContent = txt;
+        if (g && g.active) { renderSeats(); show('seats'); }
+      }
+    } else if (m.error === 'nopin' || m.error === 'seat') {
       padClose();
       $('seat-msg').textContent = txt;
       if (g && g.active) { renderSeats(); show('seats'); }
@@ -286,11 +299,8 @@ function onState(m) {
   joined = true;
   const wp = m.web_players || [];
   if (you < 0 && mode !== 'watch' && !pending) {
-    // Saved player still on the same seat in this game? Re-join silently with the saved PIN.
-    const s = stored();
-    const w = s && wp.find(x => x.player === s.seat);
-    if (w && w.name === s.name && w.has_pin && s.pin) { seatJoin(s.seat, s.name, s.pin); return; }
-    if (s && (!w || w.name !== s.name)) forget();
+    // Always show the seat list: the user must explicitly choose who they are.
+    // Silent re-join with saved PIN happens when they click their name (seat click handler).
     renderSeats();
     show('seats');
     return;
@@ -301,10 +311,16 @@ function onState(m) {
 
 function renderSeats() {
   const wp = (g && g.web_players) || [];
-  $('seat-list').innerHTML = wp.length ? wp.map(w =>
-    `<button class="primary" data-seat="${w.player}" data-name="${esc(w.name)}"><span>&#128246; ${esc(w.name)}</span>` +
-    `<span class="tag">${w.connected ? '&#10003; ' + t('connected_tag') : !w.has_pin ? t('nopin_tag') : ''}</span></button>`).join('')
-    : `<p class="muted">${t('no_web')}</p>`;
+  let s = stored();
+  // Clean up stale saved session if the player is no longer in this game
+  if (s && !wp.find(x => x.player === s.seat && x.name === s.name)) { forget(); s = null; }
+  $('seat-list').innerHTML = wp.length ? wp.map(w => {
+    const canRejoin = s && s.seat === w.player && s.name === w.name && s.pin;
+    return `<button class="primary" data-seat="${w.player}" data-name="${esc(w.name)}">` +
+      `<span>&#128246; ${esc(w.name)}</span>` +
+      `<span class="tag">${w.connected ? '&#10003; ' + t('connected_tag') : canRejoin ? '&#8594; ' + t('rejoin_tag') : !w.has_pin ? t('nopin_tag') : ''}</span>` +
+      `</button>`;
+  }).join('') : `<p class="muted">${t('no_web')}</p>`;
 }
 
 // --- PIN pad -------------------------------------------------------------------------------
@@ -402,7 +418,16 @@ $('seat-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-seat]');
   if (!b) return;
   $('seat-msg').textContent = '';
-  padOpen(parseInt(b.dataset.seat, 10), b.dataset.name);
+  const seat = parseInt(b.dataset.seat, 10);
+  const name = b.dataset.name;
+  const s = stored();
+  if (s && s.seat === seat && s.name === name && s.pin) {
+    // Saved PIN for this exact seat+name: silent re-join (user explicitly clicked their name)
+    $('seat-msg').textContent = t('joining');
+    seatJoin(seat, name, s.pin);
+  } else {
+    padOpen(seat, name);
+  }
 });
 $('watch').onclick = () => { mode = 'watch'; forget(); if (g && g.active) { show('live'); render(); } };
 $('dice').addEventListener('click', e => {
