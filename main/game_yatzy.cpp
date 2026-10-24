@@ -43,7 +43,7 @@ const int8_t kExpected[YATZY_CATEGORY_COUNT] = {
     12, 10, 8,               // n of a kind
     8, 8, 7,                 // straights
     15, 15, 13,              // full house, villa, tower
-    22, 10,                  // chance, yatzy
+    28, 10,                  // chance, yatzy
 };
 
 void countDice(const uint8_t *dice, int n, int counts[7])

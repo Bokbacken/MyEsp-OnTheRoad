@@ -10,22 +10,17 @@ body { max-width: 34rem; }
 .turn { font-size: 1.15rem; margin: .2rem 0; }
 .turn b { color: var(--otr-orange); }
 .mine { color: var(--otr-green); font-weight: 700; }
-.dice { display: flex; gap: .45rem; justify-content: center; margin: .7rem 0 .4rem; min-height: 3.6rem; }
-.die { width: 3.5rem; height: 3.5rem; transition: transform .2s, opacity .2s; }
-.dice.act .die { cursor: pointer; }
-.die.rolling { animation: wob .35s infinite alternate; opacity: .75; }
-.die.held { transform: translateY(.35rem); filter: drop-shadow(0 0 .35rem var(--otr-orange)); }
-@keyframes wob { from { transform: rotate(-8deg) scale(.95); } to { transform: rotate(8deg) scale(1.03); } }
+/* Die size for this page */
+.dice { min-height: 4rem; }
+.die-wrap { width: 3.5rem; height: 3.5rem; }
+/* Clickable cells in score table */
+.score td.pot { cursor: pointer; font-weight: 600; color: var(--otr-gold, #d4b400);
+  border-left: 3px solid var(--otr-gold, #d4b400); background: rgba(212,180,0,.09); }
+.score td.pot-zero { cursor: pointer; color: var(--otr-muted);
+  border-left: 3px solid rgba(200,60,50,.45); background: rgba(200,60,50,.06); }
+.score td.pot.sel, .score td.pot-zero.sel { border-color: var(--otr-orange);
+  background: rgba(255,156,61,.15); color: var(--otr-orange); font-weight: 700; }
 .big { width: 100%; font-size: 1.25rem; padding: .8rem; margin: .3rem 0; }
-.cats { list-style: none; margin: .4rem 0 0; padding: 0; }
-.cats li { display: flex; justify-content: space-between; align-items: center; padding: .55rem .7rem; margin: .25rem 0;
-  border: 1px solid var(--otr-line); border-radius: .6rem; background: var(--otr-panel-raised); }
-.cats li.can { cursor: pointer; }
-.cats li.can:hover { border-color: var(--otr-teal); }
-.cats li.sel { border-color: var(--otr-orange); box-shadow: 0 0 0 1px var(--otr-orange) inset; }
-.cats li.done { opacity: .55; }
-.cats .pts { font-weight: 700; font-variant-numeric: tabular-nums; }
-.cats .zero { color: var(--otr-muted); }
 .seats button { width: 100%; margin: .3rem 0; display: flex; justify-content: space-between; align-items: center; font-size: 1.1rem; }
 .seats .tag { font-size: .85rem; opacity: .85; }
 .score th, .score td { width: auto; text-align: center; white-space: nowrap; padding: .3rem .4rem; font-size: .9rem; }
@@ -94,11 +89,6 @@ body { max-width: 34rem; }
       <button class="primary big" id="roll" disabled>–</button>
       <p class="msg bad" id="live-msg"></p>
     </div>
-    <div class="card" id="cat-card" hidden>
-      <h3 data-t="choose">Välj ruta</h3>
-      <ul class="cats" id="cats"></ul>
-      <button class="primary big" id="write" disabled>–</button>
-    </div>
   </div>
   <div class="col">
     <h2 data-t="protocol">Protokoll</h2>
@@ -141,7 +131,7 @@ const T = {
        expired: 'Ett nytt spel har startat – välj ditt namn igen.',
        round: 'Omgång {0} av {1}', turn: 'Tur', you: 'din tur!', spectator: 'Du tittar', playing_as: 'Du spelar som {0}',
        roll: 'Kasta ({0} kvar)', roll_none: 'Inga kast kvar', wait: 'Väntar på {0}...', rolling: 'Tärningarna rullar...',
-       tap_hold: 'Tryck på en tärning för att hålla / släppa den.', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
+       tap_hold: 'Tryck på en tärning för att hålla / släppa den.', pick_score: 'Välj ruta i protokollet nedan', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
        sum: 'Summa', total: 'Totalt', over: 'Spelet är slut', winner: 'Vinnare: {0}',
        err_nogame: 'Inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
        err_pin: 'Fel PIN – försök igen.', err_nopin: 'Spelaren har ingen PIN – välj en ny.',
@@ -159,7 +149,7 @@ const T = {
        expired: 'A new game has started – pick your name again.',
        round: 'Round {0} of {1}', turn: 'Turn', you: 'your turn!', spectator: 'You are watching', playing_as: 'You play as {0}',
        roll: 'Roll ({0} left)', roll_none: 'No rolls left', wait: 'Waiting for {0}...', rolling: 'Dice rolling...',
-       tap_hold: 'Tap a die to hold / release it.', write: 'Write {0} pts in {1}', pick: 'Choose a box',
+       tap_hold: 'Tap a die to hold / release it.', pick_score: 'Tap a box in the score sheet below', write: 'Write {0} pts in {1}', pick: 'Choose a box',
        sum: 'Sum', total: 'Total', over: 'The game is over', winner: 'Winner: {0}',
        err_nogame: 'No game running.', err_seat: 'That seat is not played via the web.',
        err_pin: 'Wrong PIN – try again.', err_nopin: 'Player has no PIN – set one now.',
@@ -175,16 +165,6 @@ function setLang(l) {
   L = l;
   document.documentElement.lang = l;
   document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
-}
-
-const PIPS = {1: [[50, 50]], 2: [[28, 28], [72, 72]], 3: [[28, 28], [50, 50], [72, 72]],
-  4: [[28, 28], [72, 28], [28, 72], [72, 72]], 5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
-  6: [[28, 26], [72, 26], [28, 50], [72, 50], [28, 74], [72, 74]]};
-function dieSvg(v, held, rolling, i) {
-  const pips = (PIPS[v] || []).map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="8.5" fill="#1b2433"/>`).join('');
-  return `<svg data-i="${i}" class="die${held ? ' held' : ''}${rolling ? ' rolling' : ''}" viewBox="0 0 100 100">
-    <rect x="4" y="4" width="92" height="92" rx="18" fill="#f4f7fa" stroke="${held ? '#ff9c3d' : '#c9d3df'}"
-      stroke-width="${held ? 7 : 2}" opacity="${v ? 1 : .3}"/>${pips}</svg>`;
 }
 
 // --- State ---------------------------------------------------------------------------------
@@ -394,6 +374,112 @@ document.addEventListener('keydown', e => {
 });
 
 // --- Rendering -----------------------------------------------------------------------------
+// ── 3D Dice engine ────────────────────────────────────────────────────────
+const PIPS3D = {
+  1: [[50,50]],
+  2: [[28,28],[72,72]],
+  3: [[28,28],[50,50],[72,72]],
+  4: [[28,28],[72,28],[28,72],[72,72]],
+  5: [[28,28],[72,28],[50,50],[28,72],[72,72]],
+  6: [[28,26],[72,26],[28,50],[72,50],[28,74],[72,74]]
+};
+// Face name → value shown on that face (opposite faces sum to 7)
+const FACE_VAL = {front:1, back:6, right:2, left:5, top:3, bottom:4};
+// Value → [rotX, rotY] to bring that face to face the viewer
+const FACE_ROT = {1:[0,0], 2:[0,-90], 3:[-90,0], 4:[90,0], 5:[0,90], 6:[0,180]};
+
+let _dieRx = [], _dieRy = [];
+let _rollAnim = null;
+let _dieSz = 3.5, _dieHalf = 1.75;  // rem; overridden per page
+
+const FACE_NAMES = ['front','back','right','left','top','bottom'];
+function _faceTransform(name) {
+  const h = _dieHalf;
+  return {
+    front:  `translateZ(${h}rem)`,
+    back:   `rotateY(180deg) translateZ(${h}rem)`,
+    right:  `rotateY(90deg) translateZ(${h}rem)`,
+    left:   `rotateY(-90deg) translateZ(${h}rem)`,
+    top:    `rotateX(90deg) translateZ(${h}rem)`,
+    bottom: `rotateX(-90deg) translateZ(${h}rem)`,
+  }[name];
+}
+
+function buildDice3D(container, n) {
+  // Only rebuild if count changed
+  if (container.children.length === n) return;
+  container.innerHTML = '';
+  _dieRx = Array(n).fill(0);
+  _dieRy = Array(n).fill(0);
+  const sz = _dieSz;
+  for (let i = 0; i < n; i++) {
+    const wrap = document.createElement('div');
+    wrap.className = 'die-wrap';
+    wrap.dataset.i = String(i);
+    const d3 = document.createElement('div');
+    d3.className = 'die-3d';
+    d3.style.width = sz + 'rem';
+    d3.style.height = sz + 'rem';
+    FACE_NAMES.forEach(name => {
+      const f = document.createElement('div');
+      f.className = 'face ' + name;
+      f.style.transform = _faceTransform(name);
+      const val = FACE_VAL[name];
+      const pip_sz = Math.round(sz * 18 / 3.5 * 10) / 10;  // scale pips with die size
+      f.innerHTML = (PIPS3D[val] || []).map(([x,y]) =>
+        `<span style="left:${x}%;top:${y}%;width:${pip_sz}%;height:${pip_sz}%"></span>`).join('');
+      d3.appendChild(f);
+    });
+    wrap.appendChild(d3);
+    container.appendChild(wrap);
+  }
+}
+
+function _d3(container, i) {
+  const w = container.children[i];
+  return w ? w.querySelector('.die-3d') : null;
+}
+
+function setDieValue(container, i, val, held) {
+  const wrap = container.children[i];
+  if (!wrap) return;
+  const d3 = wrap.querySelector('.die-3d');
+  wrap.classList.toggle('held-wrap', !!held);
+  wrap.classList.toggle('unrolled', !val);
+  d3.classList.toggle('held-3d', !!held);
+  if (val) {
+    d3.classList.add('landing');
+    const [bx, by] = FACE_ROT[val] || [0, 0];
+    // Approach from current angle: nearest 360 + target offset
+    _dieRx[i] = Math.round(_dieRx[i] / 360) * 360 + bx;
+    _dieRy[i] = Math.round(_dieRy[i] / 360) * 360 + by;
+    d3.style.transform = `rotateX(${_dieRx[i]}deg) rotateY(${_dieRy[i]}deg)`;
+  }
+}
+
+function startRollingAnim(container, rollingIdx) {
+  if (_rollAnim) return;
+  // Remove landing class on rolling dice for snappy spinning
+  rollingIdx.forEach(i => {
+    const d3 = _d3(container, i);
+    if (d3) d3.classList.remove('landing');
+  });
+  _rollAnim = setInterval(() => {
+    rollingIdx.forEach(i => {
+      _dieRx[i] += 80 + Math.random() * 200;
+      _dieRy[i] += 80 + Math.random() * 200;
+      const d3 = _d3(container, i);
+      if (d3) d3.style.transform = `rotateX(${_dieRx[i]}deg) rotateY(${_dieRy[i]}deg)`;
+    });
+  }, 95);
+}
+
+function stopRollingAnim() {
+  if (_rollAnim) { clearInterval(_rollAnim); _rollAnim = null; }
+}
+// ── End 3D Dice engine ────────────────────────────────────────────────────
+_dieSz = 3.5; _dieHalf = 1.75;
+
 function render() {
   if (!g || !g.active) return;
   const P = g.players, cur = P[g.current] || {name: '?'};
@@ -403,8 +489,23 @@ function render() {
   $('turn').innerHTML = g.finished ? t('over') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (mine ? ' <span class="mine">– ' + t('you') + '</span>' : '');
   const canHold = mine && g.has_rolled && !g.rolling && !g.choosing;
   $('dice').className = 'dice' + (canHold ? ' act' : '');
-  $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], (g.rolling || g.shaking) && !g.held[i], i)).join('');
-  $('hint').textContent = g.finished ? '' : g.rolling ? t('rolling') : canHold ? t('tap_hold') : !mine ? t('wait', cur.name) : '';
+  if (g.finished) {
+    stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = [];
+  } else {
+    buildDice3D($('dice'), g.dice.length);
+    const rolling = g.rolling || g.shaking;
+    if (rolling) {
+      const rollingIdx = g.dice.map((_, i) => !g.held[i] ? i : -1).filter(i => i >= 0);
+      startRollingAnim($('dice'), rollingIdx);
+    } else {
+      stopRollingAnim();
+      g.dice.forEach((v, i) => setDieValue($('dice'), i, v, g.held[i]));
+    }
+  }
+  $('hint').textContent = g.finished ? '' : (g.rolling || g.shaking) ? t('rolling')
+    : canHold ? t('tap_hold')
+    : mine && g.has_rolled && !g.choosing ? t('pick_score')
+    : !mine ? t('wait', cur.name) : '';
 
   $('device-row').hidden = !(you >= 0 && !g.finished);
   if (you >= 0) { $('device').textContent = t('device'); $('device').disabled = false; }
@@ -414,26 +515,21 @@ function render() {
   rb.disabled = !(mine && g.can_roll && !g.rolling);
   rb.textContent = g.can_roll ? t('roll', g.rolls_left) : t('roll_none');
 
-  // Boxes (only for the web player on turn, after the first roll)
-  const showCats = mine && g.has_rolled && !g.rolling;
-  $('cat-card').hidden = !showCats;
-  if (!showCats) sel = null;
-  if (showCats) {
-    const me = P[you];
-    if (sel !== null && !g.categories.some(c => c.id === sel && c.potential !== undefined)) sel = null;
-    $('cats').innerHTML = g.categories.map((c, k) => {
-      const done = me.scores[k] !== null, can = c.potential !== undefined;
-      const val = done ? me.scores[k] : can ? c.potential : '';
-      return `<li data-cat="${c.id}" class="${done ? 'done' : can ? 'can' : ''}${sel === c.id ? ' sel' : ''}">
-        <span>${esc(c.name)}</span><span class="pts${val === 0 ? ' zero' : ''}">${val}</span></li>`;
-    }).join('');
-    const sc = g.categories.find(c => c.id === sel);
-    $('write').disabled = !sc;
-    $('write').textContent = sc ? t('write', sc.potential, sc.name) : t('pick');
-  }
+  if (!mine || !g.has_rolled) sel = null;   // Clear the pick when it is no longer my turn / not rolled
+  if (sel !== null && !g.categories.some(c => c.id === sel && c.potential !== undefined)) sel = null;
 
-  // Score sheet: every player, every box (read-only)
+  // Score sheet: every player, every box; my column is clickable on my turn (gold = points, red = strike)
   const cc = i => (!g.finished && i === g.current) ? ' class="cur"' : '';
+  // Add the current-column marker without producing a second class attribute
+  const withCur = (td, i) => !cc(i) ? td : td.includes('class="') ? td.replace('class="', 'class="cur ') : td.replace('<td', '<td' + cc(i));
+  function myCell(c, k) {
+    const me = P[you];
+    const scored = me.scores[k];
+    if (scored !== null) return '<td>' + scored + '</td>';          // Already filled
+    if (c.potential === undefined) return '<td class="muted">·</td>'; // Not selectable now
+    const cls = 'pot' + (c.potential > 0 ? '' : '-zero') + (sel === c.id ? ' sel' : '');
+    return `<td class="${cls}" data-cat="${c.id}">${c.potential}</td>`;
+  }
   const cell = v => v === null ? '<td class="muted">·</td>' : '<td>' + v + '</td>';
   let h = '<thead><tr><th></th>' + P.map((p, i) => '<th' + cc(i) + '>' + esc(p.name) + (p.web ? ' &#128246;' : '') + '</th>').join('') + '</tr></thead><tbody>';
   let upperDone = false;
@@ -443,7 +539,10 @@ function render() {
       h += '<tr class="sum"><td>' + t('sum') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.upper + '</td>').join('') + '</tr>';
       h += '<tr><td>Bonus</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.bonus + '</td>').join('') + '</tr>';
     }
-    h += '<tr><td>' + esc(c.name) + '</td>' + P.map((p, i) => cell(p.scores[k]).replace('<td', '<td' + cc(i))).join('') + '</tr>';
+    h += '<tr><td>' + esc(c.name) + '</td>' + P.map((p, i) => {
+      const td = (i === you && mine && g.has_rolled && !g.rolling) ? myCell(c, k) : cell(p.scores[k]);
+      return withCur(td, i);
+    }).join('') + '</tr>';
   });
   h += '<tr class="sum"><td>' + t('total') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
   $('score').innerHTML = h;
@@ -471,18 +570,17 @@ $('seat-list').addEventListener('click', e => {
 });
 $('watch').onclick = () => { mode = 'watch'; forget(); if (g && g.active) { show('live'); render(); } };
 $('dice').addEventListener('click', e => {
-  const d = e.target.closest('.die');
+  const d = e.target.closest('.die-wrap');
   if (d && $('dice').classList.contains('act')) send({cmd: 'hold', die: parseInt(d.dataset.i, 10)});
 });
 $('roll').onclick = () => { sel = null; send({cmd: 'roll'}); };
-$('cats').addEventListener('click', e => {
-  const li = e.target.closest('li.can');
-  if (!li) return;
-  const id = parseInt(li.dataset.cat, 10);
-  if (sel === id) { send({cmd: 'choose', cat: id}); sel = null; }   // Second tap writes
+$('score').addEventListener('click', e => {
+  const td = e.target.closest('td[data-cat]');
+  if (!td) return;
+  const id = parseInt(td.dataset.cat, 10);
+  if (sel === id) { send({cmd: 'choose', cat: id}); sel = null; render(); }   // Second tap writes
   else { sel = id; render(); }
 });
-$('write').onclick = () => { if (sel !== null) { send({cmd: 'choose', cat: sel}); sel = null; } };
 $('leave').onclick = () => {
   forget();
   mode = 'ask'; pending = null; you = -1;

@@ -207,6 +207,26 @@ progress { width: 100%; height: 1.2rem; accent-color: var(--otr-orange); }
 footer { margin-top: 2rem; color: var(--otr-muted); font-size: .85rem; text-align: center; }
 code { color: var(--otr-teal); }
 
+/* ── 3D Dice ───────────────────────────────────── */
+.dice { display: flex; gap: .45rem; justify-content: center; margin: .7rem 0 .4rem; min-height: 3.6rem; flex-wrap: wrap; }
+.die-wrap { perspective: 560px; display: inline-flex; align-items: center; justify-content: center; }
+.die-3d { position: relative; transform-style: preserve-3d; transition: transform .12s linear; }
+.die-3d.landing { transition: transform .72s cubic-bezier(.22,.61,.36,1); }
+.face {
+  position: absolute; inset: 0;
+  background: linear-gradient(150deg, #f8fafc 0%, #dde4ec 100%);
+  border: 2px solid #c9d3df; border-radius: 16%;
+  backface-visibility: visible;
+}
+.face span { /* pip dots */
+  position: absolute; background: #1b2433; border-radius: 50%;
+  transform: translate(-50%,-50%);
+}
+.die-3d.held-3d .face { border-color: var(--otr-orange); border-width: 3px; }
+.die-wrap.held-wrap { transform: translateY(.38rem); filter: drop-shadow(0 0 .55rem rgba(255,156,61,.6)); }
+.die-wrap.unrolled .face { opacity: .28; }
+.dice.act .die-wrap { cursor: pointer; }
+
 @media (max-width: 700px) {
   body { padding: .6rem .6rem 2rem; font-size: 15px; }
   .otr-project { font-size: 1.2rem; }
