@@ -50,7 +50,7 @@ input[type=text].code-in { font-size: 2rem; letter-spacing: .4em; text-align: ce
   <p class="muted" data-t="code_hint">Koden visas på enheten och på sidan Live.</p>
   <form id="code-form" class="row">
     <input type="text" id="code" class="code-in" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off">
-    <button type="submit" class="primary" data-t="join">Anslut</button>
+    <button type="submit" class="primary" id="join-btn" data-t="join">Anslut</button>
   </form>
   <p class="msg bad" id="lobby-msg"></p>
 </div>
@@ -98,7 +98,8 @@ const T = {
        sum: 'Summa', total: 'Totalt', over: 'Spelet är slut', winner: 'Vinnare: {0}',
        err_code: 'Fel kod eller inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
        err_join: 'Anslut med koden först.', err_full: 'För många webbklienter (max 4).', err_turn: 'Det är inte din tur.',
-       err_cmd: 'Kommandot kunde inte utföras.'},
+       err_cmd: 'Kommandot kunde inte utföras.', joining: 'Ansluter...', err_short: 'Koden måste vara exakt 4 siffror.',
+       err_wait: 'Ansluter, försök igen om en sekund...'},
   en: {sub: 'Web play', connecting: 'connecting...', online: 'connected', offline: 'no contact – retrying',
        enter_code: 'Enter the game code', code_hint: 'The code is shown on the device and on the Live page.', join: 'Join',
        who: 'Who are you playing?', watch: 'Just watch', choose: 'Choose a box', protocol: 'Score sheet', leave: 'Change code / player',
@@ -110,7 +111,8 @@ const T = {
        sum: 'Sum', total: 'Total', over: 'The game is over', winner: 'Winner: {0}',
        err_code: 'Wrong code or no game running.', err_seat: 'That seat is not played via the web.',
        err_join: 'Join with the code first.', err_full: 'Too many web clients (max 4).', err_turn: 'It is not your turn.',
-       err_cmd: 'The command could not be executed.'}
+       err_cmd: 'The command could not be executed.', joining: 'Connecting...', err_short: 'Code must be exactly 4 digits.',
+       err_wait: 'Connecting, try again in a second...'}
 };
 let L = 'sv';
 const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
@@ -140,7 +142,25 @@ const stored = () => { try { return JSON.parse(localStorage.getItem('otr_play') 
 if (code && wantSeat === null && stored().code === code) wantSeat = stored().seat;
 
 function show(view) { ['lobby', 'seats', 'live'].forEach(v => $(v).hidden = v !== view); }
-function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+const DEBUG = params.get('debug') === '1';   // ?debug=1 logs WS traffic to the console
+function send(o) {
+  if (DEBUG) console.log('[WS out]', o, ws ? 'readyState=' + ws.readyState : 'no socket');
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
+}
+// Lobby message, scrolled into view (the phone keyboard may hide it)
+function lobbyMsg(txt) {
+  $('lobby-msg').textContent = txt;
+  if (txt) $('lobby-msg').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+// "Join" button feedback: busy until a reply (joined/error) or 5 s timeout
+let joinTimer = null;
+function joinBusy(on) {
+  const b = $('join-btn');
+  clearTimeout(joinTimer);
+  b.disabled = on;
+  b.textContent = t(on ? 'joining' : 'join');
+  if (on) joinTimer = setTimeout(() => joinBusy(false), 5000);
+}
 function join(seat) {
   const o = {cmd: 'join', code: parseInt(code, 10)};
   if (seat !== null && seat >= 0) o.player = seat;
@@ -165,8 +185,10 @@ function connect() {
   ws.onmessage = ev => {
     let m;
     try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (DEBUG) console.log('[WS in]', m);
     if (m.type === 'state') onState(m);
     else if (m.type === 'joined') {
+      joinBusy(false);
       you = m.you;
       joined = everJoined = true;
       if (you >= 0) localStorage.setItem('otr_play', JSON.stringify({code, seat: you}));
@@ -175,11 +197,12 @@ function connect() {
 }
 
 function onError(m) {
+  joinBusy(false);
   const txt = t('err_' + m.error) !== 'err_' + m.error ? t('err_' + m.error) : m.msg;
   if (m.error === 'code') {
     joined = false;
     show('lobby');
-    $('lobby-msg').textContent = txt;
+    lobbyMsg(txt);
   } else if (m.error === 'seat') {   // Stale seat: ask again
     localStorage.removeItem('otr_play');
     delete $('seats').dataset.done;
@@ -196,9 +219,9 @@ function onState(m) {
   g = m;
   you = m.joined ? m.you : -1;
   if (!m.joined) {
-    if (everJoined && joined) { joined = false; $('lobby-msg').textContent = t('expired'); }
+    if (everJoined && joined) { joined = false; lobbyMsg(t('expired')); }
     if (!code || !m.active) {
-      if (!m.active && code) $('lobby-msg').textContent = t('no_game');
+      if (!m.active && code) { joinBusy(false); lobbyMsg(t('no_game')); }
       show('lobby');
     }
     return;
@@ -280,13 +303,16 @@ function render() {
 $('code-form').addEventListener('submit', e => {
   e.preventDefault();
   const c = $('code').value.replace(/\D/g, '');
-  if (c.length !== 4) return;
+  if (c.length !== 4) { lobbyMsg(t('err_short')); return; }
   code = c;
   history.replaceState(null, '', '/play?code=' + code);
-  $('lobby-msg').textContent = '';
+  lobbyMsg('');
   delete $('seats').dataset.done;
   wantSeat = stored().code === code ? stored().seat : null;
+  joinBusy(true);
   join(wantSeat === null ? -1 : wantSeat);
+  // Socket not open yet: onopen() will join with this code automatically, but tell the user
+  if (!ws || ws.readyState !== 1) lobbyMsg(t('err_wait'));
 });
 $('seat-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-seat]');
