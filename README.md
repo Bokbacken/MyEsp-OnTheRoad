@@ -14,6 +14,10 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
+- **Adventure engine test (v0.7.0, not yet hardware-tested)** – separate module (`components/otr_engine`
+  + `main/ui_adventure.cpp`): a 60 × 60 tile test world with its own tile renderer on a PSRAM canvas, smooth
+  scrolling camera, 32/16 px zoom, arrow pad, "Slå" (hit), pushable rocks, keys/doors, boat, lava, plates and
+  gates, and live fps statistics. See [docs/ENGINE_2D_BRIEF.md](docs/ENGINE_2D_BRIEF.md).
 - **Board support** – ST77922 over QSPI (40 MHz) with LVGL 9 partial PSRAM draw buffers (`esp_lcd`), I2C capacitive
   touch (0x55), LEDC PWM backlight on GPIO41, WS2812 status LED on GPIO40.
 - **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, RTC, storage, Wi-Fi, web)
@@ -157,6 +161,8 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o te
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
+g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine
 g++ -std=c++17 -Wall -Wextra -Imain -Imain/lang tests/test_lang.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o tests/test_lang && ./tests/test_lang   # string tables
 ```
 
@@ -195,7 +201,8 @@ main/                 Application: app_main, app_config, app_players, app_web, b
 main/lang/            UI strings: lang.h (ids, tr), lang.cpp, lang_sv.cpp, lang_en.cpp
 main/web/             Web page sources (HTML/CSS)
 components/my_*/      Shared reusable components (see above)
-docs/                 Hardware reference
+components/otr_engine/ OnTheRoad Engine: tile world logic + built-in test map (pure C++, host tested)
+docs/                 Hardware reference, game architecture, 2D engine brief (ENGINE_2D_BRIEF.md)
 tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format, dice cup, strings)
 tools/embed_web.py    main/web/ -> main/web_assets.h generator
 tools/lvgl8to9.py     Helper used for the LVGL 8 -> 9 API rename

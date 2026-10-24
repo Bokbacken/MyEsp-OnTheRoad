@@ -17,3 +17,4 @@ tests/test_rtc
 tests/test_cup
 tests/test_lang
 tests/test_games
+tests/test_adventure

@@ -241,6 +241,29 @@
     X(G_NO_CARGO) \
     X(G_SCC_HINT) \
     X(G_SCC_CARGO_HINT) \
+    X(GAME_NAME_ADV) \
+    X(MENU_SUB_GAME_ADV) \
+    X(ADV_TITLE) \
+    X(ADV_HIT) \
+    X(ADV_ZOOM) \
+    X(ADV_STATS) \
+    X(ADV_BOAT_TAG) \
+    X(ADV_GEM) \
+    X(ADV_ALL_GEMS) \
+    X(ADV_KEY) \
+    X(ADV_NEED_KEY) \
+    X(ADV_DOOR) \
+    X(ADV_BOAT) \
+    X(ADV_NEED_BOAT) \
+    X(ADV_SPLASH) \
+    X(ADV_SIZZLE) \
+    X(ADV_BURNED) \
+    X(ADV_GATE_OPEN) \
+    X(ADV_GATE_CLOSE) \
+    X(ADV_CRACK) \
+    X(ADV_HELP) \
+    X(ADV_RESTART_Q) \
+    X(ADV_RESTART) \
     X(WEB_ERR_NUMBER) \
     X(WEB_ERR_TZ) \
     X(WEB_ERR_PIN) \

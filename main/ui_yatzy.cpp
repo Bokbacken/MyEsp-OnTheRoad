@@ -20,6 +20,7 @@
 #include "game_yatzy.h"
 #include "my_charwheel.h"
 #include "my_wifi.h"
+#include "ui_adventure.h"
 #include "ui_clock.h"
 #include "ui_numpad.h"
 #include "ui_settings.h"
@@ -155,14 +156,17 @@ void showMenu()
     lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
     UiClock::attachLabel(clk, true);
 
+    // Four dice games + the adventure engine test world (v0.7.0, separate module)
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *b = menuCard(scr, 76 + i * 90, 80, tr(GAMES[i].name), tr(GAMES[i].sub), GAMES[i].color,
+        lv_obj_t *b = menuCard(scr, 74 + i * 76, 70, tr(GAMES[i].name), tr(GAMES[i].sub), GAMES[i].color,
                                GAMES[i].type == s_gameType);
         lv_obj_add_event_cb(b, [](lv_event_t *e) {
             s_gameType = GAMES[(int)(intptr_t)lv_event_get_user_data(e)].type;
             showVariants();
         }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
+    lv_obj_t *adv = menuCard(scr, 74 + 4 * 76, 70, tr(Str::GAME_NAME_ADV), tr(Str::MENU_SUB_GAME_ADV), Theme::GREEN, false);
+    lv_obj_add_event_cb(adv, [](lv_event_t *) { UiAdventure::show(); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);

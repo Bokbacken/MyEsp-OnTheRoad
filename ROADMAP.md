@@ -115,6 +115,14 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.7.0 – Äventyrsmotor, proof of concept ✅ 🔧 (inte HW-testad)
+- [x] `components/otr_engine`: `Otr::World` (terräng/objekt/spelare, händelser) + 60 × 60 testvärld – separat modul, tärningsspelen orörda
+- [x] `main/ui_adventure.cpp`: egen tile-renderare på RGB565-canvas i PSRAM, mjuk scroll, zoom 32/16 px, styrplatta, Slå, fps-statistik; menykort "Äventyr (test)"
+- [x] Värdtester: test_adventure 258/258 (full genomspelning 13/13 ädelstenar)
+- [x] Brief, kommentarer och PoC-plan: [docs/ENGINE_2D_BRIEF.md](docs/ENGINE_2D_BRIEF.md)
+- [ ] HW-test: fps vid scroll (32 och 16 px), touch-styrning, minne
+- [ ] Nästa: SD + ES8311, kartformat/`tmx2otr.py`, dialog, riktiga tilesets
+
 ## Senare ⏳
 - [ ] AP-läge (uppskjutet – `AP_MODE_ENABLED 0`)
 - [ ] Admin-roll per spelare (flaggfältet i `PlayerRec` är reserverat)
