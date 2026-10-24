@@ -196,6 +196,7 @@
     X(GAME_WEB_WAIT) \
     X(GAME_WEB_CONNECT) \
     X(GAME_WEB_CONNECTED) \
+    X(GAME_WEB_LOCAL) \
     X(RES_TITLE) \
     X(RES_AGAIN) \
     X(RES_MENU) \

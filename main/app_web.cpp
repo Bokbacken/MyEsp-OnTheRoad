@@ -935,7 +935,10 @@ static void wsHandleText(int fd, const char *txt)
             wsQueueBroadcast();
         }
     } else if (strcmp(cmd, "leave") == 0) {
-        // Give the seat back (e.g. "continue on device"): stay connected as a spectator
+        // Give the seat back (e.g. "continue on device"): stay connected as a spectator.
+        // v0.7.2: also release a seat that was pre-selected as web-played on the device, so the
+        // console stops waiting for the web and continues locally (same session, no rebinding).
+        if (c->joined && c->seat >= 0 && c->session == s->session) GameLive::releaseWeb(c->seat);
         c->joined = true;
         c->seat = -1;
         c->session = 0;

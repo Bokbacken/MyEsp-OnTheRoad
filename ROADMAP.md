@@ -115,6 +115,13 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.7.2 – Webbplats som förvalts med WiFi-ikonen kan lämnas tillbaka ✅ 🔧 (inte HW-testad)
+- [x] Bugg: förvald webbplats (WiFi-ikonen i spelarlistan) låstes kvar i "Väntar på ... via webben" efter "Fortsätt på enheten" – `s_web[]` rensades aldrig
+- [x] `leave` från `/play` (både "Fortsätt på enheten" och "Byt spelare") släpper platsen: `GameLive::releaseWeb()` rensar webbflaggan i snapshoten (ingen ny session) och UI:t rensar `s_web[plats]` – enheten fortsätter lokalt direkt, webben kan ta platsen igen senare
+- [x] Ny knapp "Spela på enheten" i vänterutan (Yatzy, Pig, Farkle, SCC) när ingen webbläsare är ansluten till platsen
+- [x] Vanligt avbrott (telefonen tappar WiFi, inget `leave`) släpper inte en förvald webbplats – enheten väntar, knappen finns
+- [ ] HW-test: Pig 1 spelare med WiFi-ikon → anslut i `/play` → "Fortsätt på enheten"; samma med knappen på enheten
+
 ## v0.7.1 – Tärningsvärden avslöjas först när tärningarna stannat ✅ 🔧 (inte HW-testad)
 - [x] Pig/Farkle/SCC: kastet görs på en kopia av motorn som ersätter den först när tärningarna stannat – turpoäng, bust/Farkle, skepp/kapten/besättning, last och poängtavla visar läget före kastet tills dess; ledtråden visar "Tärningarna rullar..."
 - [x] Yatzy + alla spel på webben: snapshoten under `rolling` är läget före kastet + `roll_mask[]` (tärningar i luften); `/play` och `/game` använder masken

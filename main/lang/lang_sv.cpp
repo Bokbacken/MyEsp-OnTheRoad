@@ -192,6 +192,7 @@ extern const Entry LANG_SV[] = {
     {Str::GAME_WEB_WAIT, "Väntar på %s via webben..."},
     {Str::GAME_WEB_CONNECT, "Öppna http://%s/play\nvälj ditt namn och ange din PIN"},
     {Str::GAME_WEB_CONNECTED, "%s är ansluten och spelar på webben"},
+    {Str::GAME_WEB_LOCAL, "Spela på enheten"},
 
     {Str::RES_TITLE, "Resultat"},
     {Str::RES_AGAIN, "Spela igen"},

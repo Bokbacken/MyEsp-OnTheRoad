@@ -989,6 +989,7 @@ $('score').addEventListener('click', e => {
   else { sel = id; render(); }
 });
 $('leave').onclick = () => {
+  if (you >= 0) send({cmd: 'leave'});   // v0.7.2: hand the seat back before reconnecting
   forget();
   mode = 'ask'; pending = null; you = -1;
   $('seat-msg').textContent = '';

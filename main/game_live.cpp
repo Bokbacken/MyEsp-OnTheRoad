@@ -9,6 +9,7 @@ static_assert(sizeof(Snapshot) < 2048, "GameLive::Snapshot grew unexpectedly");
 // A plain struct copy (~1 kB) under a spinlock: short, and safe from any task without lazy init.
 static Snapshot s_snap = {};
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_released = 0;   // v0.7.2: seats given back by the web (bit mask)
 static Cmd s_q[CMD_QUEUE];
 static int s_qHead = 0, s_qLen = 0;
 
@@ -173,6 +174,7 @@ void setSeats(const bool *web, const uint16_t *pids, int n)
         s_snap.pid[i] = i < n && pids ? pids[i] : 0;
     }
     s_qLen = 0;
+    s_released = 0;   // Releases from an older game must not touch the new seats
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
 }
@@ -216,6 +218,27 @@ int connections(int seat)
     int c = s_snap.conn[seat];
     portEXIT_CRITICAL(&s_mux);
     return c;
+}
+
+void releaseWeb(int seat)
+{
+    if (seat < 0 || seat >= YATZY_MAX_PLAYERS) return;
+    portENTER_CRITICAL(&s_mux);
+    s_released |= 1u << seat;
+    if (s_snap.web[seat]) {
+        s_snap.web[seat] = false;
+        s_snap.version++;
+    }
+    portEXIT_CRITICAL(&s_mux);
+}
+
+uint32_t takeReleased()
+{
+    portENTER_CRITICAL(&s_mux);
+    uint32_t m = s_released;
+    s_released = 0;
+    portEXIT_CRITICAL(&s_mux);
+    return m;
 }
 
 bool pushCmd(const Cmd &c)

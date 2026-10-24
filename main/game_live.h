@@ -74,6 +74,11 @@ void setConnections(const uint8_t *conn, int n);   // From the web server; bumps
 uint32_t session();
 bool isWeb(int seat);
 int connections(int seat);
+// v0.7.2: a browser gave a seat back ("leave"). Clears the seat's web flag in the snapshot (no new
+// session, bindings stay valid) and records it for the UI, which polls takeReleased() and clears
+// its own per-seat web flag so the device continues locally. Also used by the device button.
+void releaseWeb(int seat);
+uint32_t takeReleased();   // Bit i = seat i released since the last call (clears the mask)
 
 constexpr int CMD_QUEUE = 16;
 bool pushCmd(const Cmd &c);   // false when full

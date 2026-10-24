@@ -768,6 +768,8 @@ static YatzyCategory s_best = YatzyCategory::COUNT;
 // Current seat is played from the web: local dice / cup / table input is blocked.
 // v0.5.7: any seat counts as web-played while a browser holds it (joined with PIN); after
 // "leave" (continue on device) the connection count drops and local input works again.
+// v0.7.2: a seat pre-selected as web-played (s_web) is released by "leave" or by the device's
+// "Spela på enheten" button (webRelease); a plain disconnect keeps it waiting for the web.
 static bool webTurn()
 {
     int p;
@@ -2067,7 +2069,7 @@ static lv_obj_t *plainBox(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int
 // a panel at the bottom says who we are waiting for (plus the URL until a phone is bound).
 // Commands from /ws/game arrive through GameLive's queue and are executed here, on the LVGL task.
 static constexpr uint32_t WEB_TICK_MS = 50, WEB_WRITE_DELAY_MS = 700;
-static lv_obj_t *s_webBlock = nullptr, *s_webPanel = nullptr, *s_webText = nullptr;
+static lv_obj_t *s_webBlock = nullptr, *s_webPanel = nullptr, *s_webText = nullptr, *s_webLocal = nullptr;
 static int s_webShownConn = -1;   // Connection state the panel text was built for
 static YatzyCategory s_webPending = YatzyCategory::COUNT;
 
@@ -2091,6 +2093,8 @@ static void updateWebOverlay()
     else snprintf(line2, sizeof(line2), tr(Str::GAME_WEB_CONNECT), MyWifi::ipStr());
     snprintf(all, sizeof(all), "%s\n%s", line1, line2);
     lv_label_set_text(s_webText, all);
+    // v0.7.2: the device can take a pre-selected web seat back while no browser holds it
+    if (s_webLocal) lv_obj_set_hidden(s_webLocal, conn != 0);
     lv_obj_move_foreground(s_webBlock);
     lv_obj_move_foreground(s_webPanel);
 }
@@ -2108,6 +2112,22 @@ static void webWriteTimer(lv_timer_t *t)
 
 static void miniWebCommand(const GameLive::Cmd &c);
 static void miniRefresh();
+
+// v0.7.2: seats handed back by the web ("leave") or by the device button continue locally. Only the
+// per-seat web flag is cleared - no new session, so a browser can take the seat again later.
+static void applyWebReleases()
+{
+    const uint32_t m = GameLive::takeReleased();
+    for (int i = 0; m && i < YATZY_MAX_PLAYERS; i++)
+        if (m & (1u << i)) s_web[i] = false;
+}
+
+static void webLocalEvent(lv_event_t *)
+{
+    const int cur = curPlayer();
+    if (cur < 0 || cur >= YATZY_MAX_PLAYERS || GameLive::connections(cur) > 0) return;
+    GameLive::releaseWeb(cur);   // Same path as a browser "leave"; webTimer refreshes the screen
+}
 
 static void webCommand(const GameLive::Cmd &c)
 {
@@ -2165,6 +2185,7 @@ static void webTimer(lv_timer_t *t)
         webCommand(c);
         if (gen != s_gen) return;   // The game ended (results screen)
     }
+    applyWebReleases();
     // Overlay state: -1 = local turn, 0/1 = web turn without/with a connected browser
     const bool on = webTurn();
     const int want = on ? (GameLive::connections(curPlayer()) > 0 ? 1 : 0) : -1;
@@ -2184,7 +2205,7 @@ static void buildWebOverlay(lv_obj_t *scr)
     lv_obj_set_clickable(s_webBlock, true);   // Swallows touches (dice, cup, buttons, table)
     lv_obj_set_scroll_chain(s_webBlock, false);
     lv_obj_set_gesture_bubble(s_webBlock, false);
-    s_webPanel = plainBox(scr, 8, SCR_H - 112, SCR_W - 16, 104);
+    s_webPanel = plainBox(scr, 8, SCR_H - 150, SCR_W - 16, 142);
     lv_obj_set_style_radius(s_webPanel, 14, 0);
     lv_obj_set_style_bg_color(s_webPanel, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_bg_opa(s_webPanel, 235, 0);
@@ -2196,6 +2217,9 @@ static void buildWebOverlay(lv_obj_t *scr)
     lv_obj_set_width(s_webText, SCR_W - 16 - 50);
     lv_label_set_long_mode(s_webText, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_pos(s_webText, 44, 8);
+    s_webLocal = Theme::button(s_webPanel, tr(Str::GAME_WEB_LOCAL), 190, 36, Theme::TEAL);
+    lv_obj_align(s_webLocal, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
+    lv_obj_add_event_cb(s_webLocal, webLocalEvent, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_hidden(s_webBlock, true);
     lv_obj_set_hidden(s_webPanel, true);
     s_webShownConn = -1;
@@ -2209,7 +2233,7 @@ static void showGame()
     s_gen++;
     cupKill();
     s_cupArea = nullptr;
-    s_webBlock = s_webPanel = s_webText = nullptr;
+    s_webBlock = s_webPanel = s_webText = s_webLocal = nullptr;
     s_cupHintDone = false;   // "Skaka och svep uppåt" once per game
     s_rolling = 0;
     s_phase = Phase::ROLL;
@@ -2850,7 +2874,7 @@ static void showMini()
     s_gen++;
     cupKill();
     s_cupArea = nullptr;
-    s_webBlock = s_webPanel = s_webText = nullptr;
+    s_webBlock = s_webPanel = s_webText = s_webLocal = nullptr;
     s_mRolling = s_mPending = false;
     s_mRollBits = 0;
     s_mDice = s_gameType == GameType::PIG ? s_pig.numDice() : (s_gameType == GameType::FARKLE ? FARKLE_DICE : SCC_DICE);
