@@ -10,12 +10,16 @@
 //  Maxi-Yatzy - 6 dice, 3 rolls, 20 categories. Upper bonus 100 at >= 84.
 //               Adds Tre par, Femtal, Full stege (1-6 = 21), Hus (3+3, sum), Torn (4+2, sum),
 //               Maxi Yatzy (100). Unused rolls are saved for later turns ("sparade kast").
+//  Midi Yatzy - Standard Yatzy with the saved-rolls rule (reset(STANDARD, mode, true)). The
+//               rule applies to any variant whose savedRolls flag is set (v0.6.0).
 //  Pairs/sets in one combination must have different values (a four-of-a-kind is not two pairs).
 //  ORDERED mode ("Yatzy i ordning"): categories must be filled top-to-bottom.
 #pragma once
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include "game_base.h"
 
 enum class YatzyVariant : uint8_t { STANDARD = 0, MAXI = 1 };
 enum class YatzyMode : uint8_t { NORMAL = 0, ORDERED = 1 };
@@ -66,18 +70,17 @@ struct YatzySuggestion {
 struct YatzyPlayer {
     char name[YATZY_NAME_CAP];
     int16_t scores[YATZY_CATEGORY_COUNT];   // YATZY_EMPTY when not yet used
-    uint8_t savedRolls;                     // Maxi: rolls carried over to later turns
+    uint8_t savedRolls;                     // Maxi/Midi: rolls carried over to later turns
 };
 
-// Random source returning a die value 1..6. Defaults to rand().
-typedef uint8_t (*YatzyDieRng)(void *ctx);
+// Random source YatzyDieRng (1..6, defaults to rand()): see game_base.h.
 
 class YatzyGame {
 public:
     YatzyGame();
 
     // --- Setup ---
-    void reset(YatzyVariant v, YatzyMode m, bool savedRolls = true);
+    void reset(YatzyVariant v, YatzyMode m, bool savedRolls = false);   // savedRolls: Maxi rule / Midi Yatzy
     bool addPlayer(const char *name);               // Before start(); max 8
     bool removePlayer(int index);
     bool renamePlayer(int index, const char *name);
@@ -135,7 +138,7 @@ private:
 
     YatzyVariant variant_ = YatzyVariant::STANDARD;
     YatzyMode mode_ = YatzyMode::NORMAL;
-    bool savedRollsRule_ = true;
+    bool savedRollsRule_ = false;
     YatzyPlayer players_[YATZY_MAX_PLAYERS];
     int playerCount_ = 0;
     int current_ = 0;

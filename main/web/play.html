@@ -86,8 +86,9 @@ body { max-width: 34rem; }
     <div class="card">
       <div class="muted" id="info">–</div>
       <div class="turn" id="turn">–</div>
-      <div id="felt"><div class="dice" id="dice"></div></div>
+      <div id="felt"><div class="dice" id="dice"></div><div class="bust-flash" id="flash" hidden></div></div>
       <div id="felt-held"></div>
+      <div id="mini-status" class="mini-status" hidden></div>
       <div id="cup-round-wrap" hidden><div id="cup-round"><div class="cup-inner">
         <div id="cup-dice"></div>
         <div class="cup-zone-r" data-zone="left"></div><div class="cup-zone-r" data-zone="right"></div>
@@ -95,11 +96,12 @@ body { max-width: 34rem; }
         <div class="cup-zone-r" data-zone="bot"></div></div></div><div id="cup-info-r"></div></div>
       <div class="muted" id="hint" style="text-align:center"></div>
       <button class="primary big" id="roll" disabled>–</button>
+      <button class="big bank-btn" id="bank" hidden>–</button>
       <p class="msg bad" id="live-msg"></p>
     </div>
   </div>
   <div class="col">
-    <h2 data-t="protocol">Protokoll</h2>
+    <h2 id="protocol-h" data-t="protocol">Protokoll</h2>
     <div class="card table-wrap"><table class="score" id="score"></table></div>
     <div class="row"><button class="secondary" id="leave" data-t="leave">Byt spelare</button></div>
     <div class="row" id="device-row"><button class="secondary" id="device" data-t="device">Fortsätt på enheten</button></div>
@@ -166,6 +168,39 @@ const T = {
        err_join: 'Pick your name and enter your PIN first.', err_full: 'Too many web clients (max 4).', err_turn: 'It is not your turn.',
        err_cmd: 'The command could not be executed.', joining: 'Connecting...', err_wait: 'No contact with the device yet, try again in a second.'}
 };
+// v0.6.0: Pig / Farkle / Ship-Captain-Crew texts (Yatzy keys above are unchanged)
+Object.assign(T.sv, {
+  standings: 'Poängställning', player: 'Spelare', points: 'Poäng', place: 'Plats', target: 'Mål {0} p',
+  roll_plain: 'Kasta', roll_all: 'Kasta alla sex', round_n: 'Omgång {0}', final_round: 'Sista omgången!',
+  turn_total: 'Rundans poäng', held_pts: 'valt', bank: 'Banka {0} p', save: 'Spara {0} p',
+  pig_first: 'Tryck Kasta för att börja din tur.', pig_hint: 'Kasta igen – eller banka {0} p.',
+  pig_one: 'En etta förlorar rundans poäng.', pig_two: 'En etta förlorar rundans poäng, två ettor nollställer allt.',
+  bust: 'Etta! Rundans poäng försvann.', lost_all: 'Dubbla ettor! Hela summan nollställd.',
+  farkle_first: 'Tryck Kasta för att kasta sex tärningar.', farkle_pick: 'Välj tärningar som ger poäng.',
+  farkle_invalid: 'Varje vald tärning måste ge poäng.', farkle_open: 'Minst {0} p krävs för att öppna.',
+  farkle_go: 'Kasta resten eller banka.', farkle: 'Farkle! Inga poäng i kastet.', hot_dice: 'Heta tärningar! Alla sex kastas igen.',
+  opened: 'Öppnad', ship: 'Skepp', captain: 'Kapten', crew: 'Besättning', cargo: 'Last',
+  scc_first: 'Leta efter skepp (6), kapten (5) och besättning (4) – i den ordningen.',
+  scc_hunt: 'Kasta vidare för att få ihop skeppet.', scc_cargo: 'Spara lasten eller kasta om den.',
+  scc_cargo_hold: 'Tryck på en lasttärning för att behålla den.', scc_done: 'Turen klar: {0} p.', scc_sunk: 'Inget komplett skepp – 0 p.',
+  mini_left: 'Kasta ({0} kvar)'
+});
+Object.assign(T.en, {
+  standings: 'Standings', player: 'Player', points: 'Points', place: 'Place', target: 'Target {0} pts',
+  roll_plain: 'Roll', roll_all: 'Roll all six', round_n: 'Round {0}', final_round: 'Final round!',
+  turn_total: 'Turn total', held_pts: 'selected', bank: 'Bank {0} pts', save: 'Save {0} pts',
+  pig_first: 'Tap Roll to start your turn.', pig_hint: 'Roll again – or bank {0} pts.',
+  pig_one: 'A one loses the turn total.', pig_two: 'A one loses the turn total, double ones reset everything.',
+  bust: 'A one! The turn total is lost.', lost_all: 'Double ones! The whole score is reset.',
+  farkle_first: 'Tap Roll to throw six dice.', farkle_pick: 'Pick dice that score.',
+  farkle_invalid: 'Every selected die must score.', farkle_open: 'At least {0} pts needed to open.',
+  farkle_go: 'Roll the rest or bank.', farkle: 'Farkle! No points in this roll.', hot_dice: 'Hot dice! All six roll again.',
+  opened: 'Opened', ship: 'Ship', captain: 'Captain', crew: 'Crew', cargo: 'Cargo',
+  scc_first: 'Find ship (6), captain (5) and crew (4) – in that order.',
+  scc_hunt: 'Keep rolling to complete the ship.', scc_cargo: 'Save the cargo or roll it again.',
+  scc_cargo_hold: 'Tap a cargo die to keep it.', scc_done: 'Turn over: {0} pts.', scc_sunk: 'No complete ship – 0 pts.',
+  mini_left: 'Roll ({0} left)'
+});
 let L = 'sv';
 const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
 function setLang(l) {
@@ -582,8 +617,182 @@ function renderCupDice(vals) {
   });
 }
 
+// v0.6.0: dispatch on game_type. Yatzy keeps its own renderer (cup flow etc.) untouched.
+const isMini = () => !!g && !!g.game_type && g.game_type !== 'yatzy';
 function render() {
   if (!g || !g.active) return;
+  if (isMini()) { renderMini(); return; }
+  $('bank').hidden = true; $('mini-status').hidden = true; $('flash').hidden = true;
+  $('protocol-h').textContent = t('protocol');
+  renderYatzy();
+}
+
+// Pig / Farkle / Ship-Captain-Crew: direct roll (no cup), optional hold, Bank / Save button.
+function renderMini() {
+  const P = g.players, cur = P[g.current] || {name: '?'}, gt = g.game_type;
+  const mine = you >= 0 && you === g.current && !g.finished;
+  const n = (g.dice || []).length;
+  const held = i => !!(g.held && g.held[i]);
+  // Dice the player may not toggle: Farkle dice set aside on an earlier roll, SCC ship/captain/crew
+  const fixed = i => gt === 'farkle' ? !!(g.locked && g.locked[i]) : gt === 'scc' ? !!(g.role && g.role[i]) : false;
+  _cupLoaded = false; _cupPouring = false; _awaitRoll = false;
+  $('cup-round-wrap').hidden = true;
+  $('protocol-h').textContent = t(gt === 'scc' ? 'protocol' : 'standings');
+
+  const parts = [g.name];
+  if (gt === 'scc') parts.push(t('round', g.round, g.rounds));
+  else { parts.push(t('round_n', g.round)); parts.push(t('target', g.target)); }
+  parts.push(you >= 0 ? t('playing_as', P[you].name) : t('spectator'));
+  $('info').textContent = parts.join(' · ');
+  $('turn').innerHTML = g.finished ? t('over') : t('turn') + ': <b>' + esc(cur.name) + '</b>' +
+    (mine ? ' <span class="mine">– ' + t('you') + '</span>' : '') +
+    (gt === 'farkle' && g.final_round && !g.finished ? ' <span class="warn">· ' + t('final_round') + '</span>' : '');
+
+  const busted = gt === 'pig' ? g.busted : gt === 'farkle' ? g.farkled : false;
+  const sccOver = gt === 'scc' && g.has_rolled && g.rolls_left === 0;
+  const canHold = mine && !g.rolling && g.has_rolled && !busted &&
+    (gt === 'farkle' || (gt === 'scc' && g.crew && g.rolls_left > 0));
+  $('dice').className = 'dice' + (canHold ? ' act' : '');
+
+  const heldStrip = $('felt-held');
+  heldStrip.innerHTML = '';
+  if (g.finished) {
+    stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = []; _dieVal = []; _dieRot = []; _dieX = []; _dieY = []; _diePlaced = [];
+  } else {
+    buildDice3D($('dice'), n);
+    Array.from($('dice').children).forEach(w => w.classList.remove('going-to-cup'));
+    if (g.rolling) {
+      startRollingAnim($('dice'), g.dice.map((_, i) => held(i) ? -1 : i).filter(i => i >= 0), THROW_STYLES.normal.spinFactor);
+    } else {
+      stopRollingAnim();
+      g.dice.forEach((v, i) => setDieValue($('dice'), i, v, held(i)));
+    }
+    // Held / set-aside dice sit on the orange strip (same look as Yatzy); fixed ones are not clickable
+    g.dice.forEach((v, i) => {
+      const src = $('dice').children[i];
+      if (!src) return;
+      src.style.display = held(i) ? 'none' : '';
+      if (!held(i)) return;
+      const clone = src.cloneNode(true);
+      clone.style.display = ''; clone.style.position = ''; clone.style.left = ''; clone.style.top = '';
+      clone.style.transform = `scale(0.82) rotate(${((_dieRot[i] || 0) * 0.15).toFixed(1)}deg)`;
+      clone.querySelector('.die-3d').classList.remove('landing');
+      clone.dataset.i = String(i);
+      if (fixed(i)) { clone.dataset.lock = '1'; clone.classList.add('locked-wrap'); }
+      if (gt === 'scc' && g.role && g.role[i]) {
+        const tag = document.createElement('span');
+        tag.className = 'role-tag';
+        tag.textContent = t(['', 'ship', 'captain', 'crew'][g.role[i]]);
+        clone.appendChild(tag);
+      }
+      heldStrip.appendChild(clone);
+    });
+  }
+  heldStrip.classList.toggle('act', canHold);
+
+  // Flash on the felt: bust / Farkle / SCC turn result (the device advances the turn after ~1.5 s)
+  const fl = $('flash');
+  let flash = '', flashOk = false;
+  if (!g.finished && !g.rolling) {
+    if (gt === 'pig' && g.busted) flash = t(g.lost_all ? 'lost_all' : 'bust');
+    else if (gt === 'farkle' && g.farkled) flash = t('farkle');
+    else if (sccOver) { flash = g.crew ? t('scc_done', g.cargo) : t('scc_sunk'); flashOk = g.crew; }
+  }
+  fl.hidden = !flash;
+  fl.textContent = flash;
+  fl.classList.toggle('ok', flashOk);
+
+  // Status row: turn total (Pig / Farkle) or ship / captain / crew / cargo (SCC)
+  const st = $('mini-status');
+  st.hidden = !!g.finished;
+  if (gt === 'scc') {
+    const pill = (on, face, k) => `<span class="${on ? 'on' : ''}"><b>${face}</b> ${t(k)}</span>`;
+    st.innerHTML = '<div class="scc-icons">' + pill(g.ship, 6, 'ship') + pill(g.captain, 5, 'captain') + pill(g.crew, 4, 'crew') +
+      `<span class="cargo${g.crew ? ' on' : ''}">${t('cargo')}: <b>${g.crew ? g.cargo : '–'}</b></span></div>`;
+  } else {
+    let s = `<span class="lbl">${t('turn_total')}</span> <span class="turn-score">${g.turn_total}</span>`;
+    if (gt === 'farkle' && g.held_score > 0) s += ` <span class="held-score">+${g.held_score} ${t('held_pts')}</span>`;
+    st.innerHTML = s;
+    st.classList.toggle('bust', !!busted);
+  }
+
+  // Hint
+  let hint = '';
+  if (g.finished) hint = '';
+  else if (g.rolling) hint = t('rolling');
+  else if (!mine) hint = t('wait', cur.name);
+  else if (gt === 'pig') hint = busted ? '' : !g.has_rolled ? t('pig_first') + ' ' + t(g.pig_variant === 'two_dice' ? 'pig_two' : 'pig_one') : t('pig_hint', g.turn_total);
+  else if (gt === 'farkle') {
+    const opened = P[g.current] && P[g.current].opened;
+    if (busted) hint = '';
+    else if (!g.has_rolled) hint = g.hot_dice ? t('hot_dice') : t('farkle_first');
+    else if (g.held_score === 0 && !g.held_valid) hint = t('farkle_pick');
+    else if (!g.held_valid) hint = t('farkle_invalid');
+    else if (!opened && g.turn_total + g.held_score < g.open_threshold) hint = t('farkle_open', g.open_threshold) + ' ' + t('farkle_go');
+    else hint = t('farkle_go');
+  } else {
+    hint = sccOver ? '' : !g.has_rolled ? t('scc_first') : g.crew ? t('scc_cargo') + ' ' + t('scc_cargo_hold') : t('scc_hunt');
+  }
+  $('hint').textContent = hint;
+
+  // Buttons: Kasta (direct roll) + Banka / Spara
+  const rb = $('roll');
+  rb.hidden = !mine || g.rolling || !g.can_roll;
+  rb.disabled = false;
+  rb.textContent = gt === 'scc' ? t('mini_left', g.rolls_left)
+    : gt === 'farkle' && g.hot_dice && !g.has_rolled ? t('roll_all') : t('roll_plain');
+  const bb = $('bank');
+  const canBank = gt === 'scc' ? g.can_end : g.can_bank;
+  const amount = gt === 'scc' ? g.cargo : gt === 'farkle' ? g.turn_total + g.held_score : g.turn_total;
+  bb.hidden = !mine || g.rolling || busted || sccOver || !g.has_rolled;
+  bb.disabled = !canBank;
+  bb.className = 'big ' + (gt === 'scc' ? 'end-btn' : 'bank-btn');
+  bb.textContent = t(gt === 'scc' ? 'save' : 'bank', amount);
+
+  $('device-row').hidden = !(you >= 0 && !g.finished);
+  if (you >= 0) { $('device').textContent = t('device'); $('device').disabled = false; }
+
+  // Score sheet
+  const place = {};
+  (g.ranking || []).forEach(r => { place[r.player] = r.place; });
+  const curCls = i => (!g.finished && i === g.current) ? ' class="cur"' : '';
+  const pname = (p, i) => esc(p.name) + (p.web ? ' &#128246;' : '') + (i === you ? ' <span class="mine">&#9679;</span>' : '');
+  let h;
+  if (gt === 'scc') {
+    h = '<thead><tr><th></th>' + P.map((p, i) => '<th' + curCls(i) + '>' + pname(p, i) + '</th>').join('') + '</tr></thead><tbody>';
+    for (let k = 0; k < g.rounds; k++) {
+      h += '<tr><td>' + t('round_n', k + 1) + '</td>' + P.map((p, i) => {
+        const v = (p.scores || [])[k];
+        if (v !== undefined) return '<td' + curCls(i) + '>' + v + '</td>';
+        const live = !g.finished && i === g.current && k + 1 === g.round && g.has_rolled;
+        return live ? '<td class="cur scc-live">' + (g.crew ? g.cargo : 0) + '</td>' : '<td' + curCls(i) + '><span class="muted">·</span></td>';
+      }).join('') + '</tr>';
+    }
+    h += '<tr class="sum"><td>' + t('total') + '</td>' + P.map((p, i) => '<td' + curCls(i) + '>' + p.total + '</td>').join('') + '</tr>';
+    if (g.finished) h += '<tr><td>' + t('place') + '</td>' + P.map((p, i) => '<td>' + (place[i] || '') + '</td>').join('') + '</tr>';
+    h += '</tbody>';
+  } else {
+    h = '<thead><tr><th>' + t('player') + '</th><th>' + t('points') + '</th>' +
+      (gt === 'farkle' ? '<th>' + t('opened') + '</th>' : '') + (g.finished ? '<th>' + t('place') + '</th>' : '') + '</tr></thead><tbody>';
+    P.forEach((p, i) => {
+      const pct = Math.max(0, Math.min(100, Math.round(100 * p.total / (g.target || 1))));
+      const live = !g.finished && i === g.current && g.turn_total + (g.held_score || 0) > 0 && !busted
+        ? ' <span class="turn-plus">+' + (g.turn_total + (g.held_score || 0)) + '</span>' : '';
+      h += '<tr' + curCls(i) + '><td>' + pname(p, i) + '</td><td class="race"><b>' + p.total + '</b>' + live +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div></td>' +
+        (gt === 'farkle' ? '<td>' + (p.opened ? '&#10003;' : '<span class="muted">–</span>') + '</td>' : '') +
+        (g.finished ? '<td>' + (place[i] || '') + '</td>' : '') + '</tr>';
+    });
+    h += '</tbody>';
+  }
+  $('score').innerHTML = h;
+  if (g.finished && g.ranking) {
+    const first = g.ranking.filter(r => r.place === 1).map(r => P[r.player].name).join(' & ');
+    $('hint').textContent = t('winner', first);
+  }
+}
+
+function renderYatzy() {
   const P = g.players, cur = P[g.current] || {name: '?'};
   const mine = you >= 0 && you === g.current && !g.finished;
   if (!mine || g.rolling || !g.can_roll) _cupLoaded = false;
@@ -707,6 +916,7 @@ $('seat-list').addEventListener('click', e => {
 $('watch').onclick = () => { mode = 'watch'; forget(); if (g && g.active) { show('live'); render(); } };
 function onDieClick(e) {
   const d = e.target.closest('.die-wrap');
+  if (d && d.dataset.lock) return;   // Farkle set-aside / SCC ship-captain-crew dice cannot be released
   if (d && $('dice').classList.contains('act')) send({cmd: 'hold', die: parseInt(d.dataset.i, 10)});
 }
 $('dice').addEventListener('click', onDieClick);
@@ -746,6 +956,10 @@ document.querySelectorAll('.cup-zone-r').forEach(zone => {
   });
 });
 $('roll').onclick = () => {
+  if (isMini()) {   // Pig / Farkle / SCC: direct roll, no cup (the cup flow is Yatzy only)
+    if (isMine() && g.can_roll && !g.rolling) send({cmd: 'roll'});
+    return;
+  }
   if (!isMine() || !g.can_roll || g.rolling || _cupLoaded || _cupLoading) return;
   // Step 1: the free dice slide off the felt into the cup; held dice stay on the orange strip
   _cupLoading = true; $('roll').disabled = true;
@@ -759,6 +973,11 @@ $('roll').onclick = () => {
     }
     render();
   }, 350);
+};
+$('bank').onclick = () => {   // Pig / Farkle: bank the turn total; SCC: save the cargo
+  if (!isMini() || !isMine() || g.rolling) return;
+  if (g.game_type === 'scc') { if (g.can_end) send({cmd: 'end'}); }
+  else if (g.can_bank) send({cmd: 'bank'});
 };
 $('score').addEventListener('click', e => {
   const td = e.target.closest('td[data-cat]');

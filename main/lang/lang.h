@@ -199,6 +199,48 @@
     X(RES_TITLE) \
     X(RES_AGAIN) \
     X(RES_MENU) \
+    X(VAR_MIDI) \
+    X(MENU_SUB_MIDI) \
+    X(MENU_CHOOSE_VARIANT) \
+    X(GAME_NAME_PIG) \
+    X(GAME_NAME_FARKLE) \
+    X(GAME_NAME_SCC) \
+    X(MENU_SUB_GAME_YATZY) \
+    X(MENU_SUB_GAME_PIG) \
+    X(MENU_SUB_GAME_FARKLE) \
+    X(MENU_SUB_GAME_SCC) \
+    X(VAR_PIG_1) \
+    X(VAR_PIG_2) \
+    X(MENU_SUB_PIG_1) \
+    X(MENU_SUB_PIG_2) \
+    X(VAR_FARKLE) \
+    X(MENU_SUB_FARKLE) \
+    X(VAR_SCC_3) \
+    X(MENU_SUB_SCC_3) \
+    X(G_BANK) \
+    X(G_BANK_N) \
+    X(G_BUST) \
+    X(G_LOST_ALL) \
+    X(G_FARKLE) \
+    X(G_HOT_DICE) \
+    X(G_TURN_N) \
+    X(G_HELD_N) \
+    X(G_ROUND_N) \
+    X(G_PIG_HINT) \
+    X(G_PIG_FIRST) \
+    X(G_HOLD_HINT) \
+    X(G_INVALID_HOLD) \
+    X(G_OPEN_HINT) \
+    X(G_FINAL_ROUND) \
+    X(G_SHIP) \
+    X(G_CAPTAIN) \
+    X(G_CREW) \
+    X(G_CARGO_N) \
+    X(G_SAVE) \
+    X(G_SAVE_N) \
+    X(G_NO_CARGO) \
+    X(G_SCC_HINT) \
+    X(G_SCC_CARGO_HINT) \
     X(WEB_ERR_NUMBER) \
     X(WEB_ERR_TZ) \
     X(WEB_ERR_PIN) \

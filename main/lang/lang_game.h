@@ -23,6 +23,13 @@ inline const char *trVariant(YatzyVariant v, YatzyMode m)
     return tr(ord ? Str::VAR_YATZY_ORDER : Str::VAR_YATZY);
 }
 
+// v0.6.0: Midi-Yatzy = standard Yatzy (free order) with the saved-rolls rule.
+inline const char *trVariant(YatzyVariant v, YatzyMode m, bool savedRolls)
+{
+    if (v == YatzyVariant::STANDARD && m == YatzyMode::NORMAL && savedRolls) return tr(Str::VAR_MIDI);
+    return trVariant(v, m);
+}
+
 inline const char *trPlayerErr(int e)
 {
     switch ((PlayerErr)e) {

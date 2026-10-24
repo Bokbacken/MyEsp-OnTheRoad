@@ -4,7 +4,9 @@
 
 namespace GameLive {
 
-// A plain struct copy (~0.5 kB) under a spinlock: short, and safe from any task without lazy init.
+static_assert(sizeof(Snapshot) < 2048, "GameLive::Snapshot grew unexpectedly");
+
+// A plain struct copy (~1 kB) under a spinlock: short, and safe from any task without lazy init.
 static Snapshot s_snap = {};
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static Cmd s_q[CMD_QUEUE];
@@ -13,12 +15,110 @@ static int s_qHead = 0, s_qLen = 0;
 void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase)
 {
     portENTER_CRITICAL(&s_mux);
+    s_snap.gameType = GameType::YATZY;
     s_snap.game = g;
     s_snap.active = active;
     s_snap.rolling = rolling;
     s_snap.resultPhase = resultPhase;
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
+}
+
+void publish(const PigGame &g, bool active, bool rolling)
+{
+    portENTER_CRITICAL(&s_mux);
+    s_snap.gameType = GameType::PIG;
+    s_snap.pig = g;
+    s_snap.active = active;
+    s_snap.rolling = rolling;
+    s_snap.resultPhase = false;
+    s_snap.version++;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void publish(const FarkleGame &g, bool active, bool rolling)
+{
+    portENTER_CRITICAL(&s_mux);
+    s_snap.gameType = GameType::FARKLE;
+    s_snap.farkle = g;
+    s_snap.active = active;
+    s_snap.rolling = rolling;
+    s_snap.resultPhase = false;
+    s_snap.version++;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void publish(const SccGame &g, bool active, bool rolling, bool resultPhase)
+{
+    portENTER_CRITICAL(&s_mux);
+    s_snap.gameType = GameType::SCC;
+    s_snap.scc = g;
+    s_snap.active = active;
+    s_snap.rolling = rolling;
+    s_snap.resultPhase = resultPhase;
+    s_snap.version++;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+bool started(const Snapshot &s)
+{
+    switch (s.gameType) {
+    case GameType::PIG: return s.pig.started();
+    case GameType::FARKLE: return s.farkle.started();
+    case GameType::SCC: return s.scc.started();
+    default: return s.game.started();
+    }
+}
+
+bool finished(const Snapshot &s)
+{
+    switch (s.gameType) {
+    case GameType::PIG: return s.pig.finished();
+    case GameType::FARKLE: return s.farkle.finished();
+    case GameType::SCC: return s.scc.finished();
+    default: return s.game.finished();
+    }
+}
+
+int playerCount(const Snapshot &s)
+{
+    switch (s.gameType) {
+    case GameType::PIG: return s.pig.playerCount();
+    case GameType::FARKLE: return s.farkle.playerCount();
+    case GameType::SCC: return s.scc.playerCount();
+    default: return s.game.playerCount();
+    }
+}
+
+int currentPlayer(const Snapshot &s)
+{
+    switch (s.gameType) {
+    case GameType::PIG: return s.pig.currentPlayer();
+    case GameType::FARKLE: return s.farkle.currentPlayer();
+    case GameType::SCC: return s.scc.currentPlayer();
+    default: return s.game.currentPlayer();
+    }
+}
+
+int diceCount(const Snapshot &s)
+{
+    switch (s.gameType) {
+    case GameType::PIG: return s.pig.numDice();
+    case GameType::FARKLE: return FARKLE_DICE;
+    case GameType::SCC: return SCC_DICE;
+    default: return s.game.diceCount();
+    }
+}
+
+const char *playerName(const Snapshot &s, int i)
+{
+    if (i < 0 || i >= playerCount(s)) return "";
+    switch (s.gameType) {
+    case GameType::PIG: return s.pig.player(i).name;
+    case GameType::FARKLE: return s.farkle.player(i).name;
+    case GameType::SCC: return s.scc.player(i).name;
+    default: return s.game.player(i).name;
+    }
 }
 
 void setActive(bool active)

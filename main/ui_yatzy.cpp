@@ -13,7 +13,10 @@
 #include "app_players.h"
 #include "board_rgb.h"
 #include "dice_cup.h"
+#include "game_farkle.h"
 #include "game_live.h"
+#include "game_pig.h"
+#include "game_scc.h"
 #include "game_yatzy.h"
 #include "my_charwheel.h"
 #include "my_wifi.h"
@@ -34,6 +37,13 @@ static YatzyVariant s_variant = YatzyVariant::STANDARD;
 static YatzyMode s_mode = YatzyMode::NORMAL;
 static char s_names[YATZY_MAX_PLAYERS][YATZY_NAME_CAP];
 static int s_nameCount = 0;
+// v0.6.0 multi-game
+static GameType s_gameType = GameType::YATZY;
+static PigVariant s_pigVariant = PigVariant::ONE_DIE;
+static bool s_midi = false;   // Midi-Yatzy: standard Yatzy with saved rolls
+static PigGame s_pig;
+static FarkleGame s_farkle;
+static SccGame s_scc;
 
 static uint8_t rngDie(void *) { return (uint8_t)(esp_random() % 6) + 1; }
 static int rnd(int lo, int hi) { return lo + (int)(esp_random() % (uint32_t)(hi - lo + 1)); }
@@ -41,31 +51,91 @@ static int rnd(int lo, int hi) { return lo + (int)(esp_random() % (uint32_t)(hi 
 static void showPlayers();
 static void showGame();
 static void showResults();
+static void startNewGame();
+static void showMini();   // Pig / Farkle / SCC game screen
 
 // ========================================================================================
-// Menu: variant choice
+// Menu (v0.6.0): two levels. Level 1 = game (Yatzy, Pig, Farkle, Skepp & kapten),
+// level 2 = variant of that game, then the shared player screen.
 // ========================================================================================
 struct VariantChoice {
     YatzyVariant v;
     YatzyMode m;
+    bool midi;   // Standard Yatzy with saved rolls
     Str sub;
     uint32_t color;
 };
 
-static const VariantChoice CHOICES[4] = {
-    {YatzyVariant::STANDARD, YatzyMode::NORMAL, Str::MENU_SUB_YATZY, Theme::ACCENT},
-    {YatzyVariant::MAXI, YatzyMode::NORMAL, Str::MENU_SUB_MAXI, Theme::TEAL},
-    {YatzyVariant::STANDARD, YatzyMode::ORDERED, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT},
-    {YatzyVariant::MAXI, YatzyMode::ORDERED, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL},
+static const VariantChoice CHOICES[5] = {
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, false, Str::MENU_SUB_YATZY, Theme::ACCENT},
+    {YatzyVariant::STANDARD, YatzyMode::ORDERED, false, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT},
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, true, Str::MENU_SUB_MIDI, Theme::GOLD},
+    {YatzyVariant::MAXI, YatzyMode::NORMAL, false, Str::MENU_SUB_MAXI, Theme::TEAL},
+    {YatzyVariant::MAXI, YatzyMode::ORDERED, false, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL},
+};
+// Config::defaultVariant (0 Yatzy, 1 Maxi, 2 Yatzy i ordning, 3 Maxi i ordning) -> CHOICES index
+static const int DEFAULT_TO_CHOICE[4] = {0, 3, 1, 4};
+
+struct GameChoice {
+    GameType type;
+    Str name, sub;
+    uint32_t color;
+};
+static const GameChoice GAMES[4] = {
+    {GameType::YATZY, Str::VAR_YATZY, Str::MENU_SUB_GAME_YATZY, Theme::ACCENT},
+    {GameType::PIG, Str::GAME_NAME_PIG, Str::MENU_SUB_GAME_PIG, 0xF08A24},
+    {GameType::FARKLE, Str::GAME_NAME_FARKLE, Str::MENU_SUB_GAME_FARKLE, 0xA06CF0},
+    {GameType::SCC, Str::GAME_NAME_SCC, Str::MENU_SUB_GAME_SCC, Theme::BLUE},
 };
 
-static void menuChoiceEvent(lv_event_t *e)
+// Name of the selected game + variant (player screen header, results).
+static const char *gameTitle()
 {
-    int i = (int)(intptr_t)lv_event_get_user_data(e);
-    s_variant = CHOICES[i].v;
-    s_mode = CHOICES[i].m;
-    showPlayers();
+    switch (s_gameType) {
+    case GameType::PIG: return tr(s_pigVariant == PigVariant::TWO_DICE ? Str::VAR_PIG_2 : Str::VAR_PIG_1);
+    case GameType::FARKLE: return tr(Str::VAR_FARKLE);
+    case GameType::SCC: return tr(Str::VAR_SCC_3);
+    default: return trVariant(s_variant, s_mode, s_midi);
+    }
 }
+
+// Casino-style menu card: accent stripe, title, subtitle, optional check mark.
+static lv_obj_t *menuCard(lv_obj_t *scr, int32_t y, int32_t h, const char *title, const char *sub, uint32_t color,
+                          bool selected)
+{
+    lv_obj_t *b = lv_button_create(scr);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 300, h);
+    lv_obj_set_pos(b, 10, y);
+    lv_obj_set_style_radius(b, 14, 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(b, selected ? 2 : 1, 0);
+    lv_obj_set_style_border_color(b, Theme::c(selected ? Theme::ACCENT : Theme::LINE), 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
+    lv_obj_t *stripe = lv_obj_create(b);
+    lv_obj_remove_style_all(stripe);
+    lv_obj_set_size(stripe, 6, h - 24);
+    lv_obj_align(stripe, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_obj_set_style_radius(stripe, 3, 0);
+    lv_obj_set_style_bg_color(stripe, Theme::c(color), 0);
+    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(stripe, false);
+    const bool small = h < 76;
+    lv_obj_t *t = Theme::label(b, title, small ? &my_font_18 : &my_font_24);
+    lv_obj_set_pos(t, 28, small ? 9 : 12);
+    lv_obj_t *s = Theme::label(b, sub, &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(s, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(s, 262);
+    lv_obj_set_pos(s, 28, small ? 36 : 48);
+    if (selected) {
+        lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
+        lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, small ? 8 : 12);
+    }
+    return b;
+}
+
+static void showVariants();
 
 void showMenu()
 {
@@ -85,40 +155,71 @@ void showMenu()
     lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
     UiClock::attachLabel(clk, true);
 
-    int def = Config::get().defaultVariant;
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *b = lv_button_create(scr);
-        lv_obj_remove_style_all(b);
-        lv_obj_set_size(b, 300, 86);
-        lv_obj_set_pos(b, 10, 76 + i * 96);
-        lv_obj_set_style_radius(b, 14, 0);
-        lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
-        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(b, i == def ? 2 : 1, 0);
-        lv_obj_set_style_border_color(b, Theme::c(i == def ? Theme::ACCENT : Theme::LINE), 0);
-        lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
-        // Accent stripe on the left
-        lv_obj_t *stripe = lv_obj_create(b);
-        lv_obj_remove_style_all(stripe);
-        lv_obj_set_size(stripe, 6, 62);
-        lv_obj_align(stripe, LV_ALIGN_LEFT_MID, 10, 0);
-        lv_obj_set_style_radius(stripe, 3, 0);
-        lv_obj_set_style_bg_color(stripe, Theme::c(CHOICES[i].color), 0);
-        lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
-        lv_obj_set_clickable(stripe, false);
-        lv_obj_t *t = Theme::label(b, trVariant(CHOICES[i].v, CHOICES[i].m), &my_font_24);
-        lv_obj_set_pos(t, 28, 14);
-        lv_obj_t *s = Theme::label(b, tr(CHOICES[i].sub), &my_font_14, Theme::MUTED);
-        lv_obj_set_pos(s, 28, 50);
-        if (i == def) {
-            lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
-            lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, 12);
-        }
-        lv_obj_add_event_cb(b, menuChoiceEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_t *b = menuCard(scr, 76 + i * 90, 80, tr(GAMES[i].name), tr(GAMES[i].sub), GAMES[i].color,
+                               GAMES[i].type == s_gameType);
+        lv_obj_add_event_cb(b, [](lv_event_t *e) {
+            s_gameType = GAMES[(int)(intptr_t)lv_event_get_user_data(e)].type;
+            showVariants();
+        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);
+    Theme::loadScreen(scr);
+}
+
+static void showVariants()
+{
+    lv_obj_t *scr = Theme::screen();
+    int gi = 0;
+    while (gi < 3 && GAMES[gi].type != s_gameType) gi++;
+    Theme::header(scr, tr(GAMES[gi].name));
+    lv_obj_t *hint = Theme::label(scr, tr(Str::MENU_CHOOSE_VARIANT), &my_font_14, Theme::MUTED);
+    lv_obj_set_pos(hint, 14, 52);
+
+    switch (s_gameType) {
+    case GameType::YATZY: {
+        int def = Config::get().defaultVariant;
+        def = (def >= 0 && def < 4) ? DEFAULT_TO_CHOICE[def] : 0;
+        for (int i = 0; i < 5; i++) {
+            const VariantChoice &c = CHOICES[i];
+            lv_obj_t *b = menuCard(scr, 74 + i * 70, 64, trVariant(c.v, c.m, c.midi), tr(c.sub), c.color, i == def);
+            lv_obj_add_event_cb(b, [](lv_event_t *e) {
+                const VariantChoice &v = CHOICES[(int)(intptr_t)lv_event_get_user_data(e)];
+                s_variant = v.v;
+                s_mode = v.m;
+                s_midi = v.midi;
+                showPlayers();
+            }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        }
+        break;
+    }
+    case GameType::PIG:
+        for (int i = 0; i < 2; i++) {
+            lv_obj_t *b = menuCard(scr, 76 + i * 90, 80, tr(i ? Str::VAR_PIG_2 : Str::VAR_PIG_1),
+                                   tr(i ? Str::MENU_SUB_PIG_2 : Str::MENU_SUB_PIG_1), GAMES[1].color, false);
+            lv_obj_add_event_cb(b, [](lv_event_t *e) {
+                s_pigVariant = lv_event_get_user_data(e) ? PigVariant::TWO_DICE : PigVariant::ONE_DIE;
+                showPlayers();
+            }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        }
+        break;
+    case GameType::FARKLE: {
+        lv_obj_t *b = menuCard(scr, 76, 80, tr(Str::VAR_FARKLE), tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false);
+        lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
+        break;
+    }
+    case GameType::SCC: {
+        lv_obj_t *b = menuCard(scr, 76, 80, tr(Str::VAR_SCC_3), tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false);
+        lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
+        break;
+    }
+    }
+
+    lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
+    lv_obj_set_pos(back, 10, 432);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(scr);
 }
 
@@ -309,7 +410,7 @@ static void showPlayers()
     }
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::PL_TITLE));
-    lv_obj_t *var = Theme::label(scr, trVariant(s_variant, s_mode), &my_font_14, Theme::TEAL);
+    lv_obj_t *var = Theme::label(scr, gameTitle(), &my_font_14, Theme::TEAL);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
 
     lv_obj_t *card = Theme::card(scr, 310, 326);
@@ -326,23 +427,62 @@ static void showPlayers()
 
     lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
     lv_obj_set_pos(back, 10, 432);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { showVariants(); }, LV_EVENT_CLICKED, nullptr);
 
     s_startBtn = Theme::button(scr, trp("", Str::PL_START, " " LV_SYMBOL_RIGHT), 150, 42, Theme::ACCENT, true);
     lv_obj_set_pos(s_startBtn, 160, 432);
-    lv_obj_add_event_cb(s_startBtn, [](lv_event_t *) {
-        const AppConfig &cfg = Config::get();
-        s_game.reset(s_variant, s_mode, cfg.maxiSavedRolls);
-        s_game.clearPlayers();   // reset() keeps the roster; rebuild it from the player list
-        s_game.setRng(rngDie, nullptr);
-        for (int i = 0; i < s_nameCount; i++) s_game.addPlayer(s_names[i]);
-        s_game.start();
-        GameLive::setSeats(s_web, s_pids, s_nameCount);   // New session; kept for "Spela igen"
-        showGame();
-    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(s_startBtn, [](lv_event_t *) { startNewGame(); }, LV_EVENT_CLICKED, nullptr);
 
     rebuildPlayerList();
     Theme::loadScreen(scr);
+}
+
+static void startYatzy()
+{
+    const AppConfig &cfg = Config::get();
+    // Saved rolls: Maxi follows the setting, Midi always, standard Yatzy never.
+    const bool saved = s_variant == YatzyVariant::MAXI ? cfg.maxiSavedRolls : s_midi;
+    s_game.reset(s_variant, s_mode, saved);
+    s_game.clearPlayers();   // reset() keeps the roster; rebuild it from the player list
+    s_game.setRng(rngDie, nullptr);
+    for (int i = 0; i < s_nameCount; i++) s_game.addPlayer(s_names[i]);
+    s_game.start();
+    GameLive::setSeats(s_web, s_pids, s_nameCount);   // New session; kept for "Spela igen"
+    showGame();
+}
+
+// Same roster handling for every engine: reset keeps the roster, so rebuild it.
+template <typename G>
+static void fillRoster(G &g)
+{
+    g.clearPlayers();
+    g.setRng(rngDie, nullptr);
+    for (int i = 0; i < s_nameCount; i++) g.addPlayer(s_names[i]);
+    g.start();
+}
+
+static void startNewGame()
+{
+    if (s_nameCount <= 0) return;
+    switch (s_gameType) {
+    case GameType::PIG:
+        s_pig.reset(s_pigVariant);
+        fillRoster(s_pig);
+        break;
+    case GameType::FARKLE:
+        s_farkle.reset();
+        fillRoster(s_farkle);
+        break;
+    case GameType::SCC:
+        s_scc.reset(SCC_DEFAULT_ROUNDS);
+        fillRoster(s_scc);
+        break;
+    default:
+        startYatzy();
+        return;
+    }
+    GameLive::setSeats(s_web, s_pids, s_nameCount);
+    showMini();
 }
 
 // ----------------------------------------------------------------------------------------
@@ -622,9 +762,36 @@ static YatzyCategory s_best = YatzyCategory::COUNT;
 // "leave" (continue on device) the connection count drops and local input works again.
 static bool webTurn()
 {
-    const int p = s_game.currentPlayer();
-    return p >= 0 && p < YATZY_MAX_PLAYERS && (s_web[p] || GameLive::connections(p) > 0) && s_game.started() &&
-           !s_game.finished();
+    int p;
+    bool live;
+    switch (s_gameType) {
+    case GameType::PIG: p = s_pig.currentPlayer(); live = s_pig.started() && !s_pig.finished(); break;
+    case GameType::FARKLE: p = s_farkle.currentPlayer(); live = s_farkle.started() && !s_farkle.finished(); break;
+    case GameType::SCC: p = s_scc.currentPlayer(); live = s_scc.started() && !s_scc.finished(); break;
+    default: p = s_game.currentPlayer(); live = s_game.started() && !s_game.finished(); break;
+    }
+    return p >= 0 && p < YATZY_MAX_PLAYERS && (s_web[p] || GameLive::connections(p) > 0) && live;
+}
+
+static int curPlayer()
+{
+    switch (s_gameType) {
+    case GameType::PIG: return s_pig.currentPlayer();
+    case GameType::FARKLE: return s_farkle.currentPlayer();
+    case GameType::SCC: return s_scc.currentPlayer();
+    default: return s_game.currentPlayer();
+    }
+}
+
+static const char *curName()
+{
+    const int p = curPlayer();
+    switch (s_gameType) {
+    case GameType::PIG: return s_pig.player(p).name;
+    case GameType::FARKLE: return s_farkle.player(p).name;
+    case GameType::SCC: return s_scc.player(p).name;
+    default: return s_game.player(p).name;
+    }
 }
 
 static void refreshTable();
@@ -1806,7 +1973,7 @@ static void refreshActions()
     int left = s_game.rollsLeft();
     bool canRoll = !s_rolling && s_game.canRoll();
     int base = YATZY_ROLLS_PER_TURN - LV_MIN(s_game.rollsUsed(), YATZY_ROLLS_PER_TURN);
-    if (s_game.variant() == YatzyVariant::MAXI && s_game.savedRollsRule() && left > base)
+    if (s_game.savedRollsRule() && left > base)
         lv_label_set_text_fmt(s_rollLabel, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL_N_EXTRA), base, left - base);
     else
         lv_label_set_text_fmt(s_rollLabel, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL_N), left);
@@ -1831,7 +1998,7 @@ static void refreshActions()
         lv_obj_add_state(s_writeBtn, LV_STATE_DISABLED);
     }
     if (s_cupArea) {
-        if (s_game.variant() == YatzyVariant::MAXI && s_game.savedRollsRule() && left > base)
+        if (s_game.savedRollsRule() && left > base)
             lv_label_set_text_fmt(s_cupCount, tr(Str::GAME_ROLLS_LEFT_EXTRA), base, left - base);
         else
             lv_label_set_text_fmt(s_cupCount, tr(Str::GAME_ROLLS_LEFT), left);
@@ -1901,8 +2068,8 @@ static void updateWebOverlay()
         s_webShownConn = -1;
         return;
     }
-    const int cur = s_game.currentPlayer();
-    const char *name = s_game.player(cur).name;
+    const int cur = curPlayer();
+    const char *name = curName();
     const int conn = GameLive::connections(cur) > 0 ? 1 : 0;
     s_webShownConn = conn;
     char line1[80], line2[96], all[180];
@@ -1926,8 +2093,15 @@ static void webWriteTimer(lv_timer_t *t)
     writeSelected();
 }
 
+static void miniWebCommand(const GameLive::Cmd &c);
+static void miniRefresh();
+
 static void webCommand(const GameLive::Cmd &c)
 {
+    if (s_gameType != GameType::YATZY) {
+        miniWebCommand(c);
+        return;
+    }
     if (!webTurn() || c.player != s_game.currentPlayer() || s_rolling || s_webPending != YatzyCategory::COUNT) return;
     switch (c.type) {
     case GameLive::CmdType::HOLD: {
@@ -1961,6 +2135,8 @@ static void webCommand(const GameLive::Cmd &c)
         lv_timer_set_repeat_count(t, 1);
         break;
     }
+    default:   // BANK / END_TURN: not used by Yatzy
+        break;
     }
 }
 
@@ -1978,11 +2154,14 @@ static void webTimer(lv_timer_t *t)
     }
     // Overlay state: -1 = local turn, 0/1 = web turn without/with a connected browser
     const bool on = webTurn();
-    const int want = on ? (GameLive::connections(s_game.currentPlayer()) > 0 ? 1 : 0) : -1;
+    const int want = on ? (GameLive::connections(curPlayer()) > 0 ? 1 : 0) : -1;
     if (want != s_webShownConn) {
         const bool flipped = (want < 0) != (s_webShownConn < 0);
         updateWebOverlay();
-        if (flipped) refreshActions();   // A browser took over / gave back a non-web seat
+        if (flipped) {
+            if (s_gameType == GameType::YATZY) refreshActions();
+            else miniRefresh();
+        }   // A browser took over / gave back a non-web seat
     }
 }
 
@@ -2176,7 +2355,7 @@ static void showResults()
 {
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::RES_TITLE));
-    lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode()), &my_font_14, Theme::TEAL);
+    lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode(), s_game.savedRollsRule()), &my_font_14, Theme::TEAL);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
@@ -2217,6 +2396,619 @@ static void showResults()
 
     Rgb::effectFlash(255, 200, 60, 1200);
     GameLive::publish(s_game, true, false, true);   // Final scores stay on the live page
+    Theme::loadScreen(scr);
+}
+
+// ========================================================================================
+// v0.6.0: Pig, Farkle and Ship/Captain/Crew ("mini" screens)
+//
+// One shared layout (320 x 480):
+//   header      current player, round, menu (same quit dialog as Yatzy)
+//   scoreboard  card with every player's total (current player in orange)
+//   felt        dice row; held / locked dice glide down into the nest strip
+//   info        turn total (Pig/Farkle) or ship/captain/crew chips + cargo (SCC), hint line
+//   buttons     Banka / Spara (left) + Kasta (right)
+// No dice cup here (the two-step cup flow is Yatzy only). Busts, Farkles and the end of an SCC
+// turn are shown for a moment before the engine moves on (passTurn() / endTurn()).
+// Web seats use the same overlay + command queue as Yatzy (HOLD / ROLL / BANK / END_TURN).
+// ========================================================================================
+static constexpr int32_t M_BOARD_Y = 50, M_BOARD_H = 112;
+static constexpr int32_t M_FELT_Y = 168, M_FELT_H = 176;
+static constexpr int32_t M_ROW_Y = M_FELT_Y + 30, M_NEST_Y = M_FELT_Y + 104;
+static constexpr int32_t M_INFO_Y = 350;
+static constexpr uint32_t M_ROLL_MS = 650, M_ROLL_TICK_MS = 50, M_BUST_MS = 1600, M_SCC_END_MS = 1500;
+static constexpr int M_MAX_DICE = 6;
+
+static lv_obj_t *s_mDie[M_MAX_DICE];
+static int s_mFace[M_MAX_DICE];
+static bool s_mRollMask[M_MAX_DICE];
+static int s_mDice = 0;
+static int32_t s_mSize = 52;
+static int32_t s_mScale = ZOOM_100;
+static lv_obj_t *s_mName[YATZY_MAX_PLAYERS], *s_mTotal[YATZY_MAX_PLAYERS];
+static lv_obj_t *s_mBig, *s_mSub, *s_mHint, *s_mFlash, *s_mFlashText;
+static lv_obj_t *s_mChip[3];
+static lv_obj_t *s_mActBtn, *s_mActLabel, *s_mRollBtn, *s_mRollLabel;
+static bool s_mRolling = false;
+static bool s_mPending = false;   // Bust / Farkle / SCC turn end shown, engine not advanced yet
+static uint32_t s_mRollStart = 0;
+
+static int mPlayers()
+{
+    switch (s_gameType) {
+    case GameType::PIG: return s_pig.playerCount();
+    case GameType::FARKLE: return s_farkle.playerCount();
+    default: return s_scc.playerCount();
+    }
+}
+
+static int mTotal(int p)
+{
+    switch (s_gameType) {
+    case GameType::PIG: return s_pig.total(p);
+    case GameType::FARKLE: return s_farkle.player(p).total;
+    default: return s_scc.player(p).total;
+    }
+}
+
+static bool mFinished()
+{
+    switch (s_gameType) {
+    case GameType::PIG: return s_pig.finished();
+    case GameType::FARKLE: return s_farkle.finished();
+    default: return s_scc.finished();
+    }
+}
+
+static int mDieValue(int i)
+{
+    switch (s_gameType) {
+    case GameType::PIG: return s_pig.hasRolled() ? s_pig.dice()[i] : 0;
+    case GameType::FARKLE: return s_farkle.hasRolled() || s_farkle.locked(i) ? s_farkle.dice()[i] : 0;
+    default: return s_scc.hasRolled() ? s_scc.dice()[i] : 0;
+    }
+}
+
+static bool mDieDown(int i)   // In the nest strip
+{
+    switch (s_gameType) {
+    case GameType::FARKLE: return s_farkle.held(i);
+    case GameType::SCC: return s_scc.held(i);
+    default: return false;
+    }
+}
+
+static void mPublish()
+{
+    switch (s_gameType) {
+    case GameType::PIG: GameLive::publish(s_pig, true, s_mRolling); break;
+    case GameType::FARKLE: GameLive::publish(s_farkle, true, s_mRolling); break;
+    default: GameLive::publish(s_scc, true, s_mRolling, s_scc.finished()); break;
+    }
+}
+
+static void mSetFace(int i, int face)
+{
+    if (face < 0 || face > 6) face = 0;
+    if (s_mFace[i] == face || !s_faces) return;
+    s_mFace[i] = face;
+    lv_image_set_src(s_mDie[i], &s_faces->buf[face]);
+}
+
+static int32_t mRowY() { return s_gameType == GameType::PIG ? M_FELT_Y + M_FELT_H / 2 - s_mSize / 2 : M_ROW_Y; }
+
+static int32_t mSlotX(int i)
+{
+    const int32_t step = s_mDice == 6 ? 51 : (s_mDice == 5 ? 60 : 110);
+    const int32_t span = step * (s_mDice - 1);
+    return SCR_W / 2 - span / 2 + step * i - s_mSize / 2;
+}
+
+static void mPlaceDie(int i, bool animate)
+{
+    const int32_t x = mSlotX(i), y = mDieDown(i) ? M_NEST_Y + (s_mDice == 6 ? 10 : 6) : mRowY();
+    if (animate) animXY(s_mDie[i], x, y, MOVE_MS);
+    else lv_obj_set_pos(s_mDie[i], x, y);
+    // Farkle: dice set aside on an earlier roll are dimmed (they cannot be released)
+    const bool dim = s_gameType == GameType::FARKLE && s_farkle.locked(i);
+    lv_obj_set_style_image_opa(s_mDie[i], dim ? LV_OPA_50 : LV_OPA_COVER, 0);
+}
+
+static void mShowFlash(const char *text, uint32_t color)
+{
+    lv_label_set_text(s_mFlashText, text);
+    lv_obj_set_style_text_color(s_mFlashText, Theme::c(color), 0);
+    lv_obj_set_style_border_color(s_mFlash, Theme::c(color), 0);
+    lv_obj_set_hidden(s_mFlash, false);
+    lv_obj_move_foreground(s_mFlash);
+    animInt(s_mFlash, opaExec, 0, LV_OPA_COVER, 220);
+}
+
+static void mHideFlash() { lv_obj_set_hidden(s_mFlash, true); }
+
+static void mBoardRefresh()
+{
+    const int n = mPlayers(), cur = curPlayer();
+    for (int p = 0; p < n; p++) {
+        const bool me = p == cur && !mFinished();
+        lv_obj_set_style_text_color(s_mName[p], Theme::c(me ? Theme::ACCENT : Theme::TEXT), 0);
+        const int t = mTotal(p);
+        if (s_gameType == GameType::FARKLE && !s_farkle.player(p).opened) lv_label_set_text(s_mTotal[p], "-");
+        else lv_label_set_text_fmt(s_mTotal[p], "%d", t);
+        lv_obj_set_style_text_color(s_mTotal[p], Theme::c(me ? Theme::GOLD : Theme::TEXT), 0);
+    }
+}
+
+static void setBtn(lv_obj_t *b, bool on)
+{
+    if (on) lv_obj_remove_state(b, LV_STATE_DISABLED);
+    else lv_obj_add_state(b, LV_STATE_DISABLED);
+}
+
+static void sccChip(int k, bool on)
+{
+    lv_obj_set_style_bg_color(s_mChip[k], Theme::c(on ? Theme::GREEN : Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_border_color(s_mChip[k], Theme::c(on ? Theme::GREEN : Theme::LINE), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(s_mChip[k], 0), Theme::c(on ? Theme::BG : Theme::MUTED), 0);
+}
+
+static void miniRefresh()
+{
+    if (!s_mRollBtn) return;
+    lv_label_set_text(s_playerLabel, curName());
+    mBoardRefresh();
+    const bool idle = !s_mRolling && !s_mPending && !webTurn();
+    switch (s_gameType) {
+    case GameType::PIG: {
+        lv_label_set_text_fmt(s_roundLabel, tr(Str::G_ROUND_N), s_pig.round());
+        lv_label_set_text_fmt(s_mBig, tr(Str::G_TURN_N), s_pig.turnTotal());
+        lv_label_set_text_fmt(s_mSub, "%s %d", LV_SYMBOL_RIGHT, s_pig.total(s_pig.currentPlayer()) + s_pig.turnTotal());
+        if (!s_mPending) lv_label_set_text(s_mHint, tr(s_pig.hasRolled() ? Str::G_PIG_HINT : Str::G_PIG_FIRST));
+        lv_label_set_text_fmt(s_mActLabel, tr(Str::G_BANK_N), s_pig.turnTotal());
+        setBtn(s_mActBtn, idle && s_pig.canBank());
+        setBtn(s_mRollBtn, idle && s_pig.canRoll());
+        break;
+    }
+    case GameType::FARKLE: {
+        const FarkleGame &g = s_farkle;
+        lv_label_set_text_fmt(s_roundLabel, tr(Str::G_ROUND_N), g.round());
+        lv_label_set_text_fmt(s_mBig, tr(Str::G_TURN_N), g.turnTotal());
+        lv_label_set_text_fmt(s_mSub, tr(Str::G_HELD_N), g.heldScore());
+        if (!s_mPending) {
+            uint32_t col = Theme::MUTED;
+            char buf[64];
+            const char *h = tr(Str::G_HOLD_HINT);
+            bool anyHeld = false;
+            for (int i = 0; i < FARKLE_DICE; i++) anyHeld |= g.held(i) && !g.locked(i);
+            if (!g.hasRolled()) {
+                h = g.finalRound() ? tr(Str::G_FINAL_ROUND) : tr(Str::G_PIG_FIRST);
+                if (g.finalRound()) col = Theme::GOLD;
+            } else if (g.hotDice()) {
+                h = tr(Str::G_HOT_DICE);
+                col = Theme::GOLD;
+            } else if (anyHeld && !g.heldValid()) {
+                h = tr(Str::G_INVALID_HOLD);
+                col = Theme::RED;
+            } else if (!g.player(g.currentPlayer()).opened && g.heldValid() && !g.canBank()) {
+                snprintf(buf, sizeof(buf), tr(Str::G_OPEN_HINT), FARKLE_OPEN_THRESHOLD);
+                h = buf;
+            }
+            lv_label_set_text(s_mHint, h);
+            lv_obj_set_style_text_color(s_mHint, Theme::c(col), 0);
+        }
+        lv_label_set_text_fmt(s_mActLabel, tr(Str::G_BANK_N), g.turnTotal() + g.heldScore());
+        setBtn(s_mActBtn, idle && g.canBank());
+        setBtn(s_mRollBtn, idle && g.canRoll());
+        break;
+    }
+    default: {
+        const SccGame &g = s_scc;
+        lv_label_set_text_fmt(s_roundLabel, tr(Str::GAME_ROUND), LV_MIN(g.round(), g.totalRounds()), g.totalRounds());
+        sccChip(0, g.hasShip());
+        sccChip(1, g.hasCaptain());
+        sccChip(2, g.hasCrew());
+        lv_label_set_text_fmt(s_mBig, tr(Str::G_CARGO_N), g.cargoScore());
+        if (!s_mPending) {
+            lv_label_set_text(s_mHint, tr(g.hasCrew() ? Str::G_SCC_CARGO_HINT : Str::G_SCC_HINT));
+            lv_obj_set_style_text_color(s_mHint, Theme::c(Theme::MUTED), 0);
+        }
+        lv_label_set_text_fmt(s_mActLabel, tr(Str::G_SAVE_N), g.cargoScore());
+        lv_label_set_text_fmt(s_mRollLabel, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL_N), g.rollsLeft());
+        setBtn(s_mActBtn, idle && g.canEnd());
+        setBtn(s_mRollBtn, idle && g.canRoll());
+        break;
+    }
+    }
+    for (int i = 0; i < s_mDice; i++) {
+        if (!s_mRolling) mSetFace(i, mDieValue(i));
+        const bool tappable = idle && ((s_gameType == GameType::FARKLE && s_farkle.canHold(i)) ||
+                                       (s_gameType == GameType::SCC && s_scc.canHold(i)));
+        lv_obj_set_clickable(s_mDie[i], tappable);
+    }
+    mPublish();
+}
+
+static void showMiniResults();
+
+// Moves the dice to their places, refreshes and handles results / end of game.
+static void mAfterChange(bool animate)
+{
+    for (int i = 0; i < s_mDice; i++) mPlaceDie(i, animate);
+    if (mFinished()) {
+        s_gen++;   // Stops the web timer and pending timers of this screen
+        showMiniResults();
+        return;
+    }
+    updateWebOverlay();
+    miniRefresh();
+}
+
+static void mPendingTimer(lv_timer_t *t)
+{
+    const uint32_t gen = (uint32_t)(uintptr_t)lv_timer_get_user_data(t);
+    if (gen != s_gen) return;
+    s_mPending = false;
+    mHideFlash();
+    switch (s_gameType) {
+    case GameType::PIG: s_pig.passTurn(); break;
+    case GameType::FARKLE: s_farkle.passTurn(); break;
+    default: s_scc.endTurn(); break;
+    }
+    for (int i = 0; i < s_mDice; i++) mSetFace(i, 0);
+    mAfterChange(false);
+}
+
+static void mStartPending(uint32_t ms)
+{
+    s_mPending = true;
+    lv_timer_t *t = lv_timer_create(mPendingTimer, ms, (void *)(uintptr_t)s_gen);
+    lv_timer_set_repeat_count(t, 1);
+}
+
+// Called when the roll animation has landed: show busts / Farkles / the SCC turn result.
+static void mRollLanded()
+{
+    for (int i = 0; i < s_mDice; i++) {
+        lv_image_set_rotation(s_mDie[i], 0);
+        mSetFace(i, mDieValue(i));
+        if (s_mRollMask[i]) animInt(s_mDie[i], zoomExec, s_mScale * ZOOM_LAND / ZOOM_100, s_mScale, BOUNCE_MS);
+        mPlaceDie(i, true);
+    }
+    switch (s_gameType) {
+    case GameType::PIG:
+        if (s_pig.hasBusted()) {
+            mShowFlash(s_pig.lostAll() ? tr(Str::G_LOST_ALL) : tr(Str::G_BUST), Theme::RED);
+            lv_label_set_text(s_mHint, "");
+            Rgb::effectFlash(255, 40, 30, 400);
+            mStartPending(M_BUST_MS);
+        }
+        break;
+    case GameType::FARKLE:
+        if (s_farkle.hasFarkled()) {
+            mShowFlash(tr(Str::G_FARKLE), Theme::RED);
+            lv_label_set_text(s_mHint, "");
+            Rgb::effectFlash(255, 40, 30, 400);
+            mStartPending(M_BUST_MS);
+        }
+        break;
+    default:
+        if (s_scc.rollsLeft() == 0) {   // Turn over automatically
+            if (s_scc.hasCrew()) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), tr(Str::G_CARGO_N), s_scc.cargoScore());
+                mShowFlash(buf, Theme::GREEN);
+                Rgb::effectFlash(40, 255, 90, 300);
+            } else {
+                mShowFlash(tr(Str::G_NO_CARGO), Theme::RED);
+                Rgb::effectFlash(255, 60, 40, 300);
+            }
+            mStartPending(M_SCC_END_MS);
+        }
+        break;
+    }
+    miniRefresh();
+}
+
+static void mRollTimer(lv_timer_t *t)
+{
+    const uint32_t gen = (uint32_t)(uintptr_t)lv_timer_get_user_data(t);
+    if (gen != s_gen) {
+        lv_timer_delete(t);
+        return;
+    }
+    const uint32_t el = lv_tick_elaps(s_mRollStart);
+    if (el >= M_ROLL_MS) {
+        lv_timer_delete(t);
+        s_mRolling = false;
+        mRollLanded();
+        return;
+    }
+    const float k = 1.0f - (float)el / (float)M_ROLL_MS;   // Shake fades out
+    for (int i = 0; i < s_mDice; i++) {
+        if (!s_mRollMask[i]) continue;
+        mSetFace(i, rnd(1, 6));
+        lv_obj_set_pos(s_mDie[i], mSlotX(i) + (int32_t)(rnd(-6, 6) * k), mRowY() - 8 + (int32_t)(rnd(-10, 10) * k));
+        lv_image_set_rotation(s_mDie[i], (int32_t)(rnd(-300, 300) * k));
+    }
+}
+
+static void mRoll()
+{
+    if (s_mRolling || s_mPending) return;
+    // Which dice move: computed before the engine locks / re-throws them
+    for (int i = 0; i < s_mDice; i++) {
+        switch (s_gameType) {
+        case GameType::PIG: s_mRollMask[i] = true; break;
+        case GameType::FARKLE: s_mRollMask[i] = !s_farkle.hasRolled() || s_farkle.hotDice() || !s_farkle.held(i); break;
+        default: s_mRollMask[i] = !s_scc.held(i); break;
+        }
+    }
+    bool ok;
+    switch (s_gameType) {
+    case GameType::PIG: ok = s_pig.roll(); break;
+    case GameType::FARKLE: ok = s_farkle.roll(); break;
+    default: ok = s_scc.roll(); break;
+    }
+    if (!ok) return;
+    s_mRolling = true;
+    s_mRollStart = lv_tick_get();
+    for (int i = 0; i < s_mDice; i++) {
+        if (!s_mRollMask[i]) continue;
+        lv_anim_delete(s_mDie[i], xExec);
+        lv_anim_delete(s_mDie[i], yExec);
+        lv_obj_set_style_image_opa(s_mDie[i], LV_OPA_COVER, 0);
+    }
+    Rgb::effectDiceRoll(M_ROLL_MS + 100);
+    lv_timer_create(mRollTimer, M_ROLL_TICK_MS, (void *)(uintptr_t)s_gen);
+    miniRefresh();
+}
+
+static void mAction()   // Banka / Spara
+{
+    if (s_mRolling || s_mPending) return;
+    bool ok = false;
+    switch (s_gameType) {
+    case GameType::PIG: ok = s_pig.bank(); break;
+    case GameType::FARKLE: ok = s_farkle.bank(); break;
+    default: ok = s_scc.endTurn(); break;
+    }
+    if (!ok) return;
+    Rgb::effectFlash(40, 255, 90, 300);
+    for (int i = 0; i < s_mDice; i++) mSetFace(i, 0);
+    mAfterChange(false);
+}
+
+static void mToggle(int i)
+{
+    if (s_mRolling || s_mPending || i < 0 || i >= s_mDice) return;
+    bool ok = false;
+    if (s_gameType == GameType::FARKLE) ok = s_farkle.toggleHold(i);
+    else if (s_gameType == GameType::SCC) ok = s_scc.toggleHold(i);
+    if (!ok) return;
+    mPlaceDie(i, true);
+    miniRefresh();
+}
+
+static void miniWebCommand(const GameLive::Cmd &c)
+{
+    if (!webTurn() || c.player != curPlayer() || s_mRolling || s_mPending) return;
+    switch (c.type) {
+    case GameLive::CmdType::HOLD: mToggle(c.arg); break;
+    case GameLive::CmdType::ROLL: mRoll(); break;
+    case GameLive::CmdType::BANK:
+        if (s_gameType != GameType::SCC) mAction();
+        break;
+    case GameLive::CmdType::END_TURN:
+        if (s_gameType == GameType::SCC) mAction();
+        break;
+    default: break;
+    }
+}
+
+static void showMini()
+{
+    s_gen++;
+    cupKill();
+    s_cupArea = nullptr;
+    s_webBlock = s_webPanel = s_webText = nullptr;
+    s_mRolling = s_mPending = false;
+    s_mDice = s_gameType == GameType::PIG ? s_pig.numDice() : (s_gameType == GameType::FARKLE ? FARKLE_DICE : SCC_DICE);
+    s_mSize = s_mDice == 6 ? 46 : 52;   // The two cached sprite sizes (shared with Yatzy)
+    s_mScale = s_mDice <= 2 ? ZOOM_100 * 3 / 2 : ZOOM_100;   // Pig: bigger dice
+    s_faces = facesFor(s_mSize);
+    if (!s_faces) ESP_LOGE("games", "die sprites: out of PSRAM");
+
+    lv_obj_t *scr = Theme::screen();
+    lv_obj_t *h = Theme::header(scr, "");
+    lv_obj_clean(h);
+    s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
+    lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(s_playerLabel, 160);
+    lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10, 0);
+    s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
+    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62, 0);
+    lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48, 34, Theme::LINE);
+    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6, 0);
+    lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
+
+    // Scoreboard: one column up to 4 players, two columns above
+    lv_obj_t *board = plainBox(scr, 5, M_BOARD_Y, SCR_W - 10, M_BOARD_H);
+    lv_obj_set_style_radius(board, 12, 0);
+    lv_obj_set_style_bg_color(board, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(board, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(board, 1, 0);
+    lv_obj_set_style_border_color(board, Theme::c(Theme::LINE), 0);
+    const int n = mPlayers();
+    const bool two = n > 4;
+    const int32_t colW = two ? 150 : 290;
+    for (int p = 0; p < n; p++) {
+        const int32_t x = 10 + (two ? (p / 4) * 152 : 0), y = 6 + (p % 4) * 25;
+        s_mName[p] = Theme::label(board, s_names[p], &my_font_18);
+        lv_label_set_long_mode(s_mName[p], LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(s_mName[p], colW - 64);
+        lv_obj_set_pos(s_mName[p], x, y);
+        s_mTotal[p] = Theme::label(board, "0", &my_font_18);
+        lv_obj_set_width(s_mTotal[p], 56);
+        lv_obj_set_style_text_align(s_mTotal[p], LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_pos(s_mTotal[p], x + colW - 66, y);
+    }
+
+    // Felt + nest
+    lv_obj_t *felt = plainBox(scr, FELT_X, M_FELT_Y, FELT_W, M_FELT_H);
+    lv_obj_set_style_radius(felt, 14, 0);
+    lv_obj_set_style_bg_color(felt, Theme::c(0x123A3F), 0);
+    lv_obj_set_style_bg_grad_color(felt, Theme::c(0x0E2730), 0);
+    lv_obj_set_style_bg_grad_dir(felt, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(felt, LV_OPA_COVER, 0);
+    if (s_gameType != GameType::PIG) {
+        lv_obj_t *nest = plainBox(scr, FELT_X + 6, M_NEST_Y - 2, FELT_W - 12, M_FELT_Y + M_FELT_H - M_NEST_Y - 4);
+        lv_obj_set_style_radius(nest, 12, 0);
+        lv_obj_set_style_bg_color(nest, Theme::c(0x000000), 0);
+        lv_obj_set_style_bg_opa(nest, LV_OPA_30, 0);
+        lv_obj_set_style_border_width(nest, 1, 0);
+        lv_obj_set_style_border_color(nest, Theme::c(0x6B5418), 0);
+        lv_obj_set_style_border_opa(nest, LV_OPA_70, 0);
+    }
+
+    // Info area
+    if (s_gameType == GameType::SCC) {
+        static const Str CHIP[3] = {Str::G_SHIP, Str::G_CAPTAIN, Str::G_CREW};
+        static const char *FACE[3] = {"6 ", "5 ", "4 "};
+        for (int k = 0; k < 3; k++) {
+            s_mChip[k] = plainBox(scr, 6 + k * 104, M_INFO_Y, 100, 30);
+            lv_obj_set_style_radius(s_mChip[k], 15, 0);
+            lv_obj_set_style_bg_opa(s_mChip[k], LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(s_mChip[k], 1, 0);
+            lv_obj_t *l = Theme::label(s_mChip[k], trp(FACE[k], CHIP[k]), &my_font_14);
+            lv_obj_center(l);
+        }
+        s_mBig = Theme::label(scr, "", &my_font_24, Theme::GOLD);
+        lv_obj_set_pos(s_mBig, 12, M_INFO_Y + 38);
+        s_mSub = nullptr;
+        s_mHint = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+        lv_obj_set_width(s_mHint, 170);
+        lv_label_set_long_mode(s_mHint, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_align(s_mHint, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_pos(s_mHint, SCR_W - 182, M_INFO_Y + 38);
+    } else {
+        s_mBig = Theme::label(scr, "", &my_font_36, Theme::GOLD);
+        lv_obj_set_pos(s_mBig, 12, M_INFO_Y - 2);
+        s_mSub = Theme::label(scr, "", &my_font_18, Theme::TEAL);
+        lv_obj_align(s_mSub, LV_ALIGN_TOP_RIGHT, -12, M_INFO_Y + 10);
+        s_mHint = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+        lv_label_set_long_mode(s_mHint, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(s_mHint, SCR_W - 24);
+        lv_obj_set_pos(s_mHint, 12, M_INFO_Y + 50);
+    }
+
+    // Buttons: Banka (green) / Spara (blue) + Kasta
+    const bool scc = s_gameType == GameType::SCC;
+    s_mActBtn = Theme::button(scr, "", 150, BTN_H, scc ? Theme::BLUE : Theme::GREEN, true);
+    lv_obj_set_pos(s_mActBtn, 6, BTN_Y);
+    s_mActLabel = lv_obj_get_child(s_mActBtn, 0);
+    lv_obj_add_event_cb(s_mActBtn, [](lv_event_t *) { mAction(); }, LV_EVENT_CLICKED, nullptr);
+    s_mRollBtn = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL), 152, BTN_H,
+                               scc ? Theme::ACCENT : Theme::BLUE, true);
+    lv_obj_set_pos(s_mRollBtn, 162, BTN_Y);
+    s_mRollLabel = lv_obj_get_child(s_mRollBtn, 0);
+    lv_obj_add_event_cb(s_mRollBtn, [](lv_event_t *) { mRoll(); }, LV_EVENT_CLICKED, nullptr);
+
+    // Dice
+    for (int i = 0; i < s_mDice; i++) {
+        s_mDie[i] = lv_image_create(scr);
+        s_mFace[i] = -1;
+        mSetFace(i, 0);
+        lv_obj_set_size(s_mDie[i], s_mSize, s_mSize);
+        lv_image_set_pivot(s_mDie[i], s_mSize / 2, s_mSize / 2);
+        lv_image_set_scale(s_mDie[i], (uint32_t)s_mScale);
+        lv_obj_set_ext_click_area(s_mDie[i], 4);
+        lv_obj_add_event_cb(s_mDie[i], [](lv_event_t *e) { mToggle((int)(intptr_t)lv_event_get_user_data(e)); },
+                            LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        mPlaceDie(i, false);
+    }
+
+    // Bust / Farkle / cargo flash (over the felt)
+    s_mFlash = plainBox(scr, 30, M_FELT_Y + 50, SCR_W - 60, 70);
+    lv_obj_set_style_radius(s_mFlash, 16, 0);
+    lv_obj_set_style_bg_color(s_mFlash, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_bg_opa(s_mFlash, 230, 0);
+    lv_obj_set_style_border_width(s_mFlash, 3, 0);
+    lv_obj_set_style_shadow_width(s_mFlash, 20, 0);
+    lv_obj_set_style_shadow_color(s_mFlash, Theme::c(0x000000), 0);
+    lv_obj_set_style_shadow_opa(s_mFlash, LV_OPA_60, 0);
+    s_mFlashText = Theme::label(s_mFlash, "", &my_font_24);
+    lv_obj_set_width(s_mFlashText, SCR_W - 80);
+    lv_obj_set_style_text_align(s_mFlashText, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s_mFlashText, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_center(s_mFlashText);
+    lv_obj_set_hidden(s_mFlash, true);
+
+    buildWebOverlay(scr);
+    Theme::loadScreen(scr);
+    updateWebOverlay();
+    miniRefresh();
+}
+
+static void showMiniResults()
+{
+    s_mRollBtn = nullptr;   // miniRefresh() is a no-op from here on
+    lv_obj_t *scr = Theme::screen();
+    Theme::header(scr, tr(Str::RES_TITLE));
+    lv_obj_t *var = Theme::label(scr, gameTitle(), &my_font_14, Theme::TEAL);
+    lv_label_set_long_mode(var, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(var, 150);
+    lv_obj_set_style_text_align(var, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
+
+    int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
+    int n;
+    switch (s_gameType) {
+    case GameType::PIG: n = s_pig.ranking(order, places); break;
+    case GameType::FARKLE: n = s_farkle.ranking(order, places); break;
+    default: n = s_scc.ranking(order, places); break;
+    }
+    lv_obj_t *card = Theme::card(scr, 310, 360);
+    lv_obj_set_pos(card, 5, 54);
+    static const uint32_t MEDAL[3] = {Theme::GOLD, 0xC9D3DE, 0xD08A4A};
+    for (int i = 0; i < n; i++) {
+        int32_t y = i * 42;
+        lv_obj_t *badge = lv_obj_create(card);
+        lv_obj_remove_style_all(badge);
+        lv_obj_set_size(badge, 32, 32);
+        lv_obj_set_pos(badge, 0, y);
+        lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(badge, Theme::c(places[i] <= 3 ? MEDAL[places[i] - 1] : Theme::PANEL_RAISED), 0);
+        lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
+        char num[6];
+        snprintf(num, sizeof(num), "%d", places[i]);
+        lv_obj_t *nl = Theme::label(badge, num, &my_font_18, places[i] <= 3 ? Theme::BG : Theme::TEXT);
+        lv_obj_center(nl);
+        lv_obj_t *name = Theme::label(card, s_names[order[i]], &my_font_18, places[i] == 1 ? Theme::GOLD : Theme::TEXT);
+        lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(name, 170);
+        lv_obj_set_pos(name, 42, y + 5);
+        char pts[12];
+        snprintf(pts, sizeof(pts), "%d", mTotal(order[i]));
+        lv_obj_t *pl = Theme::label(card, pts, &my_font_24);
+        lv_obj_align(pl, LV_ALIGN_TOP_RIGHT, 0, y + 2);
+    }
+
+    lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN), 150, 46, Theme::ACCENT, true);
+    lv_obj_set_pos(again, 160, 424);
+    lv_obj_add_event_cb(again, [](lv_event_t *) {
+        switch (s_gameType) {
+        case GameType::PIG: s_pig.start(); break;
+        case GameType::FARKLE: s_farkle.start(); break;
+        default: s_scc.start(); break;
+        }
+        showMini();
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *menu = Theme::button(scr, trp(LV_SYMBOL_HOME " ", Str::RES_MENU), 140, 46, Theme::MUTED);
+    lv_obj_set_pos(menu, 10, 424);
+    lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+
+    Rgb::effectFlash(255, 200, 60, 1200);
+    mPublish();   // Final scores stay on the live page
     Theme::loadScreen(scr);
 }
 

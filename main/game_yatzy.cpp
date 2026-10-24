@@ -283,7 +283,7 @@ void YatzyGame::beginTurn()
     memset(dice_, 0, sizeof(dice_));
     YatzyPlayer &p = players_[current_];
     turnRollBudget_ = YATZY_ROLLS_PER_TURN;
-    if (variant_ == YatzyVariant::MAXI && savedRollsRule_) {
+    if (savedRollsRule_) {
         turnRollBudget_ += p.savedRolls;
         p.savedRolls = 0;
     }
@@ -359,7 +359,7 @@ bool YatzyGame::score(YatzyCategory c)
     if (!canScore(c)) return false;
     YatzyPlayer &p = players_[current_];
     p.scores[(int)c] = (int16_t)potentialScore(c);
-    if (variant_ == YatzyVariant::MAXI && savedRollsRule_) {
+    if (savedRollsRule_) {
         p.savedRolls = (uint8_t)(turnRollBudget_ - rollsUsed_);
     }
     current_++;

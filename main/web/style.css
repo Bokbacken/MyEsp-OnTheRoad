@@ -266,6 +266,38 @@ code { color: var(--otr-teal); }
 .die-wrap.going-to-cup { animation: die-fade-out 0.38s ease-in forwards; }
 #cup-info-r { font-size: .82rem; text-align: center; color: rgba(255,255,255,.5); white-space: nowrap; }
 
+/* ── v0.6.0: Pig / Farkle / Ship-Captain-Crew (play.html) ── */
+button.bank-btn { background: linear-gradient(to bottom, #2f9e55, #1f7a3e); border-color: #62d28a; color: #fff; }
+button.bank-btn:hover { background: var(--otr-green); color: var(--otr-navy); }
+button.end-btn { background: linear-gradient(to bottom, #1d8fb0, #11667f); border-color: var(--otr-teal); color: #fff; }
+button.end-btn:hover { background: var(--otr-teal); color: var(--otr-navy); }
+button.bank-btn:disabled, button.end-btn:disabled { cursor: not-allowed; filter: saturate(.4); }
+.bust-flash { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 3; max-width: 86%;
+  padding: .7rem 1.2rem; border-radius: .8rem; border: 2px solid #ffb0a8; background: rgba(150,25,25,.92);
+  color: #fff; font-size: 1.15rem; font-weight: 700; text-align: center; box-shadow: 0 6px 22px rgba(0,0,0,.6);
+  animation: bust-pop .35s cubic-bezier(.22,.61,.36,1); pointer-events: none; }
+.bust-flash.ok { border-color: #b8f0c9; background: rgba(25,110,55,.92); }
+@keyframes bust-pop { from { opacity: 0; transform: translate(-50%,-50%) scale(.7); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
+.mini-status { display: flex; justify-content: center; align-items: baseline; gap: .5rem; flex-wrap: wrap; margin: .1rem 0 .35rem; }
+.mini-status .lbl { color: var(--otr-muted); font-size: .9rem; text-transform: uppercase; letter-spacing: .05em; }
+.mini-status .turn-score { font-size: 1.7rem; font-weight: 800; color: var(--otr-gold, #ffd45c); font-variant-numeric: tabular-nums; }
+.mini-status.bust .turn-score { color: var(--otr-red); text-decoration: line-through; }
+.mini-status .held-score { color: var(--otr-orange); font-weight: 700; }
+.scc-icons { display: flex; gap: .4rem; justify-content: center; flex-wrap: wrap; width: 100%; }
+.scc-icons span { padding: .3rem .65rem; border-radius: 1rem; border: 1px solid var(--otr-line); background: var(--otr-panel-raised);
+  color: var(--otr-muted); font-size: .9rem; white-space: nowrap; transition: all .3s; }
+.scc-icons span b { color: inherit; }
+.scc-icons span.on { border-color: var(--otr-orange); background: rgba(255,156,61,.18); color: var(--otr-orange); font-weight: 700; }
+.scc-icons span.cargo.on { border-color: var(--otr-gold, #ffd45c); color: var(--otr-gold, #ffd45c); background: rgba(255,212,92,.12); }
+#felt-held .die-wrap { position: relative; }
+#felt-held .die-wrap.locked-wrap { opacity: .72; cursor: default; filter: none; }
+#felt-held .role-tag { position: absolute; left: 50%; bottom: -.55rem; transform: translateX(-50%); padding: 0 .35rem;
+  border-radius: .4rem; background: #0a150c; color: #ffd9a8; font-size: .62rem; font-weight: 700; white-space: nowrap; pointer-events: none; }
+.score td.race { min-width: 7rem; }
+.score td.race .bar { margin-top: .2rem; height: .35rem; }
+.score .turn-plus { color: var(--otr-orange); font-weight: 700; font-size: .85em; }
+.score td.scc-live { color: var(--otr-gold, #ffd45c); font-style: italic; }
+
 @media (max-width: 700px) {
   body { padding: .6rem .6rem 2rem; font-size: 15px; }
   .otr-project { font-size: 1.2rem; }

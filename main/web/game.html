@@ -74,7 +74,7 @@
     <div class="muted" id="rolls">–</div>
     <div class="winner" id="winner" hidden></div>
   </div>
-  <h2 data-t="protocol">Protokoll</h2>
+  <h2 id="proto-h" data-t="protocol">Protokoll</h2>
   <div class="card table-wrap">
     <table class="score" id="score"></table>
   </div>
@@ -103,6 +103,15 @@ const T = {
        sum: 'Sum', total: 'Total', live: 'live', nocontact: 'no contact', connected: 'connected', waiting: 'waiting', web_playing: '{0} playing via the web',
        fs: 'Full screen'}
 };
+// v0.6.0: Pig / Farkle / Ship-Captain-Crew
+Object.assign(T.sv, {idle_hint: 'Starta ett spel på enheten – sidan uppdateras automatiskt.', standings: 'Poängställning',
+  round_n: 'Omgång {0}', target: 'mål {0} p', turn_total: 'Rundans poäng: {0}', bust: 'Etta – rundans poäng förlorade',
+  lost_all: 'Dubbla ettor – allt nollställt', farkle: 'Farkle – inga poäng', final_round: 'Sista omgången', opened: 'Öppnad',
+  ship: 'Skepp', captain: 'Kapten', crew: 'Besättning', cargo: 'Last {0}', player: 'Spelare', points: 'Poäng'});
+Object.assign(T.en, {idle_hint: 'Start a game on the device – the page updates automatically.', standings: 'Standings',
+  round_n: 'Round {0}', target: 'target {0} pts', turn_total: 'Turn total: {0}', bust: 'A one – turn total lost',
+  lost_all: 'Double ones – everything reset', farkle: 'Farkle – no points', final_round: 'Final round', opened: 'Opened',
+  ship: 'Ship', captain: 'Captain', crew: 'Crew', cargo: 'Cargo {0}', player: 'Player', points: 'Points'});
 let L = 'sv';
 const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
 function setLang(l) {
@@ -290,6 +299,8 @@ function render(g) {
   $('webwho').textContent = connected.length
     ? t('web_playing', connected.map(w => (P[w.player] || {name: '?'}).name).join(', ')) : '';
   $('variant').textContent = g.name;
+  if (g.game_type && g.game_type !== 'yatzy') { renderOther(g); return; }
+  $('proto-h').textContent = t('protocol');
   $('round').textContent = g.finished ? t('over') : t('round', g.round, g.rounds);
   const cur = P[g.current] || {name: '?'};
   $('turn').innerHTML = g.finished ? t('final') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (cur.web ? ' 📶' : '') +
@@ -308,7 +319,7 @@ function render(g) {
     }
   }
   let rolls = g.finished ? '' : t('rolls', g.rolls_left);
-  if (!g.finished && g.variant === 'maxi' && cur.saved_rolls) rolls += t('saved', cur.saved_rolls);
+  if (!g.finished && cur.saved_rolls) rolls += t('saved', cur.saved_rolls);
   $('rolls').textContent = rolls;
 
   const w = $('winner');
@@ -333,6 +344,59 @@ function render(g) {
     h += '<tr><td>' + esc(c.name) + '</td>' + P.map((p, i) => cell(p.scores[k]).replace('<td', '<td' + cc(i))).join('') + '</tr>';
   });
   h += '<tr class="total sum"><td>' + t('total') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
+  $('score').innerHTML = h;
+}
+
+// v0.6.0: read-only view of Pig / Farkle / Ship-Captain-Crew (held dice glow on the felt, as for Yatzy)
+function renderOther(g) {
+  const P = g.players, gt = g.game_type, cur = P[g.current] || {name: '?'};
+  $('proto-h').textContent = t(gt === 'scc' ? 'protocol' : 'standings');
+  $('round').textContent = g.finished ? t('over') : gt === 'scc' ? t('round', g.round, g.rounds)
+    : t('round_n', g.round) + ' · ' + t('target', g.target) + (g.final_round ? ' · ' + t('final_round') : '');
+  $('turn').innerHTML = g.finished ? t('final') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (cur.web ? ' 📶' : '') +
+    (g.rolling ? ' <span class="muted">· ' + t('rolling') + '</span>' : '');
+  const held = i => !!(g.held && g.held[i]);
+  if (g.finished) {
+    stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = []; _dieVal = []; _dieRot = []; _dieX = []; _dieY = []; _diePlaced = [];
+  } else {
+    buildDice3D($('dice'), g.dice.length);
+    if (g.rolling) startRollingAnim($('dice'), g.dice.map((_, i) => held(i) ? -1 : i).filter(i => i >= 0));
+    else { stopRollingAnim(); g.dice.forEach((v, i) => setDieValue($('dice'), i, v, held(i))); }
+  }
+  let st = '';
+  if (!g.finished) {
+    if (gt === 'pig') st = g.busted ? t(g.lost_all ? 'lost_all' : 'bust') : t('turn_total', g.turn_total);
+    else if (gt === 'farkle') st = g.farkled ? t('farkle') : t('turn_total', g.turn_total + (g.held_score || 0));
+    else st = [g.ship && t('ship'), g.captain && t('captain'), g.crew && t('crew'), g.crew && t('cargo', g.cargo)].filter(Boolean).join(' · ') +
+      (g.has_rolled ? (g.ship ? ' · ' : '') + t('rolls', g.rolls_left) : '');
+  }
+  $('rolls').textContent = st;
+  const w = $('winner');
+  w.hidden = !g.finished;
+  if (g.finished && g.ranking) {
+    const first = g.ranking.filter(r => r.place === 1).map(r => esc(P[r.player].name));
+    w.innerHTML = (first.length > 1 ? t('shared') : t('winner')) + first.join(' & ') + ' 🏆<div class="muted" style="font-size:1rem;font-weight:500">' +
+      g.ranking.map(r => r.place + '. ' + esc(P[r.player].name) + ' ' + P[r.player].total).join(' · ') + '</div>';
+  }
+  const cc = i => (!g.finished && i === g.current) ? ' class="cur"' : '';
+  let h;
+  if (gt === 'scc') {
+    h = '<thead><tr><th></th>' + P.map((p, i) => '<th' + cc(i) + '>' + esc(p.name) + '</th>').join('') + '</tr></thead><tbody>';
+    for (let k = 0; k < g.rounds; k++)
+      h += '<tr><td>' + t('round_n', k + 1) + '</td>' + P.map((p, i) => {
+        const v = (p.scores || [])[k];
+        return '<td' + cc(i) + '>' + (v === undefined ? '<span class="empty">·</span>' : v === 0 ? '<span class="zero">–</span>' : v) + '</td>';
+      }).join('') + '</tr>';
+    h += '<tr class="total sum"><td>' + t('total') + '</td>' + P.map((p, i) => '<td' + cc(i) + '>' + p.total + '</td>').join('') + '</tr></tbody>';
+  } else {
+    h = '<thead><tr><th>' + t('player') + '</th><th>' + t('points') + '</th>' + (gt === 'farkle' ? '<th>' + t('opened') + '</th>' : '') + '</tr></thead><tbody>';
+    P.forEach((p, i) => {
+      const pct = Math.max(0, Math.min(100, Math.round(100 * p.total / (g.target || 1))));
+      h += '<tr' + cc(i) + '><td>' + esc(p.name) + '</td><td><b>' + p.total + '</b><div class="bar"><i style="width:' + pct + '%"></i></div></td>' +
+        (gt === 'farkle' ? '<td>' + (p.opened ? '<span class="ok">&#10003;</span>' : '<span class="muted">–</span>') + '</td>' : '') + '</tr>';
+    });
+    h += '</tbody>';
+  }
   $('score').innerHTML = h;
 }
 

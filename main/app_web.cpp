@@ -421,24 +421,172 @@ static esp_err_t handleTimePost(httpd_req_t *r)
 // /api/game - live view of the running game (page /game polls it).
 // ?v=<version>: answers {"same":true} while nothing changed.
 // ----------------------------------------------------------------------------------------
+// Seats for the /play lobby (all games): registry id, PIN set, browser bound.
+static void addWebPlayers(cJSON *o, const GameLive::Snapshot &snap)
+{
+    const GameLive::Snapshot *s = &snap;
+    cJSON *wp = cJSON_AddArrayToObject(o, "web_players");
+    for (int p = 0; p < GameLive::playerCount(snap) && p < YATZY_MAX_PLAYERS; p++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddNumberToObject(e, "player", p);
+        cJSON_AddNumberToObject(e, "id", s->pid[p]);
+        cJSON_AddStringToObject(e, "name", GameLive::playerName(snap, p));
+        cJSON_AddBoolToObject(e, "has_pin", s->pid[p] && Players::hasPin(s->pid[p]));   // Never the PIN itself
+        cJSON_AddBoolToObject(e, "connected", s->conn[p] > 0);
+        cJSON_AddItemToArray(wp, e);
+    }
+}
+
+template <typename G>
+static void addRanking(cJSON *o, const G &g)
+{
+    int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
+    int n = g.ranking(order, places);
+    cJSON *rk = cJSON_AddArrayToObject(o, "ranking");
+    for (int k = 0; k < n; k++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddNumberToObject(e, "player", order[k]);
+        cJSON_AddNumberToObject(e, "place", places[k]);
+        cJSON_AddItemToArray(rk, e);
+    }
+}
+
+static void addDice(cJSON *o, const uint8_t *d, int n, bool show)
+{
+    cJSON *dice = cJSON_AddArrayToObject(o, "dice");
+    for (int i = 0; i < n; i++) cJSON_AddItemToArray(dice, cJSON_CreateNumber(show ? d[i] : 0));
+}
+
+static cJSON *addPlayerBase(cJSON *pa, const GameLive::Snapshot &snap, int p, const char *name, int total)
+{
+    cJSON *e = cJSON_CreateObject();
+    cJSON_AddStringToObject(e, "name", name);
+    if (p < YATZY_MAX_PLAYERS && snap.web[p]) cJSON_AddBoolToObject(e, "web", true);
+    cJSON_AddNumberToObject(e, "total", total);
+    cJSON_AddItemToArray(pa, e);
+    return e;
+}
+
+// v0.6.0: Pig / Farkle / Ship-Captain-Crew state (see docs/GAME_ARCHITECTURE.md).
+static void addOtherGame(cJSON *o, const GameLive::Snapshot &snap)
+{
+    cJSON_AddBoolToObject(o, "rolling", snap.rolling);
+    cJSON_AddNumberToObject(o, "current", GameLive::currentPlayer(snap));
+    cJSON_AddNumberToObject(o, "num_dice", GameLive::diceCount(snap));
+    cJSON_AddBoolToObject(o, "finished", GameLive::finished(snap));
+    addWebPlayers(o, snap);
+    switch (snap.gameType) {
+    case GameType::PIG: {
+        const PigGame &g = snap.pig;
+        const bool two = g.variant() == PigVariant::TWO_DICE;
+        cJSON_AddStringToObject(o, "game_type", "pig");
+        cJSON_AddStringToObject(o, "pig_variant", two ? "two_dice" : "one_die");
+        cJSON_AddStringToObject(o, "name", tr(two ? Str::VAR_PIG_2 : Str::VAR_PIG_1));
+        cJSON_AddNumberToObject(o, "target", PIG_WIN_SCORE);
+        addDice(o, g.dice(), g.numDice(), g.hasRolled());
+        cJSON_AddBoolToObject(o, "has_rolled", g.hasRolled());
+        cJSON_AddNumberToObject(o, "turn_total", g.turnTotal());
+        cJSON_AddBoolToObject(o, "busted", g.hasBusted());
+        cJSON_AddBoolToObject(o, "lost_all", g.lostAll());
+        cJSON_AddNumberToObject(o, "round", g.round());
+        cJSON_AddBoolToObject(o, "can_roll", g.canRoll());
+        cJSON_AddBoolToObject(o, "can_bank", g.canBank());
+        cJSON *pa = cJSON_AddArrayToObject(o, "players");
+        for (int p = 0; p < g.playerCount(); p++) addPlayerBase(pa, snap, p, g.player(p).name, g.total(p));
+        if (g.finished()) addRanking(o, g);
+        break;
+    }
+    case GameType::FARKLE: {
+        const FarkleGame &g = snap.farkle;
+        cJSON_AddStringToObject(o, "game_type", "farkle");
+        cJSON_AddStringToObject(o, "name", tr(Str::VAR_FARKLE));
+        cJSON_AddNumberToObject(o, "target", FARKLE_WIN_SCORE);
+        cJSON_AddNumberToObject(o, "open_threshold", FARKLE_OPEN_THRESHOLD);
+        bool show[FARKLE_DICE];
+        cJSON *dice = cJSON_AddArrayToObject(o, "dice");
+        cJSON *held = cJSON_AddArrayToObject(o, "held");
+        cJSON *locked = cJSON_AddArrayToObject(o, "locked");
+        for (int i = 0; i < FARKLE_DICE; i++) {
+            show[i] = g.hasRolled() || g.locked(i);
+            cJSON_AddItemToArray(dice, cJSON_CreateNumber(show[i] ? g.dice()[i] : 0));
+            cJSON_AddItemToArray(held, cJSON_CreateBool(g.held(i)));
+            cJSON_AddItemToArray(locked, cJSON_CreateBool(g.locked(i)));
+        }
+        cJSON_AddBoolToObject(o, "has_rolled", g.hasRolled());
+        cJSON_AddNumberToObject(o, "turn_total", g.turnTotal());
+        cJSON_AddNumberToObject(o, "held_score", g.heldScore());
+        cJSON_AddBoolToObject(o, "held_valid", g.heldValid());
+        cJSON_AddBoolToObject(o, "farkled", g.hasFarkled());
+        cJSON_AddBoolToObject(o, "hot_dice", g.hotDice());
+        cJSON_AddBoolToObject(o, "final_round", g.finalRound());
+        cJSON_AddNumberToObject(o, "round", g.round());
+        cJSON_AddBoolToObject(o, "can_roll", g.canRoll());
+        cJSON_AddBoolToObject(o, "can_bank", g.canBank());
+        cJSON *pa = cJSON_AddArrayToObject(o, "players");
+        for (int p = 0; p < g.playerCount(); p++) {
+            cJSON *e = addPlayerBase(pa, snap, p, g.player(p).name, g.player(p).total);
+            cJSON_AddBoolToObject(e, "opened", g.player(p).opened);
+        }
+        if (g.finished()) addRanking(o, g);
+        break;
+    }
+    default: {
+        const SccGame &g = snap.scc;
+        cJSON_AddStringToObject(o, "game_type", "scc");
+        cJSON_AddStringToObject(o, "name", tr(Str::VAR_SCC_3));
+        addDice(o, g.dice(), SCC_DICE, g.hasRolled());
+        cJSON *held = cJSON_AddArrayToObject(o, "held");
+        cJSON *role = cJSON_AddArrayToObject(o, "role");   // 0 cargo, 1 ship, 2 captain, 3 crew
+        for (int i = 0; i < SCC_DICE; i++) {
+            cJSON_AddItemToArray(held, cJSON_CreateBool(g.held(i)));
+            cJSON_AddItemToArray(role, cJSON_CreateNumber((int)g.role(i)));
+        }
+        cJSON_AddBoolToObject(o, "has_rolled", g.hasRolled());
+        cJSON_AddNumberToObject(o, "rolls_left", g.rollsLeft());
+        cJSON_AddBoolToObject(o, "ship", g.hasShip());
+        cJSON_AddBoolToObject(o, "captain", g.hasCaptain());
+        cJSON_AddBoolToObject(o, "crew", g.hasCrew());
+        cJSON_AddNumberToObject(o, "cargo", g.cargoScore());
+        cJSON_AddNumberToObject(o, "round", g.round() > g.totalRounds() ? g.totalRounds() : g.round());
+        cJSON_AddNumberToObject(o, "rounds", g.totalRounds());
+        cJSON_AddBoolToObject(o, "can_roll", g.canRoll());
+        cJSON_AddBoolToObject(o, "can_end", g.canEnd());
+        cJSON *pa = cJSON_AddArrayToObject(o, "players");
+        for (int p = 0; p < g.playerCount(); p++) {
+            const SccPlayer &pl = g.player(p);
+            cJSON *e = addPlayerBase(pa, snap, p, pl.name, pl.total);
+            cJSON *sc = cJSON_AddArrayToObject(e, "scores");
+            for (int k = 0; k < pl.scoreCount; k++) cJSON_AddItemToArray(sc, cJSON_CreateNumber(pl.scores[k]));
+        }
+        if (g.finished()) addRanking(o, g);
+        break;
+    }
+    }
+}
+
 // Builds the live-view JSON from a snapshot (shared by /api/game and the WebSocket broadcast).
 static cJSON *gameJson(const GameLive::Snapshot &snap)
 {
     const GameLive::Snapshot *s = &snap;
     const YatzyGame &g = s->game;
-    const bool hasGame = s->active && g.started() && g.playerCount() > 0;
+    const bool hasGame = s->active && GameLive::started(snap) && GameLive::playerCount(snap) > 0;
     cJSON *o = cJSON_CreateObject();
     cJSON_AddNumberToObject(o, "version", s->version);
     cJSON_AddBoolToObject(o, "active", hasGame);
     cJSON_AddStringToObject(o, "lang", Lang::currentLang());
+    if (hasGame && s->gameType != GameType::YATZY) {
+        addOtherGame(o, snap);
+        return o;
+    }
     if (hasGame) {
+        cJSON_AddStringToObject(o, "game_type", "yatzy");
         const YatzyVariant var = g.variant();
         cJSON_AddBoolToObject(o, "rolling", s->rolling);
         cJSON_AddBoolToObject(o, "shaking", s->shaking);
         cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
         cJSON_AddBoolToObject(o, "finished", g.finished());
         cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");
-        cJSON_AddStringToObject(o, "name", trVariant(var, g.mode()));
+        cJSON_AddStringToObject(o, "name", trVariant(var, g.mode(), g.savedRollsRule()));
         cJSON_AddNumberToObject(o, "round", g.round());
         cJSON_AddNumberToObject(o, "rounds", g.totalRounds());
         cJSON_AddNumberToObject(o, "current", g.currentPlayer());
@@ -448,16 +596,7 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
         cJSON_AddBoolToObject(o, "has_rolled", g.hasRolled());
         cJSON_AddNumberToObject(o, "bonus_threshold", Yatzy::bonusThreshold(var));
         cJSON_AddNumberToObject(o, "bonus_points", Yatzy::bonusPoints(var));
-        cJSON *wp = cJSON_AddArrayToObject(o, "web_players");
-        for (int p = 0; p < g.playerCount() && p < YATZY_MAX_PLAYERS; p++) {
-            cJSON *e = cJSON_CreateObject();
-            cJSON_AddNumberToObject(e, "player", p);
-            cJSON_AddNumberToObject(e, "id", s->pid[p]);
-            cJSON_AddStringToObject(e, "name", g.player(p).name);
-            cJSON_AddBoolToObject(e, "has_pin", s->pid[p] && Players::hasPin(s->pid[p]));   // Never the PIN itself
-            cJSON_AddBoolToObject(e, "connected", s->conn[p] > 0);
-            cJSON_AddItemToArray(wp, e);
-        }
+        addWebPlayers(o, snap);
         cJSON *dice = cJSON_AddArrayToObject(o, "dice");
         cJSON *held = cJSON_AddArrayToObject(o, "held");
         for (int i = 0; i < g.diceCount(); i++) {
@@ -491,7 +630,7 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
             cJSON_AddNumberToObject(e, "upper", g.upperSum(p));
             cJSON_AddNumberToObject(e, "bonus", g.bonus(p));
             cJSON_AddNumberToObject(e, "total", g.total(p));
-            if (var == YatzyVariant::MAXI) cJSON_AddNumberToObject(e, "saved_rolls", pl.savedRolls);
+            if (var == YatzyVariant::MAXI || g.savedRollsRule()) cJSON_AddNumberToObject(e, "saved_rolls", pl.savedRolls);
             cJSON_AddItemToArray(pa, e);
         }
         if (g.finished()) {
@@ -532,7 +671,10 @@ static esp_err_t handleGame(httpd_req_t *r)
 //   {"cmd":"join"}                           watch only (spectator, no PIN)
 //   {"cmd":"hold","die":N}                   toggle hold of die N (0-based)
 //   {"cmd":"roll"}                           roll the free dice (the console animates the throw)
-//   {"cmd":"choose","cat":ID}                write the box with category id ID (see "categories")
+//   {"cmd":"choose","cat":ID}                write the box with category id ID (see "categories"), Yatzy
+//   {"cmd":"bank"}                           v0.6.0 Pig / Farkle: bank the turn total
+//   {"cmd":"end"}                            v0.6.0 Ship/Captain/Crew: save the cargo, end the turn
+// State frames carry "game_type" ("yatzy" | "pig" | "farkle" | "scc") and game specific fields.
 // Device -> client:
 //   {"type":"joined","you":seat|-1}
 //   {"type":"error","error":"nogame|seat|pin|nopin|locked|join|full|cmd|turn","msg":"...","retry_s":n}
@@ -650,7 +792,7 @@ static void wsBroadcastWork(void *)
     bool changed = wsReapDead(hd);
     GameLive::get(*s_wsSnap);
     for (WsClient &c : s_ws) {
-        const bool live = s_wsSnap->active && s_wsSnap->game.started();
+        const bool live = s_wsSnap->active && GameLive::started(*s_wsSnap);
         if (c.fd >= 0 && c.joined && (!live || c.session != s_wsSnap->session)) {   // Game left / new game
             c.joined = false;
             c.seat = -1;
@@ -730,7 +872,7 @@ static void wsHandleText(int fd, const char *txt)
         const cJSON *jp = cJSON_GetObjectItem(j, "player");
         const cJSON *jpin = cJSON_GetObjectItem(j, "pin");
         const char *pin = cJSON_IsString(jpin) ? jpin->valuestring : "";
-        const bool hasGame = s->active && s->game.started();
+        const bool hasGame = s->active && GameLive::started(*s);
         const int64_t now = nowMs();
         if (s_seatFailSession != s->session) {   // New game: forget old per-seat failures
             s_seatFailSession = s->session;
@@ -742,7 +884,7 @@ static void wsHandleText(int fd, const char *txt)
         if (!hasGame) {
             wsSendError(fd, "nogame", Str::WEB_ERR_WS_NOGAME);
             seat = -2;
-        } else if (seat != -1 && (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS)) {
+        } else if (seat != -1 && (seat < 0 || seat >= GameLive::playerCount(*s) || seat >= YATZY_MAX_PLAYERS)) {
             wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
             seat = -2;
         } else if (seat >= 0) {
@@ -796,12 +938,12 @@ static void wsHandleText(int fd, const char *txt)
         const cJSON *jpin = cJSON_GetObjectItem(j, "pin");
         const char *pin = cJSON_IsString(jpin) ? jpin->valuestring : "";
         const int seat = cJSON_IsNumber(jp) ? jp->valueint : -1;
-        const bool hasGame = s->active && s->game.started();
+        const bool hasGame = s->active && GameLive::started(*s);
         bool pinOk = strlen(pin) == 4;
         for (int i = 0; pinOk && i < 4; i++) pinOk = pin[i] >= '0' && pin[i] <= '9';
         if (!hasGame) {
             wsSendError(fd, "nogame", Str::WEB_ERR_WS_NOGAME);
-        } else if (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS || !s->pid[seat]) {
+        } else if (seat < 0 || seat >= GameLive::playerCount(*s) || seat >= YATZY_MAX_PLAYERS || !s->pid[seat]) {
             wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
         } else if (Players::hasPin(s->pid[seat])) {
             wsSendError(fd, "pinexists", Str::WEB_ERR_WS_PINEXISTS);
@@ -822,22 +964,30 @@ static void wsHandleText(int fd, const char *txt)
             wsPublishConnections();
             wsQueueBroadcast();
         }
-    } else if (strcmp(cmd, "hold") == 0 || strcmp(cmd, "roll") == 0 || strcmp(cmd, "choose") == 0) {
+    } else if (strcmp(cmd, "hold") == 0 || strcmp(cmd, "roll") == 0 || strcmp(cmd, "choose") == 0 ||
+               strcmp(cmd, "bank") == 0 || strcmp(cmd, "end") == 0) {
         if (!c->joined || c->seat < 0 || c->session != s->session || !s->active) {
             wsSendError(fd, "join", Str::WEB_ERR_WS_JOIN);
-        } else if (s->game.currentPlayer() != c->seat || s->game.finished()) {
+        } else if (GameLive::currentPlayer(*s) != c->seat || GameLive::finished(*s)) {
             wsSendError(fd, "turn", Str::WEB_ERR_WS_TURN);
         } else {
             GameLive::Cmd gc = {GameLive::CmdType::ROLL, 0, c->seat};
             bool ok = true;
             if (cmd[0] == 'h') {
                 const cJSON *jd = cJSON_GetObjectItem(j, "die");
-                ok = cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < s->game.diceCount();
+                ok = cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < GameLive::diceCount(*s);
                 gc.type = GameLive::CmdType::HOLD;
                 gc.arg = ok ? (int8_t)jd->valueint : 0;
+            } else if (cmd[0] == 'b') {
+                ok = s->gameType == GameType::PIG || s->gameType == GameType::FARKLE;
+                gc.type = GameLive::CmdType::BANK;
+            } else if (cmd[0] == 'e') {
+                ok = s->gameType == GameType::SCC;
+                gc.type = GameLive::CmdType::END_TURN;
             } else if (cmd[0] == 'c') {
+                ok = s->gameType == GameType::YATZY;
                 const cJSON *jd = cJSON_GetObjectItem(j, "cat");
-                ok = cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < (int)YatzyCategory::COUNT;
+                ok = ok && cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < (int)YatzyCategory::COUNT;
                 gc.type = GameLive::CmdType::CHOOSE;
                 gc.arg = ok ? (int8_t)jd->valueint : 0;
             }
