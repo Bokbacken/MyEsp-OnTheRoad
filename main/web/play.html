@@ -89,6 +89,7 @@ body { max-width: 34rem; }
       <div id="felt"><div class="dice" id="dice"></div></div>
       <div id="felt-held"></div>
       <div id="cup-round-wrap" hidden><div id="cup-round"><div class="cup-inner">
+        <div id="cup-dice"></div>
         <div class="cup-zone-r" data-zone="left"></div><div class="cup-zone-r" data-zone="right"></div>
         <div class="cup-zone-r" data-zone="top"></div><div class="cup-zone-r" data-zone="mid"></div>
         <div class="cup-zone-r" data-zone="bot"></div></div></div><div id="cup-info-r"></div></div>
@@ -138,7 +139,7 @@ const T = {
        expired: 'Ett nytt spel har startat – välj ditt namn igen.',
        round: 'Omgång {0} av {1}', turn: 'Tur', you: 'din tur!', spectator: 'Du tittar', playing_as: 'Du spelar som {0}',
        roll: 'Kasta ({0} kvar)', cup_left: '{0} kast kvar', cup_one: '1 kast kvar', cup_gentle: 'Försiktigt kast', cup_normal: 'Vanligt kast', cup_vigorous: 'Kraftigt kast', roll_none: 'Inga kast kvar', wait: 'Väntar på {0}...', rolling: 'Tärningarna rullar...',
-       tap_hold: 'Tryck på en tärning för att hålla / släppa den.', pick_score: 'Välj ruta i protokollet nedan', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
+       tap_hold: 'Tryck på en tärning för att hålla / släppa den.', kasta_hint: 'Tryck Kasta nedan för att lägga tärningarna i bägaren', cup_pour_hint: 'Tryck på bägaren för att kasta!', pick_score: 'Välj ruta i protokollet nedan', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
        sum: 'Summa', total: 'Totalt', over: 'Spelet är slut', winner: 'Vinnare: {0}',
        err_nogame: 'Inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
        err_pin: 'Fel PIN – försök igen.', err_nopin: 'Spelaren har ingen PIN – välj en ny.',
@@ -156,7 +157,7 @@ const T = {
        expired: 'A new game has started – pick your name again.',
        round: 'Round {0} of {1}', turn: 'Turn', you: 'your turn!', spectator: 'You are watching', playing_as: 'You play as {0}',
        roll: 'Roll ({0} left)', cup_left: '{0} rolls left', cup_one: '1 roll left', cup_gentle: 'Gentle throw', cup_normal: 'Normal throw', cup_vigorous: 'Vigorous throw', roll_none: 'No rolls left', wait: 'Waiting for {0}...', rolling: 'Dice rolling...',
-       tap_hold: 'Tap a die to hold / release it.', pick_score: 'Tap a box in the score sheet below', write: 'Write {0} pts in {1}', pick: 'Choose a box',
+       tap_hold: 'Tap a die to hold / release it.', kasta_hint: 'Tap Roll below to place dice in the cup', cup_pour_hint: 'Tap the cup to roll!', pick_score: 'Tap a box in the score sheet below', write: 'Write {0} pts in {1}', pick: 'Choose a box',
        sum: 'Sum', total: 'Total', over: 'The game is over', winner: 'Winner: {0}',
        err_nogame: 'No game running.', err_seat: 'That seat is not played via the web.',
        err_pin: 'Wrong PIN – try again.', err_nopin: 'Player has no PIN – set one now.',
@@ -402,6 +403,12 @@ let _dieRot = [];               // Scatter on the felt: 2D tilt (deg)
 let _dieX = [], _dieY = [];     // Scatter on the felt: top-left position (% of felt)
 let _diePlaced = [];            // Die has been given a felt spot (avoids stacking at the start position)
 let _rollAnim = null;
+// Two-step roll (v0.5.11): Kasta puts the free dice in the cup, a tap on the cup throws them
+let _cupLoaded = false;    // true = dice are in the cup, waiting for a cup tap to roll
+let _cupDiceVals = [];     // Values of the non-held dice when they were put in the cup
+let _cupDiceDirty = true;  // Re-layout the mini dice (only when new dice go in, so they never jump)
+let _cupLoading = false;   // Fade-to-cup animation in progress (blocks double taps on Kasta)
+let _cupPouring = false;   // Cup shake animation in progress: keep the cup visible until it ends
 let _dieSz = 3.5, _dieHalf = 1.75;  // rem; overridden per page
 
 const FACE_NAMES = ['front','back','right','left','top','bottom'];
@@ -547,19 +554,48 @@ function stopRollingAnim() {
 // ── End 3D Dice engine ────────────────────────────────────────────────────
 _dieSz = 3.5; _dieHalf = 1.75;
 
+// Draw the dice lying in the cup: jittered spots on a ring (random start angle), never stacked.
+// Unrolled dice (value 0) are drawn blank.
+function renderCupDice(vals) {
+  const container = $('cup-dice');
+  if (!container) return;
+  container.innerHTML = '';
+  const n = vals.length, a0 = Math.random() * Math.PI * 2;
+  vals.forEach((val, i) => {
+    let x = 50 + (Math.random() * 8 - 4), y = 50 + (Math.random() * 8 - 4);   // A single die: near the centre
+    if (n > 1) {
+      // % from centre; 5 dice at r>=23 are >=27% apart (die = 24%) and stay inside the felt disc
+      const r = (n === 2 ? 15 : 23) + Math.random() * 4;
+      const ang = a0 + i * 2 * Math.PI / n + (Math.random() - .5) * (0.5 / Math.max(n - 2, 1));
+      x = 50 + r * Math.cos(ang);
+      y = 50 + r * Math.sin(ang);
+    }
+    const die = document.createElement('div');
+    die.className = 'cup-die-mini';
+    die.style.left = x.toFixed(1) + '%';
+    die.style.top = y.toFixed(1) + '%';
+    die.style.transform = 'translate(-50%,-50%) rotate(' + (Math.random() * 50 - 25).toFixed(0) + 'deg)';
+    die.innerHTML = (PIPS3D[val] || []).map(p =>
+      '<span class="mini-pip" style="left:' + p[0] + '%;top:' + p[1] + '%"></span>').join('');
+    container.appendChild(die);
+  });
+}
+
 function render() {
   if (!g || !g.active) return;
   const P = g.players, cur = P[g.current] || {name: '?'};
   const mine = you >= 0 && you === g.current && !g.finished;
+  if (!mine || g.rolling || !g.can_roll) _cupLoaded = false;
   $('info').textContent = g.name + ' · ' + t('round', g.round, g.rounds) + ' · ' +
     (you >= 0 ? t('playing_as', P[you].name) : t('spectator'));
   $('turn').innerHTML = g.finished ? t('over') : t('turn') + ': <b>' + esc(cur.name) + '</b>' + (mine ? ' <span class="mine">– ' + t('you') + '</span>' : '');
-  const canHold = mine && g.has_rolled && !g.rolling && !g.choosing;
+  const canHold = mine && g.has_rolled && !g.rolling && !g.choosing && !_cupLoaded;
   $('dice').className = 'dice' + (canHold ? ' act' : '');
   if (g.finished) {
     stopRollingAnim(); $('dice').innerHTML = ''; _dieRx = []; _dieRy = []; _dieVal = []; _dieRot = []; _dieX = []; _dieY = []; _diePlaced = [];
   } else {
     buildDice3D($('dice'), g.dice.length);
+    Array.from($('dice').children).forEach(w => w.classList.remove('going-to-cup'));
     const rolling = g.rolling || g.shaking;
     if (rolling) {
       const rollingIdx = g.dice.map((_, i) => !g.held[i] ? i : -1).filter(i => i >= 0);
@@ -575,7 +611,7 @@ function render() {
       const src = $('dice').children[i];
       if (!src) return;
       const held = !!g.held[i] && !rolling;
-      src.style.display = held ? 'none' : '';
+      src.style.display = (held || (_cupLoaded && !rolling)) ? 'none' : '';   // Free dice are in the cup
       if (!held) return;
       const clone = src.cloneNode(true);
       clone.style.display = '';
@@ -588,25 +624,30 @@ function render() {
     heldStrip.classList.toggle('act', canHold);
   }
   $('hint').textContent = g.finished ? '' : (g.rolling || g.shaking) ? t('rolling')
+    : _cupLoaded ? t('cup_pour_hint')
+    : canHold && g.can_roll ? t('tap_hold') + ' ' + t('kasta_hint')
     : canHold ? t('tap_hold')
+    : mine && g.can_roll ? t('kasta_hint')
     : mine && g.has_rolled && !g.choosing ? t('pick_score')
     : !mine ? t('wait', cur.name) : '';
 
   $('device-row').hidden = !(you >= 0 && !g.finished);
   if (you >= 0) { $('device').textContent = t('device'); $('device').disabled = false; }
 
-  // Round cup (bird's-eye) = primary roll control on my turn. It stays visible while the dice roll
-  // so the shake animation is not cut off; it only fades out when no rolls are left.
-  const showCup = mine;
+  // Round cup (bird's-eye): shown once Kasta has put the free dice in it, and kept until its shake
+  // animation has finished so the throw is never cut off.
+  if (!mine) _cupPouring = false;
+  const showCup = mine && (_cupLoaded || _cupPouring);
   $('cup-round-wrap').hidden = !showCup;
   if (showCup) {
     $('cup-info-r').textContent = g.rolls_left === 1 ? t('cup_one') : t('cup_left', g.rolls_left);
-    $('cup-round').classList.toggle('disabled-cup-r', !g.can_roll && !g.rolling);
+    $('cup-round').classList.toggle('disabled-cup-r', !_cupLoaded && !_cupPouring);
+    if (_cupDiceDirty) { renderCupDice(_cupDiceVals); _cupDiceDirty = false; }
   }
-  const rb = $('roll');
-  rb.hidden = !mine || showCup;   // Fallback button (kept in the DOM, hidden while the cup is shown)
-  rb.disabled = !(mine && g.can_roll && !g.rolling);
-  rb.textContent = g.can_roll ? t('roll', g.rolls_left) : t('roll_none');
+  const rb = $('roll');   // Step 1: Kasta = put the free dice in the cup
+  rb.hidden = !mine || _cupLoaded || _cupPouring || g.rolling || g.shaking || !g.can_roll;
+  rb.disabled = _cupLoading;
+  rb.textContent = t('roll', g.rolls_left);
 
   if (!mine || !g.has_rolled) sel = null;   // Clear the pick when it is no longer my turn / not rolled
   if (sel !== null && !g.categories.some(c => c.id === sel && c.potential !== undefined)) sel = null;
@@ -672,7 +713,7 @@ const CUP_ANIMS = ['anim-vigorous', 'anim-normal', 'anim-gentle', 'anim-spin-lef
 document.querySelectorAll('.cup-zone-r').forEach(zone => {
   zone.addEventListener('click', e => {
     e.stopPropagation();
-    if (!isMine() || !g.can_roll || g.rolling) return;
+    if (!isMine() || !g.can_roll || g.rolling || !_cupLoaded) return;
     const throwMap = {left: 'vigorous', right: 'vigorous', top: 'vigorous', mid: 'normal', bot: 'gentle'};
     const animMap  = {left: 'spin-left', right: 'spin-right', top: 'vigorous', mid: 'normal', bot: 'gentle'};
     const z = zone.dataset.zone;
@@ -683,14 +724,33 @@ document.querySelectorAll('.cup-zone-r').forEach(zone => {
     void cup.offsetWidth;  // Reflow: restart the animation
     cup.classList.add(styleClass);
     // Clean up after the shake; also on cancel (cup hidden mid-pour) so it never replays when shown again
-    const done = () => { cup.classList.remove(styleClass); cup.removeEventListener('animationcancel', done); cup.removeEventListener('animationend', done); };
+    const done = () => {
+      cup.classList.remove(styleClass); cup.removeEventListener('animationcancel', done); cup.removeEventListener('animationend', done);
+      _cupPouring = false; render();   // Hide the cup once the throw animation is over
+    };
     cup.addEventListener('animationend', done);
     cup.addEventListener('animationcancel', done);
+    _cupPouring = true;
+    _cupLoaded = false;
     sel = null;
     send({cmd: 'roll'});
   });
 });
-$('roll').onclick = () => { sel = null; send({cmd: 'roll'}); };
+$('roll').onclick = () => {
+  if (!isMine() || !g.can_roll || g.rolling || _cupLoaded || _cupLoading) return;
+  // Step 1: the free dice slide off the felt into the cup; held dice stay on the orange strip
+  _cupLoading = true; $('roll').disabled = true;
+  Array.from($('dice').children).forEach((w, i) => { if (!g.held[i]) w.classList.add('going-to-cup'); });
+  setTimeout(() => {
+    _cupLoading = false;
+    if (isMine() && g.can_roll && !g.rolling) {
+      _cupDiceVals = g.dice.filter((_, i) => !g.held[i]);
+      _cupDiceDirty = true;
+      _cupLoaded = true;
+    }
+    render();
+  }, 350);
+};
 $('score').addEventListener('click', e => {
   const td = e.target.closest('td[data-cat]');
   if (!td) return;
