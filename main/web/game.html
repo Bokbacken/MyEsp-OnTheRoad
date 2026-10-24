@@ -26,6 +26,15 @@
 .score .zero { color: var(--otr-muted); }
 .winner { font-size: 1.3rem; font-weight: 700; color: var(--otr-green); }
 .full { position: fixed; right: .8rem; bottom: .8rem; }
+/* Wide screens: web-play banner across, game status left, score sheet (heading + table) right */
+@media (min-width: 900px) {
+  body { max-width: 78rem; }
+  #game { display: grid; grid-template-columns: minmax(24rem, 36rem) 1fr; gap: 0 1.2rem; align-items: start; }
+  #game #webplay { grid-column: 1 / -1; }
+  #game > .card:not(#webplay):not(.table-wrap) { grid-column: 1; grid-row: 2 / span 2; }
+  #game > h2 { grid-column: 2; grid-row: 2; margin: 0 0 .5rem; }
+  #game > .table-wrap { grid-column: 2; grid-row: 3; min-width: 0; }
+}
 </style>
 </head>
 <body>
@@ -97,7 +106,7 @@ const T = {
        web_title: 'Spela via webben', web_hint: 'välj ditt namn och ange din PIN', over: 'Spelet är slut', round: 'Omgång {0} av {1}', final: 'Slutresultat',
        turn: 'Tur', rolling: 'tärningarna rullar...', shaking: 'skakar bägaren...', choosing: 'väljer ruta',
        rolls: 'Kast kvar: {0}', saved: ' (varav {0} sparade)', shared: 'Delad vinst: ', winner: 'Vinnare: ',
-       sum: 'Summa', total: 'Totalt', live: 'live', nocontact: 'ingen kontakt', connected: 'ansluten', waiting: 'väntar',
+       sum: 'Summa', total: 'Totalt', live: 'live', nocontact: 'ingen kontakt', connected: 'ansluten', waiting: 'väntar', web_playing: '{0} spelar via webben',
        fs: 'Helskärm'},
   en: {sub: 'Live game', loading: 'loading...', nav_home: 'Overview', nav_players: 'Players', nav_settings: 'Settings',
        nav_diag: 'Diagnostics', nav_update: 'Update', idle: 'No game running',
@@ -105,7 +114,7 @@ const T = {
        web_title: 'Play via the web', web_hint: 'pick your name and enter your PIN', over: 'The game is over', round: 'Round {0} of {1}', final: 'Final result',
        turn: 'Turn', rolling: 'dice rolling...', shaking: 'shaking the cup...', choosing: 'choosing a box',
        rolls: 'Rolls left: {0}', saved: ' ({0} saved)', shared: 'Shared win: ', winner: 'Winner: ',
-       sum: 'Sum', total: 'Total', live: 'live', nocontact: 'no contact', connected: 'connected', waiting: 'waiting',
+       sum: 'Sum', total: 'Total', live: 'live', nocontact: 'no contact', connected: 'connected', waiting: 'waiting', web_playing: '{0} playing via the web',
        fs: 'Full screen'}
 };
 let L = 'sv';
@@ -128,13 +137,14 @@ function render(g) {
   if (!g.active) return;
   const P = g.players;
   const wp = g.web_players || [];
-  $('webplay').hidden = !(wp.length && !g.finished);
-  if (wp.length) {
-    const url = location.protocol + '//' + location.host + '/play';
-    $('weblink').href = url;
-    $('weblink').textContent = url;
-    $('webwho').textContent = wp.map(w => (P[w.player] || {name: '?'}).name + ': ' + t(w.connected ? 'connected' : 'waiting')).join(' · ');
-  }
+  // Any seat can be played from /play (v0.5.7): show the link for every running game
+  $('webplay').hidden = g.finished;
+  const url = location.protocol + '//' + location.host + '/play';
+  $('weblink').href = url;
+  $('weblink').textContent = url;
+  const connected = wp.filter(w => w.connected);
+  $('webwho').textContent = connected.length
+    ? t('web_playing', connected.map(w => (P[w.player] || {name: '?'}).name).join(', ')) : '';
   $('variant').textContent = g.name;
   $('round').textContent = g.finished ? t('over') : t('round', g.round, g.rounds);
   const cur = P[g.current] || {name: '?'};

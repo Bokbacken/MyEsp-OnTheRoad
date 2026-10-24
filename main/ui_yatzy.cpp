@@ -618,10 +618,13 @@ static YatzyCategory s_selected = YatzyCategory::COUNT;
 static YatzyCategory s_best = YatzyCategory::COUNT;
 
 // Current seat is played from the web: local dice / cup / table input is blocked.
+// v0.5.7: any seat counts as web-played while a browser holds it (joined with PIN); after
+// "leave" (continue on device) the connection count drops and local input works again.
 static bool webTurn()
 {
     const int p = s_game.currentPlayer();
-    return p >= 0 && p < YATZY_MAX_PLAYERS && s_web[p] && s_game.started() && !s_game.finished();
+    return p >= 0 && p < YATZY_MAX_PLAYERS && (s_web[p] || GameLive::connections(p) > 0) && s_game.started() &&
+           !s_game.finished();
 }
 
 static void refreshTable();
@@ -1973,9 +1976,13 @@ static void webTimer(lv_timer_t *t)
         webCommand(c);
         if (gen != s_gen) return;   // The game ended (results screen)
     }
-    if (webTurn()) {
-        const int conn = GameLive::connections(s_game.currentPlayer()) > 0 ? 1 : 0;
-        if (conn != s_webShownConn) updateWebOverlay();
+    // Overlay state: -1 = local turn, 0/1 = web turn without/with a connected browser
+    const bool on = webTurn();
+    const int want = on ? (GameLive::connections(s_game.currentPlayer()) > 0 ? 1 : 0) : -1;
+    if (want != s_webShownConn) {
+        const bool flipped = (want < 0) != (s_webShownConn < 0);
+        updateWebOverlay();
+        if (flipped) refreshActions();   // A browser took over / gave back a non-web seat
     }
 }
 

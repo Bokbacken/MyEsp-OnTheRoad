@@ -450,7 +450,6 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
         cJSON_AddNumberToObject(o, "bonus_points", Yatzy::bonusPoints(var));
         cJSON *wp = cJSON_AddArrayToObject(o, "web_players");
         for (int p = 0; p < g.playerCount() && p < YATZY_MAX_PLAYERS; p++) {
-            if (!s->web[p]) continue;
             cJSON *e = cJSON_CreateObject();
             cJSON_AddNumberToObject(e, "player", p);
             cJSON_AddNumberToObject(e, "id", s->pid[p]);
@@ -743,7 +742,7 @@ static void wsHandleText(int fd, const char *txt)
         if (!hasGame) {
             wsSendError(fd, "nogame", Str::WEB_ERR_WS_NOGAME);
             seat = -2;
-        } else if (seat != -1 && (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS || !s->web[seat])) {
+        } else if (seat != -1 && (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS)) {
             wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
             seat = -2;
         } else if (seat >= 0) {
@@ -776,6 +775,47 @@ static void wsHandleText(int fd, const char *txt)
             c->seat = (int8_t)seat;
             c->session = s->session;
             c->fresh = true;
+            char buf[48];
+            snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
+            wsSendText(fd, buf);
+            wsPublishConnections();
+            wsQueueBroadcast();
+        }
+    } else if (strcmp(cmd, "leave") == 0) {
+        // Give the seat back (e.g. "continue on device"): stay connected as a spectator
+        c->joined = true;
+        c->seat = -1;
+        c->session = 0;
+        c->fresh = true;
+        wsPublishConnections();
+        wsQueueBroadcast();
+        wsSendText(fd, "{\"type\":\"joined\",\"you\":-1}");
+    } else if (strcmp(cmd, "setpin") == 0) {
+        // First-time PIN from the browser: only allowed while the player has no PIN yet
+        const cJSON *jp = cJSON_GetObjectItem(j, "player");
+        const cJSON *jpin = cJSON_GetObjectItem(j, "pin");
+        const char *pin = cJSON_IsString(jpin) ? jpin->valuestring : "";
+        const int seat = cJSON_IsNumber(jp) ? jp->valueint : -1;
+        const bool hasGame = s->active && s->game.started();
+        bool pinOk = strlen(pin) == 4;
+        for (int i = 0; pinOk && i < 4; i++) pinOk = pin[i] >= '0' && pin[i] <= '9';
+        if (!hasGame) {
+            wsSendError(fd, "nogame", Str::WEB_ERR_WS_NOGAME);
+        } else if (seat < 0 || seat >= s->game.playerCount() || seat >= YATZY_MAX_PLAYERS || !s->pid[seat]) {
+            wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
+        } else if (Players::hasPin(s->pid[seat])) {
+            wsSendError(fd, "pinexists", Str::WEB_ERR_WS_PINEXISTS);
+        } else if (!pinOk) {
+            wsSendError(fd, "badpin", Str::WEB_ERR_WS_BADPIN);
+        } else if (Players::setPin(s->pid[seat], pin) != 0) {
+            wsSendError(fd, "badpin", Str::WEB_ERR_WS_SETPIN);
+        } else {
+            MyLog::event("web", "PIN created for seat %d", seat);
+            c->joined = true;
+            c->seat = (int8_t)seat;
+            c->session = s->session;
+            c->fresh = true;
+            c->pinFails = 0;
             char buf[48];
             snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
             wsSendText(fd, buf);

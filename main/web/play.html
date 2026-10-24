@@ -52,6 +52,9 @@ body { max-width: 34rem; }
   #live { display: grid; grid-template-columns: minmax(22rem, 30rem) 1fr; gap: 1rem; align-items: start; }
   #live > .col { min-width: 0; }
   #live .score th, #live .score td { font-size: 1rem; padding: .35rem .6rem; }
+  #seats { max-width: 36rem; }
+  #seat-list { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+  #seat-list button { margin: 0; }
 }
 </style>
 </head>
@@ -101,6 +104,7 @@ body { max-width: 34rem; }
     <h2 data-t="protocol">Protokoll</h2>
     <div class="card table-wrap"><table class="score" id="score"></table></div>
     <div class="row"><button class="secondary" id="leave" data-t="leave">Byt spelare</button></div>
+    <div class="row" id="device-row"><button class="secondary" id="device" data-t="device">Fortsätt på enheten</button></div>
   </div>
 </div>
 
@@ -140,7 +144,8 @@ const T = {
        tap_hold: 'Tryck på en tärning för att hålla / släppa den.', write: 'Skriv {0} p på {1}', pick: 'Välj en ruta',
        sum: 'Summa', total: 'Totalt', over: 'Spelet är slut', winner: 'Vinnare: {0}',
        err_nogame: 'Inget spel pågår.', err_seat: 'Den platsen spelas inte via webben.',
-       err_pin: 'Fel PIN – försök igen.', err_nopin: 'Spelaren har ingen PIN. Sätt en PIN på enheten eller på sidan Spelare (/players).',
+       err_pin: 'Fel PIN – försök igen.', err_nopin: 'Spelaren har ingen PIN – välj en ny.',
+       create_pin: 'Välj PIN för {0}', confirm_pin: 'Bekräfta PIN', pin_no_match: 'PIN stämmer inte – börja om', device: 'Fortsätt på enheten', leaving: 'Kopplar från...', err_pinexists: 'Spelaren har redan en PIN. Ändra via /players.', err_badpin: 'Ogiltig PIN (4 siffror krävs).',
        err_locked: 'För många fel PIN – försök igen om {0} s.',
        err_join: 'Välj ditt namn och ange PIN först.', err_full: 'För många webbklienter (max 4).', err_turn: 'Det är inte din tur.',
        err_cmd: 'Kommandot kunde inte utföras.', joining: 'Ansluter...', err_wait: 'Ingen kontakt med enheten än, försök igen om en sekund.'},
@@ -157,7 +162,8 @@ const T = {
        tap_hold: 'Tap a die to hold / release it.', write: 'Write {0} pts in {1}', pick: 'Choose a box',
        sum: 'Sum', total: 'Total', over: 'The game is over', winner: 'Winner: {0}',
        err_nogame: 'No game running.', err_seat: 'That seat is not played via the web.',
-       err_pin: 'Wrong PIN – try again.', err_nopin: 'The player has no PIN. Set a PIN on the device or on the Players page (/players).',
+       err_pin: 'Wrong PIN – try again.', err_nopin: 'Player has no PIN – set one now.',
+       create_pin: 'Choose PIN for {0}', confirm_pin: 'Confirm PIN', pin_no_match: 'PINs do not match – start over', device: 'Continue on device', leaving: 'Disconnecting...', err_pinexists: 'Player already has a PIN. Change it via /players.', err_badpin: 'Invalid PIN (must be 4 digits).',
        err_locked: 'Too many wrong PINs – try again in {0} s.',
        err_join: 'Pick your name and enter your PIN first.', err_full: 'Too many web clients (max 4).', err_turn: 'It is not your turn.',
        err_cmd: 'The command could not be executed.', joining: 'Connecting...', err_wait: 'No contact with the device yet, try again in a second.'}
@@ -190,6 +196,7 @@ let ws = null, g = null, you = -1, joined = false, sel = null, retry = 0;
 let mode = 'ask';          // ask = seat list, watch = spectator by choice, seat = joined/joining a seat
 let pending = null;        // {seat, name, pin} join in flight
 let padSeat = null, padName = '', pin = '';
+let createMode = false, createPin1 = '';   // In-browser PIN creation (v0.5.7): enter twice, then setpin
 const stored = () => { try { return JSON.parse(localStorage.getItem('otr_play') || 'null'); } catch (e) { return null; } };
 const forget = () => localStorage.removeItem('otr_play');
 
@@ -237,6 +244,10 @@ function onJoined(m) {
   if (you >= 0 && pending && pending.seat === you) {
     localStorage.setItem('otr_play', JSON.stringify(pending));
     padClose();
+  } else if (you === -1 && mode !== 'ask') {
+    // "Continue on device": the seat is released, back to the seat list
+    forget(); mode = 'ask';
+    if (g && g.active) { renderSeats(); show('seats'); }
   }
   pending = null;
 }
@@ -247,28 +258,29 @@ function onError(m) {
   if (m.error === 'nogame') {
     joined = false;
     show('lobby');
-  } else if (m.error === 'pin' || m.error === 'nopin' || m.error === 'locked' || m.error === 'seat') {
-    // Join with a seat failed
+  } else if (['pin', 'nopin', 'locked', 'seat', 'pinexists', 'badpin'].includes(m.error)) {
+    // Join / setpin with a seat failed
     forget();
-    const failSeat = pending ? pending.seat : -1;
-    const failName = pending ? pending.name : '';
+    const failSeat = pending ? pending.seat : padSeat !== null ? padSeat : -1;
+    const failName = pending ? pending.name : padName;
     pending = null;
     mode = 'ask';
-    if ($('pad').hidden) {
-      // Pad was not open: silent re-join with saved PIN failed
-      if ((m.error === 'pin' || m.error === 'locked') && failSeat >= 0) {
-        // Wrong or expired saved PIN: open pad so user can enter it manually
-        padOpen(failSeat, failName);
-        padMsg(txt);
-      } else {
-        // nopin or seat error: back to seat list
-        $('seat-msg').textContent = txt;
-        if (g && g.active) { renderSeats(); show('seats'); }
-      }
-    } else if (m.error === 'nopin' || m.error === 'seat') {
+    const toSeats = () => { padClose(); $('seat-msg').textContent = txt; if (g && g.active) { renderSeats(); show('seats'); } };
+    if (m.error === 'nopin') {
+      // No PIN yet: let the player create one right here
       padClose();
-      $('seat-msg').textContent = txt;
-      if (g && g.active) { renderSeats(); show('seats'); }
+      if (failSeat >= 0) padOpen(failSeat, failName, true);
+      else toSeats();
+    } else if (m.error === 'pinexists') {
+      // Someone set a PIN meanwhile: switch to normal PIN entry
+      if (failSeat >= 0) { padOpen(failSeat, failName, false); padMsg(txt); } else toSeats();
+    } else if (m.error === 'badpin') {
+      if (failSeat >= 0) { padOpen(failSeat, failName, true); padMsg(txt); } else toSeats();
+    } else if (m.error === 'seat') {
+      toSeats();
+    } else if ($('pad').hidden) {
+      // Silent re-join with the saved PIN failed (wrong / expired / locked): manual entry
+      if (failSeat >= 0) { padOpen(failSeat, failName); padMsg(txt); } else toSeats();
     } else {
       padMsg(txt, true);   // Wrong PIN / locked: stay in the pad, start over
     }
@@ -316,7 +328,7 @@ function renderSeats() {
   if (s && !wp.find(x => x.player === s.seat && x.name === s.name)) { forget(); s = null; }
   $('seat-list').innerHTML = wp.length ? wp.map(w => {
     const canRejoin = s && s.seat === w.player && s.name === w.name && s.pin;
-    return `<button class="primary" data-seat="${w.player}" data-name="${esc(w.name)}">` +
+    return `<button class="primary" data-seat="${w.player}" data-name="${esc(w.name)}" data-haspin="${w.has_pin ? 1 : 0}">` +
       `<span>&#128246; ${esc(w.name)}</span>` +
       `<span class="tag">${w.connected ? '&#10003; ' + t('connected_tag') : canRejoin ? '&#8594; ' + t('rejoin_tag') : !w.has_pin ? t('nopin_tag') : ''}</span>` +
       `</button>`;
@@ -324,14 +336,15 @@ function renderSeats() {
 }
 
 // --- PIN pad -------------------------------------------------------------------------------
-function padOpen(seat, name) {
+function padOpen(seat, name, create = false) {
   padSeat = seat; padName = name; pin = '';
-  $('pad-title').textContent = t('pin_for', name);
+  createMode = create; createPin1 = '';
+  $('pad-title').textContent = create ? t('create_pin', name) : t('pin_for', name);
   padMsg('');
   padDraw();
   $('pad').hidden = false;
 }
-function padClose() { $('pad').hidden = true; pin = ''; padSeat = null; }
+function padClose() { $('pad').hidden = true; pin = ''; padSeat = null; createMode = false; createPin1 = ''; }
 function padMsg(txt, clear) { $('pad-msg').textContent = txt; if (clear) { pin = ''; padDraw(); } }
 function padDraw() {
   [...$('pin-cells').children].forEach((c, i) => { c.textContent = i < pin.length ? '•' : ''; c.className = i === pin.length ? 'cur' : ''; });
@@ -344,7 +357,31 @@ function padKey(k) {
   padDraw();
   if (pin.length === 4 && k !== 'del') padOk();   // Submit on the 4th digit
 }
-function padOk() { if (pin.length === 4 && padSeat !== null && !pending) seatJoin(padSeat, padName, pin); }
+function padOk() {
+  if (pin.length !== 4 || padSeat === null) return;
+  if (createMode) {
+    if (!createPin1) {
+      createPin1 = pin; pin = ''; padDraw();
+      $('pad-title').textContent = t('confirm_pin');
+      $('pad-msg').textContent = '';
+    } else if (pin === createPin1) {
+      if (!pending) {
+        const p = createPin1;
+        pending = {seat: padSeat, name: padName, pin: p};
+        mode = 'seat';
+        if (!send({cmd: 'setpin', player: padSeat, pin: p})) {
+          padMsg(t('err_wait')); pending = null; mode = 'ask';
+        }
+      }
+    } else {
+      createPin1 = ''; pin = ''; padDraw();
+      $('pad-title').textContent = t('create_pin', padName);
+      padMsg(t('pin_no_match'));
+    }
+  } else if (!pending) {
+    seatJoin(padSeat, padName, pin);
+  }
+}
 $('keys').addEventListener('click', e => { const b = e.target.closest('button'); if (b) padKey(b.dataset.k || b.textContent); });
 $('pad-ok').onclick = padOk;
 $('pad-cancel').onclick = padClose;
@@ -368,6 +405,9 @@ function render() {
   $('dice').className = 'dice' + (canHold ? ' act' : '');
   $('dice').innerHTML = g.finished ? '' : g.dice.map((v, i) => dieSvg(v, g.held[i], (g.rolling || g.shaking) && !g.held[i], i)).join('');
   $('hint').textContent = g.finished ? '' : g.rolling ? t('rolling') : canHold ? t('tap_hold') : !mine ? t('wait', cur.name) : '';
+
+  $('device-row').hidden = !(you >= 0 && !g.finished);
+  if (you >= 0) { $('device').textContent = t('device'); $('device').disabled = false; }
 
   const rb = $('roll');
   rb.hidden = !mine;
@@ -426,7 +466,7 @@ $('seat-list').addEventListener('click', e => {
     $('seat-msg').textContent = t('joining');
     seatJoin(seat, name, s.pin);
   } else {
-    padOpen(seat, name);
+    padOpen(seat, name, b.dataset.haspin !== '1');   // No PIN yet: create one in the browser
   }
 });
 $('watch').onclick = () => { mode = 'watch'; forget(); if (g && g.active) { show('live'); render(); } };
@@ -449,6 +489,9 @@ $('leave').onclick = () => {
   $('seat-msg').textContent = '';
   if (ws) ws.close();   // Reconnects as a fresh, unbound client
   if (g && g.active) { renderSeats(); show('seats'); }
+};
+$('device').onclick = () => {
+  if (send({cmd: 'leave'})) { $('device').textContent = t('leaving'); $('device').disabled = true; }
 };
 
 show('none');   // Nothing until the first state / error
