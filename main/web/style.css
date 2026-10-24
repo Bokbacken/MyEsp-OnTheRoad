@@ -261,6 +261,8 @@ code { color: var(--otr-teal); }
 .mini-pip { position: absolute; width: 20%; height: 20%; background: #2a2a2a; border-radius: 50%; transform: translate(-50%,-50%); }
 /* Dice sliding off the felt into the cup */
 @keyframes die-fade-out { 0% { opacity: 1; } 70% { opacity: 0.4; transform: scale(0.6); } 100% { opacity: 0; transform: scale(0.2); } }
+@keyframes cup-die-spill { to { opacity: 0; transform: translate(-50%,-280%) scale(.45) rotate(200deg); } }
+.cup-die-mini.spill { animation: cup-die-spill 0.4s ease-in forwards; }
 .die-wrap.going-to-cup { animation: die-fade-out 0.38s ease-in forwards; }
 #cup-info-r { font-size: .82rem; text-align: center; color: rgba(255,255,255,.5); white-space: nowrap; }
 
