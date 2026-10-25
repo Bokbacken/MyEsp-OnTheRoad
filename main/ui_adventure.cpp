@@ -1555,6 +1555,11 @@ static void buildControls()
     s_zoomBtn = Theme::button(pan, "-", 30, 40, Theme::TEAL);
     lv_obj_set_pos(s_zoomBtn, 47, CTRL_H - 48);
     lv_obj_add_event_cb(s_zoomBtn, [](lv_event_t *) {
+        // Debounce: at most one toggle per 500 ms (a double tap used to zoom out and back in)
+        static int64_t last_zoom_ms = 0;
+        const int64_t now = (int64_t)lv_tick_get();
+        if (now - last_zoom_ms < 500) return;
+        last_zoom_ms = now;
         s_ts = s_ts == 32 ? 16 : 32;
         zoomLabel();
         snapPlayer();
