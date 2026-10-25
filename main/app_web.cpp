@@ -20,6 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "game_live.h"
+#include "kara_songs_web.h"
 #include "kara_web.h"
 #include "adv_live.h"
 #include "my_diag.h"
@@ -30,6 +31,7 @@
 #include "my_time.h"
 #include "my_web.h"
 #include "my_wifi.h"
+#include "otr_log.h"
 #include "ui_boot.h"
 #include "web_assets.h"
 
@@ -1268,7 +1270,7 @@ bool begin()
 {
     MyWeb::Config c;
     c.adminOk = Config::adminOk;
-    c.maxUris = 76;
+    c.maxUris = 100;   // v0.13.7: +karaoke song picker, file bulk ops, log stream/download
     c.maxSockets = 12;   // Room for 4 WebSocket clients next to normal page loads (LWIP: 16)
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
@@ -1286,6 +1288,8 @@ bool begin()
     ok &= MyWeb::on("/api/game", HTTP_GET, handleGame);
     ok &= MyWeb::on("/api/adventure", HTTP_GET, handleAdventure);
     ok &= AppWebFiles::registerRoutes();
+    ok &= KaraSongsWeb::registerRoutes();   // v0.13.7 song picker API
+    ok &= otr_log_register_routes();        // v0.13.7 /api/log/stream + /api/log/download
     ok &= wsBegin();
     if (Config::get().karaWebStream) ok &= KaraWeb::begin();   // v0.13.5 web karaoke
     if (!ok) ESP_LOGE(TAG, "route registration failed");

@@ -80,6 +80,11 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   rad börjar. Pausen börjar efter sista stavelsen + uppskattad hålltid (radens medelavstånd, max 1 s).
   `KaraStream::countdownAt()` (syntens position) driver både LVGL-raden och webbframen
   `{"type":"countdown","dots":N,"elapsed":k}`, som läggs i PCM-strömmen på rätt sampel.
+- **v0.13.7 – låtbibliotek:** rekursiv skanning av `/otr/karaoke` (max 2 000 låtar) med cache i `songs.idx`
+  (binärt; header med skanningstid, SD-fritt utrymme och rotmappens mtime – skiljer de sig skannas kortet om).
+  `main/kara_index` håller biblioteket i PSRAM (sorterat i svensk ordning, mappar, sök, A–Ö). Enheten bläddrar i
+  mappar med bakåtknapp, sökfält och A–Ö-kolumn; webbsidan `/karaoke/songs` (`GET /api/karaoke/songs`,
+  `POST /api/karaoke/open`, `POST /api/karaoke/rescan`) startar låtar från mobilen. Ingen automatisk sortering.
 - **v0.13.2 – reverb och chorus:** `otr_fx` (Freeverb, public domain: 8 kamfilter + 4 allpass, längder skalade
   från 44,1 till 22,05 kHz; chorus 15 ms ±4 ms, 0,7 Hz triangel, ~4 kB). Mono-sändeffekter: sändnivån per kanal
   följer CC91 (reverb, GM-standard 40) och CC93 (chorus, 0). Renderingen sker i block om 256 sampel; röster

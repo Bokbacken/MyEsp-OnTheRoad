@@ -44,6 +44,28 @@
 <h2>Wi-Fi</h2>
 <div class="card table-wrap"><table id="wifi"></table></div>
 
+<h2>Loggar</h2>
+<div class="card">
+  <div class="row" style="margin-top:0;flex-wrap:wrap;gap:.4rem">
+    <button type="button" class="secondary" id="log-toggle">&#10073;&#10073; Pausa</button>
+    <span id="log-state" class="muted">–</span>
+    <label class="check" style="margin:0"><input type="checkbox" class="lv" value="E" checked> Error</label>
+    <label class="check" style="margin:0"><input type="checkbox" class="lv" value="W" checked> Warn</label>
+    <label class="check" style="margin:0"><input type="checkbox" class="lv" value="I" checked> Info</label>
+    <label class="check" style="margin:0"><input type="checkbox" class="lv" value="D" checked> Debug</label>
+    <label class="check" style="margin:0"><input type="checkbox" id="log-follow" checked> Följ</label>
+  </div>
+  <div class="row" style="flex-wrap:wrap;gap:.3rem" id="log-mods">
+    <input type="text" id="log-filter" placeholder="Filtrera (t.ex. karaoke)" style="max-width:14rem;margin:0">
+  </div>
+  <pre id="log" style="height:22rem;overflow:auto;margin:.4rem 0;font-size:.75rem;line-height:1.3;white-space:pre-wrap;word-break:break-all;background:#0b1320;border:1px solid var(--otr-line);border-radius:.5rem;padding:.4rem"></pre>
+  <div class="row">
+    <a class="button primary" href="/api/log/download" id="log-zip" style="text-decoration:none;padding:.4rem .8rem;border-radius:.5rem;background:var(--otr-orange);color:#000">&#8681; Ladda ner loggar (ZIP)</a>
+    <button type="button" class="secondary" id="log-clear">Rensa fönstret</button>
+    <span class="muted">ZIP: RAM-loggen (64 kB) + <code>/otr/logs/otr_0..2.log</code> från SD-kortet</span>
+  </div>
+</div>
+
 <h2>Rå JSON</h2>
 <div class="card table-wrap"><pre id="raw" class="muted" style="margin:0;white-space:pre-wrap;font-size:.8rem"></pre></div>
 
@@ -142,6 +164,66 @@ async function refresh() {
 }
 refresh();
 setInterval(refresh, 2000);
+
+// ---- v0.13.7 live log (Server-Sent Events) ----
+const LOG_MAX = 1500, MODS = ['karaoke', 'kara_web', 'audio', 'sd', 'webfs', 'wifi', 'web', 'ota', 'lvgl', 'touch', 'adv', 'otrlog'];
+let logLines = [], es = null, paused = false, logBusy = false;
+function lineLevel(s) { return /^[EWIDV] \(/.test(s) ? s[0] : '?'; }
+function logShown(s) {
+  const lv = lineLevel(s);
+  const on = [...document.querySelectorAll('.lv')].filter(c => c.checked).map(c => c.value);
+  if (lv !== '?' && !on.includes(lv === 'V' ? 'D' : lv)) return false;
+  const f = $('log-filter').value.trim().toLowerCase();
+  return !f || s.toLowerCase().includes(f);
+}
+function logHtml(s) {
+  const lv = lineLevel(s);
+  const cls = lv === 'E' ? 'bad' : lv === 'W' ? 'warn' : lv === 'D' || lv === 'V' ? 'muted' : '';
+  return cls ? '<span class="' + cls + '">' + esc(s) + '</span>\n' : esc(s) + '\n';
+}
+function logRender() {
+  const el = $('log');
+  el.innerHTML = logLines.filter(logShown).map(logHtml).join('');
+  if ($('log-follow').checked) el.scrollTop = el.scrollHeight;
+}
+function logAdd(s) {
+  logLines.push(s);
+  if (logLines.length > LOG_MAX) logLines.splice(0, logLines.length - LOG_MAX);
+  if (!logShown(s)) return;
+  const el = $('log');
+  el.insertAdjacentHTML('beforeend', logHtml(s));
+  while (el.childNodes.length > LOG_MAX * 2) el.removeChild(el.firstChild);
+  if ($('log-follow').checked) el.scrollTop = el.scrollHeight;
+}
+function logStart() {
+  if (es) return;
+  es = new EventSource('/api/log/stream');
+  $('log-state').textContent = 'ansluter…';
+  es.onopen = () => { $('log-state').textContent = 'live'; };
+  es.onmessage = ev => logAdd(ev.data);
+  es.onerror = () => {
+    $('log-state').textContent = 'återansluter… (max 2 samtidiga loggfönster)';
+  };
+}
+function logStop() { if (es) { es.close(); es = null; } $('log-state').textContent = 'pausad'; }
+$('log-toggle').onclick = () => {
+  if (logBusy) return;   // Double-tap guard
+  logBusy = true; setTimeout(() => logBusy = false, 400);
+  paused = !paused;
+  $('log-toggle').innerHTML = paused ? '&#9654; Fortsätt' : '&#10073;&#10073; Pausa';
+  paused ? logStop() : logStart();
+};
+$('log-clear').onclick = () => { logLines = []; $('log').innerHTML = ''; };
+document.querySelectorAll('.lv').forEach(c => c.onchange = logRender);
+$('log-filter').oninput = logRender;
+for (const m of MODS) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'secondary'; b.textContent = m; b.style.padding = '.15rem .5rem';
+  b.onclick = () => { $('log-filter').value = $('log-filter').value === m + ':' ? '' : m + ':'; logRender(); };
+  $('log-mods').appendChild(b);
+}
+window.addEventListener('beforeunload', () => { if (es) es.close(); });
+logStart();
 </script>
 </body>
 </html>

@@ -14,6 +14,7 @@
 #include "app_web.h"
 #include "board_audio.h"
 #include "board_sd.h"
+#include "otr_log.h"
 #include "lang.h"
 #include "board_backlight.h"
 #include "board_display.h"
@@ -84,6 +85,7 @@ extern "C" void app_main(void)
     // --- Core services: NVS, log capture, filesystem, settings, clock, diagnostics ---
     MyNvs::initFlash();
     MyLog::begin();
+    otr_log_init();   // v0.13.7: 64 KB byte ring + SD rotation, chained after MyLog
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
     const bool fsOk = MyFat::mount("ffat", "/ffat", true);   // First boot formats (a few seconds)
     if (fsOk) MyLog::setEventFile("/ffat/events.log");

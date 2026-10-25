@@ -4,7 +4,13 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.6 – **countdown dots**: pauses of 3 s or more between lyric lines (and long intros) show up to
+> **Status:** v0.13.7 – **song library with folders**: karaoke songs are scanned recursively (up to 2 000, cached
+> in `songs.idx`), browsed by folder / search / A–Z on the device and picked from a phone at `/karaoke/songs`. The file
+> manager (`/files`) gets multi-select, bulk delete/move, paging, sorting, new folders and drag-and-drop upload; the
+> diagnostics page shows a live log (SSE) and downloads all logs as a ZIP (`/otr/logs/otr_{0,1,2}.log` on SD). No
+> automatic file sorting. **Not hardware-tested yet.**
+>
+> Previous: v0.13.6 – **countdown dots**: pauses of 3 s or more between lyric lines (and long intros) show up to
 > 8 dots, white at first, lighting one per second in the sung-syllable colour so the last one lights as the next line
 > starts – on the device screen and on the `/karaoke` web page (new `countdown` frame, sample-synced). **Not
 > hardware-tested yet.**
