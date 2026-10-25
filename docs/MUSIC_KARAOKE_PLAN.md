@@ -14,7 +14,7 @@ poäng) planerat till v0.14.0.
 
 Karaoke är en egen modul (`main/karaoke.*`, `main/ui_karaoke.*`) och ersätter inget av tärningsspelen eller äventyret.
 
-## 2. Arkitektur (v0.13.0)
+## 2. Arkitektur (v0.13.0, selektiv laddning och effekter v0.13.2)
 
 ```
 SD: /otr/karaoke/*.mid|.kar ──► otr_midi::parse() ──► Song (händelser, stavelser, rader, kanalstatistik)
@@ -44,7 +44,22 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
 - **v0.13.1 – flera ljudbanker:** valordning: låtens `sf2=` i registret → global standard (NVS `kara_sf2`, väljs
   med knappen Ljudbank i låtlistan) → `default.sf2` → första giltiga `.sf2`. När den öppna låten vill ha en annan
   bank laddas den om i fonttasken (gamla banken frigörs först, bara en i PSRAM); under laddningen står låten still
-  och mixern rör inte synten. Filerna kontrolleras med `Sf::probe` (RIFF/sfbk, `ifil` < 3, max 7 MB).
+  och mixern rör inte synten. Filerna kontrolleras med `Sf::probe` (RIFF/sfbk, `ifil` < 3; storleksgränsen 7 MB togs bort i v0.13.2).
+- **v0.13.2 – selektiv laddning:** `Sf::Synth::open()` läser bara bankens struktur (hydra) och sampeldatans
+  position. När en låt öppnas kör fonttasken `prepare(låt)`: låtens händelser körs genom TinySoundFonts kanallogik
+  (bank select, program, trumkanal) och för varje förinställning noteras tangenter (melodiska ±12 så att
+  transponering aldrig kräver omladdning) och hastigheter. Bara de förinställningarna får regioner, och bara de
+  sampelintervall zonerna kan spela läses från SD (intervall närmare än 4 kB slås ihop) till en PSRAM-buffert.
+  Budget 6 MB per låt (eller mindre om största lediga PSRAM-blocket minus 512 kB är mindre). Över budget:
+  1) bara hastighetslagret som innehåller 100 behålls och svarar på alla hastigheter, 2) en zon per tangent
+  (stereopar och staplade lager tas bort; kvarvarande zon +6 dB för stereopar, +3 dB annars). Räcker inte det:
+  felet `SONG_TOO_BIG` ("Låten behöver för många sampel") och banken förblir öppen. Banker större än PSRAM fungerar
+  alltså. Idén kommer från copych/ESP32_SF2_Sampler_Synthesizer (MIT); koden är egen.
+- **v0.13.2 – reverb och chorus:** `otr_fx` (Freeverb, public domain: 8 kamfilter + 4 allpass, längder skalade
+  från 44,1 till 22,05 kHz; chorus 15 ms ±4 ms, 0,7 Hz triangel, ~4 kB). Mono-sändeffekter: sändnivån per kanal
+  följer CC91 (reverb, GM-standard 40) och CC93 (chorus, 0). Renderingen sker i block om 256 sampel; röster
+  grupperas efter kanalernas sändnivåer så att varje grupp renderas en gång. Inställningar i NVS (`kara_rev`,
+  `kara_revl`, `kara_cho`, `kara_chol`; på, 50 %). Inga reglage i UI:t ännu.
 - **v0.13.1 – ljud av:** går man in i karaoke med ljudet avstängt frågar en dialog om ljudet ska slås på.
 
 ## 3. Registret `karaoke.reg`
@@ -78,7 +93,12 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
 
 ## 5. Begränsningar
 
-- MIDI-filer max 1 MB, SF2 max 7 MB (PSRAM är 8 MB och delas med LVGL och ljudcache).
+- MIDI-filer max 1 MB. Ljudbanken kan vara hur stor som helst (v0.13.2), men en låt får använda högst 6 MB
+  sampeldata (PSRAM är 8 MB och delas med LVGL och ljudcache).
+- Mätt på värddatorn (v0.13.2, Kents 5 låtar): Florestan 0,23–0,63 MB per låt, Super Nintendo 0,08–0,29 MB,
+  Yamaha XG 0,23–0,76 MB, GeneralUser-GS (30,8 MB) 3,5–4,8 MB; med GeneralUser får två låtar inte plats
+  (Ainbusk 6,6 MB, Alan Parsons 8,3 MB – bankens dubbla stråklager använder samma sampel, så tunnning hjälper
+  knappt). Selektiv rendering är bit-identisk med hel laddning.
 - Max 32 samtidiga röster; vid fler stjäls den äldsta rösten.
 - Mono 22 050 Hz (samma som mixern).
 - Ingen ljudbank ingår i repot (licens och storlek). Förslag: TimGM6mb.sf2 (GPL v2, ~5,7 MB).

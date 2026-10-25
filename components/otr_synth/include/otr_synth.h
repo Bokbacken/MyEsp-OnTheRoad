@@ -2,37 +2,80 @@
 // (MIT, components/otr_synth/tsf.h: 16-bit samples, float filter, fixed-point mono loop, voice
 // stealing). Implements Midi::Sink so the Midi::Player can drive it directly.
 // Not thread safe: the owner serializes calls (the karaoke engine holds a mutex).
+//
+// v0.13.2 selective loading (idea from copych/ESP32_SF2_Sampler_Synthesizer, MIT): open() reads
+// only the SF2 structure (hydra) and remembers where the sample data starts; prepare(song) scans
+// the song for the presets, keys and velocities it really plays (exactly as TinySoundFont selects
+// them, incl. bank select and the drum channel), builds regions for those presets only and reads
+// just the needed sample ranges from the card into one PSRAM buffer. The bank file can therefore
+// be much larger than PSRAM; the budget applies to what one song needs.
 #pragma once
 
 #include <stdint.h>
 #include <stdio.h>
 
+#include "otr_fx.h"
 #include "otr_midi.h"
 
 struct tsf;
+struct tsf_hydra;
 
 namespace Sf {
 
 constexpr int MAX_VOICES = 32;
-constexpr size_t MAX_SF2 = 7u * 1024 * 1024;   // Refuse larger files (8 MB PSRAM, 16-bit samples)
+constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // load() (whole file in PSRAM) refuses larger files
+constexpr size_t SAMPLE_BUDGET = 6u * 1024 * 1024;  // prepare(): max sample data per song
+constexpr int KEY_MARGIN = 12;                      // Melodic keys are widened by +-12 (transpose never reloads)
+constexpr int REDUCED_VELOCITY = 100;               // Velocity layer kept when a song is over budget
 
+// TOO_BIG: load(): file > MAX_SF2; prepare(): the song needs more than the budget even with one
+// velocity layer and one zone per key.
 enum class LoadErr : uint8_t { OK, NO_FILE, TOO_BIG, BAD_FILE, NO_MEMORY, COMPRESSED };
 const char *loadErrName(LoadErr e);
 
-// Validates the start of a SoundFont (first ~256 bytes) without loading it: RIFF/sfbk header,
-// size <= MAX_SF2 and the ifil version (3.x = SF3 with Ogg-compressed samples, which TinySoundFont
+// Validates the start of a SoundFont (first ~256 bytes) without loading it: RIFF/sfbk header
+// (any size, v0.13.2) and the ifil version (3.x = SF3 with Ogg-compressed samples, which TinySoundFont
 // cannot play -> COMPRESSED). Used by load() and for the font list.
 LoadErr probe(const uint8_t *data, size_t n, size_t fileSize);
 LoadErr probeFile(const char *path, size_t *sizeOut = nullptr);
+
+struct PrepStats {
+    uint32_t bytes = 0;        // Sample data loaded for the song
+    uint16_t presets = 0;      // Presets the song uses
+    uint16_t regions = 0;      // Zones kept
+    uint16_t ranges = 0;       // Merged sample ranges read from the card
+    bool reduced = false;      // Over budget: only the velocity layer at REDUCED_VELOCITY was kept
+    bool thinned = false;      // Still over budget: one zone per key (stereo pairs/stacked layers dropped)
+};
+
+struct Effects {
+    bool reverb = true;
+    uint8_t reverbLevel = 50;  // 0..100
+    bool chorus = true;
+    uint8_t chorusLevel = 50;  // 0..100
+};
+
+typedef void (*ProgressFn)(void *user, int pct);
 
 class Synth : public Midi::Sink {
 public:
     Synth();
     ~Synth() override;
-    LoadErr load(const char *path, int sampleRate);
+    LoadErr load(const char *path, int sampleRate);   // Whole file (<= MAX_SF2), all presets
+    LoadErr open(const char *path, int sampleRate);   // Structure only; needs prepare() before sound
+    // Loads the samples `song` needs (bank opened with open()). budget 0 = SAMPLE_BUDGET; the free
+    // PSRAM also limits it. Keeps the bank open on failure.
+    LoadErr prepare(const Midi::Song &song, ProgressFn cb = nullptr, void *user = nullptr, size_t budget = 0);
     void unload();
-    bool loaded() const { return f_ != nullptr; }
+    bool bankOpen() const { return f_ != nullptr; }
+    bool loaded() const { return f_ != nullptr && (full_ || prepared_); }   // Ready to play
+    bool selective() const { return hydra_ != nullptr; }
     size_t fileSize() const { return size_; }
+    const PrepStats &stats() const { return stats_; }
+    int presetCount() const;
+
+    void setEffects(const Effects &e);
+    const Effects &effects() const { return fx_; }
 
     void midi(uint8_t status, uint8_t d1, uint8_t d2) override;
     void reset() override;
@@ -48,12 +91,28 @@ public:
     int activeVoices() const;
 
 private:
+    void renderFx(int n, bool rev, bool cho);
+    void recordNote(int ch, int key, int vel);
+    void initFx();
+    void freeScan();
+
     ::tsf *f_ = nullptr;
+    ::tsf_hydra *hydra_ = nullptr;
+    char path_[160] = "";
+    uint32_t smplPos_ = 0;
     size_t size_ = 0;
+    bool full_ = false, prepared_ = false, scanning_ = false;
+    PrepStats stats_;
+    uint64_t *keyMask_ = nullptr, *velMask_ = nullptr;   // Scan: 2 x 64 bit per preset
+    Effects fx_;
+    Reverb reverb_;
+    Chorus chorus_;
+    uint8_t revSend_[16], choSend_[16];   // CC91 / CC93 per channel
+    int rate_ = 22050;
+    float dry_[256], rev_[256], cho_[256], tmp_[256];
     int transpose_ = 0;
     uint16_t muteMask_ = 0;
     uint8_t playedAs_[16][128];   // Key actually started for a MIDI note (0xFF = none)
-    float buf_[256];
 };
 
 }  // namespace Sf

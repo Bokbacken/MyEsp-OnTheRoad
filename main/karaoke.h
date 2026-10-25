@@ -18,7 +18,8 @@ constexpr const char *DIR_SF2 = "/sdcard/otr/sf2";
 constexpr const char *REG_FILE = "/sdcard/otr/karaoke/karaoke.reg";
 
 enum class Err : uint8_t {
-    OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED
+    OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED,
+    SONG_TOO_BIG   // v0.13.2: the song needs more sample data than fits, even with one velocity layer
 };
 
 struct SongFile {
@@ -30,7 +31,9 @@ struct SongFile {
 // Lists song files (sorted by artist, then title). Creates the folders when missing.
 Err scan(std::vector<SongFile> &out);
 
-// SoundFont: loading takes a few seconds, so it runs in its own task. Only one font lives in PSRAM.
+// SoundFont: loading runs in its own task. v0.13.2: only the bank structure is read when a font is
+// chosen; each opened song then loads just the samples it uses (LOADING with loadPct()), so banks
+// larger than PSRAM work. Only one font lives in PSRAM.
 // Font choice: the open song's register entry (sf2=...) wins, else the global default
 // (Config::karaFont), else default.sf2, else the first valid .sf2 in DIR_SF2.
 enum class FontState : uint8_t { NONE, LOADING, READY, FAILED };
@@ -54,6 +57,22 @@ void setDefaultFont(const char *name);   // Saved in NVS; "" = automatic
 const char *songFont();         // Per-song font of the open song ("" = use the default)
 void setSongFont(const char *name);      // Saved in the register; "" = use the default
 void unloadFont();              // Frees the PSRAM (leaving the karaoke menu)
+int loadPct();                  // Progress of the running load (0..100)
+struct FontInfo {
+    uint32_t fileSize;          // Bank file
+    uint32_t bytes;             // Sample data loaded for the open song
+    uint16_t bankPresets, presets, regions;
+    bool prepared, reduced;     // reduced: only the velocity layer near 100 fitted
+};
+FontInfo fontInfo();
+
+// v0.13.2: send effects, saved in NVS (Config::karaRev*, karaCho*)
+struct Effects {
+    bool reverb, chorus;
+    uint8_t reverbLevel, chorusLevel;   // 0..100
+};
+Effects effects();
+void setEffects(const Effects &e);
 
 Err open(const SongFile &f);    // Parses the file and applies its register entry; paused at 0
 void close();                   // Stops playback and detaches from the mixer

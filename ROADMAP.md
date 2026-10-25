@@ -115,6 +115,18 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.13.2 – Selektiv SF2-laddning, reverb och chorus 🔧 (ej HW-testad)
+- [x] `Sf::Synth::open()` läser bara bankens struktur (hydra) och kommer ihåg var sampeldatan börjar; `prepare(låt)` skannar låten genom TinySoundFonts egen kanallogik (bank select, programbyten, trumkanal) och läser bara de sampelintervall låten kan spela (förinställningar, tangenter ±12, hastigheter) från SD till en PSRAM-buffert. Budget 6 MB per låt (mindre om PSRAM saknas). Banker på över 30 MB fungerar (idé från copych/ESP32_SF2_Sampler_Synthesizer, MIT)
+- [x] Transponering ±12 laddar aldrig om (melodiska tangenter breddas ±12 vid skanningen; trummor exakt)
+- [x] Över budget: 1) bara hastighetslagret som innehåller 100 behålls och svarar på alla hastigheter, 2) därefter en zon per tangent (stereopar/staplade lager tas bort, kvarvarande zon +6 dB för stereo, +3 dB för andra lager). Räcker inte det visas "Låten behöver för många sampel" och banken förblir öppen för nästa låt
+- [x] Reverb (Freeverb, public domain; 8 kamfilter + 4 allpass skalade till 22 050 Hz) och chorus (15 ms ±4 ms, 0,7 Hz) som mono-sändeffekter; sändnivå per kanal med CC91/CC93 (GM-standard 40 resp. 0); blockvis rendering grupperar röster per kanalernas sändnivåer
+- [x] NVS: `kara_rev`, `kara_revl`, `kara_cho`, `kara_chol` (på, 50 %); `Karaoke::effects()/setEffects()`, `loadPct()`, `fontInfo()` (filstorlek, laddade byte, förinställningar, zoner, reducerad). Inga reglage i UI:t ännu
+- [x] Generationsräkning i karaoke (`s_songGen/s_prepGen/s_failGen`): fonttasken öppnar banken en gång och kör `prepare()` för varje ny låt; byte av låt under laddning hanteras
+- [x] Hosttester: test_sfsynth (fel, probe utan storleksgräns, effekter stabila/inga klipp/svansen dör ut, selektiv == full bit för bit, budgetreduktion båda stegen, banken öppen efter TOO_BIG); alla sviter gröna (4 650), bygge 0 varningar, appen 1 839 648 B (35 % av 5 MB)
+- [x] Mätt på värddatorn (22 050 Hz, Kents 5 låtar): Florestan 3,1 MB → 0,23–0,63 MB per låt; Super Nintendo 1,8 MB → 0,08–0,29 MB; Yamaha XG 3,7 MB → 0,23–0,76 MB; GeneralUser-GS 30,8 MB → 3,5–4,8 MB för 3 av 5 låtar, Ainbusk (6,6 MB) och Alan Parsons (8,3 MB) får inte plats. Selektiv rendering är bit-identisk med hel laddning. Effekterna kostar ungefär lika mycket som torr rendering (0,1 % → 0,2–0,3 % CPU på värden)
+- [ ] HW-test: laddningstid med 30 MB-bank från SD, ljud (reverb/chorus-nivå, +3/+6 dB efter tunnning), CPU och underruns i mixern med båda effekterna, PSRAM-marginal
+- **Obs:** samma partitioner → vanlig OTA
+
 ## v0.13.1 – Karaoke liggande, flera ljudbanker, skalbar live view 🔧 (ej HW-testad)
 - [x] Karaoke visas liggande (480×320) via LVGL-mjukvarurotation (`MyLvgl::setRotation`, rotation i flush till en PSRAM-buffert); pekning mappas av LVGL; stående läge och 180°-inställningen återställs när man lämnar modulen (`Display::setLandscape`). MADCTL rörs inte (ST77922 QSPI)
 - [x] `ui_karaoke` omgjord för 480 px: låtlista i två kolumner, spelare med hela rader (föregående/aktuell upp till 3 rader/nästa/nästnästa), två knapprader, ark i full bredd

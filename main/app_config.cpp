@@ -42,6 +42,10 @@ void defaults(AppConfig &c)
     c.joyFastMs = 150;
     c.joyHoldMs = 300;
     c.joyDiag = 0;
+    c.karaRev = 1;
+    c.karaRevLvl = 50;
+    c.karaCho = 1;
+    c.karaChoLvl = 50;
     strcpy(c.tz, DEFAULT_TZ);
     strcpy(c.lang, "sv");
 }
@@ -80,6 +84,10 @@ void begin()
             g_cfg.joyDiag = p.getU8("joy_diag", g_cfg.joyDiag);
             p.getStr("kara_sf2", g_cfg.karaFont, sizeof(g_cfg.karaFont));
             g_cfg.karaFlip = p.getU8("kara_flip", 0) ? 1 : 0;
+            g_cfg.karaRev = p.getU8("kara_rev", g_cfg.karaRev);
+            g_cfg.karaRevLvl = p.getU8("kara_revl", g_cfg.karaRevLvl);
+            g_cfg.karaCho = p.getU8("kara_cho", g_cfg.karaCho);
+            g_cfg.karaChoLvl = p.getU8("kara_chol", g_cfg.karaChoLvl);
             // v0.10.0: the walking speed was halved. Settings saved by v0.9.0 with the
             // old defaults (150/75 ms) are upgraded; customised values are kept.
             if (p.getU8("joy_ver", 1) < 2 && g_cfg.joySlowMs == 150 && g_cfg.joyFastMs == 75) {
@@ -131,6 +139,10 @@ bool save()
     ok &= p.setU8("joy_ver", 2);
     ok &= p.setStr("kara_sf2", g_cfg.karaFont);
     ok &= p.setU8("kara_flip", g_cfg.karaFlip);
+    ok &= p.setU8("kara_rev", g_cfg.karaRev);
+    ok &= p.setU8("kara_revl", g_cfg.karaRevLvl);
+    ok &= p.setU8("kara_cho", g_cfg.karaCho);
+    ok &= p.setU8("kara_chol", g_cfg.karaChoLvl);
     return p.commit() && ok;
 }
 
@@ -243,6 +255,10 @@ void sanitize(AppConfig &c)
     c.joyHoldMs = MySys::clamp<uint16_t>(c.joyHoldMs, JOY_HOLD_MIN, JOY_HOLD_MAX);
     if (c.joyDiag > 1) c.joyDiag = 0;
     if (c.karaFlip > 1) c.karaFlip = 0;
+    c.karaRev = c.karaRev ? 1 : 0;
+    c.karaCho = c.karaCho ? 1 : 0;
+    if (c.karaRevLvl > 100) c.karaRevLvl = 50;
+    if (c.karaChoLvl > 100) c.karaChoLvl = 50;
     c.karaFont[sizeof(c.karaFont) - 1] = 0;
 }
 

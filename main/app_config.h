@@ -42,6 +42,11 @@ struct AppConfig {
     // v0.13.1: karaoke
     char karaFont[48];       // Default SoundFont file name in /sdcard/otr/sf2 ("" = default.sf2 / first)
     uint8_t karaFlip;        // Landscape direction: 0 = rotated 90 degrees (default), 1 = 270 degrees
+    // v0.13.2: karaoke send effects (the song's CC91/CC93 decide how much each channel sends)
+    uint8_t karaRev;         // Reverb on (default 1)
+    uint8_t karaRevLvl;      // Reverb level 0..100 (default 50)
+    uint8_t karaCho;         // Chorus on (default 1)
+    uint8_t karaChoLvl;      // Chorus level 0..100 (default 50)
 };
 
 // Joystick limits shared by the UI and the web API.

@@ -91,6 +91,9 @@ struct tsf_stream
 
 	// Function pointer will be called to skip ahead over 'count' bytes (returns 1 on success, 0 on error)
 	int (*skip)(void* data, unsigned int count);
+
+	// OnTheRoad: optional, returns the current byte position (needed by tsf_load_hydra)
+	int (*tell)(void* data);
 };
 
 // Generic SoundFont loading method using the stream structure above
@@ -399,6 +402,7 @@ struct tsf_hydra
 	struct tsf_hydra_pgen *pgens; struct tsf_hydra_inst *insts; struct tsf_hydra_ibag *ibags;
 	struct tsf_hydra_imod *imods; struct tsf_hydra_igen *igens; struct tsf_hydra_shdr *shdrs;
 	int phdrNum, pbagNum, pmodNum, pgenNum, instNum, ibagNum, imodNum, igenNum, shdrNum;
+	tsf_u32 smplCount; /* OnTheRoad */
 };
 
 union tsf_hydra_genamount { struct { tsf_u8 lo, hi; } range; tsf_s16 shortAmount; tsf_u16 wordAmount; };
@@ -712,7 +716,9 @@ static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
 	else p->sustain = 1.0f - (p->sustain / 1000.0f);
 }
 
-static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int fontSampleCount)
+/* OnTheRoad: `want` (indexed by sorted preset index, may be NULL = all) selects which presets get
+   their regions built; the others keep name/bank/number only (used for selective sample loading). */
+static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int fontSampleCount, const unsigned char* want)
 {
 	enum { GenInstrument = 41, GenKeyRange = 43, GenVelRange = 44, GenSampleID = 53 };
 	// Read each preset.
@@ -743,6 +749,8 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 		preset->bank = pphdr->bank;
 		preset->preset = pphdr->preset;
 		preset->regionNum = 0;
+		preset->regions = TSF_NULL;
+		if (want && !want[sortedIndex]) continue;
 
 		//count regions covered by this preset
 		for (ppbag = hydra->pbags + pphdr->presetBagNdx, ppbagEnd = hydra->pbags + pphdr[1].presetBagNdx; ppbag != ppbagEnd; ppbag++)
@@ -769,6 +777,7 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 			}
 		}
 
+		if (!preset->regionNum) continue;   /* OnTheRoad: malloc(0) may return NULL */
 		preset->regions = (struct tsf_region*)TSF_MALLOC(preset->regionNum * sizeof(struct tsf_region));
 		if (!preset->regions)
 		{
@@ -1349,7 +1358,11 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
 }
 
-TSFDEF tsf* tsf_load(struct tsf_stream* stream)
+/* OnTheRoad: hydraOut != NULL -> keep the hydra (caller frees it with tsf_hydra_free), do not read
+   the sample data (its byte position and sample count are returned) and build no regions. */
+static tsf* tsf_load_impl(struct tsf_stream* stream, struct tsf_hydra* hydraOut, tsf_u32* smplPos);
+TSFDEF tsf* tsf_load(struct tsf_stream* stream) { return tsf_load_impl(stream, TSF_NULL, TSF_NULL); }
+static tsf* tsf_load_impl(struct tsf_stream* stream, struct tsf_hydra* hydraOut, tsf_u32* smplPos)
 {
 	tsf* res = TSF_NULL;
 	struct tsf_riffchunk chunkHead;
@@ -1405,7 +1418,15 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 						#endif
 					) && !rawBuffer && !floatBuffer && chunk.size >= sizeof(short))
 				{
-					if (!tsf_load_samples(&rawBuffer, &floatBuffer, &smplCount, &chunk, stream)) goto out_of_memory;
+					if (hydraOut)
+					{
+						if (!stream->tell) goto out_of_memory;
+						*smplPos = (tsf_u32)stream->tell(stream->data);
+						smplCount = chunk.size / (unsigned int)sizeof(short);
+						stream->skip(stream->data, chunk.size + (chunk.size & 1));
+						rawBuffer = (void*)1; /* marker: sample data found (never freed, reset below) */
+					}
+					else if (!tsf_load_samples(&rawBuffer, &floatBuffer, &smplCount, &chunk, stream)) goto out_of_memory;
 				}
 				else stream->skip(stream->data, chunk.size);
 			}
@@ -1427,7 +1448,17 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		#endif
 		res = (tsf*)TSF_MALLOC(sizeof(tsf));
 		if (res) TSF_MEMSET(res, 0, sizeof(tsf));
-		if (!res || !tsf_load_presets(res, &hydra, smplCount)) goto out_of_memory;
+		if (hydraOut)
+		{
+			unsigned char* none = (unsigned char*)TSF_MALLOC(hydra.phdrNum > 1 ? hydra.phdrNum : 1);
+			int ok;
+			if (!none) goto out_of_memory;
+			TSF_MEMSET(none, 0, hydra.phdrNum > 1 ? hydra.phdrNum : 1);
+			ok = res && tsf_load_presets(res, &hydra, smplCount, none);
+			TSF_FREE(none);
+			if (!ok) goto out_of_memory;
+		}
+		else if (!res || !tsf_load_presets(res, &hydra, smplCount, TSF_NULL)) goto out_of_memory;
 		res->outSampleRate = 44100.0f;
 		res->fontSamples = floatBuffer;
 		floatBuffer = TSF_NULL; // don't free below
@@ -1439,11 +1470,38 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res = TSF_NULL;
 		//if (e) *e = TSF_OUT_OF_MEMORY;
 	}
+	if (hydraOut)
+	{
+		rawBuffer = TSF_NULL;
+		if (res) { *hydraOut = hydra; res->fontSamples = TSF_NULL; hydraOut->smplCount = smplCount; return res; }
+	}
 	TSF_FREE(hydra.phdrs); TSF_FREE(hydra.pbags); TSF_FREE(hydra.pmods);
 	TSF_FREE(hydra.pgens); TSF_FREE(hydra.insts); TSF_FREE(hydra.ibags);
 	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
 	TSF_FREE(rawBuffer);   TSF_FREE(floatBuffer);
 	return res;
+}
+
+/* OnTheRoad: selective sample loading helpers */
+static void tsf_hydra_free(struct tsf_hydra* h)
+{
+	TSF_FREE(h->phdrs); TSF_FREE(h->pbags); TSF_FREE(h->pmods);
+	TSF_FREE(h->pgens); TSF_FREE(h->insts); TSF_FREE(h->ibags);
+	TSF_FREE(h->imods); TSF_FREE(h->igens); TSF_FREE(h->shdrs);
+	TSF_MEMSET(h, 0, sizeof(*h));
+}
+
+/* Rebuilds the preset table, with regions only for the presets in `want`. Stops all voices. */
+static int tsf_rebuild_presets(tsf* f, struct tsf_hydra* h, const unsigned char* want)
+{
+	int i;
+	struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+	for (; v != vEnd; v++) v->playingPreset = -1;
+	for (i = 0; i != f->presetNum; i++) TSF_FREE(f->presets[i].regions);
+	TSF_FREE(f->presets);
+	f->presets = TSF_NULL;
+	f->presetNum = 0;
+	return tsf_load_presets(f, h, h->smplCount, want);
 }
 
 TSFDEF tsf* tsf_copy(tsf* f)

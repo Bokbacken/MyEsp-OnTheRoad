@@ -4,13 +4,23 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.1 – **karaoke in landscape + multiple SoundFonts**: the karaoke module turns the display to
+> **Status:** v0.13.2 – **selective SoundFont loading + reverb/chorus**: opening a bank now reads only its structure
+> (hydra); when a song is opened the synth scans it (presets, keys ±12 so transposing never reloads, velocities,
+> bank select and drum channel exactly as TinySoundFont picks zones) and reads only those sample ranges from the SD
+> card into PSRAM (budget 6 MB per song). Banks larger than PSRAM work – the 7 MB limit is gone (GeneralUser-GS,
+> 31 MB, tested on the host). Over budget the synth keeps only the velocity layer holding 100, then one zone per
+> key; if it still does not fit the song shows "Song needs too much sample data". New `otr_fx`: Freeverb-style
+> reverb and a chorus as mono send effects, per channel via CC91/CC93 (GM defaults 40/0), on at 50 % (NVS, no UI
+> controls yet). Host-measured: 0.1–0.8 MB per song with 2–4 MB GM banks, 3.5–4.8 MB with GeneralUser-GS (two of
+> five test songs do not fit); selective output is bit-identical to a full load. Selective loading idea from
+> copych/ESP32_SF2_Sampler_Synthesizer (MIT). Same partitions → plain OTA. **Not hardware-tested yet.**
+> v0.13.1 – **karaoke in landscape + multiple SoundFonts**: the karaoke module turns the display to
 > landscape (480×320, LVGL software rotation in the flush, touch mapped by LVGL; portrait and the 180° setting are
 > restored when leaving) so whole lyric lines fit; list, player and sheets re-laid out for 480 px. Several `.sf2`
 > files can live in `/otr/sf2`: pick a global default (saved in NVS) from the song list and optionally a per-song
 > sound bank from the player (saved as `sf2=<file>` in `karaoke.reg`, old lines still valid). The font is reloaded
 > in the background when a song wants another one (only one font in PSRAM); the active font name is shown. Files
-> are validated: SF3/compressed, non-RIFF/sfbk and > 7 MB are rejected with a clear message. Entering karaoke with
+> are validated: SF3/compressed, non-RIFF/sfbk and > 7 MB (limit removed in v0.13.2) are rejected with a clear message. Entering karaoke with
 > sound off asks "Turn sound on?" (yes/no; yes saves the setting). Adventure live view (`/adventure`) now scales to
 > the browser window: map and info side by side in wide/landscape windows (≥ 800 px), info below the map in
 > portrait, plus a size selector (fit / small / medium / large, saved in the browser). Same partitions → plain OTA.
@@ -81,12 +91,13 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 /sdcard/otr/adventure/maps/         reserved for future maps
 /sdcard/otr/karaoke/                karaoke songs (.mid / .kar, max 1 MB each); "Artist_Title.mid" gives artist + title
 /sdcard/otr/karaoke/karaoke.reg     per-song settings (melody track, key, tempo) – created automatically, plain text
-/sdcard/otr/sf2/                    SoundFonts for karaoke (.sf2 v2, max 7 MB, several allowed): per-song choice, else the default chosen on the device, else default.sf2, else the first valid .sf2
+/sdcard/otr/sf2/                    SoundFonts for karaoke (.sf2 v2, any size since v0.13.2 – max 6 MB of samples per song, several allowed): per-song choice, else the default chosen on the device, else default.sf2, else the first valid .sf2
 ```
 
 SoundFont: not included (licence and size). A good fit is **TimGM6mb.sf2** (~5.7 MB, GPL v2):
 <https://github.com/arbruijn/TimGM6mb/raw/master/TimGM6mb.sf2> – upload it to `/otr/sf2/` with the web file browser.
-It is loaded into PSRAM when the karaoke menu opens (a few seconds) and freed when you leave.
+Since v0.13.2 only its structure is read when the karaoke menu opens; the samples a song needs are loaded when the
+song is opened and everything is freed when you leave.
 
 WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effects are cached in PSRAM
 (max ~2 MB total); music is streamed. Missing file = built-in tone version.

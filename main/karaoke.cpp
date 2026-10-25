@@ -47,6 +47,11 @@ std::string s_fontReq;          // Request (song or default font name, "" = auto
 char s_reqName[64] = "";        // Request handed to the font task
 std::string s_songSf2;          // Per-song font of the open song
 int s_pendingTr = 0;            // Transpose of a song opened while a font was loading
+// v0.13.2 selective loading: every open() gets a new generation; the font task prepares (loads the
+// samples of) the newest one. failGen: generation whose prepare failed (not retried by itself).
+uint32_t s_songGen = 0, s_prepGen = 0, s_failGen = 0;
+volatile int s_loadPct = 0;
+bool s_taskOpenBank = false;    // Task job: open the bank first (font change) or only prepare
 
 struct Lock {
     Lock()
@@ -133,6 +138,17 @@ void applyMelodyMute()   // Caller holds s_mux
     for (int ch = 0; ch < 16; ch++) s_synth.setMuted(ch, s_melodyMuted && ch == s_melody);
 }
 
+Sf::Effects cfgEffects()
+{
+    const AppConfig &c = Config::get();
+    Sf::Effects e;
+    e.reverb = c.karaRev != 0;
+    e.reverbLevel = c.karaRevLvl;
+    e.chorus = c.karaCho != 0;
+    e.chorusLevel = c.karaChoLvl;
+    return e;
+}
+
 Err mapLoadErr(Sf::LoadErr le)
 {
     switch (le) {
@@ -196,50 +212,105 @@ bool findFont(const char *req, char *path, size_t cap, char *name, size_t nameCa
     return found;
 }
 
+// Caller holds s_mux: the open song still needs its samples (and has not failed already)
+bool needPrepare() { return s_open && s_synth.bankOpen() && s_songGen != s_prepGen && s_songGen != s_failGen; }
+
+void progressCb(void *, int pct) { s_loadPct = pct; }
+
 void fontTask(void *)
 {
     char path[128], name[64];
     Err err = Err::OK;
-    {
-        BoardSd::Guard g;
-        if (!BoardSd::mounted()) err = Err::NO_SD;
-        else if (!findFont(s_reqName, path, sizeof(path), name, sizeof(name))) err = Err::NO_SF2;
+    s_loadPct = 0;
+    if (s_taskOpenBank) {
+        {
+            BoardSd::Guard g;
+            if (!BoardSd::mounted()) err = Err::NO_SD;
+            else if (!findFont(s_reqName, path, sizeof(path), name, sizeof(name))) err = Err::NO_SF2;
+        }
+        {
+            Lock l;
+            s_fontName[0] = 0;
+            if (err != Err::OK) s_synth.unload();
+        }
+        if (err == Err::OK) {
+            // State is LOADING, so the mixer callback does not touch the synth during the slow read
+            // and the UI calls that use the synth are no-ops. Same file as before: the structure
+            // (hydra) is kept and only the samples are reloaded.
+            const int64_t t0 = esp_log_timestamp();
+            Sf::LoadErr le;
+            {
+                BoardSd::Guard g;
+                le = s_synth.open(path, Synth::RATE);
+            }
+            err = mapLoadErr(le);
+            ESP_LOGI(TAG, "font %s: %s (%u bytes, %d presets, %lld ms, PSRAM free %u)", name, Sf::loadErrName(le),
+                     (unsigned)s_synth.fileSize(), s_synth.presetCount(), (long long)(esp_log_timestamp() - t0),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+            Lock l;
+            if (err == Err::OK) {
+                const size_t n = strnlen(name, sizeof(s_fontName) - 1);
+                memcpy(s_fontName, name, n);
+                s_fontName[n] = 0;
+                s_synth.setEffects(cfgEffects());
+                s_prepGen = 0;   // New bank: every song needs a new prepare
+            }
+        }
     }
-    {
-        Lock l;   // Free the old font first: only one font in PSRAM
-        s_synth.unload();
-        s_fontName[0] = 0;
-    }
-    if (err == Err::OK) {
-        // State is LOADING, so the mixer callback does not touch the synth during the slow read
-        // and the UI calls that use the synth are no-ops.
+    // Samples for the open song; repeats while the user opens another song meanwhile
+    for (;;) {
+        Midi::Song scan;   // Copy of the events: open()/close() may run during the read
+        uint32_t gen;
+        {
+            Lock l;
+            if (err != Err::OK || !needPrepare()) {
+                if (s_open && err == Err::OK && s_songGen == s_failGen) err = Err::SONG_TOO_BIG;
+                if (s_open) {   // Re-apply the song state (programs via seek, mute, transpose)
+                    s_synth.setTranspose(s_pendingTr);
+                    applyMelodyMute();
+                    s_player.seek(s_player.position(), s_synth);
+                }
+                s_fontErr = err;
+                s_fontState = err == Err::OK ? FontState::READY : FontState::FAILED;
+                break;
+            }
+            gen = s_songGen;
+            scan.events = s_song.events;
+        }
+        s_loadPct = 0;
         const int64_t t0 = esp_log_timestamp();
         Sf::LoadErr le;
         {
             BoardSd::Guard g;
-            le = s_synth.load(path, Synth::RATE);
+            le = s_synth.prepare(scan, &progressCb, nullptr);
         }
-        err = mapLoadErr(le);
-        ESP_LOGI(TAG, "font %s: %s (%u bytes, %lld ms, PSRAM free %u)", name, Sf::loadErrName(le),
-                 (unsigned)s_synth.fileSize(), (long long)(esp_log_timestamp() - t0),
+        const Sf::PrepStats st = s_synth.stats();
+        ESP_LOGI(TAG, "prepare: %s, %u bytes, %u presets, %u zones, %u reads%s, %lld ms, PSRAM free %u",
+                 Sf::loadErrName(le), (unsigned)st.bytes, st.presets, st.regions, st.ranges,
+                 st.thinned ? " (one zone per key)" : st.reduced ? " (one velocity layer)" : "", (long long)(esp_log_timestamp() - t0),
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    }
-    {
         Lock l;
-        if (err == Err::OK) {
-            const size_t n = strnlen(name, sizeof(s_fontName) - 1);
-            memcpy(s_fontName, name, n);
-            s_fontName[n] = 0;
-        }
-        if (s_open) {   // Re-apply the song state to the new synth (programs via seek, mute, transpose)
-            s_synth.setTranspose(s_pendingTr);
-            applyMelodyMute();
-            s_player.seek(s_player.position(), s_synth);
-        }
-        s_fontErr = err;
-        s_fontState = err == Err::OK ? FontState::READY : FontState::FAILED;
+        if (le == Sf::LoadErr::OK) s_prepGen = gen;
+        else if (le == Sf::LoadErr::TOO_BIG) s_failGen = gen;
+        else err = mapLoadErr(le);   // Memory or card trouble: stop here
     }
     vTaskDelete(nullptr);
+}
+
+// Caller holds s_mux. Starts the font task (state LOADING).
+void startTask(bool openBank)
+{
+    s_taskOpenBank = openBank;
+    if (s_open) {
+        s_player.play(false);
+        s_synth.allNotesOff();
+    }
+    s_loadPct = 0;
+    s_fontState = FontState::LOADING;
+    if (xTaskCreatePinnedToCore(fontTask, "sf2load", 6144, nullptr, 3, nullptr, 1) != pdPASS) {
+        s_fontErr = Err::NO_MEMORY;
+        s_fontState = FontState::FAILED;
+    }
 }
 
 bool synthBusy() { return s_fontState == FontState::LOADING; }
@@ -284,20 +355,11 @@ void ensureFont(bool retryFailed)
     if (st == FontState::LOADING) return;
     const std::string req = currentRequest();
     if (req == s_fontReq && (st == FontState::READY || (st == FontState::FAILED && !retryFailed))) return;
-    {
-        Lock l;
-        s_fontReq = req;
-        snprintf(s_reqName, sizeof(s_reqName), "%.63s", req.c_str());
-        if (s_open) {
-            s_player.play(false);
-            s_synth.allNotesOff();
-        }
-        s_fontState = FontState::LOADING;
-    }
-    if (xTaskCreatePinnedToCore(fontTask, "sf2load", 6144, nullptr, 3, nullptr, 1) != pdPASS) {
-        s_fontErr = Err::NO_MEMORY;
-        s_fontState = FontState::FAILED;
-    }
+    Lock l;
+    s_fontReq = req;
+    snprintf(s_reqName, sizeof(s_reqName), "%.63s", req.c_str());
+    if (retryFailed) s_failGen = 0;
+    startTask(true);
 }
 
 void startLoadFont() { ensureFont(true); }
@@ -372,7 +434,43 @@ void unloadFont()
     s_synth.unload();
     s_fontName[0] = 0;
     s_fontReq.clear();
+    s_prepGen = s_failGen = 0;
     s_fontState = FontState::NONE;
+}
+
+int loadPct() { return s_loadPct; }
+
+FontInfo fontInfo()
+{
+    FontInfo fi{};
+    Lock l;
+    if (synthBusy() || !s_synth.bankOpen()) return fi;
+    const Sf::PrepStats &st = s_synth.stats();
+    fi.fileSize = (uint32_t)s_synth.fileSize();
+    fi.bankPresets = (uint16_t)s_synth.presetCount();
+    fi.prepared = s_synth.loaded();
+    if (fi.prepared) fi.bytes = st.bytes, fi.presets = st.presets, fi.regions = st.regions, fi.reduced = st.reduced;
+    return fi;
+}
+
+Effects effects()
+{
+    const Sf::Effects e = cfgEffects();
+    return Effects{e.reverb, e.chorus, e.reverbLevel, e.chorusLevel};
+}
+
+void setEffects(const Effects &e)
+{
+    AppConfig &c = Config::get();
+    c.karaRev = e.reverb ? 1 : 0;
+    c.karaCho = e.chorus ? 1 : 0;
+    c.karaRevLvl = e.reverbLevel > 100 ? 100 : e.reverbLevel;
+    c.karaChoLvl = e.chorusLevel > 100 ? 100 : e.chorusLevel;
+    {
+        Lock l;
+        if (!synthBusy()) s_synth.setEffects(cfgEffects());
+    }
+    Config::save();
 }
 
 Err open(const SongFile &sf)
@@ -421,12 +519,17 @@ Err open(const SongFile &sf)
     s_player.load(&s_song);
     s_player.setTempo(tempo);
     s_pendingTr = tr;
+    s_songGen++;
+    if (s_songGen == 0) s_songGen = 1;   // 0 = "none"
     if (!synthBusy()) {
         s_synth.setTranspose(tr);
         s_player.seek(0, s_synth);
         applyMelodyMute();
     }
     s_open = true;
+    // Same bank as loaded: load this song's samples now. A different bank is started by the UI
+    // (ensureFont), which prepares the song after opening the bank. A running task picks it up.
+    if (!synthBusy() && s_synth.bankOpen() && currentRequest() == s_fontReq) startTask(false);
     ESP_LOGI(TAG, "%s: %u events, %u lines, melody ch %d%s, crc %08x", s_fileName.c_str(),
              (unsigned)s_song.events.size(), (unsigned)s_song.lines.size(), s_melody + 1,
              s_melodyReg ? " (register)" : "", (unsigned)s_crc);
@@ -568,6 +671,7 @@ const char *errText(Err e)
     case Err::NO_FILE: return tr(Str::KARA_ERR_NO_FILE);
     case Err::FILE_TOO_BIG: return tr(Str::KARA_ERR_FILE_BIG);
     case Err::FILE_BAD: return tr(Str::KARA_ERR_FILE_BAD);
+    case Err::SONG_TOO_BIG: return tr(Str::KARA_ERR_SONG_BIG);
     }
     return "";
 }
