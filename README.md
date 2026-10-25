@@ -1,15 +1,20 @@
 # MyEsp-OnTheRoad
 
-A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3 3.5"** touch board
+A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-adventure console for the road, built on the **Heemol ESP32-S3 3.5"** touch board
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.10.0 – adventure control panel without a top bar (large centred joystick, status/menu left,
-> Slå/energy/gems/suit right), half walking speed (300/150 ms), 30° straight sectors for the joystick, lava
-> tie-break fix in the Pro pathfinder (bridge bug) and SD/boot status on the web overview (not hardware-tested).
+> **Status:** main after v0.10.0 (`40ea276`, untagged) – touch release filter against double taps, 500 ms
+> guard on every toggle, new adventure HUD (icon + count rows left, carried items right, quick sound on/off,
+> zoom in the hamburger menu); not hardware-tested yet. Next: a Bible adventure with conversations
+> ([docs/BIBLE_ADVENTURE_PLAN.md](docs/BIBLE_ADVENTURE_PLAN.md)).
+> v0.10.0 – adventure control panel without a top bar, half walking speed (300/150 ms), 30° straight joystick
+> sectors, lava tie-break fix in the Pro pathfinder (bridge bug), SD/boot status on the web overview.
+> Hardware-tested by Kent (v0.9.0/v0.10.0): sound, SD card, file browser, adventure saves, joystick feel and
+> speed, diagonal sectors, bridge fix, web SD status, zoom debounce.
 > v0.9.0 – sound (ES8311, chiptune + WAV), microSD with web file browser, adventure saves on SD and an
-> analog-style joystick (not hardware-tested; see ROADMAP). v0.8.0 – adventure engine with tap-to-walk, energy/lives,
-> Minfältet and per-player saves (not hardware-tested). Earlier: v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
+> analog-style joystick (hardware-tested). v0.8.0 – adventure engine with tap-to-walk, energy/lives,
+> Minfältet and per-player saves (saves hardware-tested). Earlier: v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
 > personal 4-digit player PINs (player file v2 with automatic v1 migration, on-device numeric keypad),
 > and a new `/play` flow: pick your name, enter your PIN (no shared game code any more; web seats are
 > bound to an internal session id, with a 5-attempt lockout). The overview page links to Live and Play.
@@ -19,10 +24,10 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
-- **Sound (v0.9.0, not yet hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
+- **Sound (v0.9.0, hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
   channels, built-in chiptune synth (square/triangle/noise, ADSR, MML tunes). Any sound can be replaced by a WAV on
   the SD card. Volumes and on/off on the device and in the web settings.
-- **microSD + file browser (v0.9.0, not yet hardware-tested)** – 4-bit SDMMC (1-bit fallback), hot-plug tolerant.
+- **microSD + file browser (v0.9.0, hardware-tested)** – 4-bit SDMMC (1-bit fallback), hot-plug tolerant.
   `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
   folder; changes require the admin PIN.
 
@@ -40,7 +45,14 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effects are cached in PSRAM
 (max ~2 MB total); music is streamed. Missing file = built-in tone version.
 
-- **Adventure engine (v0.8.0, not yet hardware-tested)** – separate module (`components/otr_engine`
+- **Adventure HUD (v0.10.x, not yet hardware-tested)** – bottom panel: left icon + count rows (lives, suit, keys,
+  gems; icons are 20 px copies of the world sprites), right the Slå button, energy bar and icons of carried items
+  (boat; room for two rows), bottom-left hamburger menu + quick sound on/off. Zoom, sound and Pro/Assist live in
+  the menu.
+- **Double-tap protection (v0.10.x)** – the touch driver only reports a release after the finger has been up
+  60 ms (the controller can drop a held finger for a read or two, which made buttons fire twice; filtered gaps
+  are counted on the diagnostics page), and every toggle has a 500 ms guard (`Theme::debounce`).
+- **Adventure engine (v0.8.0)** – separate module (`components/otr_engine`
   + `main/ui_adventure.cpp`): own tile renderer on a PSRAM canvas, smooth camera, 32/16 px zoom. Two worlds:
   the 60 × 60 *Testvärlden* (rocks, keys/doors, boat, lava, plates/gates) and the minesweeper-style
   *Minfältet* (fog, number hints, flood reveal, flags). Tap-to-walk with A* (Pro / Assistent mode, the
@@ -134,7 +146,7 @@ See [docs/hardware_reference.md](docs/hardware_reference.md) for the full refere
 | WS2812 LED (GRB) | 40 |
 | Battery ADC | 8 |
 
-SD card and audio (ES8311) are documented but not used yet.
+microSD (4-bit SDMMC) and audio (ES8311 + amplifier) are used since v0.9.0; see the hardware reference for pins.
 
 **RTC module:** the Raspberry Pi "DS3231 for Pi" board (5-pin header marked `- NC C D +`) is wired as
 `-` → GND, `NC` → not connected, `C` (SCL) → IO39, `D` (SDA) → IO38, `+` → **3V3** (not 5 V – the board's
@@ -159,7 +171,8 @@ The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
 ### Shared components
 
 The `components/my_*` folders have no project-specific code and are meant to be reused in other
-ESP32 projects (MyPi-Companion, MyPi-Hotspot):
+ESP32 projects (MyPi-Companion, MyPi-Hotspot). Status, dependencies and the plan for further extractions
+(audio, SD/file browser, touch filter, numpad, i18n, story engine) are in [docs/COMPONENTS.md](docs/COMPONENTS.md).
 
 | Component | Purpose |
 |---|---|
@@ -172,7 +185,8 @@ ESP32 projects (MyPi-Companion, MyPi-Hotspot):
 | `my_ota` | OTA into the inactive slot, rollback mark-valid |
 | `my_web` | `esp_http_server` wrapper: routes, gzip assets, JSON helpers, admin PIN, log/OTA/reboot routes |
 | `my_lvgl` | LVGL 9 tick/task/mutex setup and input devices |
-| `my_ui` | Theme, fonts (Swedish å/ä/ö), scroll wheel keyboard (`my_charwheel`, `mypi_kbd_core.h`), text input |
+| `my_ui` | Theme, fonts (Swedish å/ä/ö), scroll wheel keyboard (`my_charwheel`, `mypi_kbd_core.h`), text input, `Theme::debounce` |
+| `otr_engine` | Adventure engine: world/rules/saves/A* (`otr_world`), built-in maps, joystick logic (`otr_joystick.h`); pure C++, host-tested |
 
 ### Web pages
 
@@ -236,8 +250,10 @@ main/lang/            UI strings: lang.h (ids, tr), lang.cpp, lang_sv.cpp, lang_
 main/web/             Web page sources (HTML/CSS)
 components/my_*/      Shared reusable components (see above)
 components/otr_engine/ OnTheRoad Engine: tile world logic + built-in test map (pure C++, host tested)
-docs/                 Hardware reference, game architecture, 2D engine brief (ENGINE_2D_BRIEF.md)
-tests/                Host unit tests (game logic, saved networks, scroll wheel, player registry, RTC format, dice cup, strings)
+docs/                 Hardware reference, game architecture, 2D engine brief, reusable components (COMPONENTS.md),
+                      Bible adventure plan (BIBLE_ADVENTURE_PLAN.md)
+tests/                Host unit tests (games, saved networks, scroll wheel, players, RTC, dice cup, strings, web seats,
+                      audio synth, file paths, adventure engine, joystick)
 tools/embed_web.py    main/web/ -> main/web_assets.h generator
 tools/lvgl8to9.py     Helper used for the LVGL 8 -> 9 API rename
 partitions.csv        Same layout as Arduino app3M_fat9M_16MB

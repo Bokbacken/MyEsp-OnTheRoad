@@ -92,4 +92,4 @@ Status: v0.7.0 innehåller ett första **proof of concept** ("Testvärld", 60 ×
 
 - 16 eller 32 px som standard (beror på uppmätt fps och läsbarhet)?
 - Styrning: räcker skärmplattan eller ska mobilen kunna vara handkontroll?
-- Första riktiga berättelsen/miljön?
+- Första riktiga berättelsen/miljön? → förslag Josefs resa, se [BIBLE_ADVENTURE_PLAN.md](BIBLE_ADVENTURE_PLAN.md) (beslut väntar)

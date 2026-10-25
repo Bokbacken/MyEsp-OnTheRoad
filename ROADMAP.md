@@ -115,7 +115,7 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
-## v0.10.0 – Kents HW-feedback på v0.9.0 🔧 (inte HW-testad)
+## v0.10.0 – Kents HW-feedback på v0.9.0 🔧 (HW-testad av Kent: joystick, hastighet, diagonaler, brobugg, webb-SD-status)
 - [x] Äventyret: toppstatusbaren borttagen, spelvyn börjar på y=0. Ny kontrollpanel (160 px): vänster status (liv, nycklar, båt) + menyknapp (hamburgare) och zoomknapp (-/+), mitten stor centrerad joystick (radie 74, stoppzon 23), höger Slå-ruta, röd energistapel, röd diamant + ädelstenar "11/13", "Dräkt N"
 - [x] Joystick: halverad gånghastighet, std 300/150 ms (sparade v0.9.0-standardvärden 150/75 uppgraderas), intervall 60-600 ms; gånganimationen sträcks till takten (max 260 ms) så hjälten glider jämnt
 - [x] Diagonalzoner: rakt 0±30°, diagonal 45±15° (tan 30° = 577/1000), gränsfallstester
@@ -129,7 +129,9 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Extra skydd 500 ms på alla toggles: inställningarnas switchar (LED, ljud, musik, maxi-sparade kast), äventyrets ljud, zoom, Pro/Assist och hamburgermenyn
 - [x] Äventyrs-HUD: vänster symbol + antal (liv, dräkt, nycklar, ädelstenar), höger ikoner för föremål man bär (båt; plats för 2 rader), 20 px ikoner nedskalade från världens sprites
 - [x] Snabb ljud av/på-knapp bredvid hamburgaren; zoom flyttad in i hamburgermenyn (överst: Ljud, Zoom)
-## v0.9.0 – Ljud, microSD, filbläddrare, joystick 🔧 (HW-testad delvis: ljud, SD, filbläddrare, sparning OK)
+- [x] Dokumentation: README uppdaterad, [docs/COMPONENTS.md](docs/COMPONENTS.md) (återanvändbara komponenter + plan för utbrytning), [docs/BIBLE_ADVENTURE_PLAN.md](docs/BIBLE_ADVENTURE_PLAN.md)
+
+## v0.9.0 – Ljud, microSD, filbläddrare, joystick 🔧 (HW-testad: ljud, SD, filbläddrare, sparning, joystick OK)
 - [x] Ljud via ES8311 (egen registerdrivare, säker uppstart: förstärkare av -> codec -> I2S 22 050 Hz -> låg volym -> förstärkare på). Saknas codec: tyst, ingen krasch
 - [x] Mixer-task: 1 musikkanal + 4 effektkanaler. Egen chiptune-synt (fyrkant/triangel/brus, ADSR, MML-melodier) som standard; WAV från SD ersätter per ljud. Ingen OPL/MIDI-emulator: de lätta alternativen är GPL eller för tunga - egen synt valdes
 - [x] Ljudhändelser i tärningsspelen (skak, kast, landning, poäng, noll, Yatzy, bust, vinst, knappklick) och äventyret (steg, slag, plock, dörr, mina, skada, liv, checkpoint, utgång). Musikslinga i menyn/tärningsspel och i äventyret
@@ -176,6 +178,14 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] HW-test: fps vid scroll (32 och 16 px), touch-styrning, minne
 - [ ] Nästa: SD + ES8311, kartformat/`tmx2otr.py`, dialog, riktiga tilesets
 
+## Planerat – bibliskt äventyr (se docs/BIBLE_ADVENTURE_PLAN.md)
+- [ ] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn"
+- [ ] v0.12.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
+- [ ] v0.13.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
+- [ ] v0.14+ – kapitel 2–6, manus från SD, engelska
+
+## Planerat – utbrytning av komponenter (se docs/COMPONENTS.md)
+- [ ] `my_audio` (synt/mixer + ES8311), `my_sd` + `my_fsweb` (SD + filbläddrare), `my_touch`-filter, numpad till `my_ui`, `my_i18n`
 ## Senare ⏳
 - [ ] AP-läge (uppskjutet – `AP_MODE_ENABLED 0`)
 - [ ] Admin-roll per spelare (flaggfältet i `PlayerRec` är reserverat)
