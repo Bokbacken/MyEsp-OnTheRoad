@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "kara_index.h"
 #include "kara_stream.h"
 #include "otr_midi.h"
 
@@ -17,20 +18,50 @@ namespace Karaoke {
 constexpr const char *DIR_SONGS = "/sdcard/otr/karaoke";
 constexpr const char *DIR_SF2 = "/sdcard/otr/sf2";
 constexpr const char *REG_FILE = "/sdcard/otr/karaoke/karaoke.reg";
+constexpr const char *IDX_FILE = "/sdcard/otr/karaoke/songs.idx";   // v0.13.7 song index
+constexpr size_t MAX_SONGS = KaraIndex::MAX_SONGS;                  // v0.13.7: 2000 (was 500)
 
 enum class Err : uint8_t {
     OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED,
-    SONG_TOO_BIG   // v0.13.2: the song needs more sample data than fits, even with one velocity layer
+    SONG_TOO_BIG,  // v0.13.2: the song needs more sample data than fits, even with one velocity layer
+    BUSY           // v0.13.7: a sound bank is loading (web openByPath), try again shortly
 };
 
 struct SongFile {
     std::string path;       // Full path
     std::string title, artist;   // From the file name "Artist_Title.kar"
     uint32_t size;
+    std::string dir;        // v0.13.7: folder relative to DIR_SONGS ("" = the root)
 };
 
-// Lists song files (sorted by artist, then title). Creates the folders when missing.
+// Lists song files in DIR_SONGS and all its subfolders (any depth; sorted by artist, then title;
+// max MAX_SONGS). Creates the folders when missing. Does not touch the index or the library.
 Err scan(std::vector<SongFile> &out);
+
+// v0.13.7 song library (shared by the device UI and the web song picker).
+// load(): reads songs.idx; scans (and writes a new index) when the index is missing, corrupt or the
+// SD free space (not counting /sdcard/otr/logs) or the mtime of DIR_SONGS differ from the index.
+// rescan(): always scans and writes a new index. Both block (a scan of 2000 files takes seconds);
+// rescanAsync() runs rescan() in its own task (scanning() is true meanwhile).
+Err load();
+bool loadIndex();               // Only the index part of load(): false = a scan is needed
+Err rescan();
+void rescanAsync();
+bool scanning();
+bool libraryLoaded();           // A load / scan has succeeded since boot
+Err libraryError();             // Result of the last load / scan
+uint32_t libraryGen();          // Changes whenever the library is replaced
+// Runs fn with the library locked (keep it short; no SD access or LVGL waits inside)
+template <class F> void withLibrary(F fn);
+void libraryLock();
+void libraryUnlock();
+const KaraIndex::Library &libraryRef();   // Only valid between libraryLock/libraryUnlock
+SongFile songAt(const KaraIndex::Library &lib, size_t i);
+// Opens a song by path (relative to DIR_SONGS, or absolute below it) and starts playback as soon as
+// the sound bank is ready (web song picker). Loads the song's sound bank when needed.
+Err openByPath(const char *path);
+uint32_t externalOpenGen();     // Increments on every successful openByPath (the UI follows it)
+SongFile current();             // The open song ("" path when none)
 
 // SoundFont: loading runs in its own task. v0.13.2: only the bank structure is read when a font is
 // chosen; each opened song then loads just the samples it uses (LOADING with loadPct()), so banks
@@ -116,5 +147,12 @@ struct View {
     uint8_t cpuPct;
 };
 View view();
+
+template <class F> void withLibrary(F fn)
+{
+    libraryLock();
+    fn(libraryRef(), libraryGen());
+    libraryUnlock();
+}
 
 }  // namespace Karaoke

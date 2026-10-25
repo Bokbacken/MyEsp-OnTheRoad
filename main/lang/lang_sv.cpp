@@ -462,6 +462,17 @@ extern const Entry LANG_SV[] = {
     {Str::KARA_FONT_NONE, "Inga .sf2-filer i /otr/sf2"},
     {Str::KARA_FONT_SAVED, "Sparas i inställningarna"},
     {Str::KARA_FONT_SONG_HINT, "Sparas för låten i karaoke.reg"},
+    {Str::KARA_ALL_SONGS, "Alla låtar"},
+    {Str::KARA_SEARCH_HINT, "Sök artist eller titel"},
+    {Str::KARA_SEARCH_TITLE, "Sök låt (artist och/eller titel, alla mappar)"},
+    {Str::KARA_RESCAN, "Skanna om"},
+    {Str::KARA_SCANNING, "Söker låtar på SD-kortet..."},
+    {Str::KARA_UP, "Tillbaka"},
+    {Str::KARA_PAGE, "Sida %u/%u"},
+    {Str::KARA_N_SONGS, "%u låtar"},
+    {Str::KARA_SEARCH_RESULT, "%u träffar för \"%s\""},
+    {Str::KARA_NO_MATCH, "Inga träffar"},
+    {Str::KARA_LIMIT, "max %u låtar visas"},
 };
 
 extern const LangDef DEF_SV = {"sv", "Svenska", LANG_SV, sizeof(LANG_SV) / sizeof(LANG_SV[0])};

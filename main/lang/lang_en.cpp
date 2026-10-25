@@ -462,6 +462,17 @@ extern const Entry LANG_EN[] = {
     {Str::KARA_FONT_NONE, "No .sf2 files in /otr/sf2"},
     {Str::KARA_FONT_SAVED, "Saved in the settings"},
     {Str::KARA_FONT_SONG_HINT, "Saved for the song in karaoke.reg"},
+    {Str::KARA_ALL_SONGS, "All songs"},
+    {Str::KARA_SEARCH_HINT, "Search artist or title"},
+    {Str::KARA_SEARCH_TITLE, "Search song (artist and/or title, all folders)"},
+    {Str::KARA_RESCAN, "Rescan"},
+    {Str::KARA_SCANNING, "Scanning the SD card for songs..."},
+    {Str::KARA_UP, "Back"},
+    {Str::KARA_PAGE, "Page %u/%u"},
+    {Str::KARA_N_SONGS, "%u songs"},
+    {Str::KARA_SEARCH_RESULT, "%u matches for \"%s\""},
+    {Str::KARA_NO_MATCH, "No matches"},
+    {Str::KARA_LIMIT, "max %u songs shown"},
 };
 
 extern const LangDef DEF_EN = {"en", "English", LANG_EN, sizeof(LANG_EN) / sizeof(LANG_EN[0])};

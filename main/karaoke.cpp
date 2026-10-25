@@ -7,6 +7,8 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include <time.h>
+
 #include <algorithm>
 
 #include "app_config.h"
@@ -62,6 +64,15 @@ int s_prevTr = 0;
 volatile bool s_trRejected = false;
 // Diagnostics (logged every 5 s while a song is open)
 esp_timer_handle_t s_diagTimer = nullptr;
+// v0.13.7 song library (own mutex: never held while the mixer needs s_mux)
+KaraIndex::Library s_lib;
+uint32_t s_libGen = 0;
+volatile Err s_libErr = Err::OK;
+volatile bool s_scanning = false, s_libLoaded = false;
+SongFile s_cur;                 // The open song
+uint32_t s_extGen = 0;          // openByPath counter (UI follows)
+volatile bool s_autoPlay = false;   // openByPath: start playing when the sound bank is ready
+constexpr const char *LOG_DIR = "/sdcard/otr/logs";   // Not counted in the index's free space
 volatile int s_voicesPeak = 0;
 uint32_t s_lastUnderruns = 0;
 
@@ -90,6 +101,11 @@ void renderCb(int32_t *acc, int n, int gainQ8, void *)
     // Without a sound bank the lyrics still run (silent mode). While a new font loads, the song is
     // frozen (the font task owns the synth).
     if (s_open && s_fontState != FontState::LOADING) {
+        if (s_autoPlay) {   // v0.13.7: song opened from the web picker
+            s_autoPlay = false;
+            if (s_player.finished()) s_player.seek(0, s_synth);
+            s_player.play(true);
+        }
         s_player.advance((uint32_t)((uint64_t)n * 1000000u / Synth::RATE), s_synth);
         s_synth.render(acc, n, gainQ8);
         KaraWeb::onRender(s_song, s_player.position());   // v0.13.5: lyric events for the web stream
@@ -393,34 +409,287 @@ std::string currentRequest() { return s_open && !s_songSf2.empty() ? s_songSf2 :
 
 }  // namespace
 
-Err scan(std::vector<SongFile> &out)
+namespace {
+
+SemaphoreHandle_t libMux()
 {
-    out.clear();
-    BoardSd::Guard g;
-    if (!BoardSd::mounted()) return Err::NO_SD;
+    static SemaphoreHandle_t m = xSemaphoreCreateMutex();
+    return m;
+}
+
+void ensureFolders()
+{
     BoardSd::ensureDir("/sdcard/otr");
     BoardSd::ensureDir(DIR_SONGS);
     BoardSd::ensureDir(DIR_SF2);
-    DIR *d = opendir(DIR_SONGS);
-    if (!d) return Err::NO_SD;
-    static const char *const EXT[] = {".mid", ".kar", ".midi", ".rmi", nullptr};
-    while (dirent *e = readdir(d)) {
-        if (e->d_name[0] == '.' || !hasExt(e->d_name, EXT)) continue;
-        SongFile f;
-        f.path = std::string(DIR_SONGS) + "/" + e->d_name;
-        struct stat st;
-        f.size = stat(f.path.c_str(), &st) == 0 ? (uint32_t)st.st_size : 0;
-        Midi::nameFromFile(e->d_name, f.title, f.artist);
-        out.push_back(std::move(f));
-        if (out.size() >= 500) break;
+}
+
+// Walks DIR_SONGS and every subfolder (explicit work list: no recursion, no depth limit; FAT has no
+// links so it cannot loop). The SD guard is taken per folder so audio reads are not starved.
+Err scanLib(KaraIndex::Library &lib)
+{
+    lib.clear();
+    {
+        BoardSd::Guard g;
+        if (!BoardSd::mounted()) return Err::NO_SD;
+        ensureFolders();
     }
-    closedir(d);
-    std::sort(out.begin(), out.end(), [](const SongFile &a, const SongFile &b) {
-        int c = strcasecmp(a.artist.c_str(), b.artist.c_str());
-        return c ? c < 0 : strcasecmp(a.title.c_str(), b.title.c_str()) < 0;
-    });
+    std::vector<std::string> todo{std::string()};
+    bool rootOk = false;
+    const int64_t t0 = esp_timer_get_time();
+    while (!todo.empty() && !lib.full()) {
+        const std::string rel = std::move(todo.back());
+        todo.pop_back();
+        const std::string abs = rel.empty() ? std::string(DIR_SONGS) : std::string(DIR_SONGS) + "/" + rel;
+        BoardSd::Guard g;
+        if (!BoardSd::mounted()) return Err::NO_SD;
+        DIR *d = opendir(abs.c_str());
+        if (!d) continue;
+        if (rel.empty()) rootOk = true;
+        while (dirent *e = readdir(d)) {
+            if (e->d_name[0] == '.') continue;
+            const std::string childRel = rel.empty() ? std::string(e->d_name) : rel + "/" + e->d_name;
+            if (childRel.size() > KaraIndex::MAX_PATH) continue;
+            const std::string childAbs = abs + "/" + e->d_name;
+            bool isDir = e->d_type == DT_DIR;
+            struct stat st;
+            const bool song = !isDir && KaraIndex::songExt(e->d_name);
+            if (e->d_type == DT_UNKNOWN || song) {
+                if (stat(childAbs.c_str(), &st) != 0) continue;
+                isDir = S_ISDIR(st.st_mode);
+            }
+            if (isDir) {
+                todo.push_back(childRel);
+                continue;
+            }
+            if (!song) continue;
+            std::string title, artist;
+            Midi::nameFromFile(e->d_name, title, artist);
+            if (!lib.add(childRel.c_str(), title.c_str(), artist.c_str(), (uint32_t)st.st_size) && lib.full()) break;
+        }
+        closedir(d);
+    }
+    if (!rootOk) return Err::NO_SD;
+    lib.sort();
+    ESP_LOGI(TAG, "scan: %u songs in %u ms%s", (unsigned)lib.size(), (unsigned)((esp_timer_get_time() - t0) / 1000),
+             lib.full() ? " (limit reached)" : "");
     return Err::OK;
 }
+
+// SD free space plus what the rotating log files occupy (they grow all the time and would make
+// every index look stale). Rounded to whole clusters like FAT allocates them.
+uint64_t freeWithoutLogs()
+{
+    BoardSd::Guard g;
+    BoardSd::refreshUsage();
+    uint64_t free = BoardSd::info().freeBytes;
+    const uint32_t cl = BoardSd::clusterBytes();
+    DIR *d = opendir(LOG_DIR);
+    if (!d) return free;
+    while (dirent *e = readdir(d)) {
+        if (e->d_name[0] == '.') continue;
+        const std::string p = std::string(LOG_DIR) + "/" + e->d_name;
+        struct stat st;
+        if (stat(p.c_str(), &st) != 0 || S_ISDIR(st.st_mode)) continue;
+        uint64_t sz = (uint64_t)st.st_size;
+        if (cl) sz = (sz + cl - 1) / cl * cl;
+        free += sz;
+    }
+    closedir(d);
+    return free;
+}
+
+uint32_t rootMtime()
+{
+    BoardSd::Guard g;
+    struct stat st;
+    return stat(DIR_SONGS, &st) == 0 ? (uint32_t)st.st_mtime : 0;
+}
+
+bool writeFile(const char *path, const std::vector<uint8_t> &data)
+{
+    BoardSd::Guard g;
+    if (!BoardSd::mounted()) return false;
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    const bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
+    return fclose(f) == 0 && ok;
+}
+
+// Writes songs.idx. The file itself changes the free space, so it is written twice: the second
+// write (same size, no new clusters) stores the free space measured after the first.
+void writeIndex(const KaraIndex::Library &lib)
+{
+    KaraIndex::Header h;
+    const time_t now = time(nullptr);
+    h.scanTime = now > 1600000000 ? (uint32_t)now : 0;
+    h.rootMtime = rootMtime();
+    std::vector<uint8_t> buf;
+    lib.encode(h, buf);
+    if (!writeFile(IDX_FILE, buf)) {
+        ESP_LOGW(TAG, "cannot write %s", IDX_FILE);
+        return;
+    }
+    h.freeBytes = freeWithoutLogs();
+    lib.encode(h, buf);
+    writeFile(IDX_FILE, buf);
+    BoardSd::refreshUsage();
+}
+
+bool readIndex(KaraIndex::Library &lib, KaraIndex::Header &h)
+{
+    std::vector<uint8_t, KaraIndex::PsAlloc<uint8_t>> data;
+    {
+        BoardSd::Guard g;
+        if (!BoardSd::mounted()) return false;
+        FILE *f = fopen(IDX_FILE, "rb");
+        if (!f) return false;
+        fseek(f, 0, SEEK_END);
+        const long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz <= 0 || sz > 2 * 1024 * 1024) { fclose(f); return false; }
+        data.resize((size_t)sz);
+        const bool ok = fread(data.data(), 1, data.size(), f) == data.size();
+        fclose(f);
+        if (!ok) return false;
+    }
+    return lib.decode(data.data(), data.size(), h);
+}
+
+void publish(KaraIndex::Library &lib, Err e)
+{
+    xSemaphoreTake(libMux(), portMAX_DELAY);
+    std::swap(s_lib, lib);
+    s_libErr = e;
+    s_libLoaded = e == Err::OK;
+    if (++s_libGen == 0) s_libGen = 1;
+    xSemaphoreGive(libMux());
+}
+
+}  // namespace
+
+Err scan(std::vector<SongFile> &out)
+{
+    out.clear();
+    KaraIndex::Library lib;
+    const Err e = scanLib(lib);
+    if (e != Err::OK) return e;
+    out.reserve(lib.size());
+    for (size_t i = 0; i < lib.size(); i++) out.push_back(songAt(lib, i));
+    return Err::OK;
+}
+
+SongFile songAt(const KaraIndex::Library &lib, size_t i)
+{
+    SongFile f;
+    f.path = std::string(DIR_SONGS) + "/" + lib.rel(i);
+    f.title = lib.title(i);
+    f.artist = lib.artist(i);
+    f.size = lib.fileSize(i);
+    f.dir = lib.dir(i);
+    return f;
+}
+
+Err rescan()
+{
+    KaraIndex::Library lib;
+    const Err e = scanLib(lib);
+    if (e == Err::OK) writeIndex(lib);
+    publish(lib, e);
+    return e;
+}
+
+bool loadIndex()
+{
+    if (s_scanning) return true;   // The running scan publishes its result
+    {
+        BoardSd::Guard g;
+        if (!BoardSd::mounted()) {
+            KaraIndex::Library empty;
+            publish(empty, Err::NO_SD);
+            return true;   // Nothing to scan
+        }
+        ensureFolders();
+    }
+    KaraIndex::Library lib;
+    KaraIndex::Header h;
+    if (!readIndex(lib, h)) {
+        ESP_LOGI(TAG, "songs.idx missing or invalid");
+        return false;
+    }
+    const uint64_t free = freeWithoutLogs();
+    const uint32_t mt = rootMtime();
+    if (h.freeBytes != free || h.rootMtime != mt) {
+        ESP_LOGI(TAG, "songs.idx stale (free %llu/%llu, mtime %u/%u)", (unsigned long long)h.freeBytes,
+                 (unsigned long long)free, (unsigned)h.rootMtime, (unsigned)mt);
+        return false;
+    }
+    ESP_LOGI(TAG, "songs.idx: %u songs", (unsigned)lib.size());
+    publish(lib, Err::OK);
+    return true;
+}
+
+Err load()
+{
+    if (loadIndex()) return s_libErr;
+    return rescan();
+}
+
+bool libraryLoaded() { return s_libLoaded; }
+
+void rescanAsync()
+{
+    if (s_scanning) return;
+    s_scanning = true;
+    if (xTaskCreatePinnedToCore([](void *) {
+            rescan();
+            s_scanning = false;
+            vTaskDelete(nullptr);
+        }, "karascan", 8192, nullptr, 2, nullptr, 0) != pdPASS)
+        s_scanning = false;
+}
+
+bool scanning() { return s_scanning; }
+Err libraryError() { return s_libErr; }
+uint32_t libraryGen() { return s_libGen; }
+void libraryLock() { xSemaphoreTake(libMux(), portMAX_DELAY); }
+void libraryUnlock() { xSemaphoreGive(libMux()); }
+const KaraIndex::Library &libraryRef() { return s_lib; }
+
+Err openByPath(const char *path)
+{
+    if (!path) return Err::NO_FILE;
+    std::string rel = path;
+    const std::string root = std::string(DIR_SONGS) + "/";
+    if (rel.compare(0, root.size(), root) == 0) rel.erase(0, root.size());
+    while (!rel.empty() && rel[0] == '/') rel.erase(0, 1);
+    if (!KaraIndex::safeRel(rel.c_str()) || !KaraIndex::songExt(rel.c_str())) return Err::NO_FILE;
+    if (synthBusy()) return Err::BUSY;
+    SongFile sf;
+    bool found = false;
+    withLibrary([&](const KaraIndex::Library &lib, uint32_t) {
+        const int i = lib.find(rel.c_str());
+        if (i >= 0) sf = songAt(lib, (size_t)i), found = true;
+    });
+    if (!found) {   // Not indexed yet (copied after the last scan): build the entry from the name
+        sf.path = root + rel;
+        const size_t slash = rel.find_last_of('/');
+        sf.dir = slash == std::string::npos ? std::string() : rel.substr(0, slash);
+        Midi::nameFromFile(slash == std::string::npos ? rel.c_str() : rel.c_str() + slash + 1, sf.title, sf.artist);
+        sf.size = 0;
+    }
+    const Err e = open(sf);
+    if (e != Err::OK) return e;
+    s_cur = sf;
+    s_autoPlay = true;
+    ensureFont(false);
+    if (++s_extGen == 0) s_extGen = 1;
+    ESP_LOGI(TAG, "web: open %s", rel.c_str());
+    return Err::OK;
+}
+
+uint32_t externalOpenGen() { return s_extGen; }
+SongFile current() { return s_open ? s_cur : SongFile{}; }
 
 void ensureFont(bool retryFailed)
 {
@@ -430,6 +699,7 @@ void ensureFont(bool retryFailed)
     const std::string req = currentRequest();
     if (req == s_fontReq && (st == FontState::READY || (st == FontState::FAILED && !retryFailed))) return;
     Lock l;
+    if (s_fontState == FontState::LOADING) return;   // v0.13.7: the web may call this too
     s_fontReq = req;
     snprintf(s_reqName, sizeof(s_reqName), "%.63s", req.c_str());
     if (retryFailed) s_failGen = 0;
@@ -602,6 +872,8 @@ Err open(const SongFile &sf)
         applyMelodyMute();
     }
     s_open = true;
+    s_cur = sf;
+    s_autoPlay = false;
     // Same bank as loaded: load this song's samples now. A different bank is started by the UI
     // (ensureFont), which prepares the song after opening the bank. A running task picks it up.
     if (!synthBusy() && s_synth.bankOpen() && currentRequest() == s_fontReq) startTask(false);
@@ -623,6 +895,7 @@ void close()
     Lock l;
     if (!s_open) return;
     s_open = false;
+    s_autoPlay = false;
     s_player.play(false);
     if (!synthBusy()) s_synth.reset();
     s_player.load(nullptr);
@@ -775,6 +1048,7 @@ const char *errText(Err e)
     case Err::FILE_TOO_BIG: return tr(Str::KARA_ERR_FILE_BIG);
     case Err::FILE_BAD: return tr(Str::KARA_ERR_FILE_BAD);
     case Err::SONG_TOO_BIG: return tr(Str::KARA_ERR_SONG_BIG);
+    case Err::BUSY: return tr(Str::KARA_WAIT_FONT);
     }
     return "";
 }

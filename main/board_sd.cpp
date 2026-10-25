@@ -9,6 +9,8 @@
 #include "driver/sdmmc_host.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "ff.h"
+#include "diskio_sdmmc.h"   // After ff.h (needs BYTE)
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "sdmmc_cmd.h"
@@ -123,6 +125,23 @@ void refreshUsage()
         s_info.totalBytes = total;
         s_info.freeBytes = freeB;
     }
+}
+
+uint32_t clusterBytes()
+{
+    Guard g;
+    if (!s_info.mounted || !s_card) return 0;
+    const BYTE pdrv = ff_diskio_get_pdrv_card(s_card);
+    if (pdrv == 0xFF) return 0;
+    char drv[3] = {(char)('0' + pdrv), ':', 0};
+    FATFS *fs = nullptr;
+    DWORD freeClusters = 0;
+    if (f_getfree(drv, &freeClusters, &fs) != FR_OK || !fs) return 0;
+#if FF_MAX_SS != FF_MIN_SS
+    return (uint32_t)fs->csize * fs->ssize;
+#else
+    return (uint32_t)fs->csize * FF_MIN_SS;
+#endif
 }
 
 bool remount()

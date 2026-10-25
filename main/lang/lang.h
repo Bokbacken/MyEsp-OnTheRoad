@@ -457,7 +457,18 @@
     X(KARA_FONT_USE_DEFAULT) \
     X(KARA_FONT_NONE) \
     X(KARA_FONT_SAVED) \
-    X(KARA_FONT_SONG_HINT)
+    X(KARA_FONT_SONG_HINT) \
+    X(KARA_ALL_SONGS) \
+    X(KARA_SEARCH_HINT) \
+    X(KARA_SEARCH_TITLE) \
+    X(KARA_RESCAN) \
+    X(KARA_SCANNING) \
+    X(KARA_UP) \
+    X(KARA_PAGE) \
+    X(KARA_N_SONGS) \
+    X(KARA_SEARCH_RESULT) \
+    X(KARA_NO_MATCH) \
+    X(KARA_LIMIT)
 // clang-format on
 
 enum class Str : uint16_t {

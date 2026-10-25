@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "karaoke.h"
 #include "lang.h"
 #include "my_lvgl.h"
+#include "my_textinput.h"
 #include "my_theme.h"
 #include "ui_yatzy.h"
 
@@ -26,8 +28,6 @@ constexpr uint32_t DEBOUNCE_MS = 500;
 // v0.13.1: the karaoke module runs in landscape (LVGL software rotation), 480 x 320.
 constexpr int32_t W = 480, H = 320;
 
-std::vector<Karaoke::SongFile> s_files;
-int s_current = -1;
 
 // List screen
 lv_obj_t *s_listScr = nullptr;
@@ -128,20 +128,366 @@ void msg(const char *text, bool isWait = false)
     Theme::msgboxFonts(m);
 }
 
-void openSong(int idx)
+// ---- v0.13.7 song browser: folders, search, A-Ö jump, pages ------------------------------------
+enum class ListMode : uint8_t { ROOT, DIR, SEARCH };
+struct Entry {
+    bool folder;
+    std::string name, path;   // Folder: display name + path relative to DIR_SONGS
+    uint16_t idx;             // Song: library index (valid for s_gen)
+    uint16_t count;           // Folder: songs inside (incl. subfolders)
+};
+constexpr size_t PAGE = 40;            // Entries per page (LVGL objects stay bounded with 2000 songs)
+constexpr int32_t JUMP_W = 40;         // A-Ö column on the right edge
+constexpr int32_t LIST_Y = 108, LIST_W = W - JUMP_W - 4;
+struct JumpKey {
+    const char *text;
+    uint16_t rank;
+};
+const JumpKey JUMP[] = {{"#", 0},  {"A", 30}, {"D", 33}, {"G", 36}, {"J", 39}, {"M", 42},
+                        {"P", 45}, {"S", 48}, {"V", 51}, {"\xc3\x85", 56}, {"\xc3\x84", 57}, {"\xc3\x96", 58}};
+constexpr int JUMP_N = (int)(sizeof(JUMP) / sizeof(JUMP[0]));
+
+ListMode s_mode = ListMode::ROOT;
+std::string s_dir, s_query, s_lastRel;
+size_t s_page = 0;
+uint32_t s_gen = 0, s_extSeen = 0;
+bool s_wasScanning = false;
+std::vector<Entry> s_entries;
+size_t s_firstSong = 0;                // Index of the first song entry in s_entries
+lv_obj_t *s_list = nullptr, *s_info = nullptr, *s_searchLbl = nullptr, *s_jumpCol = nullptr, *s_rescanBtn = nullptr;
+lv_obj_t *s_input = nullptr;
+
+void renderList(int scrollTo = -1);
+
+std::string parentDir(const std::string &d)
 {
-    if (idx < 0 || idx >= (int)s_files.size()) return;
+    const size_t slash = d.find_last_of('/');
+    return slash == std::string::npos ? std::string() : d.substr(0, slash);
+}
+
+void openEntry(size_t e)
+{
+    if (e >= s_entries.size()) return;
+    const Entry &en = s_entries[e];
+    if (en.folder) {
+        s_mode = ListMode::DIR;
+        s_dir = en.path;
+        s_page = 0;
+        renderList();
+        return;
+    }
     if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
         msg(tr(Str::KARA_WAIT_FONT), true);
         return;
     }
-    Karaoke::Err e = Karaoke::open(s_files[(size_t)idx]);
-    if (e != Karaoke::Err::OK) {
-        msg(Karaoke::errText(e));
+    Karaoke::SongFile f;
+    bool ok = false;
+    Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t gen) {
+        if (gen == s_gen && en.idx < lib.size()) f = Karaoke::songAt(lib, en.idx), ok = true;
+    });
+    if (!ok) {   // The library changed meanwhile (web rescan): show the new one
+        renderList();
         return;
     }
-    s_current = idx;
+    Karaoke::Err err = Karaoke::open(f);
+    if (err != Karaoke::Err::OK) {
+        msg(Karaoke::errText(err));
+        return;
+    }
+    s_lastRel = f.path;
+    s_extSeen = Karaoke::externalOpenGen();
     showPlayer();
+}
+
+// Builds s_entries for the current mode from the library
+void buildEntries()
+{
+    s_entries.clear();
+    s_firstSong = 0;
+    Karaoke::withLibrary([](const KaraIndex::Library &lib, uint32_t gen) {
+        s_gen = gen;
+        std::vector<uint16_t> songs;
+        if (s_mode == ListMode::SEARCH) {
+            songs = lib.search(s_query.c_str());
+        } else {
+            std::vector<std::string> dirs = lib.subdirs(s_dir);
+            if (s_mode == ListMode::ROOT && dirs.empty()) s_mode = ListMode::DIR;   // No folders: songs directly
+            if (s_mode == ListMode::DIR && !s_dir.empty() && lib.songsIn(s_dir).empty()) {   // Folder gone
+                s_dir.clear();
+                dirs = lib.subdirs(s_dir);
+                s_mode = dirs.empty() ? ListMode::DIR : ListMode::ROOT;
+            }
+            if (s_mode == ListMode::ROOT)
+                s_entries.push_back(Entry{true, tr(Str::KARA_ALL_SONGS), std::string(), 0, (uint16_t)lib.size()});
+            for (const std::string &d : dirs) {
+                const std::string p = s_dir.empty() ? d : s_dir + "/" + d;
+                s_entries.push_back(Entry{true, d, p, 0, (uint16_t)lib.songsIn(p).size()});
+            }
+            if (s_mode == ListMode::DIR) songs = lib.songsIn(s_dir);
+        }
+        s_firstSong = s_entries.size();
+        for (uint16_t i : songs) s_entries.push_back(Entry{false, std::string(), std::string(), i, 0});
+    });
+}
+
+void songButton(lv_obj_t *list, const KaraIndex::Library &lib, size_t e)
+{
+    const Entry &en = s_entries[e];
+    const int32_t bw = (LIST_W - 28) / 2;
+    lv_obj_t *b = lv_button_create(list);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, bw, 58);
+    lv_obj_set_style_radius(b, 10, 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    const bool cur = !s_lastRel.empty() && s_lastRel == std::string(Karaoke::DIR_SONGS) + "/" + lib.rel(en.idx);
+    lv_obj_set_style_border_width(b, cur ? 2 : 1, 0);
+    lv_obj_set_style_border_color(b, Theme::c(cur ? Theme::ACCENT : Theme::LINE), 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
+    const char *artist = lib.artist(en.idx);
+    lv_obj_t *t = Theme::label(b, lib.title(en.idx), &my_font_18);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(t, bw - 20);
+    lv_obj_set_pos(t, 10, *artist ? 10 : 18);
+    if (*artist) {
+        lv_obj_t *a = Theme::label(b, artist, &my_font_14, Theme::MUTED);
+        lv_label_set_long_mode(a, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(a, bw - 20);
+        lv_obj_set_pos(a, 10, 34);
+    }
+    static uint32_t openLast = 0;
+    lv_obj_add_event_cb(b, [](lv_event_t *ev) {
+        if (!Theme::debounce(openLast, 600)) return;
+        openEntry((size_t)(intptr_t)lv_event_get_user_data(ev));
+    }, LV_EVENT_CLICKED, (void *)(intptr_t)e);
+}
+
+lv_obj_t *rowButton(lv_obj_t *list, const char *text, const char *right, uint32_t border, lv_event_cb_t cb, void *ud)
+{
+    lv_obj_t *b = lv_button_create(list);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, LIST_W - 20, 44);
+    lv_obj_set_style_radius(b, 10, 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, Theme::c(border), 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), LV_STATE_PRESSED);
+    lv_obj_t *t = Theme::label(b, text, &my_font_18);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(t, LIST_W - 130);
+    lv_obj_align(t, LV_ALIGN_LEFT_MID, 10, 0);
+    if (right && *right) {
+        lv_obj_t *r = Theme::label(b, right, &my_font_14, Theme::MUTED);
+        lv_obj_align(r, LV_ALIGN_RIGHT_MID, -10, 0);
+    }
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, ud);
+    return b;
+}
+
+void goUp()
+{
+    if (s_mode == ListMode::SEARCH) {
+        s_query.clear();
+        s_mode = ListMode::ROOT;
+        s_dir.clear();
+    } else if (s_mode == ListMode::DIR && !s_dir.empty()) {
+        s_dir = parentDir(s_dir);
+        if (s_dir.empty()) s_mode = ListMode::ROOT;
+    } else {
+        s_mode = ListMode::ROOT;
+    }
+    s_page = 0;
+    renderList();
+}
+
+// Can the header back button go up inside the browser (instead of leaving karaoke)?
+bool canGoUp()
+{
+    if (s_mode == ListMode::SEARCH) return true;
+    if (s_mode != ListMode::DIR) return false;
+    if (!s_dir.empty()) return true;
+    // "All songs" view: up = folder view, but only when folders exist
+    bool dirs = false;
+    Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t) { dirs = !lib.subdirs("").empty(); });
+    return dirs;
+}
+
+void updateInfo()
+{
+    if (!s_info) return;
+    char buf[200];
+    const Karaoke::Err e = Karaoke::libraryError();
+    const size_t songs = s_entries.size() - s_firstSong;
+    if (Karaoke::scanning()) {
+        snprintf(buf, sizeof(buf), "%s", tr(Str::KARA_SCANNING));
+    } else if (e != Karaoke::Err::OK) {
+        snprintf(buf, sizeof(buf), "%s", Karaoke::errText(e));
+    } else if (s_mode == ListMode::SEARCH) {
+        if (songs)
+            snprintf(buf, sizeof(buf), tr(Str::KARA_SEARCH_RESULT), (unsigned)songs, s_query.c_str());
+        else
+            snprintf(buf, sizeof(buf), "%s: \"%s\"", tr(Str::KARA_NO_MATCH), s_query.c_str());
+    } else if (s_entries.empty()) {
+        snprintf(buf, sizeof(buf), "%s", tr(Str::KARA_NO_SONGS));
+    } else if (s_mode == ListMode::ROOT) {
+        snprintf(buf, sizeof(buf), tr(Str::KARA_SONGS), (unsigned)s_entries[0].count);
+    } else {
+        // "Pop / 80s  ·  12 songs"
+        char n[48];
+        snprintf(n, sizeof(n), tr(Str::KARA_N_SONGS), (unsigned)songs);
+        snprintf(buf, sizeof(buf), LV_SYMBOL_DIRECTORY " %.120s  -  %s",
+                 s_dir.empty() ? tr(Str::KARA_ALL_SONGS) : s_dir.c_str(), n);
+    }
+    bool full = false;
+    Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t) { full = lib.full(); });
+    if (full && !Karaoke::scanning() && s_mode == ListMode::ROOT) {
+        const size_t used = strlen(buf);
+        snprintf(buf + used, sizeof(buf) - used, "  (");
+        const size_t used2 = strlen(buf);
+        snprintf(buf + used2, sizeof(buf) - used2, tr(Str::KARA_LIMIT), (unsigned)Karaoke::MAX_SONGS);
+        const size_t used3 = strlen(buf);
+        snprintf(buf + used3, sizeof(buf) - used3, ")");
+    }
+    lv_label_set_text(s_info, buf);
+    lv_label_set_text(s_searchLbl, s_mode == ListMode::SEARCH ? s_query.c_str() : tr(Str::KARA_SEARCH_HINT));
+    lv_obj_set_style_text_color(s_searchLbl, Theme::c(s_mode == ListMode::SEARCH ? Theme::TEXT : Theme::MUTED), 0);
+    if (s_rescanBtn) {
+        if (Karaoke::scanning()) lv_obj_add_state(s_rescanBtn, LV_STATE_DISABLED);
+        else lv_obj_remove_state(s_rescanBtn, LV_STATE_DISABLED);
+    }
+}
+
+// Rebuilds the visible page. scrollTo: entry index to scroll into view (A-Ö jump), -1 = top.
+void renderList(int scrollTo)
+{
+    if (!s_list) return;
+    buildEntries();
+    const size_t pages = s_entries.empty() ? 1 : (s_entries.size() + PAGE - 1) / PAGE;
+    if (scrollTo >= 0) s_page = (size_t)scrollTo / PAGE;
+    if (s_page >= pages) s_page = pages - 1;
+    lv_obj_clean(s_list);
+    lv_obj_t *target = nullptr;
+
+    if (s_mode != ListMode::ROOT && canGoUp()) {
+        static uint32_t upLast = 0;
+        char t[64];
+        snprintf(t, sizeof(t), LV_SYMBOL_LEFT "  %s", tr(Str::KARA_UP));
+        rowButton(s_list, t, nullptr, Theme::ACCENT, [](lv_event_t *) {
+            if (Theme::debounce(upLast, DEBOUNCE_MS)) goUp();
+        }, nullptr);
+    }
+    const size_t from = s_page * PAGE, to = std::min(s_entries.size(), from + PAGE);
+    Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t gen) {
+        if (gen != s_gen) return;   // Replaced between build and draw: the timer redraws
+        for (size_t e = from; e < to; e++) {
+            const Entry &en = s_entries[e];
+            lv_obj_t *o;
+            if (en.folder) {
+                static uint32_t dirLast = 0;
+                char t[160], r[32];
+                snprintf(t, sizeof(t), "%s  %.140s", en.path.empty() ? LV_SYMBOL_LIST : LV_SYMBOL_DIRECTORY, en.name.c_str());
+                snprintf(r, sizeof(r), tr(Str::KARA_N_SONGS), (unsigned)en.count);
+                o = rowButton(s_list, t, r, en.path.empty() ? Theme::TEAL : Theme::LINE, [](lv_event_t *ev) {
+                    if (!Theme::debounce(dirLast, DEBOUNCE_MS)) return;
+                    openEntry((size_t)(intptr_t)lv_event_get_user_data(ev));
+                }, (void *)(intptr_t)e);
+            } else {
+                songButton(s_list, lib, e);
+                o = lv_obj_get_child(s_list, (int32_t)lv_obj_get_child_count(s_list) - 1);
+            }
+            if ((int)e == scrollTo) target = o;
+        }
+    });
+    if (pages > 1) {   // Page row: < Page 2/5 >
+        lv_obj_t *row = lv_obj_create(s_list);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, LIST_W - 20, 44);
+        static uint32_t pgLast = 0;
+        lv_obj_t *pb = Theme::button(row, LV_SYMBOL_LEFT, 90, 40, Theme::LINE);
+        lv_obj_align(pb, LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_t *nb = Theme::button(row, LV_SYMBOL_RIGHT, 90, 40, Theme::LINE);
+        lv_obj_align(nb, LV_ALIGN_RIGHT_MID, 0, 0);
+        if (s_page == 0) lv_obj_add_state(pb, LV_STATE_DISABLED);
+        if (s_page + 1 >= pages) lv_obj_add_state(nb, LV_STATE_DISABLED);
+        char t[48];
+        snprintf(t, sizeof(t), tr(Str::KARA_PAGE), (unsigned)(s_page + 1), (unsigned)pages);
+        lv_obj_t *l = Theme::label(row, t, &my_font_18, Theme::MUTED);
+        lv_obj_center(l);
+        lv_obj_add_event_cb(pb, [](lv_event_t *) {
+            if (!Theme::debounce(pgLast, 300) || s_page == 0) return;
+            s_page--;
+            renderList();
+        }, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(nb, [](lv_event_t *) {
+            if (!Theme::debounce(pgLast, 300)) return;
+            s_page++;
+            renderList();
+        }, LV_EVENT_CLICKED, nullptr);
+    }
+    lv_obj_update_layout(s_list);
+    if (target) lv_obj_scroll_to_view(target, LV_ANIM_OFF);
+    else lv_obj_scroll_to_y(s_list, 0, LV_ANIM_OFF);
+    // The A-Ö column only makes sense while songs are listed
+    if (s_jumpCol) lv_obj_set_hidden(s_jumpCol, s_entries.size() <= s_firstSong + 8);
+    updateInfo();
+}
+
+void jumpTo(uint16_t rank)
+{
+    size_t i = 0;
+    Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t gen) {
+        if (gen != s_gen) return;
+        std::vector<uint16_t> view;
+        for (size_t e = s_firstSong; e < s_entries.size(); e++) view.push_back(s_entries[e].idx);
+        i = KaraIndex::jumpIndex(lib, view, rank);
+        if (i == view.size() && i) i--;   // Nothing at/after the letter: the last song
+    });
+    renderList((int)(s_firstSong + i));
+}
+
+void searchDone(const char *text, bool confirmed, void *)
+{
+    if (!confirmed) {   // BACK closes the widget itself
+        s_input = nullptr;
+        return;
+    }
+    TextInput::close(s_input);
+    s_input = nullptr;
+    std::string q = text ? text : "";
+    while (!q.empty() && q.back() == ' ') q.pop_back();
+    while (!q.empty() && q[0] == ' ') q.erase(0, 1);
+    if (q.empty()) {
+        if (s_mode == ListMode::SEARCH) goUp();
+        return;
+    }
+    s_query = q;
+    s_mode = ListMode::SEARCH;
+    s_page = 0;
+    renderList();
+}
+
+void listTimer(lv_timer_t *)
+{
+    updateFontLabel();
+    // A song was opened from the web song picker: follow it
+    if (Karaoke::externalOpenGen() != s_extSeen && Karaoke::isOpen()) {
+        s_extSeen = Karaoke::externalOpenGen();
+        s_lastRel = Karaoke::current().path;
+        if (s_input) {
+            TextInput::close(s_input);
+            s_input = nullptr;
+        }
+        lv_async_call([](void *) { showPlayer(); }, nullptr);
+        return;
+    }
+    const bool sc = Karaoke::scanning();
+    if (Karaoke::libraryGen() != s_gen && !sc && !s_input) {
+        renderList();
+    } else if (sc != s_wasScanning) {
+        updateInfo();
+    }
+    s_wasScanning = sc;
 }
 
 void listDeleted(lv_event_t *e)
@@ -150,7 +496,7 @@ void listDeleted(lv_event_t *e)
     s_listScr = nullptr;
     if (s_listTimer) lv_timer_delete(s_listTimer);
     s_listTimer = nullptr;
-    s_fontLbl = nullptr;
+    s_fontLbl = s_list = s_info = s_searchLbl = s_jumpCol = s_rescanBtn = s_input = nullptr;
 }
 
 void showList()
@@ -163,6 +509,10 @@ void showList()
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
         if (!Theme::debounce(backLast, DEBOUNCE_MS)) return;
+        if (canGoUp() || s_mode == ListMode::SEARCH) {   // v0.13.7: up one folder level first
+            goUp();
+            return;
+        }
         if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
             msg(tr(Str::KARA_WAIT_FONT), true);
             return;
@@ -171,76 +521,100 @@ void showList()
         leaveToMenu();
     }, LV_EVENT_CLICKED, nullptr);
 
-    s_fontLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_width(s_fontLbl, W - 140);
-    lv_label_set_long_mode(s_fontLbl, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_pos(s_fontLbl, 10, 50);
+    // Row 1: search field | rescan | sound bank
+    lv_obj_t *sf = lv_button_create(scr);
+    lv_obj_remove_style_all(sf);
+    lv_obj_set_size(sf, 170, 36);
+    lv_obj_set_pos(sf, 10, 50);
+    lv_obj_set_style_radius(sf, 8, 0);
+    lv_obj_set_style_bg_color(sf, Theme::c(Theme::NEST_BG), 0);
+    lv_obj_set_style_bg_opa(sf, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(sf, 1, 0);
+    lv_obj_set_style_border_color(sf, Theme::c(Theme::LINE), 0);
+    lv_obj_t *mag = Theme::label(sf, LV_SYMBOL_EDIT, &my_font_14, Theme::MUTED);
+    lv_obj_align(mag, LV_ALIGN_LEFT_MID, 8, 0);
+    s_searchLbl = Theme::label(sf, "", &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(s_searchLbl, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(s_searchLbl, 132);
+    lv_obj_align(s_searchLbl, LV_ALIGN_LEFT_MID, 30, 0);
+    static uint32_t searchLast = 0;
+    lv_obj_add_event_cb(sf, [](lv_event_t *) {
+        if (!Theme::debounce(searchLast, DEBOUNCE_MS) || s_input) return;
+        s_input = TextInput::open(lv_screen_active(), 0, 0, W, H, tr(Str::KARA_SEARCH_TITLE),
+                                  s_mode == ListMode::SEARCH ? s_query.c_str() : "", 40, false, searchDone, nullptr);
+    }, LV_EVENT_CLICKED, nullptr);
+
+    static uint32_t rescanLast = 0;
+    s_rescanBtn = Theme::button(scr, tr(Str::KARA_RESCAN), 120, 36, Theme::GOLD);
+    lv_obj_set_pos(s_rescanBtn, 186, 50);
+    lv_obj_add_event_cb(s_rescanBtn, [](lv_event_t *) {
+        if (!Theme::debounce(rescanLast, 2000) || Karaoke::scanning()) return;
+        Karaoke::rescanAsync();
+        updateInfo();
+    }, LV_EVENT_CLICKED, nullptr);
+
     static uint32_t fontLast = 0;
-    lv_obj_t *fb = Theme::button(scr, tr(Str::KARA_BTN_FONT), 118, 36, Theme::TEAL);
-    lv_obj_set_pos(fb, W - 126, 50);
+    lv_obj_t *fb = Theme::button(scr, tr(Str::KARA_BTN_FONT), 120, 36, Theme::TEAL);
+    lv_obj_set_pos(fb, 312, 50);
     lv_obj_add_event_cb(fb, [](lv_event_t *) {
         if (Theme::debounce(fontLast, DEBOUNCE_MS)) showFonts(false);
     }, LV_EVENT_CLICKED, nullptr);
+
+    // Row 2: where we are / count (left) and the sound bank state (right)
+    s_info = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(s_info, 236);
+    lv_obj_set_pos(s_info, 10, 89);
+    s_fontLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+    lv_obj_set_width(s_fontLbl, LIST_W - 252);
+    lv_label_set_long_mode(s_fontLbl, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_align(s_fontLbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(s_fontLbl, 250, 89);
     // Load the default font only when none is loaded; a song font from the last song stays until a
     // song wants another one (saves a few seconds of loading).
     const Karaoke::FontState fs = Karaoke::fontState();
     if (fs == Karaoke::FontState::NONE || fs == Karaoke::FontState::FAILED) Karaoke::startLoadFont();
     updateFontLabel();
 
-    Karaoke::Err e = Karaoke::scan(s_files);
-    lv_obj_t *info = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_pos(info, 10, 90);
-    lv_obj_set_width(info, W - 140);
-    lv_label_set_long_mode(info, LV_LABEL_LONG_MODE_WRAP);
-    if (e != Karaoke::Err::OK) {
-        lv_label_set_text(info, Karaoke::errText(e));
-    } else if (s_files.empty()) {
-        lv_label_set_text(info, tr(Str::KARA_NO_SONGS));
-    } else {
-        char buf[64];
-        snprintf(buf, sizeof(buf), tr(Str::KARA_SONGS), (unsigned)s_files.size());
-        lv_label_set_text(info, buf);
-    }
+    s_list = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_list);
+    lv_obj_set_size(s_list, LIST_W, H - LIST_Y);
+    lv_obj_set_pos(s_list, 0, LIST_Y);
+    lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_ROW_WRAP);   // Two song columns in landscape
+    lv_obj_set_style_pad_row(s_list, 6, 0);
+    lv_obj_set_style_pad_column(s_list, 8, 0);
+    lv_obj_set_style_pad_hor(s_list, 10, 0);
+    lv_obj_set_style_pad_bottom(s_list, 10, 0);
+    lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
 
-    lv_obj_t *list = lv_obj_create(scr);
-    lv_obj_remove_style_all(list);
-    lv_obj_set_size(list, W, H - 112);
-    lv_obj_set_pos(list, 0, 112);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);   // Two columns in landscape
-    lv_obj_set_style_pad_row(list, 6, 0);
-    lv_obj_set_style_pad_column(list, 8, 0);
-    lv_obj_set_style_pad_hor(list, 10, 0);
-    lv_obj_set_style_pad_bottom(list, 10, 0);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    for (size_t i = 0; i < s_files.size(); i++) {
-        const Karaoke::SongFile &f = s_files[i];
-        lv_obj_t *b = lv_button_create(list);
-        lv_obj_remove_style_all(b);
-        lv_obj_set_size(b, (W - 28) / 2, 58);
-        lv_obj_set_style_radius(b, 10, 0);
-        lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
-        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(b, (int)i == s_current ? 2 : 1, 0);
-        lv_obj_set_style_border_color(b, Theme::c((int)i == s_current ? Theme::ACCENT : Theme::LINE), 0);
-        lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
-        lv_obj_t *t = Theme::label(b, f.title.c_str(), &my_font_18);
-        lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(t, (W - 28) / 2 - 20);
-        lv_obj_set_pos(t, 10, f.artist.empty() ? 18 : 10);
-        if (!f.artist.empty()) {
-            lv_obj_t *a = Theme::label(b, f.artist.c_str(), &my_font_14, Theme::MUTED);
-            lv_label_set_long_mode(a, LV_LABEL_LONG_MODE_DOTS);
-            lv_obj_set_width(a, (W - 28) / 2 - 20);
-            lv_obj_set_pos(a, 10, 34);
-        }
-        static uint32_t openLast = 0;
-        lv_obj_add_event_cb(b, [](lv_event_t *ev) {
-            if (!Theme::debounce(openLast, 600)) return;
-            openSong((int)(intptr_t)lv_event_get_user_data(ev));
+    // A-Ö jump column along the right edge
+    s_jumpCol = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_jumpCol);
+    lv_obj_set_size(s_jumpCol, JUMP_W, H - 50);
+    lv_obj_set_pos(s_jumpCol, W - JUMP_W - 2, 50);
+    lv_obj_set_scrollable(s_jumpCol, false);
+    const int32_t kh = (H - 54) / JUMP_N;
+    for (int i = 0; i < JUMP_N; i++) {
+        lv_obj_t *k = lv_button_create(s_jumpCol);
+        lv_obj_remove_style_all(k);
+        lv_obj_set_size(k, JUMP_W, kh - 2);
+        lv_obj_set_pos(k, 0, i * kh);
+        lv_obj_set_style_radius(k, 6, 0);
+        lv_obj_set_style_bg_color(k, Theme::c(Theme::PANEL), 0);
+        lv_obj_set_style_bg_opa(k, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(k, Theme::c(Theme::ACCENT), LV_STATE_PRESSED);
+        lv_obj_t *l = Theme::label(k, JUMP[i].text, &my_font_14, Theme::TEXT);
+        lv_obj_center(l);
+        static uint32_t jumpLast = 0;
+        lv_obj_add_event_cb(k, [](lv_event_t *ev) {
+            if (!Theme::debounce(jumpLast, 250)) return;
+            jumpTo(JUMP[(int)(intptr_t)lv_event_get_user_data(ev)].rank);
         }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
-    s_listTimer = lv_timer_create([](lv_timer_t *) { updateFontLabel(); }, 250, nullptr);
+    s_wasScanning = Karaoke::scanning();
+    renderList();
+    s_listTimer = lv_timer_create(listTimer, 250, nullptr);
     lv_obj_add_event_cb(scr, listDeleted, LV_EVENT_DELETE, nullptr);
     Theme::loadScreen(scr);
 }
@@ -337,9 +711,18 @@ void updatePlayerFont()
 }
 
 void refreshSteppers();
+void closeSheet();
 
 void tick(lv_timer_t *)
 {
+    // v0.13.7: another song was opened from the web song picker: show it
+    if (Karaoke::externalOpenGen() != s_extSeen && Karaoke::isOpen()) {
+        s_extSeen = Karaoke::externalOpenGen();
+        s_lastRel = Karaoke::current().path;
+        closeSheet();
+        lv_async_call([](void *) { showPlayer(); }, nullptr);
+        return;
+    }
     // The song wants another sound bank (per-song choice, or the default changed): reload
     if (Karaoke::fontWanted()) Karaoke::ensureFont(false);
     // v0.13.4: a new key needed more samples than fit; the previous key is back
@@ -646,7 +1029,7 @@ void showPlayer()
 {
     const Midi::Song *song = Karaoke::song();
     if (!song) return;
-    const Karaoke::SongFile &f = s_files[(size_t)s_current];
+    const Karaoke::SongFile f = Karaoke::current();
     if (P.timer) lv_timer_delete(P.timer);
     P = Player{};
     P.line = -3;
@@ -806,7 +1189,15 @@ void showPlayer()
 
 void show()
 {
-    s_current = -1;
+    // v0.13.7: always start in the folder view. The index makes this quick; without a valid index
+    // the scan runs in the background (the list shows "scanning" and fills in when done).
+    s_mode = ListMode::ROOT;
+    s_dir.clear();
+    s_query.clear();
+    s_page = 0;
+    s_lastRel.clear();
+    s_extSeen = Karaoke::externalOpenGen();
+    if (!Karaoke::loadIndex()) Karaoke::rescanAsync();
     Display::setLandscape(true, Config::get().karaFlip != 0);   // Before the screen is created
     showList();
     if (!Config::get().soundOn) {   // Karaoke without sound makes little sense: offer to turn it on
