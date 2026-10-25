@@ -4,7 +4,12 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.5 – **web karaoke**: open `http://<device>/karaoke` on a phone, tap Connect and the karaoke
+> **Status:** v0.13.6 – **countdown dots**: pauses of 3 s or more between lyric lines (and long intros) show up to
+> 8 dots, white at first, lighting one per second in the sung-syllable colour so the last one lights as the next line
+> starts – on the device screen and on the `/karaoke` web page (new `countdown` frame, sample-synced). **Not
+> hardware-tested yet.**
+>
+> Previous: v0.13.5 – **web karaoke**: open `http://<device>/karaoke` on a phone, tap Connect and the karaoke
 > plays in the browser. The device streams 22 050 Hz mono 16-bit PCM over the WebSocket `/ws/karaoke` (1 024-byte
 > frames) with the lyrics as JSON text frames placed at the exact sample, so the page highlights each syllable as it
 > is heard (0.3 s buffer). While a browser is connected and a song is open the device speaker is muted automatically

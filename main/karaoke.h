@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "kara_stream.h"
 #include "otr_midi.h"
 
 namespace Karaoke {
@@ -101,9 +102,15 @@ bool melodyMuted();
 void setVolume(uint8_t v);      // 0..100 (kept for the session)
 uint8_t volume();
 
+// v0.13.6: countdown dots in pauses >= COUNTDOWN_GAP_MS (max COUNTDOWN_MAX dots), see
+// KaraStream::countdownAt - shared by the device screen and the web stream
+constexpr uint32_t COUNTDOWN_GAP_MS = KaraStream::COUNTDOWN_GAP_MS;
+constexpr int COUNTDOWN_MAX = KaraStream::COUNTDOWN_MAX;
+
 struct View {
     uint32_t posUs, lengthUs;
     int line, syl;
+    int cdDots, cdLit;       // v0.13.6 countdown: dots (0 = none) and lit dots at posUs
     bool playing, finished;
     int voices, maxVoices;   // Active / limit (NVS kara_voices)
     uint8_t cpuPct;

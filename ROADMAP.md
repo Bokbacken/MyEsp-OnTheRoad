@@ -115,6 +115,18 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.13.6 – Nedräkningspunkter vid långa pauser 🔧 (ej HW-testad)
+- [x] Paus ≥ 3 s (`COUNTDOWN_GAP_MS = 3000`) mellan sista stavelsen på en rad och nästa rads första stavelse – och **långa intron** före första raden (räknas från 0) – visar N punkter, N = avrundat antal sekunder, max 8 (`COUNTDOWN_MAX`). Konstanterna finns i `kara_stream.h` och speglas i `karaoke.h`
+- [x] Punkterna visas direkt när pausen börjar, alla vita; en i taget (vänster → höger) tar den sjungna stavelsens färg, en per sekund, så att den sista tänds exakt när nästa rad börjar. Vid > 8 s paus är alla vita tills 7 s återstår
+- [x] Stavelser har bara starttid: sista stavelsen antas hållas radens medelavstånd mellan stavelser, max 1 s (0,5 s för en rad med en stavelse); pausen börjar efter det
+- [x] Tidtagningen följer syntens position (sampel), inte väggklockan: `KaraStream::countdownAt(song, posUs)` (ren funktion) används av både enheten och webbströmmen
+- [x] Enheten (LVGL): rad med 13 px cirkelpunkter, 8 px mellanrum, centrerad under aktuell rad (y = 163), vit → guld (`Theme::GOLD`, samma som sjungen stavelse). `onCountdown(dots, elapsed)` anropas från karaokevyns tick (40 ms) via `Karaoke::View.cdDots/cdLit`
+- [x] Webben: ny frame `{"type":"countdown","dots":N,"elapsed":k,"ts":ms}` från `LyricTracker` när pausen börjar och vid varje ny tänd punkt (i strömmen på exakt rätt sampel); `dots:0` döljer vid sökning ut ur en paus; ny rad/stavelse/clear döljer också. `karaoke.html` ritar punkterna med CSS-övergång vit → orange (samma som sjungen text). Ny klient mitt i en paus får nedräkningen direkt (resync)
+- [x] Hosttester: 125 nya i `test_karastream` (5 s paus → 5 punkter, elapsed 0–4 med 22 050 sampels mellanrum inom ett mixerblock; 2,9 s → ingen frame; exakt 3 s; 20 s → 8 punkter; avrundning 4,6/4,4 s; intro; sökning; resync); alla sviter gröna (5 058), bygge 0 varningar
+- **Avvikelse:** på enheten pollas nedräkningen i UI-tickens takt (40 ms) i stället för ett callback från mixertasken (LVGL får bara röras i UI-tasken); källan är ändå syntens position. Har aktuell rad tre rader text kan punkterna överlappa den tredje
+- [ ] HW-test: placering och synlighet på skärmen, synk mot ljudet i webbläsaren
+- **Obs:** samma partitioner → vanlig OTA
+
 ## v0.13.5 – Webbkaraoke: PCM-ström till webbläsaren, synkad text, automatisk tystning 🔧 (ej HW-testad)
 - [x] WebSocket **`/ws/karaoke`** på den befintliga webbservern: binärframes med 22 050 Hz mono int16 PCM (512 sampel = 1 024 B, ~43 frames/s) av den mixade karaokeutgången; JSON-textframes för texten. Max 3 lyssnare (fler får `{"type":"full"}`)
 - [x] `Audio::setTap()` ger varje mixat block (efter klippning) till `KaraStream::Stream`: låsfri SPSC-ring i PSRAM (16 384 sampel = 32 kB ≈ 0,74 s). Full ring eller ingen klient → blocket hoppas över, renderingen blockeras aldrig. Sändartasken `kara_web` (core 0, prio 4) skickar med `httpd_ws_send_data`

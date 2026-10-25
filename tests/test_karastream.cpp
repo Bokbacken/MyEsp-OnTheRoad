@@ -1,6 +1,7 @@
 // Host tests for KaraStream (v0.13.5 web karaoke: PCM ring, lyric events, JSON frames).
 // g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_midi/include -Itests tests/test_karastream.cpp
 //     main/kara_stream.cpp components/otr_midi/*.cpp -o t && ./t
+#include <stdio.h>
 #include <string.h>
 
 #include <string>
@@ -190,10 +191,187 @@ static void testText()
     CHECK(toJson(got, big, sizeof(big)) > 0 && big[strlen(big) - 1] == '}');
 }
 
+// ---- v0.13.6 countdown dots ---------------------------------------------------------------------
+struct SongBuilder {
+    Midi::Song s;
+    // One line per call: syllable start times in ms
+    void line(std::initializer_list<uint32_t> ms)
+    {
+        Midi::Line l{0, 0, (uint32_t)s.syls.size(), (uint16_t)ms.size(), s.lines.empty()};
+        for (uint32_t t : ms) {
+            Midi::Syllable y{t * 1000u, (uint32_t)s.text.size(), 2, (uint8_t)(t == *ms.begin() ? Midi::SYL_LINE : 0)};
+            s.text += "la";
+            s.syls.push_back(y);
+        }
+        l.startUs = *ms.begin() * 1000u;
+        if (!s.lines.empty()) s.lines.back().endUs = l.startUs;
+        s.lines.push_back(l);
+        l.endUs = s.lengthUs = s.syls.back().us + 2000000u;
+        s.lines.back().endUs = s.lengthUs;
+    }
+};
+
+struct CdFrame {
+    int dots, elapsed;
+    uint64_t sample;
+};
+
+// Plays the song block by block like the mixer (tracker before the PCM tap) and returns the
+// countdown frames with their stream sample; also checks every frame is valid JSON-ish.
+static std::vector<CdFrame> runCountdown(const Midi::Song &song, uint32_t fromUs, uint32_t toUs, int *rows = nullptr)
+{
+    static int16_t pcm[8192];
+    static Event ev[16];
+    Stream st;
+    st.init(pcm, 8192, ev, 16);
+    st.setEnabled(true);
+    LyricTracker tr;
+    int16_t blk[256] = {};
+    int16_t out[1024];
+    std::vector<CdFrame> v;
+    char js[JSON_CAP];
+    const uint64_t first = (uint64_t)fromUs * RATE / 1000000u;
+    for (uint64_t smp = first;; smp += 256) {
+        const uint32_t us = (uint32_t)(smp * 1000000u / RATE);
+        if (us > toUs) break;
+        tr.update(song, us, st);
+        st.pushPcm(blk, 256);
+        Event e{};
+        for (int g = 0; g < 8; g++) {
+            while (st.popEvent(e)) {
+                CHECK(toJson(e, js, sizeof(js)) > 0);
+                if (e.kind == Kind::COUNTDOWN) {
+                    v.push_back({e.row, e.syl, first + e.sample});
+                    char want[96];
+                    snprintf(want, sizeof(want), "{\"type\":\"countdown\",\"dots\":%d,\"elapsed\":%d,", e.row, e.syl);
+                    CHECK(strncmp(js, want, strlen(want)) == 0);
+                }
+                if (e.kind == Kind::ROW && rows) ++*rows;
+            }
+            if (!st.readPcm(out, 1024, false)) break;
+        }
+    }
+    return v;
+}
+
+static uint64_t sampleAt(uint32_t ms) { return (uint64_t)ms * RATE / 1000u; }
+
+static void testCountdown()
+{
+    // Line 1: 0.5 / 1.0 / 1.5 s (spacing 0.5 s -> hold 0.5 s, pause from 2.0 s); line 2 at 7.0 s
+    // (pause 5 s -> 5 dots); line 3 at 9.0 s (pause 1 s after 7.5 + 0.5: none)
+    SongBuilder b;
+    b.line({500, 1000, 1500});
+    b.line({7000, 7500});
+    b.line({9000});
+    const Midi::Song &s = b.s;
+    CHECK(countdownAt(s, 0).dots == 0);          // Intro 0.5 s: too short
+    CHECK(countdownAt(s, 1600000).dots == 0);    // Last syllable still held
+    CHECK(countdownAt(s, 1999999).dots == 0);
+    Countdown c = countdownAt(s, 2000000);
+    CHECK(c.dots == 5 && c.elapsed == 0 && c.nextSyl == 3 && c.startUs == 2000000 && c.endUs == 7000000);
+    CHECK(countdownAt(s, 2999999).elapsed == 0);
+    CHECK(countdownAt(s, 3000000).elapsed == 1);
+    CHECK(countdownAt(s, 5500000).elapsed == 3);
+    CHECK(countdownAt(s, 6999999).elapsed == 4);
+    CHECK(countdownAt(s, 7000000).dots == 0);    // Next line started
+    CHECK(countdownAt(s, 8200000).dots == 0);    // Short pause before line 3
+
+    // Stream: first frame when the pause starts, then one per second, each at the right sample
+    int rows = 0;
+    std::vector<CdFrame> f = runCountdown(s, 0, 9500000, &rows);
+    CHECK(rows == 3);
+    CHECK(f.size() == 5);
+    for (size_t i = 0; i < f.size() && i < 5; i++) {
+        CHECK(f[i].dots == 5);
+        CHECK(f[i].elapsed == (int)i);   // Sequence 0, 1, 2, 3, 4
+        const uint64_t want = sampleAt(2000 + 1000 * (uint32_t)i);
+        CHECK(f[i].sample >= want && f[i].sample < want + 256);   // Within the mixer block
+    }
+    // Consecutive updates are one second (22 050 samples) apart, within a block
+    for (size_t i = 1; i < f.size(); i++) {
+        const int64_t d = (int64_t)(f[i].sample - f[i - 1].sample);
+        CHECK(d > RATE - 256 && d < RATE + 256);
+    }
+
+    // Pause < 3 s: no countdown at all (2.9 s between pause start and next line)
+    SongBuilder b2;
+    b2.line({500, 1000, 1500});   // Pause starts at 2.0 s
+    b2.line({4900});
+    CHECK(runCountdown(b2.s, 0, 5500000).empty());
+    SongBuilder b3;
+    b3.line({500, 1000, 1500});
+    b3.line({5000});              // Exactly 3.0 s -> 3 dots
+    f = runCountdown(b3.s, 0, 5500000);
+    CHECK(f.size() == 3 && f[0].dots == 3 && f[2].elapsed == 2);
+
+    // Long pause: max 8 dots, all white until 7 s are left (the 8th lights as the line starts)
+    SongBuilder b4;
+    b4.line({500, 1000, 1500});
+    b4.line({22000});             // 20 s pause
+    c = countdownAt(b4.s, 2500000);
+    CHECK(c.dots == COUNTDOWN_MAX && c.elapsed == 0);
+    CHECK(countdownAt(b4.s, 14999999).elapsed == 0);
+    CHECK(countdownAt(b4.s, 15000000).elapsed == 1);   // 7 s left
+    CHECK(countdownAt(b4.s, 21500000).elapsed == 7);
+    f = runCountdown(b4.s, 0, 22500000);
+    CHECK(f.size() == 8 && f.back().elapsed == 7);
+
+    // Rounding: 4.6 s -> 5 dots, 4.4 s -> 4; one-syllable line holds 0.5 s; hold capped at 1 s
+    SongBuilder b5;
+    b5.line({1000});              // Pause from 1.5 s
+    b5.line({6100});              // 4.6 s
+    b5.line({7000, 9000});        // Spacing 2 s -> hold 1 s, pause from 10 s
+    b5.line({14400});             // 4.4 s
+    CHECK(countdownAt(b5.s, 1500000).dots == 5);
+    CHECK(countdownAt(b5.s, 1400000).dots == 0);
+    CHECK(countdownAt(b5.s, 1500000).elapsed == 0);   // ceil(4.6) = 5 left
+    CHECK(countdownAt(b5.s, 2100000).elapsed == 1);
+    CHECK(countdownAt(b5.s, 9999999).dots == 0);
+    CHECK(countdownAt(b5.s, 10000000).dots == 4);
+
+    // Intro: a 4.2 s wait before the first line counts down from the start
+    SongBuilder b6;
+    b6.line({4200});
+    c = countdownAt(b6.s, 0);
+    CHECK(c.dots == 4 && c.elapsed == 0);
+    CHECK(countdownAt(b6.s, 1200000).elapsed == 1);
+
+    // Seek out of a pause: a dots 0 frame hides the countdown
+    {
+        static int16_t pcm[4096];
+        static Event ev[16];
+        Stream st;
+        st.init(pcm, 4096, ev, 16);
+        st.setEnabled(true);
+        LyricTracker tr;
+        tr.update(s, 2500000, st);
+        std::vector<std::string> v = collect(st);
+        CHECK(v.size() == 3 && v[2] == "{\"type\":\"countdown\",\"dots\":5,\"elapsed\":0,\"ts\":2500}");
+        tr.update(s, 1200000, st);   // Back into line 1
+        v = collect(st);
+        CHECK(!v.empty() && v.back() == "{\"type\":\"countdown\",\"dots\":0,\"elapsed\":0,\"ts\":1200}");
+        tr.update(s, 1300000, st);
+        CHECK(collect(st).empty());
+        // Resync during a pause re-sends the countdown
+        tr.update(s, 4500000, st);   // Last syllable of line 1, then the countdown (2 lit)
+        v = collect(st);
+        CHECK(v.size() == 2 && v.back().find("\"elapsed\":2") != std::string::npos);
+        st.requestResync();
+        tr.update(s, 4600000, st);
+        v = collect(st);
+        CHECK(!v.empty() && v.back() == "{\"type\":\"countdown\",\"dots\":5,\"elapsed\":2,\"ts\":4600}");
+    }
+    // Empty song
+    Midi::Song empty;
+    CHECK(countdownAt(empty, 0).dots == 0);
+}
+
 int main()
 {
     testRing();
     testTracker();
     testText();
+    testCountdown();
     CHECK_DONE();
 }

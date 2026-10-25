@@ -43,6 +43,9 @@ bool s_fontForSong = false;
 struct Player {
     lv_obj_t *scr, *prev, *cur, *next, *next2, *slider, *timeLbl, *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
     lv_span_t *spSung, *spRest;
+    lv_obj_t *cdRow;                                // v0.13.6 countdown dots (hidden outside pauses)
+    lv_obj_t *cdDot[Karaoke::COUNTDOWN_MAX];
+    int cdDots, cdLit;
     Karaoke::FontState fontState;
     lv_timer_t *timer;
     int line, syl;
@@ -268,6 +271,33 @@ void updateLyrics(const Karaoke::View &v, bool force)
     }
 }
 
+// v0.13.6: countdown in long pauses. dots = total (0 hides the row), elapsed = lit dots (left to
+// right, sung-syllable colour); the rest are white. Only redraws on change.
+constexpr int32_t CD_DOT = 13, CD_GAP = 8, CD_Y = 163;
+void onCountdown(int dots, int elapsed)
+{
+    if (!P.cdRow || (dots == P.cdDots && elapsed == P.cdLit)) return;
+    if (dots > Karaoke::COUNTDOWN_MAX) dots = Karaoke::COUNTDOWN_MAX;
+    P.cdDots = dots;
+    P.cdLit = elapsed;
+    if (dots <= 0) {
+        lv_obj_set_hidden(P.cdRow, true);
+        return;
+    }
+    lv_obj_set_width(P.cdRow, dots * CD_DOT + (dots - 1) * CD_GAP);
+    lv_obj_align(P.cdRow, LV_ALIGN_TOP_MID, 0, CD_Y);
+    for (int i = 0; i < Karaoke::COUNTDOWN_MAX; i++) {
+        if (i >= dots) {
+            lv_obj_set_hidden(P.cdDot[i], true);
+            continue;
+        }
+        lv_obj_set_hidden(P.cdDot[i], false);
+        lv_obj_set_pos(P.cdDot[i], i * (CD_DOT + CD_GAP), 0);
+        lv_obj_set_style_bg_color(P.cdDot[i], Theme::c(i < elapsed ? Theme::GOLD : Theme::TEXT), 0);
+    }
+    lv_obj_set_hidden(P.cdRow, false);
+}
+
 void updatePlayLabel(bool playing)
 {
     lv_label_set_text(P.playLbl, playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
@@ -308,6 +338,7 @@ void tick(lv_timer_t *)
     }
     const Karaoke::View v = Karaoke::view();
     updateLyrics(v, false);
+    onCountdown(v.cdDots, v.cdLit);
     const uint32_t sec = v.posUs / 1000000;
     if (sec != P.lastSec || v.finished != P.finished) {
         P.lastSec = sec;
@@ -653,6 +684,25 @@ void showPlayer()
     P.spRest = lv_spangroup_add_span(P.cur);
     lv_style_set_text_color(lv_span_get_style(P.spSung), Theme::c(Theme::GOLD));
     lv_style_set_text_color(lv_span_get_style(P.spRest), Theme::c(Theme::TEXT));
+    // v0.13.6 countdown dots: centred under the current line (bottom of its 3-line area)
+    P.cdRow = lv_obj_create(scr);
+    lv_obj_remove_style_all(P.cdRow);
+    lv_obj_set_size(P.cdRow, CD_DOT, CD_DOT);
+    lv_obj_align(P.cdRow, LV_ALIGN_TOP_MID, 0, CD_Y);
+    lv_obj_set_clickable(P.cdRow, false);
+    lv_obj_set_scrollable(P.cdRow, false);
+    for (int i = 0; i < Karaoke::COUNTDOWN_MAX; i++) {
+        lv_obj_t *d = lv_obj_create(P.cdRow);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, CD_DOT, CD_DOT);
+        lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(d, Theme::c(Theme::TEXT), 0);
+        lv_obj_set_clickable(d, false);
+        P.cdDot[i] = d;
+    }
+    lv_obj_set_hidden(P.cdRow, true);
+    P.cdDots = P.cdLit = -1;   // Forces the first update
     P.next = lyricLabel(178, 22, &my_font_18, Theme::MUTED);
     P.next2 = lyricLabel(200, 18, &my_font_14, Theme::LINE);
 

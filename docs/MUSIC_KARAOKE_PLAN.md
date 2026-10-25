@@ -75,6 +75,11 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   `LyricTracker` i mixertasken, så sidan `/karaoke` visar stavelsen när motsvarande ljud spelas (0,3 s förbuffring).
   Är minst en webbläsare ansluten och en låt öppen tystas högtalaren (`Audio::setWebStream`: ES8311 DAC-volym 0,
   förstärkaren av). Max 3 lyssnare. NVS `kara_webstream=0` stänger av endpointen. Bandbredd ~44 kB/s per lyssnare.
+- **v0.13.6 – nedräkningspunkter:** pauser ≥ 3 s mellan rader (och långa intron) visar N = avrundade sekunder
+  punkter (max 8), vita från pausens början; en per sekund byter till sjungen färg så att den sista tänds när nästa
+  rad börjar. Pausen börjar efter sista stavelsen + uppskattad hålltid (radens medelavstånd, max 1 s).
+  `KaraStream::countdownAt()` (syntens position) driver både LVGL-raden och webbframen
+  `{"type":"countdown","dots":N,"elapsed":k}`, som läggs i PCM-strömmen på rätt sampel.
 - **v0.13.2 – reverb och chorus:** `otr_fx` (Freeverb, public domain: 8 kamfilter + 4 allpass, längder skalade
   från 44,1 till 22,05 kHz; chorus 15 ms ±4 ms, 0,7 Hz triangel, ~4 kB). Mono-sändeffekter: sändnivån per kanal
   följer CC91 (reverb, GM-standard 40) och CC93 (chorus, 0). Renderingen sker i block om 256 sampel; röster

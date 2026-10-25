@@ -19,6 +19,11 @@ body { max-width: 40rem; }
 #cur { font-size: clamp(1.5rem, 7vw, 2.4rem); font-weight: 700; line-height: 1.25; min-height: 1.3em; }
 #cur .sung { color: var(--otr-orange); }
 #cur .now { color: var(--otr-orange); text-decoration: underline; text-underline-offset: .2em; }
+/* v0.13.6 countdown dots in long pauses: white, then the sung colour one per second */
+#cd { display: flex; justify-content: center; gap: .55rem; min-height: .9rem; }
+#cd span { width: .85rem; height: .85rem; border-radius: 50%; background: #fff;
+  transition: background-color .35s ease, transform .35s ease; }
+#cd span.lit { background: var(--otr-orange); transform: scale(1.15); }
 #go { width: 100%; font-size: 1.3rem; padding: .9rem; background: var(--otr-orange); color: var(--otr-navy); }
 #go.off { background: var(--otr-teal); }
 .hint { color: var(--otr-muted); font-size: .85rem; }
@@ -35,6 +40,7 @@ body { max-width: 40rem; }
 <div class="stage">
   <div id="prev"></div>
   <div id="cur"></div>
+  <div id="cd" aria-hidden="true"></div>
   <div id="next"></div>
 </div>
 <button id="go" onclick="toggle()" data-t="connect"></button>
@@ -42,7 +48,7 @@ body { max-width: 40rem; }
 
 <script>
 // v0.13.5 web karaoke. Protocol (/ws/karaoke): binary frames = 22 050 Hz mono int16 PCM (512 samples),
-// text frames = JSON hello/state/newrow/lyric/clear/full. Lyric events arrive in the PCM stream at the
+// text frames = JSON hello/state/newrow/lyric/clear/countdown/full. Lyric events arrive in the PCM stream at the
 // sample where the syllable starts, so each one is shown when the audio received before it has played.
 const T = {
   sv: { connect: 'Anslut', disconnect: 'Koppla ned', idle: 'Inte ansluten', connecting: 'Ansluter …',
@@ -90,7 +96,20 @@ function renderLyrics() {
     cur.appendChild(sp);
   });
 }
+// Countdown (v0.13.6): {"type":"countdown","dots":N,"elapsed":k}; dots 0, a new row, a syllable or
+// clear hides it. The frames come at the stream sample of each second, like the lyrics.
+function showCountdown(dots, lit) {
+  const el = document.getElementById('cd');
+  dots = Math.max(0, Math.min(8, dots | 0));
+  if (el.children.length !== dots) {
+    el.textContent = '';
+    for (let i = 0; i < dots; i++) el.appendChild(document.createElement('span'));
+  }
+  [...el.children].forEach((d, i) => d.classList.toggle('lit', i < lit));
+}
 function applyEvent(m) {
+  if (m.type === 'countdown') { showCountdown(m.dots, m.elapsed); return; }
+  if (m.type === 'newrow' || m.type === 'lyric' || m.type === 'clear') showCountdown(0, 0);
   if (m.type === 'newrow') {
     if (m.row !== lyr.row && lyr.syls.length) lyr.prev = lyr.syls.join('');
     lyr.row = m.row; lyr.syls = m.syls || []; lyr.k = -1; lyr.next = m.next || '';

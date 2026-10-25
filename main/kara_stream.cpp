@@ -125,49 +125,110 @@ void LyricTracker::update(const Midi::Song &song, uint32_t posUs, Stream &st)
     if (st.takeResync()) reset();
     const int row = song.lineAt(posUs);
     const int syl = song.sylAt(posUs);
-    if (row == row_ && syl == syl_) return;
-    Event e{};
-    e.ts = posUs / 1000;
-    e.row = row;
-    if (row != row_) {
-        if (row < 0) {
-            e.kind = Kind::CLEAR;
-            if (!st.pushEvent(e)) return;   // Retried on the next block
-        } else {
-            e.kind = Kind::ROW;
-            const Midi::Line &l = song.lines[(size_t)row];
-            size_t pos = 0;
-            for (uint32_t i = l.firstSyl; i < l.firstSyl + l.sylCount && i < song.syls.size(); i++) {
-                const Midi::Syllable &s = song.syls[i];
-                if (i != l.firstSyl && pos + 2 < TEXT_CAP) e.text[pos++] = SYL_SEP, e.text[pos] = 0;
-                pos = append(e.text, pos, TEXT_CAP, song.text.data() + s.text, s.len);
+    do {   // Text events (break = unchanged, retry on the next block, or nothing more to send)
+        if (row == row_ && syl == syl_) break;
+        Event e{};
+        e.ts = posUs / 1000;
+        e.row = row;
+        if (row != row_) {
+            if (row < 0) {
+                e.kind = Kind::CLEAR;
+                if (!st.pushEvent(e)) break;   // Retried on the next block
+            } else {
+                e.kind = Kind::ROW;
+                const Midi::Line &l = song.lines[(size_t)row];
+                size_t pos = 0;
+                for (uint32_t i = l.firstSyl; i < l.firstSyl + l.sylCount && i < song.syls.size(); i++) {
+                    const Midi::Syllable &s = song.syls[i];
+                    if (i != l.firstSyl && pos + 2 < TEXT_CAP) e.text[pos++] = SYL_SEP, e.text[pos] = 0;
+                    pos = append(e.text, pos, TEXT_CAP, song.text.data() + s.text, s.len);
+                }
+                if ((size_t)row + 1 < song.lines.size() && pos + 2 < TEXT_CAP) {
+                    e.text[pos++] = NEXT_SEP;
+                    e.text[pos] = 0;
+                    const Midi::Line &nl = song.lines[(size_t)row + 1];
+                    for (uint32_t i = nl.firstSyl; i < nl.firstSyl + nl.sylCount && i < song.syls.size(); i++)
+                        pos = append(e.text, pos, TEXT_CAP, song.text.data() + song.syls[i].text, song.syls[i].len);
+                }
+                if (!st.pushEvent(e)) break;
             }
-            if ((size_t)row + 1 < song.lines.size() && pos + 2 < TEXT_CAP) {
-                e.text[pos++] = NEXT_SEP;
-                e.text[pos] = 0;
-                const Midi::Line &nl = song.lines[(size_t)row + 1];
-                for (uint32_t i = nl.firstSyl; i < nl.firstSyl + nl.sylCount && i < song.syls.size(); i++)
-                    pos = append(e.text, pos, TEXT_CAP, song.text.data() + song.syls[i].text, song.syls[i].len);
-            }
-            if (!st.pushEvent(e)) return;
+            row_ = row;
+            syl_ = INVALID;
         }
-        row_ = row;
-        syl_ = INVALID;
+        if (syl != syl_) {
+            syl_ = syl;
+            if (row < 0 || syl < 0) break;
+            const Midi::Line &l = song.lines[(size_t)row];
+            if ((uint32_t)syl < l.firstSyl || (uint32_t)syl >= l.firstSyl + l.sylCount) break;   // Not in this row
+            Event s{};
+            s.kind = Kind::SYL;
+            s.ts = posUs / 1000;
+            s.row = row;
+            s.syl = syl - (int)l.firstSyl;
+            const Midi::Syllable &y = song.syls[(size_t)syl];
+            copyUtf8(s.text, TEXT_CAP, song.text.data() + y.text, y.len);
+            if (!st.pushEvent(s)) syl_ = INVALID;   // Retried on the next block
+        }
+    } while (false);
+    // v0.13.6 countdown: first frame when the pause starts, then one per lit dot (at the exact
+    // block where the song position crosses the second), dots 0 when it ends early (seek)
+    const Countdown cd = countdownAt(song, posUs);
+    if (cd.dots == cdDots_ && cd.elapsed == cdLit_ && cd.nextSyl == cdSyl_) return;
+    if (cd.dots == 0 && cdDots_ == 0) {   // Nothing shown, nothing to hide
+        cdLit_ = cd.elapsed, cdSyl_ = cd.nextSyl;
+        return;
     }
-    if (syl != syl_) {
-        syl_ = syl;
-        if (row < 0 || syl < 0) return;
-        const Midi::Line &l = song.lines[(size_t)row];
-        if ((uint32_t)syl < l.firstSyl || (uint32_t)syl >= l.firstSyl + l.sylCount) return;   // Not in this row
-        Event s{};
-        s.kind = Kind::SYL;
-        s.ts = posUs / 1000;
-        s.row = row;
-        s.syl = syl - (int)l.firstSyl;
-        const Midi::Syllable &y = song.syls[(size_t)syl];
-        copyUtf8(s.text, TEXT_CAP, song.text.data() + y.text, y.len);
-        if (!st.pushEvent(s)) syl_ = INVALID;   // Retried on the next block
+    if (cd.dots == 0 && syl_ == cdSyl_) {   // The line it counted down to started: the lyric takes over
+        cdDots_ = 0, cdLit_ = 0, cdSyl_ = cd.nextSyl;
+        return;
     }
+    Event c{};
+    c.kind = Kind::COUNTDOWN;
+    c.ts = posUs / 1000;
+    c.row = cd.dots;
+    c.syl = cd.elapsed;
+    if (st.pushEvent(c)) cdDots_ = cd.dots, cdLit_ = cd.elapsed, cdSyl_ = cd.nextSyl;
+}
+
+Countdown countdownAt(const Midi::Song &song, uint32_t posUs)
+{
+    Countdown cd;
+    if (song.syls.empty() || song.lines.empty()) return cd;
+    const int s = song.sylAt(posUs);
+    const int n = s + 1;
+    if ((size_t)n >= song.syls.size()) return cd;
+    const uint32_t nextUs = song.syls[(size_t)n].us;
+    // The next syllable must start a line
+    const int nl = song.lineAt(nextUs);
+    if (nl < 0 || song.lines[(size_t)nl].firstSyl != (uint32_t)n) return cd;
+    uint32_t start = 0;
+    if (s >= 0) {
+        const uint32_t lastUs = song.syls[(size_t)s].us;
+        uint32_t hold = COUNTDOWN_HOLD_ONE_MS * 1000u;
+        const int row = song.lineAt(lastUs);
+        if (row >= 0) {
+            const Midi::Line &l = song.lines[(size_t)row];
+            if (l.sylCount >= 2 && (uint32_t)s > l.firstSyl && (size_t)l.firstSyl < song.syls.size()) {
+                const uint32_t span = lastUs - song.syls[l.firstSyl].us;
+                const uint32_t avg = span / (uint32_t)(s - (int)l.firstSyl);
+                hold = avg < COUNTDOWN_HOLD_MAX_MS * 1000u ? avg : COUNTDOWN_HOLD_MAX_MS * 1000u;
+            }
+        }
+        start = lastUs + hold;
+    }
+    if (nextUs <= start || nextUs - start < COUNTDOWN_GAP_MS * 1000u || posUs < start) return cd;
+    int dots = (int)((nextUs - start + 500000u) / 1000000u);
+    if (dots > COUNTDOWN_MAX) dots = COUNTDOWN_MAX;
+    const uint32_t remain = nextUs - posUs;                       // > 0 (posUs < nextUs)
+    const int remainSec = (int)((remain + 999999u) / 1000000u);   // ceil
+    int lit = dots - remainSec;
+    if (lit < 0) lit = 0;
+    cd.dots = dots;
+    cd.elapsed = lit;
+    cd.nextSyl = n;
+    cd.startUs = start;
+    cd.endUs = nextUs;
+    return cd;
 }
 
 bool jsonEscape(const char *s, size_t n, char *&p, char *end)
@@ -219,6 +280,11 @@ size_t toJson(const Event &e, char *out, size_t cap)
         ok = put(p, end, "{\"type\":\"lyric\",\"text\":\"") && jsonEscape(e.text, strlen(e.text), p, end);
         snprintf(num, sizeof(num), "\",\"row\":%d,\"k\":%d,\"ts\":%u}", (int)e.row, (int)e.syl, (unsigned)e.ts);
         ok = ok && put(p, end, num);
+        break;
+    case Kind::COUNTDOWN:
+        snprintf(num, sizeof(num), "{\"type\":\"countdown\",\"dots\":%d,\"elapsed\":%d,\"ts\":%u}", (int)e.row,
+                 (int)e.syl, (unsigned)e.ts);
+        ok = put(p, end, num);
         break;
     case Kind::ROW: {
         snprintf(num, sizeof(num), "{\"type\":\"newrow\",\"row\":%d,\"ts\":%u,\"syls\":[\"", (int)e.row, (unsigned)e.ts);

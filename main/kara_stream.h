@@ -31,7 +31,30 @@ enum class Kind : uint8_t {
     ROW,     // A new line started (or resync): text = syllables + next line
     SYL,     // Syllable `syl` (index within the row) started: text = syllable
     CLEAR,   // Before the first line / seek to the start: nothing to show
+    COUNTDOWN,   // v0.13.6: long pause - row = dots, syl = lit dots (dots 0 = countdown over)
 };
+
+// ---- v0.13.6: countdown dots in long pauses -------------------------------------------------
+// A pause starts when the last syllable of a line has been sung (its start + an estimated hold, see
+// below) and ends at the first syllable of the next line; before the first line the pause starts at
+// 0 (intro). Pauses >= COUNTDOWN_GAP_MS show dots = round(pause s), max COUNTDOWN_MAX, all white at
+// first; one dot per second takes the sung-syllable colour, aligned so the last one lights exactly
+// when the next line starts. Driven by the song position (synth samples), not the wall clock.
+constexpr uint32_t COUNTDOWN_GAP_MS = 3000;
+constexpr int COUNTDOWN_MAX = 8;
+// Syllables carry only a start time: the last one is assumed to be held for the line's average
+// syllable spacing, at most COUNTDOWN_HOLD_MAX_MS (COUNTDOWN_HOLD_ONE_MS for a one-syllable line).
+constexpr uint32_t COUNTDOWN_HOLD_MAX_MS = 1000;
+constexpr uint32_t COUNTDOWN_HOLD_ONE_MS = 500;
+
+struct Countdown {
+    int dots = 0;        // 0 = no countdown at this position
+    int elapsed = 0;     // Lit dots (0..dots)
+    int nextSyl = -1;    // First syllable of the line the countdown leads to
+    uint32_t startUs = 0, endUs = 0;   // Pause start (after the hold) / next line's first syllable
+};
+// Countdown state at song position posUs (pure; used by the device UI and the web stream).
+Countdown countdownAt(const Midi::Song &song, uint32_t posUs);
 
 struct Event {
     uint64_t sample;   // Stream sample (PCM samples pushed before this event)
@@ -81,12 +104,13 @@ private:
 // (new client) re-sends the current line and syllable. Does nothing while the stream is disabled.
 class LyricTracker {
 public:
-    void reset() { row_ = INVALID, syl_ = INVALID; }
+    void reset() { row_ = INVALID, syl_ = INVALID, cdDots_ = 0, cdLit_ = -1, cdSyl_ = -1; }
     void update(const Midi::Song &song, uint32_t posUs, Stream &st);
 
 private:
     static constexpr int INVALID = -1000;
     int row_ = INVALID, syl_ = INVALID;
+    int cdDots_ = 0, cdLit_ = -1, cdSyl_ = -1;   // Last countdown sent
 };
 
 // Copies at most cap-1 bytes of UTF-8 without splitting a character; control characters become
@@ -96,6 +120,7 @@ size_t copyUtf8(char *dst, size_t cap, const char *src, size_t n);
 //   ROW:   {"type":"newrow","row":N,"ts":MS,"syls":["..",".."],"next":".."}
 //   SYL:   {"type":"lyric","text":"..","row":N,"k":K,"ts":MS}
 //   CLEAR: {"type":"clear","ts":MS}
+//   COUNTDOWN: {"type":"countdown","dots":N,"elapsed":K,"ts":MS}   (dots 0 = hide)
 // Returns the length (0 if cap is too small).
 size_t toJson(const Event &e, char *out, size_t cap);
 // JSON string body (no quotes) with escaping; returns false when it does not fit.

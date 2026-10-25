@@ -750,6 +750,9 @@ View view()
     v.lengthUs = s_song.lengthUs;
     v.line = s_song.lineAt(v.posUs);
     v.syl = s_song.sylAt(v.posUs);
+    const KaraStream::Countdown cd = KaraStream::countdownAt(s_song, v.posUs);
+    v.cdDots = cd.dots;
+    v.cdLit = cd.elapsed;
     v.playing = s_player.playing();
     v.finished = s_player.finished();
     v.voices = synthBusy() ? 0 : s_synth.activeVoices();
