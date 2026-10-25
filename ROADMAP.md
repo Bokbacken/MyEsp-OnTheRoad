@@ -115,6 +115,19 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.9.0 – Ljud, microSD, filbläddrare, joystick 🔧 (inte HW-testad)
+- [x] Ljud via ES8311 (egen registerdrivare, säker uppstart: förstärkare av -> codec -> I2S 22 050 Hz -> låg volym -> förstärkare på). Saknas codec: tyst, ingen krasch
+- [x] Mixer-task: 1 musikkanal + 4 effektkanaler. Egen chiptune-synt (fyrkant/triangel/brus, ADSR, MML-melodier) som standard; WAV från SD ersätter per ljud. Ingen OPL/MIDI-emulator: de lätta alternativen är GPL eller för tunga - egen synt valdes
+- [x] Ljudhändelser i tärningsspelen (skak, kast, landning, poäng, noll, Yatzy, bust, vinst, knappklick) och äventyret (steg, slag, plock, dörr, mina, skada, liv, checkpoint, utgång). Musikslinga i menyn/tärningsspel och i äventyret
+- [x] Inställningar (enhet + webb): ljud på/av, effektvolym (60), musik på/av, musikvolym (25)
+- [x] microSD 4-bit SDMMC (20 MHz) med 1-bit som reserv, klarar att kort saknas/tas ur; status i diagnostik
+- [x] Webbfilbläddrare `/files.html`: hela SD (och valbart intern flash), lista, ladda ner, ladda upp (strömmat), radera, byt namn, ny katalog, läs in kortet igen; admin-PIN för ändringar; säkra sökvägar
+- [x] Äventyrssparning på SD (`/sdcard/otr/adventure/saves/`) med intern flash som reserv; `maps/` förberedd
+- [x] Joystick ersätter pilarna: ring med 4 pilar, röd stoppzon, knopp under fingret. 1-4 hastighetszoner (std 2), takt min/max (std 150/75 ms), håll för upprepning (std 300 ms)
+- [x] Diagonal: dominant axel per steg (std); "växla axlar" som inställning. Ingen äkta 8-riktad rörelse/hörnklippning
+- [ ] HW-test: ES8311-uppstart och volym, WAV från SD, SD-montering 4-bit, filbläddrare med stora filer, joystickkänsla
+- Öppet: MP3, ADPCM, mikrofon, karta från SD, effekt-WAV max 2 MB totalt i PSRAM
+
 ## v0.8.0 – Äventyrsmotorn: gå med tryck, energi, liv, skatter, Minfältet, sparning ✅ 🔧 (inte HW-testad)
 - [x] Tryck för att gå: A* (begränsad, 60 × 60), steg för steg runt hinder, snäpp inom 1/3 ruta, "Dit kan jag inte gå" vid hinder; tryck på figuren = slå; STOP mitt i styrplattan
 - [x] Läge Pro / Assistent (NVS), Assistenten stannar före dödlig lava ("Det ser farligt ut!") och okänd mark; båt krävs för vatten

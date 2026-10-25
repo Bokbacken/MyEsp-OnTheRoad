@@ -14,6 +14,8 @@
 #include "board_rgb.h"
 #include "dice_cup.h"
 #include "game_farkle.h"
+#include "board_audio.h"
+#include "board_touch.h"
 #include "game_live.h"
 #include "game_pig.h"
 #include "game_scc.h"
@@ -138,8 +140,23 @@ static lv_obj_t *menuCard(lv_obj_t *scr, int32_t y, int32_t h, const char *title
 
 static void showVariants();
 
+// UI click sound for every LVGL button (incl. message box buttons), hooked once on the indev.
+static void hookClickSound()
+{
+    static bool done = false;
+    lv_indev_t *in = Touch::indev();
+    if (done || !in) return;
+    done = true;
+    lv_indev_add_event_cb(in, [](lv_event_t *e) {
+        lv_obj_t *o = (lv_obj_t *)lv_event_get_param(e);
+        if (o && lv_obj_check_type(o, &lv_button_class)) Audio::play(Sound::Sfx::CLICK);
+    }, LV_EVENT_CLICKED, nullptr);
+}
+
 void showMenu()
 {
+    hookClickSound();
+    Audio::music(Sound::Music::DICE);   // Dice music loops in the menus and the dice games
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, "OnTheRoad");
 
@@ -1170,6 +1187,7 @@ static void afterRoll()
     s_selected = s_best;
     if (s_game.potentialScore(YatzyCategory::YATZY) > 0) {
         showBanner(s_game.variant() == YatzyVariant::MAXI ? "MAXI YATZY!" : "YATZY!", Theme::GOLD);
+        Audio::play(Sound::Sfx::YATZY);
         Rgb::effectFlash(255, 190, 40, 1500);
     }
     refreshSuggestions(true);
@@ -1243,6 +1261,7 @@ static void rollExec(void *, int32_t v)
 
 static void rollDone(lv_anim_t *)
 {
+    Audio::play(Sound::Sfx::DIE_LAND);
     for (int i = 0; i < s_game.diceCount(); i++) landDie(i);
     s_rolling = 0;
     afterRoll();
@@ -1280,6 +1299,7 @@ static void startRoll(const DiceCup::ThrowParams *tp)
         return;
     }
     Rgb::effectDiceRoll(ms + 100);
+    Audio::play(Sound::Sfx::DICE_ROLL);
     // Classic: all dice are thrown in from the same side (random left/right). Cup: the spin
     // direction of the gesture decides the roll direction.
     const int32_t dir = tp ? (tp->spinDir < 0 ? -1 : 1) : (rnd(0, 1) == 0 ? 1 : -1);
@@ -1363,6 +1383,7 @@ static void cupSetShaking(bool on)
 {
     if (s_cupShaking == on) return;
     s_cupShaking = on;
+    if (on) Audio::play(Sound::Sfx::DICE_SHAKE);
     GameLive::setShaking(on);   // Web live view: "skakar bägaren..."
 }
 
@@ -1848,6 +1869,7 @@ static void writeSelected()
     s_game.score(s_selected);
     if (pts > 0) Rgb::effectFlash(40, 255, 90, 250);
     else Rgb::effectFlash(255, 60, 40, 250);
+    Audio::play(pts > 0 ? Sound::Sfx::SCORE : Sound::Sfx::ZERO);
     if (s_game.finished()) {
         s_gen++;
         cupKill();
@@ -2390,6 +2412,7 @@ static void showGame()
 // ========================================================================================
 static void showResults()
 {
+    Audio::play(Sound::Sfx::WIN);
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::RES_TITLE));
     lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode(), s_game.savedRollsRule()), &my_font_14, Theme::TEAL);
@@ -2684,6 +2707,7 @@ static void mAfterChange(bool animate)
     for (int i = 0; i < s_mDice; i++) mPlaceDie(i, animate);
     if (mFinished()) {
         s_gen++;   // Stops the web timer and pending timers of this screen
+        Audio::play(Sound::Sfx::WIN);
         showMiniResults();
         return;
     }
@@ -2716,6 +2740,7 @@ static void mStartPending(uint32_t ms)
 // Called when the roll animation has landed: show busts / Farkles / the SCC turn result.
 static void mRollLanded()
 {
+    Audio::play(Sound::Sfx::DIE_LAND);
     for (int i = 0; i < s_mDice; i++) {
         lv_image_set_rotation(s_mDie[i], 0);
         mSetFace(i, mDieValue(i));
@@ -2728,6 +2753,7 @@ static void mRollLanded()
             mShowFlash(s_pig.lostAll() ? tr(Str::G_LOST_ALL) : tr(Str::G_BUST), Theme::RED);
             lv_label_set_text(s_mHint, "");
             Rgb::effectFlash(255, 40, 30, 400);
+            Audio::play(Sound::Sfx::BUST);
             mStartPending(M_BUST_MS);
         }
         break;
@@ -2736,6 +2762,7 @@ static void mRollLanded()
             mShowFlash(tr(Str::G_FARKLE), Theme::RED);
             lv_label_set_text(s_mHint, "");
             Rgb::effectFlash(255, 40, 30, 400);
+            Audio::play(Sound::Sfx::BUST);
             mStartPending(M_BUST_MS);
         }
         break;
@@ -2745,9 +2772,11 @@ static void mRollLanded()
                 char buf[32];
                 snprintf(buf, sizeof(buf), tr(Str::G_CARGO_N), s_scc.cargoScore());
                 mShowFlash(buf, Theme::GREEN);
+                Audio::play(Sound::Sfx::SCORE);
                 Rgb::effectFlash(40, 255, 90, 300);
             } else {
                 mShowFlash(tr(Str::G_NO_CARGO), Theme::RED);
+                Audio::play(Sound::Sfx::ZERO);
                 Rgb::effectFlash(255, 60, 40, 300);
             }
             mStartPending(M_SCC_END_MS);
@@ -2816,6 +2845,7 @@ static void mRoll()
         if (s_mRollMask[i]) s_mRollBits |= (uint8_t)(1u << i);
     s_mRolling = true;
     s_mRollStart = lv_tick_get();
+    Audio::play(Sound::Sfx::DICE_ROLL);
     for (int i = 0; i < s_mDice; i++) {
         if (!s_mRollMask[i]) continue;
         lv_anim_delete(s_mDie[i], xExec);
@@ -2838,6 +2868,7 @@ static void mAction()   // Banka / Spara
     }
     if (!ok) return;
     Rgb::effectFlash(40, 255, 90, 300);
+    Audio::play(Sound::Sfx::SCORE);
     for (int i = 0; i < s_mDice; i++) mSetFace(i, 0);
     mAfterChange(false);
 }

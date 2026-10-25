@@ -39,7 +39,7 @@ constexpr uint8_t ES8311_I2C_ADDR = 0x18;
 constexpr int PIN_WS2812 = 40;
 
 // ---------------------------------------------------------------------------
-// microSD, 4-bit SDMMC (not used yet - future)
+// microSD, 4-bit SDMMC (board_sd.cpp, 1-bit fallback)
 // ---------------------------------------------------------------------------
 constexpr int PIN_SD_CLK = 5;
 constexpr int PIN_SD_CMD = 4;
@@ -49,14 +49,14 @@ constexpr int PIN_SD_D2  = 2;
 constexpr int PIN_SD_D3  = 3;
 
 // ---------------------------------------------------------------------------
-// Audio: ES8311 codec + speaker amplifier (not used yet - future)
+// Audio: ES8311 codec + speaker amplifier (board_audio.cpp)
 // ---------------------------------------------------------------------------
 constexpr int PIN_I2S_DOUT = 15;   // ESP32 -> ES8311
 constexpr int PIN_I2S_DIN  = 16;   // ES8311 -> ESP32
 constexpr int PIN_I2S_MCLK = 17;
 constexpr int PIN_I2S_BCLK = 18;
 constexpr int PIN_I2S_WS   = 21;
-constexpr int PIN_AMP_EN   = 1;    // Active LOW: LOW enables the amplifier. Keep HIGH (off) until audio is brought up.
+constexpr int PIN_AMP_EN   = 1;    // Active LOW: LOW enables the amplifier. Kept HIGH (off) until the codec is initialised.
 
 // ---------------------------------------------------------------------------
 // Misc

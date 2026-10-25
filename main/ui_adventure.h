@@ -9,7 +9,8 @@
 //             and stops at the world edges. Zoom: 32 px tiles (10 x 10 visible) or 16 px (20 x 20).
 //             Tap = walk there (A*, step by step), tap the player = hit, long press in fog = flag.
 //   controls  arrow pad (hold = keep walking) with STOP in the middle, Slå (hit the facing cell), Zoom.
-// Saves: /ffat/adv_<player id>_<world id>.sav (Otr::World::save image, versioned + CRC32).
+// Saves: /sdcard/otr/adventure/saves/adv_<player id>_<world id>.sav if the SD card is mounted, else
+// /ffat/adv_<player id>_<world id>.sav (Otr::World::save image, versioned + CRC32).
 // The world logic is Otr::World (components/otr_engine, host tested); tile art is generated at
 // start-up from simple shapes (placeholder until real tilesets are loaded from flash / SD).
 //

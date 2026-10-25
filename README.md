@@ -4,8 +4,9 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.8.0 – adventure engine with tap-to-walk, energy/lives, Minfältet and per-player saves (not
-> hardware-tested; see ROADMAP). Earlier: v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
+> **Status:** v0.9.0 – sound (ES8311, chiptune + WAV), microSD with web file browser, adventure saves on SD and an
+> analog-style joystick (not hardware-tested; see ROADMAP). v0.8.0 – adventure engine with tap-to-walk, energy/lives,
+> Minfältet and per-player saves (not hardware-tested). Earlier: v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
 > personal 4-digit player PINs (player file v2 with automatic v1 migration, on-device numeric keypad),
 > and a new `/play` flow: pick your name, enter your PIN (no shared game code any more; web seats are
 > bound to an internal session id, with a 5-attempt lockout). The overview page links to Live and Play.
@@ -14,6 +15,27 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 > animation and v0.2.0 are hardware-verified. See [ROADMAP.md](ROADMAP.md).
 
 ## Features
+
+- **Sound (v0.9.0, not yet hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
+  channels, built-in chiptune synth (square/triangle/noise, ADSR, MML tunes). Any sound can be replaced by a WAV on
+  the SD card. Volumes and on/off on the device and in the web settings.
+- **microSD + file browser (v0.9.0, not yet hardware-tested)** – 4-bit SDMMC (1-bit fallback), hot-plug tolerant.
+  `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
+  folder; changes require the admin PIN.
+
+### SD card layout (optional)
+
+```
+/sdcard/otr/sounds/<name>.wav       effect override: click dice_shake dice_roll die_land score zero yatzy bust win
+                                    step bump push hit break gem key potion heart life door locked mine splash hurt
+                                    life_lost game_over checkpoint exit
+/sdcard/otr/music/adventure.wav     looping music (adventure); dice.wav = menus and dice games
+/sdcard/otr/adventure/saves/        adventure saves (fallback: internal flash)
+/sdcard/otr/adventure/maps/         reserved for future maps
+```
+
+WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effects are cached in PSRAM
+(max ~2 MB total); music is streamed. Missing file = built-in tone version.
 
 - **Adventure engine (v0.8.0, not yet hardware-tested)** – separate module (`components/otr_engine`
   + `main/ui_adventure.cpp`): own tile renderer on a PSRAM canvas, smooth camera, 32/16 px zoom. Two worlds:
@@ -170,6 +192,9 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine
 g++ -std=c++17 -Wall -Wextra -Imain -Imain/lang tests/test_lang.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o tests/test_lang && ./tests/test_lang   # string tables
 g++ -std=c++17 -Wall -Wextra -Imain -Itests/stub tests/test_live.cpp main/game_live.cpp main/game_yatzy.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_live && ./tests/test_live   # web seat release
+g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
+g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
 ```
 
 ## Flashing and updating

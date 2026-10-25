@@ -1430,8 +1430,7 @@ static void leave()
     if (s_timer) lv_timer_pause(s_timer);
     s_joy.cancel();
     saveNow();
-    Audio::stopMusic();
-    UiYatzy::showMenu();
+    UiYatzy::showMenu();   // Switches the music back to the dice loop
 }
 
 static const char *modeText() { return tr(Config::get().advMode == 1 ? Str::ADV_MODE_PRO : Str::ADV_MODE_ASSIST); }
