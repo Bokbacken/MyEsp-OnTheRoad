@@ -1,7 +1,8 @@
 # Plan: bibliskt äventyr med dialoger
 
-Status: **steg A + B byggda i v0.11.0 (ej HW-testade)**, resten plan. Första versionen av planen: Skrivet 2026-10-25 efter v0.10.0 + HUD-commit `40ea276`.
-Uppdaterad 2026-10-25 med Kents riktlinjer för text, namn och utseende (avsnitt 1.2–1.5).
+Status: **steg A + B byggda i v0.11.0 (HW-testade av Kent)**, live view på webben i v0.11.1 (ej HW-testad), resten plan. Första versionen av planen: Skrivet 2026-10-25 efter v0.10.0 + HUD-commit `40ea276`.
+Uppdaterad 2026-10-25 med Kents riktlinjer för text, namn och utseende (avsnitt 1.2–1.5), och samma dag
+med Kents beslut om de öppna frågorna (avsnitt 5). v0.11.0 är HW-testad: Byn och dialogerna fungerar mycket bra.
 Bygger vidare på [ENGINE_2D_BRIEF.md](ENGINE_2D_BRIEF.md) (Kroz-inspirerat, vänlig ton) och
 [COMPONENTS.md](COMPONENTS.md) (ny komponent `otr_story`).
 
@@ -13,7 +14,7 @@ vägar, eller leda bort från målet. Personerna minns vad man sagt (flaggor), o
 har något med sig eller har gjort något tidigare (villkor). Mellan samtalen finns utforskning och pussel
 med motorn vi redan har: putta stenar, nycklar/dörrar, båt, vatten och samla saker.
 
-### Förslag: Josefs resa (1 Mos 37–50)
+### Beslutat: Josefs resa (1 Mos 37–50)
 Varför Josef: många personer att prata med, tydliga platser (Kanaan → karavan → Egypten), naturliga
 uppdrag (hitta bröderna, sköta Potifars hus, tyda drömmar, samla korn) och ett budskap om trofasthet och
 förlåtelse som fungerar för alla åldrar. Inga strider mot människor behövs. Slå används bara på
@@ -23,7 +24,7 @@ föremål: krukor, buskar och lådor.
 |---|---|---|---|
 | 1 | Hebron → Sikem → Dotan | 37:1–17 | Jakob ger manteln, drömmarna, skickas till bröderna. Mannen på fältet visar vägen (37:15–17). Utforskning, första dialogerna |
 | 2 | Dotan | 37:18–36 | Brunnen, Ruben och Juda, karavanen. Händelsen är fast, men valen påverkar vad Josef har med sig |
-| 3 | Potifars hus | 39:1–20 | Sköta förråd (puttpussel), förtroende-räknare. Potimor vill att Josef ska "umgås med henne en stund". Moraliskt val: att fly. Leder till fängelset oavsett |
+| 3 | Potifars hus | 39:1–20 | Sköta förråd (puttpussel), förtroende-räknare. Potifars hustru vill att Josef ska "umgås med henne en stund". Moraliskt val: att fly. Leder till fängelset oavsett |
 | 4 | Fängelset | 40 | Munskänken och bagaren: välj tydning bland 4 med ledtrådar. Känd vers citeras (40:8) |
 | 5 | Faraos palats | 41 | Faraos drömmar, sju goda år: samla korn till förråden (räknare + karta) |
 | 6 | Hungersnöden | 42–45, 50:20 | Bröderna kommer, silverbägaren i Benjamins säck, förlåtelsen och återföreningen med Jakob |
@@ -35,8 +36,11 @@ Mose/uttåget (stort, mycket miljöer) eller Daniel. Motorn blir densamma oavset
 - **Huvudhändelserna följer bibeltexten.** Valen styr *hur* man tar sig fram, vad man får veta och vad man
   har med sig, inte utgången.
 - **Vänlig ton**, inga skrämmande scener, ingen grafisk våldsskildring.
-- Dåliga val ger omvägar, förlorad hjälp eller färre poäng, men **inte game over**. Game over finns bara
-  kvar för terrängfaror (lava och liknande) där världen har sådana.
+- **Heltokiga val** (sådant som går emot texten) ger en mild tillrättavisning, t.ex. *"Det där var väl inte
+  så smart?"*, och man får välja om. Mindre bra val ger omvägar eller förlorad hjälp.
+- **Dör man under ett uppdrag** (terrängfaror) visas en varning, och sedan fortsätter man. Ingen game over
+  som tvingar fram omstart i berättelsen.
+- **Målgrupp: alla.** Enkelt språk och korta repliker.
 
 ### 1.2 Bibeltext (Kents riktlinjer)
 - **Översättning: Nya världen-översättningen (NWT)**, den svenska utgåvan för svenska och den engelska
@@ -56,24 +60,26 @@ Mose/uttåget (stort, mycket miljöer) eller Daniel. Motorn blir densamma oavset
 - Manusverktyget får en **stilkontroll** som varnar för *de/dem* (som pronomen), *skall*, *sade*, *icke* och
   liknande i dialograder. Citatrader är undantagna.
 
-### 1.4 Namn
+### 1.4 Namn (Kents namnpolicy 2026-10-25)
 - **Kända namn** används som i NWT: Josef, Jakob, Ruben, Juda, Simeon, Benjamin, Potifar, Asenat, Farao.
-- **Personer utan namn i Bibeln** får påhittade namn som inte finns i Bibeln. Namnet ska ha samma känsla
-  (egyptiskt i Egypten, kanaaneiskt i Kanaan) eller vara lite humoristiskt. Förslag:
+- **Personer utan namn i Bibeln får sin titel** som namn. Påhittade namn används bara när en titel inte
+  räcker (t.ex. flera bybor eller tjänare med samma roll).
+- **Potimor och de tidigare namnförslagen (Skänkhotep, Degmose, Nyckelhotep, Stigur, Kryddib, Säckhotep)
+  utgår.**
 
-| Roll (bibeltext) | Namnförslag | Kommentar |
+| Roll (bibeltext) | Svenska | Engelska |
 |---|---|---|
-| Potifars fru (1Mo 39) | **Potimor** | Kents förslag |
-| Överste munskänken (1Mo 40) | **Skänkhotep** | -hotep låter egyptiskt |
-| Överste bagaren (1Mo 40) | **Degmose** | -mose som i egyptiska namn |
-| Fängelsets föreståndare (1Mo 39:21) | **Nyckelhotep** | |
-| Mannen på fältet vid Sikem (1Mo 37:15) | **Stigur** | Visar vägen |
-| Köpmannen i karavanen (1Mo 37:28) | **Kryddib** | Handlar med kryddor, balsam och ladanum |
-| Josefs förvaltare (1Mo 44:1) | **Säckhotep** | Lägger bägaren i Benjamins säck |
-| Bybor och tjänare | Korta påhittade namn | |
+| Potifars hustru (1Mo 39) | **Potifars hustru** | **Potiphar's wife** |
+| Överste munskänken (1Mo 40) | **Munskänken** | **The Cupbearer** |
+| Överste bagaren (1Mo 40) | **Bagaren** | **The Baker** |
+| Fängelsets föreståndare (1Mo 39:21) | **Fängelsechefen** | **The Prison Keeper** |
+| Josefs förvaltare (1Mo 44:1) | **Förvaltaren** | **The Steward** |
+| Mannen på fältet vid Sikem (1Mo 37:15) | **Mannen på fältet** | **The Man in the Field** |
+| Köpmannen i karavanen (1Mo 37:28) | **Köpmannen** | **The Merchant** |
+| Bybor och tjänare | Titel, eller korta påhittade namn när titeln inte räcker | |
 
-  Manusverktyget kontrollerar namnen mot en lista över **alla namn i Bibeln** och varnar om ett påhittat
-  namn redan finns där. Ett namn som låter påhittat kan finnas i Bibeln, till exempel Abiram i 4 Mos 16.
+  Om påhittade namn behövs kontrollerar manusverktyget dem mot en lista över **alla namn i Bibeln** och
+  varnar om namnet redan finns där.
 
 ### 1.5 Utseende
 - Personer, kläder och miljöer tar **inspiration från barn- och ungdomsmaterialet på jw.org**: *Lärdomar från
@@ -87,11 +93,11 @@ jw.org:s användarvillkor tillåter personligt bruk. Däremot får material där
 **inte distribueras i eller med en programvara eller publiceras på internet**. GitHub-repot är
 **publikt**, så:
 - **Bilder:** egna ritningar inspirerade av materialet, så de påverkas inte.
-- **NWT-citat:** läggs **inte** i repot. Förslag: citaten ligger i en lokal fil
+- **NWT-citat:** läggs **inte** i repot. **Beslutat (tills vidare):** citaten ligger i en lokal fil
   (`story/quotes_sv.txt`, `story/quotes_en.txt`) som står i `.gitignore`. Den byggs in i Kents firmware om
   den finns, eller läses från SD (`/sdcard/otr/adventure/stories/quotes_*.txt`). Saknas filen visas bara
   referensen ("Läs 1Mo 40:8"). Manuset i repot innehåller då bara nyckeln: `@quote 1Mo40:8`.
-- Alternativet är att göra repot **privat**. Då kan citaten ligga i manuset direkt.
+- Alternativet att göra repot **privat** (då kan citaten ligga i manuset) är inte aktuellt nu.
 
 ## 2. Hur dialogen fungerar
 
@@ -129,7 +135,7 @@ Manus skrivs som textfiler i repot och konverteras med ett Python-verktyg till C
 
 ```
 @npc ruben "Ruben" portrait=ruben sprite=shepherd
-@npc munskanken "Skänkhotep" portrait=cupbearer sprite=egypt_servant
+@npc munskanken "Munskänken" portrait=cupbearer sprite=egypt_servant
 
 == ruben.start  ? !met_ruben
 Ruben: Josef! Vad gör du här ute alldeles ensam?
@@ -139,12 +145,12 @@ Ruben: Josef! Vad gör du här ute alldeles ensam?
 * [Gå därifrån]                                       -> END
 
 == ruben.start  ? met_ruben & has:mantel
-Ruben: Göm den där manteln, lillebror. Den gör dem bara argare.
+Ruben: Göm den där manteln, lillebror. Den gör dom bara argare.
 * Varför då?                                          -> ruben.mantel
 * [Gå därifrån]                                       -> END
 
 == josef.tydning
-Skänkhotep: Vi har drömt, både jag och bagaren. Men det finns ingen som kan säga vad det betyder.
+Munskänken: Vi har drömt, både jag och bagaren. Men det finns ingen som kan säga vad det betyder.
 @quote 1Mo40:8                                        (NWT-citat från den lokala citatfilen)
 * Berätta din dröm för mig.                           -> skank.drom
 * [Gå därifrån]                                       -> END
@@ -164,7 +170,7 @@ deklarerade. Dessutom stilkontroll av talspråket (1.3), namnkontroll mot bibeln
 - `Dialog`-körare: `start(npc)`, `choices()`, `choose(i)` → nästa nod eller slut + effekter.
 - Hosttester: villkor, effekter, nodval, slutnoder, serialisering och ett litet testmanus.
 
-### Steg B – Motor och UI · v0.11.0 ✅ (byggt, ej HW-testat)
+### Steg B – Motor och UI · v0.11.0 ✅ (HW-testat av Kent)
 - `Obj::NPC` med person-id och riktning. Personen blockerar rutan och kan flyttas av effekter. Enkel
   "titta mot spelaren"-animation.
 - Kontextknapp: Slå → **Prata** när man står vänd mot en person.
@@ -190,7 +196,8 @@ deklarerade. Dessutom stilkontroll av talspråket (1.3), namnkontroll mot bibeln
 - Nya rutor och sprites: öken/sand, tält, palmer, brunn, lerhus, palatsgolv, kornbod, kameler, får.
   Personer: herde, köpman, soldat, tjänare, farao, Jakob, Josef (med/utan mantel). Porträtt 48 × 48.
 - **Stil enligt 1.5.** Först görs ett stilark med Josef, Jakob, en bror, Potifar och en egyptisk tjänare.
-  Det visas för Kent och godkänns innan resten görs.
+  Det visas för Kent och godkänns innan resten görs (beslut 6). Samma sak gäller de första
+  kapitelrundorna (manus och karta).
 - Två vägar: **procedurellt i kod** som dagens sprites (snabbt, enhetligt), eller **genererad
   pixelgrafik** som konverteras till RGB565 och läggs i flash/SD (snyggare porträtt). Förslag: porträtt
   genereras, rutor görs procedurellt.
@@ -215,15 +222,28 @@ Strukturen stöder redan text-id per språk.
 ### Klart (Kent 2026-10-25)
 - Bibeltext: NWT (SE/EN), kända texter citeras, och referenser visas (1.2).
 - Dialog i modernt talspråk (dom, ska) med barnvänliga omskrivningar (1.3).
-- Påhittade namn för personer utan namn i Bibeln, gärna med humor, t.ex. Potimor (1.4).
 - Utseende inspirerat av jw.org:s barn- och ungdomsmaterial; egna ritningar (1.5).
 - Båda språken (SE och EN).
 
+### Kents beslut om de tidigare öppna frågorna (2026-10-25)
+1. **Första berättelse: Josef.**
+2. **Trohet mot texten.** Huvudhändelserna är fasta. Heltokiga val ger en mild tillrättavisning
+   (*"Det där var väl inte så smart?"*) och man får välja om.
+3. **Dör man under ett uppdrag** visas en varning, sedan fortsätter man.
+4. **NWT-citaten** ligger i en extern, gitignorerad fil tills vidare (1.6).
+5. **Målgrupp: alla.** Enkelt.
+6. **Stilark/grafik och de första kapitelrundorna visas för Kent först**, innan resten görs.
+7. **Namnpolicy:** personer utan namn i Bibeln får sin titel (Bagaren/The Baker, Munskänken/The Cupbearer,
+   Potifars hustru/Potiphar's wife, Fängelsechefen/The Prison Keeper, Förvaltaren/The Steward). Påhittade
+   namn bara när en titel inte räcker. Potimor och de tidigare namnförslagen utgår (1.4).
+
 ### Öppet
-1. **Berättelse:** Josef (förslag), eller David, Rut, Mose eller Daniel?
-2. **Trohet:** fasta huvudhändelser med fria val runt dem (förslag), eller förgreningar med olika slut?
-3. **Konsekvenser:** inga game over via dialog (förslag)?
-4. **Citaten och det publika repot (1.6):** lokal citatfil utanför git (förslag), eller privat repo?
-5. **Målgrupp/ålder:** påverkar textlängd och ordval.
-6. **Grafikteknik:** procedurella rutor + genererade porträtt, med stilark för godkännande först (förslag)?
-7. **Namnlistan i 1.4:** ok, eller egna förslag?
+1. **Flerspelare via webben:** flera personer följer äventyret i webbläsaren (grunden finns i v0.11.1:s
+   live view, `/adventure`) och röstar, t.ex. majoritetsröst vid dialogval, kanske också om vägval. Frågor:
+   röstningstid, vad som händer vid lika röster, om enheten alltid kan avgöra, och om röster ska krävas
+   PIN som i `/play`.
+2. **MIDI-musik:** en SMF-parser (Standard MIDI File, typ 0/1) som spelar via den egna synten med ca 8
+   polyfona röster, så att musik kan skrivas i vanliga verktyg och läggas på SD. Frågor: instrumentmappning
+   (General MIDI → fyrkant/triangel/brus/enkla vågformer), CPU/minne i mixertasken, och om MML ska finnas kvar
+   som reserv.
+3. **Grafikteknik:** procedurella rutor + genererade porträtt (förslag), godkänns via stilarket (beslut 6).

@@ -20,6 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "game_live.h"
+#include "adv_live.h"
 #include "my_diag.h"
 #include "my_log.h"
 #include "my_ota.h"
@@ -748,6 +749,36 @@ static esp_err_t handleGame(httpd_req_t *r)
 }
 
 // ----------------------------------------------------------------------------------------
+// /api/adventure - v0.11.1 live view of the adventure (page /adventure polls it, read only).
+//   ?v=<version>   answers {"same":true} while nothing changed
+//   ?mr=<map rev>  the map revision the page has cached: the map is only sent when it differs
+//   ?brief=1       only {"active":..,"version":..,"world":..} (the /game page checks this)
+// Format: see adv_live.h.
+// ----------------------------------------------------------------------------------------
+static esp_err_t handleAdventure(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    long v = -1, mr = 0;
+    bool bad = false, brief = false;
+    q.getInt("v", 0, 0x7FFFFFFF, v, bad);
+    q.getInt("mr", 0, 0x7FFFFFFF, mr, bad);
+    q.getBool("brief", brief);
+    const uint32_t ver = AdvLive::version();
+    if (v >= 0 && (uint32_t)v == ver) return MyWeb::sendJsonStr(r, 200, "{\"same\":true}");
+    if (brief) {
+        char small[160];
+        if (!AdvLive::writeBriefJson(small, sizeof(small))) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+        return MyWeb::sendJsonStr(r, 200, small);
+    }
+    char *buf = (char *)psAlloc(AdvLive::JSON_CAP);
+    if (!buf) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    const size_t n = AdvLive::writeJson((uint32_t)mr, buf, AdvLive::JSON_CAP);
+    const esp_err_t err = n ? MyWeb::sendJsonStr(r, 200, buf) : MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    free(buf);
+    return err;
+}
+
+// ----------------------------------------------------------------------------------------
 // /ws/game - interactive web play (page /play).
 //
 // Client -> device (text frames, JSON):
@@ -1252,6 +1283,7 @@ bool begin()
     ok &= MyWeb::on("/api/players", HTTP_POST, handlePlayersPost);
     ok &= MyWeb::on("/api/reset", HTTP_POST, handleReset);
     ok &= MyWeb::on("/api/game", HTTP_GET, handleGame);
+    ok &= MyWeb::on("/api/adventure", HTTP_GET, handleAdventure);
     ok &= AppWebFiles::registerRoutes();
     ok &= wsBegin();
     if (!ok) ESP_LOGE(TAG, "route registration failed");

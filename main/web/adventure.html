@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Äventyr live</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+body { max-width: 96rem; }
+.adv-top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .6rem; }
+.adv-top h2 { margin: 0; flex: 1 1 auto; }
+.adv-top label { display: flex; align-items: center; gap: .4rem; color: var(--otr-muted); cursor: pointer; white-space: nowrap; }
+.adv-top input { width: 1.2rem; height: 1.2rem; accent-color: var(--otr-orange); }
+#layout { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+#mapbox { position: relative; background: #0b1420; border: 1px solid var(--otr-line); border-radius: var(--otr-radius);
+  padding: .5rem; display: flex; justify-content: center; align-items: center; min-height: 12rem; overflow: hidden; }
+#map { display: block; image-rendering: auto; border-radius: .4rem; }
+#banner { position: absolute; left: 50%; top: 1rem; transform: translateX(-50%); padding: .5rem 1.2rem; border-radius: .6rem;
+  font-weight: 700; font-size: 1.2rem; background: rgba(0, 0, 0, .75); border: 2px solid var(--otr-orange); color: var(--otr-orange); }
+#banner.win { border-color: var(--otr-green); color: var(--otr-green); }
+/* HUD */
+.hud { display: flex; flex-wrap: wrap; gap: .5rem; }
+.hud .chip { display: flex; align-items: center; gap: .45rem; padding: .45rem .75rem; border: 1px solid var(--otr-line); border-radius: .6rem;
+  background: var(--otr-panel-raised); font-size: 1.15rem; font-weight: 600; white-space: nowrap; }
+.hud .chip small { color: var(--otr-muted); font-weight: 500; font-size: .85rem; }
+.hud .chip.off { opacity: .45; }
+.energy { flex: 1 1 14rem; }
+.ebar { position: relative; flex: 1; height: 1.35rem; min-width: 7rem; border-radius: .4rem; background: #e8edf3; border: 2px solid var(--otr-line); overflow: hidden; }
+.ebar.low { border-color: var(--otr-red); }
+.ebar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#ff5a4f, #d42c22); transition: width .25s; }
+.ebar span { position: relative; display: block; text-align: center; font-size: .9rem; line-height: 1.2rem; color: #1a1a1a; font-weight: 700; }
+.items { margin-top: .5rem; }
+.items .chip { font-size: 1rem; border-color: rgba(255, 210, 60, .5); }
+/* Dialogue */
+#dialog { border: 2px solid #e6b422; border-radius: 1rem; background: var(--otr-panel); padding: 1rem 1.2rem; box-shadow: 0 8px 28px rgba(0, 0, 0, .45); }
+#dialog.narr { border-color: var(--otr-line); }
+.dl-head { display: flex; gap: 1rem; align-items: flex-start; }
+.portrait { flex: 0 0 auto; width: 4.6rem; height: 4.6rem; border-radius: 50%; display: grid; place-items: center; font-size: 2.1rem; font-weight: 800;
+  color: #1a1a1a; border: 3px solid #e6b422; box-shadow: inset 0 -6px 0 rgba(0, 0, 0, .18); }
+.dl-body { flex: 1; min-width: 0; }
+.dl-name { color: #f4c542; font-weight: 800; font-size: 1.35rem; margin-bottom: .2rem; }
+.dl-text { font-size: clamp(1.15rem, 1.1rem + .55vw, 1.7rem); line-height: 1.45; white-space: pre-wrap; }
+#dialog.narr .dl-text { color: #c9d6e8; font-style: italic; }
+.dl-ref { color: var(--otr-teal); font-size: 1.1rem; margin-top: .45rem; font-weight: 600; }
+.choices { display: grid; gap: .5rem; margin-top: .9rem; }
+.choice { padding: .65rem 1rem; border-radius: .6rem; background: rgba(0, 180, 216, .16); border: 1px solid var(--otr-teal);
+  font-size: clamp(1.05rem, 1rem + .4vw, 1.4rem); }
+.choice.locked { background: transparent; border-color: var(--otr-line); color: var(--otr-muted); }
+.choice .hint { display: block; color: var(--otr-orange); font-size: .9em; margin-top: .15rem; }
+.choice b { color: var(--otr-teal); margin-right: .5rem; }
+.choice.locked b { color: var(--otr-line); }
+#nodialog { color: var(--otr-muted); }
+.full { position: fixed; right: .8rem; bottom: .8rem; }
+/* Wide screens / TV: map left, HUD + dialogue right */
+@media (min-width: 1100px) and (min-aspect-ratio: 4/3) {
+  #layout { grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem); align-items: start; }
+}
+</style>
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small>Äventyr live</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">hämtar...</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/game">Live</a>
+  <a href="/adventure" class="active">Äventyr</a>
+  <a href="/players">Spelare</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag">Diagnostik</a>
+</nav>
+
+<div id="idle" class="card" hidden>
+  <h3>Inget äventyr pågår</h3>
+  <p class="muted">Starta Äventyr på enheten – sidan uppdateras automatiskt. Tärningsspel visas på <a href="/game">Live</a>.</p>
+</div>
+
+<div id="adv" hidden>
+  <div class="adv-top">
+    <h2 id="world">–</h2>
+    <label><input type="checkbox" id="follow"> Följ spelaren</label>
+  </div>
+  <div id="layout">
+    <div id="mapbox"><canvas id="map"></canvas><div id="banner" hidden></div></div>
+    <div id="side">
+      <div class="card">
+        <div class="hud" id="hud"></div>
+        <div class="hud items" id="items"></div>
+      </div>
+      <div id="dialog" hidden>
+        <div class="dl-head">
+          <div class="portrait" id="portrait">?</div>
+          <div class="dl-body">
+            <div class="dl-name" id="dname"></div>
+            <div class="dl-text" id="dtext"></div>
+            <div class="dl-ref" id="dref" hidden></div>
+          </div>
+        </div>
+        <div class="choices" id="choices"></div>
+      </div>
+      <div class="card" id="nodialog">Ingen pratar just nu. När hjälten pratar med någon visas samtalet här.</div>
+    </div>
+  </div>
+</div>
+
+<button class="secondary full" id="fs" title="Helskärm">⛶</button>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+// ── State ─────────────────────────────────────────────────────────────────
+let ver = -1, mapRev = 0, map = null, st = null, fails = 0;
+const cv = $('map'), ctx = cv.getContext('2d');
+const layer = document.createElement('canvas'), lctx = layer.getContext('2d');   // Static map, 1 cell = CELL px
+const CELL = 24;
+const anim = {x: 0, y: 0, fx: 0, fy: 0, t0: 0, ms: 180};   // Player glide between polls
+const follow = $('follow');
+follow.checked = localStorage.getItem('advFollow') === '1';
+follow.onchange = () => { localStorage.setItem('advFollow', follow.checked ? '1' : '0'); draw(); };
+
+// Colours per look (same idea as the device sprites: baker, shepherd, old man)
+const LOOKS = [{body: '#f3ead8', head: '#e9b98f', mark: 'B'}, {body: '#5e9e4a', head: '#e2a97c', mark: 'F'}, {body: '#8a8fb5', head: '#d9b08c', mark: 'G'}];
+const lookOf = n => LOOKS[((n % LOOKS.length) + LOOKS.length) % LOOKS.length];
+
+// ── Drawing helpers (cell-local: 0..CELL) ─────────────────────────────────
+function hash(x, y, s) { let h = (x * 374761393 + y * 668265263 + s * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function rect(c, x, y, w, h, col) { c.fillStyle = col; c.fillRect(x, y, w, h); }
+function circ(c, x, y, r, col) { c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
+function poly(c, pts, col) { c.fillStyle = col; c.beginPath(); c.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]); c.closePath(); c.fill(); }
+function lineC(c, x0, y0, x1, y1, col, w) { c.strokeStyle = col; c.lineWidth = w || 1; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
+const S = CELL;
+
+function grass(c, x, y) {
+  rect(c, 0, 0, S, S, '#3d8b3a');
+  for (let i = 0; i < 4; i++) rect(c, hash(x, y, i) * (S - 3), hash(x, y, i + 9) * (S - 4), 2, 3, i & 1 ? '#4fa548' : '#357a33');
+}
+function terrain(c, ch, x, y) {
+  switch (ch) {
+    case 'a': grass(c, x, y); break;
+    case 'b': rect(c, 0, 0, S, S, '#d9c27c'); rect(c, hash(x, y, 1) * 18, hash(x, y, 2) * 18, 2, 2, '#bfa560'); break;
+    case 'c': rect(c, 0, 0, S, S, '#9c968b'); lineC(c, 0, S - .5, S, S - .5, '#86807a'); lineC(c, S - .5, 0, S - .5, S, '#86807a'); break;
+    case 'd': rect(c, 0, 0, S, S, '#80786c'); circ(c, 7, 8, 2.5, '#6a6359'); circ(c, 16, 15, 3, '#6a6359'); break;
+    case 'e': case 'f':
+      rect(c, 0, 0, S, S, '#5c6170');
+      for (let r = 0; r < 3; r++) { lineC(c, 0, r * 8 + .5, S, r * 8 + .5, '#464a56'); const o = r & 1 ? 0 : 6; lineC(c, o + 6, r * 8, o + 6, r * 8 + 8, '#464a56'); lineC(c, o + 18, r * 8, o + 18, r * 8 + 8, '#464a56'); }
+      if (ch === 'f') { lineC(c, 6, 3, 12, 11, '#1b1d22', 2); lineC(c, 12, 11, 9, 20, '#1b1d22', 2); lineC(c, 12, 11, 19, 15, '#1b1d22', 2); }
+      break;
+    case 'g': grass(c, x, y); rect(c, 10, 14, 4, 8, '#6b4423'); circ(c, 12, 10, 9, '#1f5e24'); circ(c, 9, 8, 4, '#2c7a31'); break;
+    case 'h': rect(c, 0, 0, S, S, '#2f78bd'); lineC(c, 3, 8, 10, 8, '#6fb2ea', 1.5); lineC(c, 13, 17, 21, 17, '#6fb2ea', 1.5); break;
+    case 'i': rect(c, 0, 0, S, S, '#2f78bd'); rect(c, 2, 0, S - 4, S, '#9a6a3a'); for (let i = 0; i < 4; i++) lineC(c, 2, i * 6 + .5, S - 2, i * 6 + .5, '#6e4a26'); break;
+    case 'j': rect(c, 0, 0, S, S, '#e0521b'); circ(c, 7, 8, 3, '#ffb03a'); circ(c, 17, 16, 4, '#ff8a20'); break;
+    case 'k': rect(c, 0, 0, S, S, '#3a3b42'); lineC(c, 4, 6, 12, 10, '#55565f'); lineC(c, 12, 16, 20, 20, '#55565f'); break;
+    case 'l': rect(c, 0, 0, S, S, '#9c968b'); rect(c, 4, 4, S - 8, S - 8, '#c2b8a3'); rect(c, 7, 7, S - 14, S - 14, '#8a8273'); break;
+    case 'm': rect(c, 0, 0, S, S, '#9c968b'); break;   // Gate bars: dynamic (open / closed)
+    case 'n': grass(c, x, y); break;                  // Checkpoint flag: dynamic (active one)
+    case 'o': grass(c, x, y); circ(c, 12, 12, 10, '#f4c542'); circ(c, 12, 12, 7, '#fff3b0'); poly(c, [12, 5, 14, 10, 19, 12, 14, 14, 12, 19, 10, 14, 5, 12, 10, 10], '#e08a00'); break;
+    case 'p': grass(c, x, y); circ(c, 12, 12, 9, '#2d2a26'); circ(c, 12, 12, 6, '#1a1815'); break;
+    case '?': rect(c, 0, 0, S, S, '#1b2534'); lineC(c, 0, S - .5, S, S - .5, '#253246'); lineC(c, S - .5, 0, S - .5, S, '#253246'); break;
+    default: rect(c, 0, 0, S, S, '#000');
+  }
+}
+function object(c, ch) {
+  switch (ch) {
+    case 'B': circ(c, 12, 13, 9, '#8d8f96'); circ(c, 9, 10, 4, '#b5b7bd'); break;                                   // rock
+    case 'C': rect(c, 3, 3, 18, 18, '#a8743d'); c.strokeStyle = '#6b4423'; c.lineWidth = 2; c.strokeRect(4, 4, 16, 16); lineC(c, 4, 4, 20, 20, '#6b4423', 2); lineC(c, 20, 4, 4, 20, '#6b4423', 2); break;
+    case 'D': circ(c, 8, 12, 4.5, '#f4c542'); circ(c, 8, 12, 2, '#3d8b3a'); rect(c, 12, 11, 9, 3, '#f4c542'); rect(c, 17, 14, 2, 3, '#f4c542'); rect(c, 20, 14, 1.5, 3, '#f4c542'); break;
+    case 'E': rect(c, 3, 1, 18, 22, '#7a4a22'); lineC(c, 9, 1, 9, 23, '#5a3416'); lineC(c, 15, 1, 15, 23, '#5a3416'); circ(c, 17, 13, 1.8, '#f4c542'); break;
+    case 'F': poly(c, [2, 13, 22, 13, 18, 20, 6, 20], '#8b5a2b'); rect(c, 11, 3, 2, 10, '#ddd'); poly(c, [13, 4, 19, 11, 13, 11], '#fff'); break;
+    case 'G': poly(c, [12, 3, 20, 10, 12, 21, 4, 10], '#3fe0ff'); poly(c, [12, 3, 16, 10, 12, 21, 8, 10], '#b8f6ff'); break;
+    case 'H': circ(c, 8, 14, 6, '#2e7d32'); circ(c, 16, 14, 6, '#2e7d32'); circ(c, 12, 9, 6, '#43a047'); break;
+    case 'I': rect(c, 10, 3, 4, 5, '#cfd8dc'); circ(c, 12, 15, 7, '#e53935'); circ(c, 10, 13, 2, '#ff8a80'); break;
+    case 'J': case 'L':
+      circ(c, 8.5, 10, 4.5, '#e53935'); circ(c, 15.5, 10, 4.5, '#e53935'); poly(c, [4.2, 11.5, 19.8, 11.5, 12, 20], '#e53935');
+      if (ch === 'L') { rect(c, 15, 15, 8, 2.5, '#fff'); rect(c, 17.8, 12.2, 2.5, 8, '#fff'); }
+      break;
+    case 'K': rect(c, 6, 5, 12, 15, '#ff8f00'); circ(c, 12, 6, 4, '#ffb300'); rect(c, 8, 9, 8, 3, '#4fc3f7'); break;   // suit
+    case 'M': circ(c, 12, 13, 7, '#111'); lineC(c, 12, 3, 12, 7, '#111', 2); circ(c, 10, 11, 2, '#666'); break;      // mine (game over)
+    case '!': rect(c, 8, 4, 2, 17, '#ddd'); poly(c, [10, 4, 19, 8, 10, 12], '#ff3d3d'); break;                        // flag
+  }
+}
+const HINT_COL = ['', '#4fc3f7', '#81c784', '#ff8a65', '#ba68c8', '#e57373', '#4dd0e1', '#fff', '#bbb'];
+
+function buildLayer() {
+  if (!map) return;
+  layer.width = map.w * CELL; layer.height = map.h * CELL;
+  for (let y = 0; y < map.h; y++)
+    for (let x = 0; x < map.w; x++) {
+      lctx.save(); lctx.translate(x * CELL, y * CELL);
+      terrain(lctx, map.terrain[y][x], x, y);
+      const o = map.obj[y][x];
+      if (o !== '.') object(lctx, o);
+      const h = map.fog && map.hint.length ? +map.hint[y][x] : 0;
+      if (h > 0 && map.terrain[y][x] !== '?') {
+        lctx.fillStyle = HINT_COL[h]; lctx.font = 'bold 16px system-ui, sans-serif'; lctx.textAlign = 'center'; lctx.textBaseline = 'middle';
+        lctx.fillText(h, 12, 13);
+      }
+      lctx.restore();
+    }
+}
+
+// Dynamic things on the static layer: gates, active checkpoint
+function drawDynamicCells(c) {
+  if (!map || !st) return;
+  for (let y = 0; y < map.h; y++)
+    for (let x = 0; x < map.w; x++) {
+      const t = map.terrain[y][x];
+      if (t !== 'm' && t !== 'n') continue;
+      c.save(); c.translate(x * CELL, y * CELL);
+      if (t === 'm') {
+        if (st.gates_open) { rect(c, 1, 2, 3, 20, '#555'); rect(c, 20, 2, 3, 20, '#555'); }
+        else { rect(c, 1, 3, 22, 2, '#3b3b3b'); for (let i = 0; i < 5; i++) rect(c, 2 + i * 4.5, 3, 2, 19, '#2a2a2a'); }
+      } else {
+        const on = st.checkpoint[0] === x && st.checkpoint[1] === y;
+        rect(c, 7, 4, 2, 17, '#ddd'); poly(c, [9, 4, 19, 8, 9, 12], on ? '#62d28a' : '#9e9e9e'); circ(c, 8, 21, 3, '#777');
+      }
+      c.restore();
+    }
+}
+
+function drawPerson(c, px, py, look, talking, label) {
+  const L = lookOf(look);
+  if (talking) { c.strokeStyle = '#f4c542'; c.lineWidth = 2.5; c.beginPath(); c.arc(px + 12, py + 13, 11.5, 0, Math.PI * 2); c.stroke(); }
+  circ(c, px + 12, py + 22, 6, 'rgba(0,0,0,.25)');
+  poly(c, [px + 5, py + 22, px + 19, py + 22, px + 17, py + 11, px + 7, py + 11], L.body);
+  circ(c, px + 12, py + 8, 5, L.head);
+  c.fillStyle = '#1a1a1a'; c.font = 'bold 8px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(label, px + 12, py + 17);
+}
+function drawPlayer(c, px, py, dir, sailing) {
+  if (sailing) poly(c, [px + 1, py + 15, px + 23, py + 15, px + 19, py + 23, px + 5, py + 23], '#8b5a2b');
+  circ(c, px + 12, py + 12, 9.5, '#ff9c3d');
+  circ(c, px + 12, py + 12, 6.5, '#1e5aa8');
+  const a = {up: -Math.PI / 2, right: 0, down: Math.PI / 2, left: Math.PI}[dir] || 0;
+  c.save(); c.translate(px + 12, py + 12); c.rotate(a);
+  poly(c, [13, 0, 6, -5, 6, 5], '#fff'); c.restore();
+  circ(c, px + 12, py + 12, 2.2, '#fff');
+}
+
+// Renders the full world into the world canvas (1 cell = CELL px), then scales / crops to the screen.
+const world = document.createElement('canvas'), wctx = world.getContext('2d');
+function draw() {
+  if (!map || !st) return;
+  const now = performance.now();
+  let k = Math.min(1, (now - anim.t0) / anim.ms);
+  const ax = anim.fx + (anim.x - anim.fx) * k, ay = anim.fy + (anim.y - anim.fy) * k;
+  if (world.width !== layer.width || world.height !== layer.height) { world.width = layer.width; world.height = layer.height; }
+  wctx.drawImage(layer, 0, 0);
+  drawDynamicCells(wctx);
+  for (const n of st.npcs) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
+  drawPlayer(wctx, ax * CELL, ay * CELL, st.player.dir, st.player.sailing);
+
+  // Screen size: whole map fitted, or a follow camera with bigger cells
+  const box = $('mapbox'), dpr = window.devicePixelRatio || 1;
+  const availW = box.clientWidth - 16;
+  const availH = Math.max(220, window.innerHeight - box.getBoundingClientRect().top - (window.innerWidth < 1100 ? 160 : 24));
+  let cell = Math.min(availW / map.w, availH / map.h);
+  let cols = map.w, rows = map.h, sx = 0, sy = 0;
+  if (follow.checked) {
+    cell = Math.max(cell, Math.min(48, availW / 11));
+    cols = Math.min(map.w, availW / cell); rows = Math.min(map.h, availH / cell);
+    sx = Math.max(0, Math.min(map.w - cols, ax + .5 - cols / 2));
+    sy = Math.max(0, Math.min(map.h - rows, ay + .5 - rows / 2));
+  }
+  const cssW = Math.floor(cols * cell), cssH = Math.floor(rows * cell);
+  if (cv.style.width !== cssW + 'px') { cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px'; }
+  const pw = Math.round(cssW * dpr), ph = Math.round(cssH * dpr);
+  if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+  ctx.imageSmoothingEnabled = cell * dpr < CELL;   // Down-scaled: smooth; up-scaled: crisp
+  ctx.clearRect(0, 0, pw, ph);
+  ctx.drawImage(world, sx * CELL, sy * CELL, cols * CELL, rows * CELL, 0, 0, pw, ph);
+  if (k < 1) requestAnimationFrame(draw);
+}
+
+// ── HUD + dialogue ────────────────────────────────────────────────────────
+function chip(icon, value, label, off) {
+  return '<div class="chip' + (off ? ' off' : '') + '">' + icon + ' ' + value + (label ? ' <small>' + label + '</small>' : '') + '</div>';
+}
+function renderHud(s) {
+  const pct = s.energy_max ? Math.max(0, Math.min(100, 100 * s.energy / s.energy_max)) : 0;
+  let h = '<div class="chip energy">⚡ <small>Energi</small><div class="ebar' + (s.energy * 4 <= s.energy_max ? ' low' : '') +
+    '"><i style="width:' + pct + '%"></i><span>' + s.energy + '/' + s.energy_max + '</span></div></div>';
+  h += s.lives < 0 ? chip('❤️', s.lives_used ? '–' + s.lives_used : '∞', 'liv') : chip('❤️', s.lives, 'liv', s.lives === 0);
+  h += chip('🔑', s.keys, 'nycklar', !s.keys);
+  h += chip('💎', s.gems + '/' + s.gems_total, 'ädelstenar', !s.gems);
+  $('hud').innerHTML = h;
+  let it = '';
+  if (s.boat) it += chip('⛵', '', 'Båt');
+  if (s.suit > 0) it += chip('🦺', s.suit, 'dräktladdningar');
+  for (const i of s.items) it += chip('🎒', esc(i.name), i.count > 1 ? '× ' + i.count : '');
+  $('items').innerHTML = it ? '<span class="muted" style="align-self:center">Föremål:</span>' + it : '<span class="muted">Föremål: inga</span>';
+  const b = $('banner');
+  b.hidden = !(s.game_over || s.exit);
+  b.className = s.exit && !s.game_over ? 'win' : '';
+  b.textContent = s.game_over ? 'Game over' : s.exit ? 'Målet nått! 🏁' : '';
+}
+function renderDialog(d) {
+  $('dialog').hidden = !d;
+  $('nodialog').hidden = !!d;
+  if (!d) return;
+  $('dialog').className = d.narrator ? 'narr' : '';
+  const p = $('portrait');
+  if (d.narrator) { p.textContent = '📜'; p.style.background = '#2a3a52'; }
+  else { const L = lookOf(d.look); p.textContent = (d.speaker || '?').charAt(0).toUpperCase(); p.style.background = L.body; }
+  $('dname').textContent = d.narrator ? 'Berättaren' : d.speaker;
+  $('dtext').textContent = d.text;
+  $('dref').hidden = !d.ref;
+  $('dref').textContent = d.ref ? '📖 ' + d.ref : '';
+  $('choices').innerHTML = d.choices.map((c, i) => '<div class="choice' + (c.locked ? ' locked' : '') + '"><b>' + (c.locked ? '🔒' : (i + 1) + '.') + '</b>' +
+    esc(c.text) + (c.locked && c.hint ? '<span class="hint">' + esc(c.hint) + '</span>' : '') + '</div>').join('');
+}
+
+function render(g) {
+  $('idle').hidden = g.active;
+  $('adv').hidden = !g.active;
+  if (!g.active) { map = null; mapRev = 0; return; }
+  if (g.map) { map = g.map; mapRev = g.map_rev; buildLayer(); }
+  else if (g.map_rev !== mapRev) { ver = -1; mapRev = 0; return; }   // Map missing: fetch it with the next poll
+  $('world').textContent = '🗺 ' + g.world;
+  document.title = 'OnTheRoad – ' + g.world;
+  const first = !st;
+  const nx = g.player.x, ny = g.player.y;
+  if (first || Math.abs(nx - anim.x) + Math.abs(ny - anim.y) > 2) { anim.fx = anim.x = nx; anim.fy = anim.y = ny; anim.t0 = 0; }
+  else if (nx !== anim.x || ny !== anim.y) {
+    const k = Math.min(1, (performance.now() - anim.t0) / anim.ms);
+    anim.fx = anim.fx + (anim.x - anim.fx) * k; anim.fy = anim.fy + (anim.y - anim.fy) * k;
+    anim.x = nx; anim.y = ny; anim.t0 = performance.now();
+  }
+  st = g;
+  renderHud(g);
+  renderDialog(g.dialog);
+  requestAnimationFrame(draw);
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/adventure?v=' + ver + '&mr=' + mapRev, {cache: 'no-store'});
+    const g = await r.json();
+    fails = 0;
+    $('live-dot').className = 'dot ok';
+    $('live-text').textContent = 'live';
+    if (!g.same) { ver = g.version; render(g); }
+  } catch (e) {
+    if (++fails > 2) { $('live-dot').className = 'dot bad'; $('live-text').textContent = 'ingen kontakt'; }
+  }
+  setTimeout(poll, 220);
+}
+window.addEventListener('resize', () => requestAnimationFrame(draw));
+$('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+poll();
+</script>
+</body>
+</html>

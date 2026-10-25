@@ -47,12 +47,18 @@
 <nav class="otr-nav">
   <a href="/" data-t="nav_home">Översikt</a>
   <a href="/game" class="active">Live</a>
+  <a href="/adventure" data-t="nav_adv">Äventyr</a>
   <a href="/players" data-t="nav_players">Spelare</a>
   <a href="/settings" data-t="nav_settings">Inställningar</a>
   <a href="/diag" data-t="nav_diag">Diagnostik</a>
   <a href="/files">Filer</a>
   <a href="/update" data-t="nav_update">Uppdatera</a>
 </nav>
+
+<div id="advhint" class="card" hidden style="border-color:var(--otr-orange)">
+  <b>&#128506; <span data-t="adv_on">Ett äventyr pågår på enheten</span></b> <span class="muted" id="advworld"></span> ·
+  <a href="/adventure" data-t="adv_link">Visa Äventyr live</a>
+</div>
 
 <div id="idle" class="card" hidden>
   <h3 data-t="idle">Inget spel pågår</h3>
@@ -94,7 +100,7 @@ const T = {
        turn: 'Tur', rolling: 'tärningarna rullar...', shaking: 'skakar bägaren...', choosing: 'väljer ruta',
        rolls: 'Kast kvar: {0}', saved: ' (varav {0} sparade)', shared: 'Delad vinst: ', winner: 'Vinnare: ',
        sum: 'Summa', total: 'Totalt', live: 'live', nocontact: 'ingen kontakt', connected: 'ansluten', waiting: 'väntar', web_playing: '{0} spelar via webben',
-       fs: 'Helskärm'},
+       fs: 'Helskärm', nav_adv: 'Äventyr', adv_on: 'Ett äventyr pågår på enheten', adv_link: 'Visa Äventyr live'},
   en: {sub: 'Live game', loading: 'loading...', nav_home: 'Overview', nav_players: 'Players', nav_settings: 'Settings',
        nav_diag: 'Diagnostics', nav_update: 'Update', idle: 'No game running',
        idle_hint: 'Start Yatzy or Maxi Yatzy on the device – the page updates automatically.', protocol: 'Score sheet',
@@ -102,7 +108,7 @@ const T = {
        turn: 'Turn', rolling: 'dice rolling...', shaking: 'shaking the cup...', choosing: 'choosing a box',
        rolls: 'Rolls left: {0}', saved: ' ({0} saved)', shared: 'Shared win: ', winner: 'Winner: ',
        sum: 'Sum', total: 'Total', live: 'live', nocontact: 'no contact', connected: 'connected', waiting: 'waiting', web_playing: '{0} playing via the web',
-       fs: 'Full screen'}
+       fs: 'Full screen', nav_adv: 'Adventure', adv_on: 'An adventure is running on the device', adv_link: 'Show Adventure live'}
 };
 // v0.6.0: Pig / Farkle / Ship-Captain-Crew
 Object.assign(T.sv, {idle_hint: 'Starta ett spel på enheten – sidan uppdateras automatiskt.', standings: 'Poängställning',
@@ -415,6 +421,16 @@ async function poll() {
   }
   setTimeout(poll, 700);
 }
+// v0.11.1: point to /adventure while an adventure runs on the device (checked every 3 s)
+async function advPoll() {
+  try {
+    const a = await (await fetch('/api/adventure?brief=1', {cache: 'no-store'})).json();
+    $('advhint').hidden = !a.active;
+    $('advworld').textContent = a.active && a.world ? '(' + a.world + ')' : '';
+  } catch (e) { /* keep the last state */ }
+  setTimeout(advPoll, 3000);
+}
+advPoll();
 $('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
 poll();
 </script>

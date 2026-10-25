@@ -4,11 +4,17 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.11.0 – conversations in the adventure: new pure-C++ component `otr_story` (dialogue
+> **Status:** v0.11.1 – adventure live view: new page `/adventure` shows the running adventure read-only
+> (canvas map with player, people, items and gates, HUD with energy/lives/keys/gems/items, and the current
+> dialogue with speaker, full text, reference and choices), fed by a separate `AdvLive` snapshot via
+> `/api/adventure` (map only sent when its revision changes). Links from the overview and `/game`.
+> **Not hardware-tested yet.**
+> v0.11.0 – conversations in the adventure: new pure-C++ component `otr_story` (dialogue
 > trees, conditions, effects, flags, items, quests; 182 host tests), people on the map (`Obj::NPC`), the
 > Hit button turns into **Talk** when facing a person, tap a person to walk there and talk, dialogue box
 > with portrait + typewriter text and up to 4 answer buttons, demo world "Byn" (the village) with three
-> people. Story state is saved as `.sts` next to the world save. **Not hardware-tested yet.**
+> people. Story state is saved as `.sts` next to the world save. Hardware-tested by Kent: the village and
+> the dialogues work very well.
 > Before that (`40ea276`) – touch release filter against double taps, 500 ms
 > guard on every toggle, new adventure HUD (icon + count rows left, carried items right, quick sound on/off,
 > zoom in the hamburger menu); not hardware-tested yet. Next: a Bible adventure with conversations
@@ -127,6 +133,10 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
 - **Live view** – `/game` shows the running game read-only (dice, kept dice, full score sheet, winner,
   "skakar bägaren..." while the cup is shaken),
   polling `/api/game` every 700 ms; handy on a phone or TV next to the device.
+- **Adventure live view (v0.11.1)** – `/adventure` shows the running adventure read-only: canvas map
+  (whole map scaled to fit, or follow the player), people, items, gates, the player with facing, a HUD and the
+  current dialogue (speaker, full text, reference, choices with locked hints). Polls `/api/adventure` ~4–5×/s;
+  the map is only resent when its revision changes. `/game` shows a hint while an adventure is running.
 - **OTA firmware update** – web page `/update` streams the `-ota.bin` into the inactive app slot
   (app0/app1) with progress on the web page and on the display; the running firmware stays if anything fails.
 - **Admin PIN** – optional 4–8 digit PIN (Inställningar on the web) protecting OTA, factory reset,
@@ -218,6 +228,7 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synt
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_story.cpp components/otr_story/*.cpp -o tests/test_story && ./tests/test_story   # dialogue engine + village script
+g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o tests/test_advlive && ./tests/test_advlive   # adventure live snapshot + JSON
 ```
 
 ## Flashing and updating
@@ -234,9 +245,10 @@ g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_s
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/`, `/game`, `/play`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
+| GET | `/`, `/game`, `/adventure`, `/play`, `/players`, `/settings`, `/diag`, `/update` | Web pages |
 | GET | `/api/info` | System, display, touch, Wi-Fi, clock, RTC, OTA slots, storage (JSON) |
 | GET | `/api/game` | Live game snapshot (read-only); `?v=<version>` answers `{"same":true}` when unchanged. Also `code`, `web_players` (`[{player,id,connected}]`), `lang` |
+| GET | `/api/adventure` | Adventure live snapshot (read-only). `?v=<version>` answers `{"same":true}` when unchanged, `?mr=<map_rev>` omits the map when the client already has it, `{"active":false}` when no adventure runs, `?brief=1` = only `active`/`version`/`world` |
 | WS | `/ws/game` | Web play. Client: `{"cmd":"join","code":1234,"player":n}` (no `player` = spectator), `{"cmd":"hold","die":n}`, `{"cmd":"roll"}`, `{"cmd":"choose","cat":id}`. Device: `joined`, `error` (`code/seat/join/full/cmd/turn`), `state` (= `/api/game` + `you`, `joined`) on every change |
 | GET / POST | `/api/config` | Read / update settings (NVS); `tz`, `lang` (`sv`/`en`, list in `langs`), `admin_pin_new` (+ `pin`) |
 | POST | `/api/wifi` | Connect to `ssid`/`pass` (added to the saved list on success) |

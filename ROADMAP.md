@@ -115,7 +115,16 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
-## v0.11.0 – Dialoger: `otr_story`, personer, Prata, demokarta "Byn" ✅ 🔧 (inte HW-testad)
+## v0.11.1 – Live view för äventyret 🔧 (ej HW-testad)
+- [x] Ny modul `main/adv_live.h/.cpp` (`AdvLive`): egen ögonblicksbild med eget lås och versionsnummer, skild från `game_live`-unionen. Karta (terräng, objekt, minsiffror, dimma) med kartrevision som bara skickas när den ändrats; spelare (position, riktning, båt), energi, liv, nycklar, ädelstenar, dräkt, föremål, personer och aktuell dialog med val (låsta med tips). Buffertar i PSRAM. Dolda minor läcker inte
+- [x] Äventyret publicerar bara när något ändrats (signatur över position, statistik, revision, föremål, dialognod och språk) och markerar inaktivt när man lämnar
+- [x] `/api/adventure?v=&mr=`: `{"same":true}` när inget ändrats, kartan bara när `mr` skiljer sig, `{"active":false}` när inget äventyr körs; `?brief=1` för en liten statusfråga
+- [x] Ny sida `/adventure` (svenska): canvaskarta med enkla former per ruta och objekt, spelaren med riktningspil, personer med initial (guldring när de pratar), mjuk förflyttning, "Följ spelaren", HUD (energi, liv, nycklar, ädelstenar, föremål), dialogpanel med porträtt, namn i guld, hela texten, referens i cyan och numrerade val. Skrivskyddad, pollar var 220 ms, responsiv (två kolumner på bred skärm), helskärm
+- [x] Länkar: knappen "Äventyr live" på översikten, "Äventyr" i menyn på `/game`, och `/game` visar en hänvisning när ett äventyr pågår
+- [x] Hosttest test_advlive (83); alla 13 sviter gröna; bygge 0 fel/0 varningar
+- [ ] HW-test: sidan på telefon och TV under spel i Byn och Minfältet, dialoger, kartbyte vid "Börja om"
+
+## v0.11.0 – Dialoger: `otr_story`, personer, Prata, demokarta "Byn" ✅ 🔧 (HW-testad av Kent: Byn och dialogerna fungerar mycket bra)
 - [x] Ny komponent `components/otr_story` (ren C++17, hosttestad): `Script` (personer, noder med varianter, val med villkor/effekter, föremål, uppdrag), `StoryState` (256 flaggor, 16 räknare, 32 föremål, 16 uppdrag, serialisering), `Dialog`-körare (start, val, låsta val med tips, dolda val, slutnoder), `validate()` för manus. `StoryHost` för världseffekter (flytta/ta bort person, öppna, nycklar) och ljud
 - [x] Motorn: `Obj::NPC` med person-id och riktning, blockerar rutan (A* går runt), `EV_TALK` + `talkNpc()`
 - [x] Prata-knapp: Slå byts till **Prata** när hjälten står vänd mot en person. Tryck på en person på kartan → hjälten går till närmaste lediga granncell, vänder sig och börjar prata
@@ -125,7 +134,7 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Berättelsestatus sparas som `.sts` bredvid världens `.sav` (SD först, annars FFat)
 - [x] Ljud `talk` (blip) och `quest`; 12 nya strängar SV/EN
 - [x] Hosttester: test_story 182 (nytt), alla övriga oförändrat gröna; bygge 0 fel/0 varningar
-- [ ] HW-test: Prata-knappen, gå-och-prata, dialogrutans läsbarhet, skrivmaskinstakt, svarsknappar, sparning/återläsning av `.sts`
+- [x] HW-test (Kent): Byn och dialogerna fungerar mycket bra
 
 ## v0.10.0 – Kents HW-feedback på v0.9.0 🔧 (HW-testad av Kent: joystick, hastighet, diagonaler, brobugg, webb-SD-status)
 - [x] Äventyret: toppstatusbaren borttagen, spelvyn börjar på y=0. Ny kontrollpanel (160 px): vänster status (liv, nycklar, båt) + menyknapp (hamburgare) och zoomknapp (-/+), mitten stor centrerad joystick (radie 74, stoppzon 23), höger Slå-ruta, röd energistapel, röd diamant + ädelstenar "11/13", "Dräkt N"
@@ -191,7 +200,8 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Nästa: SD + ES8311, kartformat/`tmx2otr.py`, dialog, riktiga tilesets
 
 ## Planerat – bibliskt äventyr (se docs/BIBLE_ADVENTURE_PLAN.md)
-- [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (byggd, ej HW-testad)
+- [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (HW-testad av Kent)
+- [x] v0.11.1 – Live view för äventyret på webben (`/adventure`, ej HW-testad)
 - [ ] v0.12.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
 - [ ] v0.13.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
 - [ ] v0.14+ – kapitel 2–6, manus från SD, engelska

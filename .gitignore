@@ -20,3 +20,4 @@ tests/test_games
 tests/test_adventure
 tests/test_live
 tests/test_story
+tests/test_advlive

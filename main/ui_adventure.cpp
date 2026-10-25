@@ -1,5 +1,6 @@
 // ui_adventure.cpp - OnTheRoad Engine test world (see header).
 #include "ui_adventure.h"
+#include "adv_live.h"
 
 #include <errno.h>
 #include <math.h>
@@ -1626,6 +1627,7 @@ static void walkToTalk(int num, int nx, int ny)
 static void resetWorld(bool showHelp = true)
 {
     if (!s_world->load(Otr::WORLDS[s_worldIdx])) ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
+    AdvLive::invalidateMap();
     if (talking()) endTalk();
     s_storyState.clear();
     snapPlayer();
@@ -1659,6 +1661,7 @@ static void showGameOver()
         if (!(s_playerId && loadSave() && !w.gameOver())) {
             if (w.gameOver()) w.revive();
         }
+        AdvLive::invalidateMap();
         snapPlayer();
         s_dirty = true;
         updateStats();
@@ -1669,6 +1672,70 @@ static void showGameOver()
         saveNow();
     }, LV_EVENT_CLICKED, nullptr);
     Theme::msgboxFonts(mb);
+}
+
+// ----------------------------------------------------------------------------------------
+// v0.11.1: web live view (/adventure). Cheap change detection every tick; AdvLive::publish()
+// only when something the page shows changed (the map itself is copied only on a new revision).
+// ----------------------------------------------------------------------------------------
+struct LiveSig {
+    int px, py, facing, energy, maxEnergy, livesLeft, livesUsed, keys, gems, suit, cpX, cpY, steps;
+    uint32_t rev, items;
+    bool boat, gates, over, exit;
+    const void *node;
+    int talkNum, choices, lang;
+};
+static LiveSig s_liveSig;
+static bool s_liveValid;
+
+static const char *worldName()
+{
+    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES, Str::ADV_WORLD_VILLAGE};
+    return s_worldIdx >= 0 && s_worldIdx < Otr::WORLD_COUNT ? tr(NAMES[s_worldIdx]) : "";
+}
+
+static void liveSync(bool force = false)
+{
+    if (!s_world) return;
+    const Otr::World &w = *s_world;
+    LiveSig g;
+    memset(&g, 0, sizeof(g));   // Padding included: compared with memcmp
+    g.px = w.playerX();
+    g.py = w.playerY();
+    g.facing = (int)w.facing();
+    g.energy = w.energy();
+    g.maxEnergy = w.maxEnergy();
+    g.livesLeft = w.livesLeft();
+    g.livesUsed = w.livesUsed();
+    g.keys = w.keys();
+    g.gems = w.gems();
+    g.suit = w.suitCharges();
+    g.cpX = w.checkpointX();
+    g.cpY = w.checkpointY();
+    g.steps = w.steps();
+    g.rev = w.revision();
+    for (int i = 0; i < Otr::Story::MAX_ITEMS; i++) g.items = g.items * 31u + s_storyState.items[i];
+    g.boat = w.hasBoat();
+    g.gates = w.gatesOpen();
+    g.over = w.gameOver();
+    g.exit = w.exitReached();
+    g.node = s_talk.active() ? (const void *)s_talk.node() : nullptr;
+    g.talkNum = s_talkNum;
+    g.choices = s_talk.active() ? s_talk.choiceCount() : 0;
+    g.lang = langIdx();
+    if (!force && s_liveValid && memcmp(&g, &s_liveSig, sizeof(g)) == 0) return;
+    s_liveSig = g;
+    s_liveValid = true;
+    const AdvLive::Source src = {&w, worldName(), s_story, &s_storyState, s_talk.active() ? &s_talk : nullptr,
+                                 langIdx(), tr(Str::ADV_TALK_READ), tr(Str::ADV_TALK_OK), tr(Str::ADV_TALK_BYE),
+                                 s_talkNum};
+    AdvLive::publish(src);
+}
+
+static void liveStop()
+{
+    AdvLive::setInactive();
+    s_liveValid = false;
 }
 
 // ----------------------------------------------------------------------------------------
@@ -1748,6 +1815,7 @@ static void tick(lv_timer_t *)
         s_renders = s_renderAccUs = 0;
         s_statT0 = now;
     }
+    liveSync();
 }
 
 // ----------------------------------------------------------------------------------------
@@ -1919,6 +1987,7 @@ static void viewEvent(lv_event_t *e)
 
 static void freeAll()
 {
+    liveStop();   // Before the world memory goes
     closeDialog();
     if (s_timer) lv_timer_delete(s_timer);
     s_timer = nullptr;
@@ -1963,6 +2032,7 @@ static void leave()
     if (s_timer) lv_timer_pause(s_timer);
     s_joy.cancel();
     saveNow();
+    liveStop();
     UiYatzy::showMenu();   // Switches the music back to the dice loop
 }
 
@@ -2242,7 +2312,9 @@ static void buildGame(bool loadFailed)
     s_statT0 = nowMs();
     s_renders = s_renderAccUs = 0;
     s_perfText[0] = 0;
-    tick(nullptr);
+    AdvLive::invalidateMap();
+    s_liveValid = false;
+    tick(nullptr);   // Also publishes the first live snapshot
     s_timer = lv_timer_create(tick, TICK_MS, nullptr);
     Theme::loadScreen(s_scr);
     Audio::music(Sound::Music::ADVENTURE);

@@ -1,6 +1,6 @@
 # Återanvändbara komponenter – status och plan
 
-Senast uppdaterad: 2026-10-25 (main efter v0.10.0).
+Senast uppdaterad: 2026-10-25 (v0.11.1).
 
 Målet är att allt som inte är OnTheRoad-specifikt ska kunna lyftas in i syskonprojekten
 (MyPi-Companion, MyPi-Hotspot) utan ändringar. Regeln: en komponent under `components/` får **inte**
@@ -29,6 +29,13 @@ skickas in som parametrar/callbacks.
   mot dubbeltryck för toggles. Används i inställningarnas switchar och i äventyret.
 - Släppfilter (release debounce) i touchdrivern `main/board_touch.cpp` – fortfarande i `main/` eftersom
   drivern är kortspecifik (ST77922-touch, 0x55). Se punkt 2.
+
+### Nytt i v0.11.1 (i `main/`)
+- `adv_live.h/.cpp` (`AdvLive`): ögonblicksbild av äventyret för webben (`/api/adventure`, sidan
+  `/adventure`). Eget lås (`std::mutex`) och versionsnummer, karta med egen revision, buffertar i PSRAM.
+  Fyll- och JSON-delen är ren C++ och hosttestad (test_advlive). Ligger i `main/` eftersom den kopplar
+  ihop `otr_engine`, `otr_story` och webben; kan flyttas till `otr_engine` (eller en egen `otr_live`) om
+  ett annat projekt behöver den.
 
 ## 2. Planerade utbrytningar
 
