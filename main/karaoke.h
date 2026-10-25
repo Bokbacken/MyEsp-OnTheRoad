@@ -17,7 +17,9 @@ constexpr const char *DIR_SONGS = "/sdcard/otr/karaoke";
 constexpr const char *DIR_SF2 = "/sdcard/otr/sf2";
 constexpr const char *REG_FILE = "/sdcard/otr/karaoke/karaoke.reg";
 
-enum class Err : uint8_t { OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD };
+enum class Err : uint8_t {
+    OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED
+};
 
 struct SongFile {
     std::string path;       // Full path
@@ -28,12 +30,29 @@ struct SongFile {
 // Lists song files (sorted by artist, then title). Creates the folders when missing.
 Err scan(std::vector<SongFile> &out);
 
-// SoundFont: loading takes a few seconds, so it runs in its own task.
+// SoundFont: loading takes a few seconds, so it runs in its own task. Only one font lives in PSRAM.
+// Font choice: the open song's register entry (sf2=...) wins, else the global default
+// (Config::karaFont), else default.sf2, else the first valid .sf2 in DIR_SF2.
 enum class FontState : uint8_t { NONE, LOADING, READY, FAILED };
-void startLoadFont();           // No-op when READY or LOADING
+struct FontFile {
+    std::string name;       // File name in DIR_SF2
+    uint32_t size;
+    Err err;                // OK = playable; else why it is rejected (SF3, too big, not a SoundFont)
+};
+Err scanFonts(std::vector<FontFile> &out);   // Sorted by name; max 64 files
+// Loads the font the current context wants (song font when a song is open, else the default).
+// No-op when that request is already loaded/loading; retryFailed retries a failed request.
+// While a song is open the reload pauses playback; the song keeps its position.
+void ensureFont(bool retryFailed = false);
+void startLoadFont();           // = ensureFont(true) (kept for the menu)
+bool fontWanted();              // The current context wants a different font than the loaded one
 FontState fontState();
 Err fontError();
 const char *fontName();         // File name of the loaded font ("" if none)
+const char *defaultFont();      // Config::karaFont ("" = automatic)
+void setDefaultFont(const char *name);   // Saved in NVS; "" = automatic
+const char *songFont();         // Per-song font of the open song ("" = use the default)
+void setSongFont(const char *name);      // Saved in the register; "" = use the default
 void unloadFont();              // Frees the PSRAM (leaving the karaoke menu)
 
 Err open(const SongFile &f);    // Parses the file and applies its register entry; paused at 0

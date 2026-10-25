@@ -447,6 +447,18 @@ extern const Entry LANG_EN[] = {
     {Str::KARA_AUTO, "auto"},
     {Str::KARA_MATCH, "lyric match"},
     {Str::KARA_SAVED_NOTE, "Saved per song"},
+    {Str::KARA_ERR_SF2_SF3, "The sound bank is compressed (SF3), which is not supported. Use an uncompressed .sf2"},
+    {Str::KARA_SOUND_OFF_Q, "Sound is turned off. Turn sound on?"},
+    {Str::KARA_YES, "Yes"},
+    {Str::KARA_NO, "No"},
+    {Str::KARA_BTN_FONT, "Sound bank"},
+    {Str::KARA_FONT_DEFAULT, "Default sound bank (all songs)"},
+    {Str::KARA_FONT_SONG, "Sound bank for this song"},
+    {Str::KARA_FONT_AUTO, "Automatic (default.sf2 / first)"},
+    {Str::KARA_FONT_USE_DEFAULT, "Use default"},
+    {Str::KARA_FONT_NONE, "No .sf2 files in /otr/sf2"},
+    {Str::KARA_FONT_SAVED, "Saved in the settings"},
+    {Str::KARA_FONT_SONG_HINT, "Saved for the song in karaoke.reg"},
 };
 
 extern const LangDef DEF_EN = {"en", "English", LANG_EN, sizeof(LANG_EN) / sizeof(LANG_EN[0])};

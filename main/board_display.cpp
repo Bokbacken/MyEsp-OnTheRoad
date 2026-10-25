@@ -666,6 +666,14 @@ void setRotation(bool rot180)
 
 bool rotated() { return g_madctl == 0xC0; }
 
+bool setLandscape(bool on, bool flip)
+{
+    if (!g_ok) return false;
+    return MyLvgl::setRotation(on ? (flip ? LV_DISPLAY_ROTATION_270 : LV_DISPLAY_ROTATION_90) : LV_DISPLAY_ROTATION_0);
+}
+
+bool landscape() { return g_ok && MyLvgl::rotation() != LV_DISPLAY_ROTATION_0; }
+
 bool ok() { return g_ok; }
 bool panelOk() { return g_panelOk; }
 const char *failReason() { return g_fail; }

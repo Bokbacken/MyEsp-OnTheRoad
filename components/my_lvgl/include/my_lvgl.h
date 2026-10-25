@@ -45,6 +45,11 @@ bool begin(const Config &cfg);  // lv_init(), tick, buffers, display
 bool ok();
 lv_display_t *display();
 lv_indev_t *addPointer(PointerFn fn);
+// Software rotation (lv_display_set_rotation + rotation in the flush). The pointer keeps reporting
+// physical coordinates; LVGL maps them to the rotated screen. A rotation buffer of one draw-buffer
+// size is allocated (PSRAM) on the first non-zero rotation and kept. Call with the LVGL lock held.
+bool setRotation(lv_display_rotation_t rot);
+lv_display_rotation_t rotation();
 
 bool startTask(int core = 1, int prio = 2, uint32_t stackBytes = 12 * 1024);
 bool lock(uint32_t timeoutMs = 0);   // 0 = wait forever; recursive

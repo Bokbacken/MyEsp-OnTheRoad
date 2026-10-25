@@ -4,7 +4,18 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.0 – **karaoke mode**: new pure-C++ components `otr_midi` (SMF/.kar parser, lyrics with
+> **Status:** v0.13.1 – **karaoke in landscape + multiple SoundFonts**: the karaoke module turns the display to
+> landscape (480×320, LVGL software rotation in the flush, touch mapped by LVGL; portrait and the 180° setting are
+> restored when leaving) so whole lyric lines fit; list, player and sheets re-laid out for 480 px. Several `.sf2`
+> files can live in `/otr/sf2`: pick a global default (saved in NVS) from the song list and optionally a per-song
+> sound bank from the player (saved as `sf2=<file>` in `karaoke.reg`, old lines still valid). The font is reloaded
+> in the background when a song wants another one (only one font in PSRAM); the active font name is shown. Files
+> are validated: SF3/compressed, non-RIFF/sfbk and > 7 MB are rejected with a clear message. Entering karaoke with
+> sound off asks "Turn sound on?" (yes/no; yes saves the setting). Adventure live view (`/adventure`) now scales to
+> the browser window: map and info side by side in wide/landscape windows (≥ 800 px), info below the map in
+> portrait, plus a size selector (fit / small / medium / large, saved in the browser). Same partitions → plain OTA.
+> **Not hardware-tested yet.**
+> v0.13.0 – **karaoke mode**: new pure-C++ components `otr_midi` (SMF/.kar parser, lyrics with
 > syllable timing, melody-track detection, sequencer, per-song registry; 102 host tests) and `otr_synth`
 > (vendored TinySoundFont, patched for 16-bit samples in PSRAM, float filters, fixed-point mono render and voice
 > stealing, max 32 voices). A new gold **Karaoke** card in the menu: song list from `/otr/karaoke`, lyrics on the
@@ -49,7 +60,7 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
-- **Karaoke (v0.13.0, not hardware-tested)** – plays `.mid`/`.kar` from the SD card through a SoundFont synth
+- **Karaoke (v0.13.0/v0.13.1, not hardware-tested)** – landscape screen, multiple SoundFonts (global default + per song), plays `.mid`/`.kar` from the SD card through a SoundFont synth
   (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
   per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
 - **Sound (v0.9.0, hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
@@ -70,7 +81,7 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 /sdcard/otr/adventure/maps/         reserved for future maps
 /sdcard/otr/karaoke/                karaoke songs (.mid / .kar, max 1 MB each); "Artist_Title.mid" gives artist + title
 /sdcard/otr/karaoke/karaoke.reg     per-song settings (melody track, key, tempo) – created automatically, plain text
-/sdcard/otr/sf2/                    SoundFont for karaoke (.sf2, max 7 MB); default.sf2 is preferred, else the first .sf2
+/sdcard/otr/sf2/                    SoundFonts for karaoke (.sf2 v2, max 7 MB, several allowed): per-song choice, else the default chosen on the device, else default.sf2, else the first valid .sf2
 ```
 
 SoundFont: not included (licence and size). A good fit is **TimGM6mb.sf2** (~5.7 MB, GPL v2):

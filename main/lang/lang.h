@@ -442,7 +442,19 @@
     X(KARA_CH_FMT) \
     X(KARA_AUTO) \
     X(KARA_MATCH) \
-    X(KARA_SAVED_NOTE)
+    X(KARA_SAVED_NOTE) \
+    X(KARA_ERR_SF2_SF3) \
+    X(KARA_SOUND_OFF_Q) \
+    X(KARA_YES) \
+    X(KARA_NO) \
+    X(KARA_BTN_FONT) \
+    X(KARA_FONT_DEFAULT) \
+    X(KARA_FONT_SONG) \
+    X(KARA_FONT_AUTO) \
+    X(KARA_FONT_USE_DEFAULT) \
+    X(KARA_FONT_NONE) \
+    X(KARA_FONT_SAVED) \
+    X(KARA_FONT_SONG_HINT)
 // clang-format on
 
 enum class Str : uint16_t {

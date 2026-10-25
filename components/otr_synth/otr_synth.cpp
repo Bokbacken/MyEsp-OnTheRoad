@@ -49,8 +49,51 @@ const char *loadErrName(LoadErr e)
     case LoadErr::TOO_BIG: return "too big";
     case LoadErr::BAD_FILE: return "bad file";
     case LoadErr::NO_MEMORY: return "no memory";
+    case LoadErr::COMPRESSED: return "compressed (sf3)";
     }
     return "?";
+}
+
+static uint32_t le32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+
+LoadErr probe(const uint8_t *d, size_t n, size_t fileSize)
+{
+    if (fileSize <= 12 || n < 12) return LoadErr::BAD_FILE;
+    if (fileSize > MAX_SF2) return LoadErr::TOO_BIG;
+    if (memcmp(d, "RIFF", 4) || memcmp(d + 8, "sfbk", 4)) return LoadErr::BAD_FILE;
+    size_t off = 12;
+    while (off + 12 <= n) {
+        const uint32_t sz = le32(d + off + 4);
+        if (!memcmp(d + off, "LIST", 4) && !memcmp(d + off + 8, "INFO", 4)) {
+            const size_t end = off + 8 + (size_t)sz < n ? off + 8 + (size_t)sz : n;
+            size_t sub = off + 12;
+            while (sub + 8 <= end) {
+                const uint32_t ssz = le32(d + sub + 4);
+                if (!memcmp(d + sub, "ifil", 4) && ssz >= 4 && sub + 12 <= end) {
+                    const unsigned major = (unsigned)d[sub + 8] | (unsigned)d[sub + 9] << 8;
+                    return major >= 3 ? LoadErr::COMPRESSED : LoadErr::OK;   // SF3 = Ogg samples
+                }
+                sub += 8 + (size_t)ssz + (ssz & 1);
+            }
+            return LoadErr::OK;   // No version chunk: treat as SF2
+        }
+        off += 8 + (size_t)sz + (sz & 1);
+    }
+    return LoadErr::OK;
+}
+
+LoadErr probeFile(const char *path, size_t *sizeOut)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return LoadErr::NO_FILE;
+    fseek(fp, 0, SEEK_END);
+    const long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    uint8_t hdr[256];
+    const size_t n = fread(hdr, 1, sizeof(hdr), fp);
+    fclose(fp);
+    if (sizeOut) *sizeOut = sz > 0 ? (size_t)sz : 0;
+    return probe(hdr, n, sz > 0 ? (size_t)sz : 0);
 }
 
 Synth::Synth() { memset(playedAs_, 0xFF, sizeof(playedAs_)); }
@@ -64,12 +107,12 @@ LoadErr Synth::load(const char *path, int sampleRate)
     fseek(fp, 0, SEEK_END);
     long sz = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    if (sz <= 12) { fclose(fp); return LoadErr::BAD_FILE; }
-    if ((size_t)sz > MAX_SF2) { fclose(fp); return LoadErr::TOO_BIG; }
-    char hdr[12];
-    if (fread(hdr, 1, 12, fp) != 12 || memcmp(hdr, "RIFF", 4) || memcmp(hdr + 8, "sfbk", 4)) {
+    uint8_t hdr[256];
+    const size_t got = sz > 0 ? fread(hdr, 1, sizeof(hdr), fp) : 0;
+    const LoadErr pe = probe(hdr, got, sz > 0 ? (size_t)sz : 0);
+    if (pe != LoadErr::OK) {
         fclose(fp);
-        return LoadErr::BAD_FILE;
+        return pe;
     }
     fseek(fp, 0, SEEK_SET);
     setvbuf(fp, nullptr, _IOFBF, 16384);

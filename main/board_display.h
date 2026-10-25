@@ -40,6 +40,12 @@ Stats stats();
 // image is offset/garbled: lv_display_set_rotation(LV_DISPLAY_ROTATION_180) (software, slower).
 void setRotation(bool rot180);
 bool rotated();
+// v0.13.1: landscape (480x320) for the karaoke screen through LVGL software rotation (90 or 270
+// degrees, composes with the MADCTL 180 setting above; touch is mapped by LVGL). MADCTL is not
+// touched (MV changes garble the ST77922 QSPI window). Call with the LVGL lock held, before the
+// screen for the new orientation is created. NOT verified on hardware yet.
+bool setLandscape(bool on, bool flip = false);
+bool landscape();
 
 }  // namespace Display
 

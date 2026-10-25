@@ -27,6 +27,7 @@ bool g_frameStart = true;
 uint32_t g_fpsWindowStart = 0;
 uint32_t g_fpsFrames = 0;
 MyLvgl::PointerFn g_pointer = nullptr;
+uint8_t *g_rotBuf = nullptr;   // Software rotation target (PSRAM, one draw buffer), allocated on first use
 
 uint32_t tickMs() { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -39,15 +40,31 @@ void rounderCb(lv_event_t *e)
     a->y1 &= ~m;
     a->x2 |= m;
     a->y2 |= m;
-    if (a->x2 >= g_cfg.hres) a->x2 = g_cfg.hres - 1;
-    if (a->y2 >= g_cfg.vres) a->y2 = g_cfg.vres - 1;
+    // Logical resolution: swapped while a 90/270 software rotation is active
+    const int32_t w = g_disp ? lv_display_get_horizontal_resolution(g_disp) : g_cfg.hres;
+    const int32_t h = g_disp ? lv_display_get_vertical_resolution(g_disp) : g_cfg.vres;
+    if (a->x2 >= w) a->x2 = w - 1;
+    if (a->y2 >= h) a->y2 = h - 1;
 }
 
 void flushCb(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
 {
-    const uint32_t n = (uint32_t)lv_area_get_width(area) * (uint32_t)lv_area_get_height(area);
+    const int32_t srcW = lv_area_get_width(area), srcH = lv_area_get_height(area);
+    const uint32_t n = (uint32_t)srcW * (uint32_t)srcH;
+    lv_area_t phys = *area;
+    const lv_display_rotation_t rot = lv_display_get_rotation(disp);
+    if (rot != LV_DISPLAY_ROTATION_0 && g_rotBuf) {
+        // Software rotation (LVGL renders in logical coordinates): rotate the chunk into the
+        // rotation buffer and send it to the physical window. 4-px alignment survives because
+        // both panel dimensions are multiples of 4.
+        lv_display_rotate_area(disp, &phys);
+        const uint32_t srcStride = lv_draw_buf_width_to_stride(srcW, LV_COLOR_FORMAT_RGB565);
+        const uint32_t dstStride = lv_draw_buf_width_to_stride(lv_area_get_width(&phys), LV_COLOR_FORMAT_RGB565);
+        lv_draw_rotate(px, g_rotBuf, srcW, srcH, srcStride, dstStride, rot, LV_COLOR_FORMAT_RGB565);
+        px = g_rotBuf;
+    }
     if (g_cfg.swapBytes) lv_draw_rgb565_swap(px, n);
-    if (g_cfg.flush) g_cfg.flush(area->x1, area->y1, area->x2, area->y2, (const uint16_t *)px, g_frameStart);
+    if (g_cfg.flush) g_cfg.flush(phys.x1, phys.y1, phys.x2, phys.y2, (const uint16_t *)px, g_frameStart);
     g_frameStart = false;
     g_stats.flushes++;
     if (lv_display_flush_is_last(disp)) {
@@ -148,6 +165,26 @@ bool begin(const Config &cfg)
 }
 
 bool ok() { return g_disp != nullptr; }
+
+bool setRotation(lv_display_rotation_t rot)
+{
+    if (!g_disp) return false;
+    if (rot != LV_DISPLAY_ROTATION_0 && !g_rotBuf) {
+        const bool psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
+        g_rotBuf = (uint8_t *)allocBuf(g_stats.bufBytes, psram);
+        if (!g_rotBuf) {
+            ESP_LOGE(TAG, "no memory for the rotation buffer (%u B)", (unsigned)g_stats.bufBytes);
+            return false;
+        }
+    }
+    if (lv_display_get_rotation(g_disp) == rot) return true;
+    lv_display_set_rotation(g_disp, rot);   // Swaps the logical resolution, resizes the screens
+    lv_obj_invalidate(lv_screen_active());
+    ESP_LOGI(TAG, "software rotation %d", (int)rot * 90);
+    return true;
+}
+
+lv_display_rotation_t rotation() { return g_disp ? lv_display_get_rotation(g_disp) : LV_DISPLAY_ROTATION_0; }
 lv_display_t *display() { return g_disp; }
 
 lv_indev_t *addPointer(PointerFn fn)

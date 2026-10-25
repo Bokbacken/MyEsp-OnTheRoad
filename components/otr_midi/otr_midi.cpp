@@ -2,6 +2,7 @@
 #include "otr_midi.h"
 
 #include <stdio.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -555,18 +556,46 @@ void Registry::load(const std::string &text)
         RegEntry e;
         e.crc = crc, e.size = size, e.melody = (int8_t)mel, e.transpose = (int8_t)tr, e.tempo = (uint8_t)tempo;
         if (used > 0 && (size_t)used <= line.size()) e.name = line.substr((size_t)used);
+        if (e.name.compare(0, 4, "sf2=") == 0) {   // v0.13.1 per-song SoundFont
+            const size_t sp = e.name.find(' ');
+            const std::string tok = e.name.substr(4, sp == std::string::npos ? std::string::npos : sp - 4);
+            e.name = sp == std::string::npos ? std::string() : e.name.substr(sp + 1);
+            for (size_t i = 0; i < tok.size(); i++) {
+                if (tok[i] == '%' && i + 2 < tok.size() && isxdigit((unsigned char)tok[i + 1]) &&
+                    isxdigit((unsigned char)tok[i + 2])) {
+                    const long v = strtol(tok.substr(i + 1, 2).c_str(), nullptr, 16);
+                    if (v > 0) {
+                        e.sf2 += (char)v;
+                        i += 2;
+                        continue;
+                    }
+                }
+                e.sf2 += tok[i];
+            }
+            if (e.sf2.find_first_of("/\\") != std::string::npos || e.sf2.size() > 63) e.sf2.clear();   // File name only
+        }
         set(e);
     }
 }
 
 std::string Registry::save() const
 {
-    std::string o = "# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% name\n";
+    std::string o = "# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% [sf2=font] name\n";
     char buf[64];
     for (const RegEntry &e : entries_) {
         snprintf(buf, sizeof(buf), "%08x %u %d %d %u ", (unsigned)e.crc, (unsigned)e.size, e.melody, e.transpose,
                  e.tempo);
         o += buf;
+        if (!e.sf2.empty()) {
+            o += "sf2=";
+            for (char c : e.sf2) {
+                if (c == ' ') o += "%20";
+                else if (c == '%') o += "%25";
+                else if (c == '\n' || c == '\r' || c == '\t') o += "%20";
+                else o += c;
+            }
+            o += ' ';
+        }
         for (char c : e.name) o += (c == '\n' || c == '\r') ? ' ' : c;
         o += '\n';
     }

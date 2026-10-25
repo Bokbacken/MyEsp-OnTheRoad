@@ -447,6 +447,18 @@ extern const Entry LANG_SV[] = {
     {Str::KARA_AUTO, "auto"},
     {Str::KARA_MATCH, "textträff"},
     {Str::KARA_SAVED_NOTE, "Sparas per låt"},
+    {Str::KARA_ERR_SF2_SF3, "Ljudbanken är komprimerad (SF3) och stöds inte. Använd en okomprimerad .sf2"},
+    {Str::KARA_SOUND_OFF_Q, "Ljudet är avstängt. Slå på ljudet?"},
+    {Str::KARA_YES, "Ja"},
+    {Str::KARA_NO, "Nej"},
+    {Str::KARA_BTN_FONT, "Ljudbank"},
+    {Str::KARA_FONT_DEFAULT, "Standardljudbank (alla låtar)"},
+    {Str::KARA_FONT_SONG, "Ljudbank för den här låten"},
+    {Str::KARA_FONT_AUTO, "Automatisk (default.sf2 / första)"},
+    {Str::KARA_FONT_USE_DEFAULT, "Använd standard"},
+    {Str::KARA_FONT_NONE, "Inga .sf2-filer i /otr/sf2"},
+    {Str::KARA_FONT_SAVED, "Sparas i inställningarna"},
+    {Str::KARA_FONT_SONG_HINT, "Sparas för låten i karaoke.reg"},
 };
 
 extern const LangDef DEF_SV = {"sv", "Svenska", LANG_SV, sizeof(LANG_SV) / sizeof(LANG_SV[0])};

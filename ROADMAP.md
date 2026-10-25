@@ -115,6 +115,17 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.13.1 – Karaoke liggande, flera ljudbanker, skalbar live view 🔧 (ej HW-testad)
+- [x] Karaoke visas liggande (480×320) via LVGL-mjukvarurotation (`MyLvgl::setRotation`, rotation i flush till en PSRAM-buffert); pekning mappas av LVGL; stående läge och 180°-inställningen återställs när man lämnar modulen (`Display::setLandscape`). MADCTL rörs inte (ST77922 QSPI)
+- [x] `ui_karaoke` omgjord för 480 px: låtlista i två kolumner, spelare med hela rader (föregående/aktuell upp till 3 rader/nästa/nästnästa), två knapprader, ark i full bredd
+- [x] Flera SF2 i `/otr/sf2`: global standard (NVS `kara_sf2`) väljs i låtlistan, ljudbank per låt väljs i spelaren och sparas som `sf2=<fil>` i `karaoke.reg` (bakåtkompatibelt, mellanslag som `%20`); omladdning i bakgrunden när låten vill ha en annan bank, bara en bank i PSRAM; aktiv bank visas
+- [x] Validering av ljudbanker (`Sf::probe`): SF3/komprimerad, inte RIFF/sfbk och > 7 MB avvisas med tydligt meddelande; ogiltiga filer visas gråa med orsak i väljaren
+- [x] Ljudet avstängt när man går in i karaoke → dialog "Ljudet är avstängt. Slå på ljudet?" Ja/Nej (Ja sparar som inställningssidan)
+- [x] Äventyr live view (`/adventure`) skalar till fönstret: sida vid sida i liggande/brett fönster (≥ 800 px), info under kartan i stående; storleksväljare (Anpassa till fönster/Liten/Mellan/Stor) sparas i webbläsaren; ritas om vid storleks-/orienteringsbyte
+- [x] Hosttester: test_midi 100 (nytt: registerformat med `sf2=`), test_sfsynth 17 (nytt: probe SF2 v2/v3); alla 15 sviter gröna; bygge 0 varningar, appen 1 829 744 B
+- [ ] HW-test: rotationens prestanda och pekmappning (90°/270°), fontbyte per låt, ljuddialogen, live view på TV/mobil
+- **Obs:** samma partitioner → vanlig OTA
+
 ## v0.13.0 – Karaoke: MIDI/KAR, SF2-synt, text på enheten 🔧 (ej HW-testad)
 - [x] Ny komponent `otr_midi` (ren C++17): SMF format 0/1, running status, sysex/meta, tempokarta, .kar-text (`@`-taggar, `/` och `\\` som rad/vers) och vanliga lyrics-händelser, stavelser → rader, melodispårsdetektering (textträff, enstämmighet, spårnamn), sekvenserare med sökning/tempo/transponering, register `karaoke.reg`
 - [x] Ny komponent `otr_synth`: vendrad TinySoundFont, patchad för 16-bitars sampel i PSRAM (halva minnet), float-filter (S3 saknar double-FPU), fixpunkts-monorendering, röststöld, max 32 röster, -14 dB headroom

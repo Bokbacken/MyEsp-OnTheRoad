@@ -257,6 +257,49 @@ static void testRegistry()
     CHECK(empty.size() == 0 && empty.save()[0] == '#');
 }
 
+// v0.13.1: optional per-song SoundFont token, old lines must still load unchanged
+static void testRegistrySf2()
+{
+    Registry r;
+    r.load("# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% name\n"
+           "8c5c36ba 51234 2 0 100 Abba_Another town.mid\n"                        // v0.13.0 line
+           "9218be09 40000 3 -2 90 sf2=Florestan_Basic_GM_GS.sf2 After shave_Macken.mid\n"
+           "11111111 100 -1 0 100 sf2=My%20Font%25.sf2 Song with spaces.kar\n"
+           "22222222 200 1 0 100 sf2=../evil.sf2 Bad path.mid\n"
+           "33333333 300 1 0 100 sf2=OnlyFont.sf2\n"
+           "44444444 400 1 0 100 sf2=Odd%2.sf2 Odd escape.mid\n");
+    CHECK(r.size() == 6);
+    const RegEntry *a = r.find(0x8c5c36ba, 51234);
+    CHECK(a && a->sf2.empty() && a->name == "Abba_Another town.mid" && a->melody == 2);
+    const RegEntry *b = r.find(0x9218be09, 40000);
+    CHECK(b && b->sf2 == "Florestan_Basic_GM_GS.sf2" && b->name == "After shave_Macken.mid" && b->transpose == -2 &&
+          b->tempo == 90);
+    const RegEntry *c = r.find(0x11111111, 100);
+    CHECK(c && c->sf2 == "My Font%.sf2" && c->name == "Song with spaces.kar" && c->melody == -1);
+    const RegEntry *d = r.find(0x22222222, 200);
+    CHECK(d && d->sf2.empty() && d->name == "Bad path.mid");
+    const RegEntry *e = r.find(0x33333333, 300);
+    CHECK(e && e->sf2 == "OnlyFont.sf2" && e->name.empty());
+    const RegEntry *f = r.find(0x44444444, 400);
+    CHECK(f && f->sf2 == "Odd%2.sf2");
+    // Round trip keeps the font, and lines without a font are written exactly as in v0.13.0
+    const std::string text = r.save();
+    CHECK(text.find("8c5c36ba 51234 2 0 100 Abba_Another town.mid\n") != std::string::npos);
+    CHECK(text.find("sf2=My%20Font%25.sf2 Song with spaces.kar\n") != std::string::npos);
+    Registry r2;
+    r2.load(text);
+    CHECK(r2.size() == 6);
+    const RegEntry *c2 = r2.find(0x11111111, 100);
+    CHECK(c2 && c2->sf2 == "My Font%.sf2" && c2->name == "Song with spaces.kar");
+    const RegEntry *b2 = r2.find(0x9218be09, 40000);
+    CHECK(b2 && b2->sf2 == "Florestan_Basic_GM_GS.sf2" && b2->name == "After shave_Macken.mid");
+    // Clearing the font removes the token again
+    RegEntry n = *b2;
+    n.sf2.clear();
+    r2.set(n);
+    CHECK(r2.save().find("9218be09 40000 3 -2 90 After shave_Macken.mid\n") != std::string::npos);
+}
+
 static void testPlayer()
 {
     std::vector<uint8_t> f = karFile();
@@ -340,6 +383,7 @@ int main(int argc, char **argv)
     testErrors();
     testUtf8AndNames();
     testRegistry();
+    testRegistrySf2();
     testPlayer();
     testRealFiles(argc, argv);
     CHECK_DONE();

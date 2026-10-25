@@ -1,6 +1,6 @@
 # Återanvändbara komponenter – status och plan
 
-Senast uppdaterad: 2026-10-25 (v0.13.0).
+Senast uppdaterad: 2026-10-25 (v0.13.1).
 
 Målet är att allt som inte är OnTheRoad-specifikt ska kunna lyftas in i syskonprojekten
 (MyPi-Companion, MyPi-Hotspot) utan ändringar. Regeln: en komponent under `components/` får **inte**
@@ -19,11 +19,11 @@ skickas in som parametrar/callbacks.
 | `my_wifi` | STA med sparade nät (`net_list.h`), starkaste BSSID, roaming (`roam_policy.h`), mDNS | esp_wifi, mdns, my_log | `net_list.h`, `roam_policy.h` (test_core) | Wi-Fi |
 | `my_ota` | OTA till inaktiv slot, rollback/mark-valid | app_update, my_log | – | `/update` |
 | `my_web` | `esp_http_server`-omslag: rutter, gzip-assets, JSON-hjälp, admin-PIN, logg/OTA/omstart-rutter | esp_http_server, cJSON, my_log, my_ota | – | webbsidor |
-| `my_lvgl` | LVGL 9: tick, task, rekursiv mutex, ritbuffertar (PSRAM eller intern RAM), pekdon via callback | LVGL | – | all UI |
+| `my_lvgl` | LVGL 9: tick, task, rekursiv mutex, ritbuffertar (PSRAM eller intern RAM), pekdon via callback; v0.13.1: mjukvarurotation `setRotation()` (rotation i flush, extra buffert i PSRAM; används för liggande karaoke, ej HW-testad) | LVGL | – | all UI |
 | `my_ui` | Tema (färger, kort, knappar, msgbox-fonter), fonter med å/ä/ö + symboler, skrollhjulstangentbord (`my_charwheel`, `mypi_kbd_core.h`), textinmatning, **`Theme::debounce()`** (dubbeltryckskydd, ny) | LVGL | `mypi_kbd_core.h` (test_core) | all UI |
 | `otr_story` (v0.11.0) | Dialoger: `Script` (personer, noder, val, villkor, effekter, föremål, uppdrag), `StoryState` (flaggor/räknare/föremål/uppdrag + serialisering), `Dialog`-körare, `validate()`, `StoryHost` för världseffekter; demomanuset Byn (`otr_stories.h`) | ingen (ren C++17) | test_story | äventyret |
-| `otr_midi` (v0.13.0) | MIDI/KAR: SMF-parser, tempokarta, text/lyrics → stavelser och rader, kanalstatistik, melodispårsdetektering, `Player` (sekvenserare: sök, tempo, transponering, tysta kanal), register `karaoke.reg` (CRC32+storlek), artist/titel ur filnamn | ingen (ren C++17) | test_midi | karaoke |
-| `otr_synth` (v0.13.0) | SoundFont-synt: vendrad TinySoundFont (`tsf.h`, MIT) patchad för int16-sampel, float-filter, fixpunkt-mono, röststöld; `SfSynth` tar MIDI-händelser och renderar int16 mono | otr_midi; på enheten `heap` (allokering i PSRAM) | test_sfsynth | karaoke |
+| `otr_midi` (v0.13.0) | MIDI/KAR: SMF-parser, tempokarta, text/lyrics → stavelser och rader, kanalstatistik, melodispårsdetektering, `Player` (sekvenserare: sök, tempo, transponering, tysta kanal), register `karaoke.reg` (CRC32+storlek; v0.13.1: valfri `sf2=` per låt), artist/titel ur filnamn | ingen (ren C++17) | test_midi | karaoke |
+| `otr_synth` (v0.13.0) | SoundFont-synt: vendrad TinySoundFont (`tsf.h`, MIT) patchad för int16-sampel, float-filter, fixpunkt-mono, röststöld; `SfSynth` tar MIDI-händelser och renderar int16 mono; v0.13.1: `Sf::probe/probeFile` avvisar SF3, icke-RIFF/sfbk och > 7 MB | otr_midi; på enheten `heap` (allokering i PSRAM) | test_sfsynth | karaoke |
 | `otr_engine` | Äventyrsmotorn: `otr_world` (rutnät, terräng/objekt, regler, skatter, sparformat, A*-planerare Pro/Assist), `otr_maps` (inbyggda världar), `otr_joystick.h` (zoner, takt, diagonal) | ingen (ren C++17) | test_adventure, test_joystick | äventyret |
 
 ### Nytt sedan v0.10.0

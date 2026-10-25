@@ -1,6 +1,7 @@
 # Karaoke och musik – design och plan
 
-Senast uppdaterad: 2026-10-25 (v0.13.0). Status: steg 1 klart i v0.13.0 (ej HW-testat), steg 2 (mikrofon och
+Senast uppdaterad: 2026-10-25 (v0.13.1). Status: steg 1 klart i v0.13.0 och utökat i v0.13.1 (liggande skärm,
+flera ljudbanker; ej HW-testat), steg 2 (mikrofon och
 poäng) planerat till v0.14.0.
 
 ## 1. Mål
@@ -36,15 +37,28 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   efteråt. `setExternal(nullptr)` väntar tills mixern lämnat callbacken innan kontexten släpps.
 - **SF2-laddning** sker i en egen task när karaokemenyn öppnas och frigörs när man lämnar den. Utan ljudbank
   spelas texten i tyst läge.
+- **v0.13.1 – liggande skärm:** när karaokemodulen öppnas sätts LVGL-rotationen till 90° (eller 270°,
+  `kara_flip` i NVS) med `Display::setLandscape(true)`. Flushen roterar varje delområde med `lv_draw_rotate` till en
+  extra buffert (samma storlek som en ritbuffert, PSRAM) och skickar det fysiska området; MADCTL ändras inte.
+  LVGL roterar pekpunkterna själv. Vid utgång återställs stående läge (180°-inställningen gäller som förut).
+- **v0.13.1 – flera ljudbanker:** valordning: låtens `sf2=` i registret → global standard (NVS `kara_sf2`, väljs
+  med knappen Ljudbank i låtlistan) → `default.sf2` → första giltiga `.sf2`. När den öppna låten vill ha en annan
+  bank laddas den om i fonttasken (gamla banken frigörs först, bara en i PSRAM); under laddningen står låten still
+  och mixern rör inte synten. Filerna kontrolleras med `Sf::probe` (RIFF/sfbk, `ifil` < 3, max 7 MB).
+- **v0.13.1 – ljud av:** går man in i karaoke med ljudet avstängt frågar en dialog om ljudet ska slås på.
 
 ## 3. Registret `karaoke.reg`
 
 Textfil i `/otr/karaoke/`, skapas automatiskt och kan redigeras för hand:
 
 ```
-# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% name
+# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% [sf2=font] name
 8c5c36ba 51234 2 0 100 Abba_Another town.mid
+1f00aa12 40960 -1 -2 95 sf2=Florestan%20Basic.sf2 Ainbusk Singers_Älska mej.mid
 ```
+
+- v0.13.1: valfri token `sf2=<filnamn>` (ljudbank för låten i `/otr/sf2`, mellanslag som `%20`, `%` som `%25`).
+  Gamla rader utan token läses som förut; snedstreck i namnet eller namn över 63 tecken ignoreras.
 
 - Nyckel = CRC32 + filstorlek, så inställningarna följer med om filen byter namn. Namnet är bara information.
 - `melody` -1 = automatisk detektering, 0–15 = vald kanal (visas som kanal 1–16 i UI). Trumkanalen kan inte väljas.
@@ -68,6 +82,10 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
 - Max 32 samtidiga röster; vid fler stjäls den äldsta rösten.
 - Mono 22 050 Hz (samma som mixern).
 - Ingen ljudbank ingår i repot (licens och storlek). Förslag: TimGM6mb.sf2 (GPL v2, ~5,7 MB).
+- Endast okomprimerade SF2 (version 2, 16-bitars sampel). SF3 (Ogg-komprimerade) avvisas.
+- Mindre GM-banker som testats på värddatorn (v0.13.1, test_sfsynth med Kents låtar, inga klipp, max 32 röster):
+  Florestan_Basic_GM_GS.sf2 (3,1 MB), Yamaha_XG_Sound_Set.sf2 (3,7 MB), Super_Nintendo_Unofficial_update.sf2
+  (1,8 MB) från archive.org "free-soundfonts-sf2-2019-04". Ljudkvaliteten på enheten är inte bedömd.
 
 ## 6. Steg 2 – mikrofon och poäng (v0.14.0)
 

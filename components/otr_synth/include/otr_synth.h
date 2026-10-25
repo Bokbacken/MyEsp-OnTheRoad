@@ -16,8 +16,14 @@ namespace Sf {
 constexpr int MAX_VOICES = 32;
 constexpr size_t MAX_SF2 = 7u * 1024 * 1024;   // Refuse larger files (8 MB PSRAM, 16-bit samples)
 
-enum class LoadErr : uint8_t { OK, NO_FILE, TOO_BIG, BAD_FILE, NO_MEMORY };
+enum class LoadErr : uint8_t { OK, NO_FILE, TOO_BIG, BAD_FILE, NO_MEMORY, COMPRESSED };
 const char *loadErrName(LoadErr e);
+
+// Validates the start of a SoundFont (first ~256 bytes) without loading it: RIFF/sfbk header,
+// size <= MAX_SF2 and the ifil version (3.x = SF3 with Ogg-compressed samples, which TinySoundFont
+// cannot play -> COMPRESSED). Used by load() and for the font list.
+LoadErr probe(const uint8_t *data, size_t n, size_t fileSize);
+LoadErr probeFile(const char *path, size_t *sizeOut = nullptr);
 
 class Synth : public Midi::Sink {
 public:

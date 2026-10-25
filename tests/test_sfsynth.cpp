@@ -38,6 +38,54 @@ static void testErrors()
     CHECK(strcmp(Sf::loadErrName(Sf::LoadErr::NO_MEMORY), "no memory") == 0);
 }
 
+// v0.13.1: header validation (SF2 v2 accepted, SF3 / non-RIFF / too big refused)
+static void putChunk(std::vector<uint8_t> &v, const char *id, const std::vector<uint8_t> &body)
+{
+    v.insert(v.end(), id, id + 4);
+    const uint32_t n = (uint32_t)body.size();
+    for (int i = 0; i < 4; i++) v.push_back((uint8_t)(n >> (8 * i)));
+    v.insert(v.end(), body.begin(), body.end());
+    if (n & 1) v.push_back(0);
+}
+
+static std::vector<uint8_t> fakeSf(unsigned major)
+{
+    std::vector<uint8_t> info = {'I', 'N', 'F', 'O'};
+    putChunk(info, "isng", {'E', 'M', 'U', '8', '0', '0', '0', 0});
+    putChunk(info, "ifil", {(uint8_t)major, 0, 4, 0});
+    std::vector<uint8_t> body = {'s', 'f', 'b', 'k'};
+    putChunk(body, "LIST", info);
+    std::vector<uint8_t> out;
+    putChunk(out, "RIFF", body);
+    return out;
+}
+
+static void testProbe()
+{
+    std::vector<uint8_t> v2 = fakeSf(2), v3 = fakeSf(3);
+    CHECK(Sf::probe(v2.data(), v2.size(), 3u << 20) == Sf::LoadErr::OK);
+    CHECK(Sf::probe(v3.data(), v3.size(), 3u << 20) == Sf::LoadErr::COMPRESSED);
+    CHECK(Sf::probe(v2.data(), v2.size(), Sf::MAX_SF2 + 1) == Sf::LoadErr::TOO_BIG);
+    CHECK(Sf::probe(v2.data(), 8, 3u << 20) == Sf::LoadErr::BAD_FILE);
+    std::vector<uint8_t> wav = v2;
+    memcpy(wav.data() + 8, "WAVE", 4);
+    CHECK(Sf::probe(wav.data(), wav.size(), 3u << 20) == Sf::LoadErr::BAD_FILE);
+    std::vector<uint8_t> trunc(v2.begin(), v2.begin() + 20);   // Header only: accepted (loader decides)
+    CHECK(Sf::probe(trunc.data(), trunc.size(), 3u << 20) == Sf::LoadErr::OK);
+    const char *tmp = "/tmp/otr_sf3.sf2";
+    FILE *fp = fopen(tmp, "wb");
+    if (fp) {
+        fwrite(v3.data(), 1, v3.size(), fp);
+        fclose(fp);
+        Sf::Synth s;
+        CHECK(s.load(tmp, 22050) == Sf::LoadErr::COMPRESSED);
+        size_t sz = 0;
+        CHECK(Sf::probeFile(tmp, &sz) == Sf::LoadErr::COMPRESSED && sz == v3.size());
+        remove(tmp);
+    }
+    CHECK(Sf::probeFile("/nonexistent/x.sf2") == Sf::LoadErr::NO_FILE);
+}
+
 static void wav(const char *path, const std::vector<int16_t> &pcm, int rate)
 {
     FILE *fp = fopen(path, "wb");
@@ -103,6 +151,7 @@ static void testRender(const char *font, const char *song, const char *out)
 int main(int argc, char **argv)
 {
     testErrors();
+    testProbe();
     if (argc >= 3) testRender(argv[1], argv[2], argc >= 4 ? argv[3] : nullptr);
     CHECK_DONE();
 }

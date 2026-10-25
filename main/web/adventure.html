@@ -6,7 +6,9 @@
 <title>OnTheRoad – Äventyr live</title>
 <link rel="stylesheet" href="/style.css">
 <style>
-body { max-width: 96rem; }
+body { max-width: none; }   /* v0.13.1: the live view uses the whole window */
+.adv-top select { width: auto; font-size: 1rem; padding: .25rem .4rem; border-radius: .4rem; background: var(--otr-panel-raised);
+  color: inherit; border: 1px solid var(--otr-line); }
 .adv-top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .6rem; }
 .adv-top h2 { margin: 0; flex: 1 1 auto; }
 .adv-top label { display: flex; align-items: center; gap: .4rem; color: var(--otr-muted); cursor: pointer; white-space: nowrap; }
@@ -51,9 +53,11 @@ body { max-width: 96rem; }
 .choice.locked b { color: var(--otr-line); }
 #nodialog { color: var(--otr-muted); }
 .full { position: fixed; right: .8rem; bottom: .8rem; }
-/* Wide screens / TV: map left, HUD + dialogue right */
-@media (min-width: 1100px) and (min-aspect-ratio: 4/3) {
-  #layout { grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem); align-items: start; }
+/* Wide / landscape windows (laptop, TV, tablet on its side): map left at full height, HUD + dialogue
+   right. Portrait / narrow windows: info below the map. Must match WIDE in the script. */
+@media (orientation: landscape) and (min-width: 800px) {
+  #layout { grid-template-columns: minmax(0, 1fr) minmax(18rem, 30rem); align-items: start; }
+  #side { max-height: calc(100vh - 1rem); overflow-y: auto; position: sticky; top: .5rem; }
 }
 </style>
 </head>
@@ -82,6 +86,14 @@ body { max-width: 96rem; }
 <div id="adv" hidden>
   <div class="adv-top">
     <h2 id="world">–</h2>
+    <label>Storlek
+      <select id="size">
+        <option value="fit">Anpassa till fönster</option>
+        <option value="s">Liten</option>
+        <option value="m">Mellan</option>
+        <option value="l">Stor</option>
+      </select>
+    </label>
     <label><input type="checkbox" id="follow"> Följ spelaren</label>
   </div>
   <div id="layout">
@@ -122,6 +134,13 @@ const anim = {x: 0, y: 0, fx: 0, fy: 0, t0: 0, ms: 180};   // Player glide betwe
 const follow = $('follow');
 follow.checked = localStorage.getItem('advFollow') === '1';
 follow.onchange = () => { localStorage.setItem('advFollow', follow.checked ? '1' : '0'); draw(); };
+// Map size: fit to the window (default) or a fixed cell size; a fixed size larger than the window
+// crops the map around the player.
+const SIZE_CELL = {s: 14, m: 24, l: 36};
+const sizeSel = $('size');
+sizeSel.value = SIZE_CELL[localStorage.getItem('advSize')] ? localStorage.getItem('advSize') : 'fit';
+sizeSel.onchange = () => { localStorage.setItem('advSize', sizeSel.value); draw(); };
+const WIDE = window.matchMedia('(orientation: landscape) and (min-width: 800px)');   // Same as the CSS
 
 // Colours per look (same idea as the device sprites: baker, shepherd, old man)
 const LOOKS = [{body: '#f3ead8', head: '#e9b98f', mark: 'B'}, {body: '#5e9e4a', head: '#e2a97c', mark: 'F'}, {body: '#8a8fb5', head: '#d9b08c', mark: 'G'}];
@@ -257,11 +276,15 @@ function draw() {
   // Screen size: whole map fitted, or a follow camera with bigger cells
   const box = $('mapbox'), dpr = window.devicePixelRatio || 1;
   const availW = box.clientWidth - 16;
-  const availH = Math.max(220, window.innerHeight - box.getBoundingClientRect().top - (window.innerWidth < 1100 ? 160 : 24));
+  // Side by side: the map may use the full window height. Stacked: leave room to see the HUD below.
+  const top = Math.max(0, box.getBoundingClientRect().top + window.scrollY);
+  const availH = Math.max(200, window.innerHeight - Math.min(top, window.innerHeight * .4) - (WIDE.matches ? 24 : 150));
   let cell = Math.min(availW / map.w, availH / map.h);
   let cols = map.w, rows = map.h, sx = 0, sy = 0;
-  if (follow.checked) {
-    cell = Math.max(cell, Math.min(48, availW / 11));
+  const fixed = SIZE_CELL[sizeSel.value];
+  if (fixed || follow.checked) {
+    if (fixed) cell = fixed;
+    else cell = Math.max(cell, Math.min(48, availW / 11));
     cols = Math.min(map.w, availW / cell); rows = Math.min(map.h, availH / cell);
     sx = Math.max(0, Math.min(map.w - cols, ax + .5 - cols / 2));
     sy = Math.max(0, Math.min(map.h - rows, ay + .5 - rows / 2));
@@ -350,6 +373,9 @@ async function poll() {
   setTimeout(poll, 220);
 }
 window.addEventListener('resize', () => requestAnimationFrame(draw));
+window.addEventListener('orientationchange', () => setTimeout(() => requestAnimationFrame(draw), 150));
+if (WIDE.addEventListener) WIDE.addEventListener('change', () => requestAnimationFrame(draw));
+document.addEventListener('fullscreenchange', () => requestAnimationFrame(draw));
 $('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
 poll();
 </script>

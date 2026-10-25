@@ -39,6 +39,9 @@ struct AppConfig {
     uint16_t joyFastMs;      // Step interval of the outer zone, 60..600 ms (default 150, <= slow)
     uint16_t joyHoldMs;      // Hold time before auto-repeat, 100..600 ms (default 300)
     uint8_t joyDiag;         // Diagonal: 0 = dominant axis (default), 1 = alternate axes
+    // v0.13.1: karaoke
+    char karaFont[48];       // Default SoundFont file name in /sdcard/otr/sf2 ("" = default.sf2 / first)
+    uint8_t karaFlip;        // Landscape direction: 0 = rotated 90 degrees (default), 1 = 270 degrees
 };
 
 // Joystick limits shared by the UI and the web API.

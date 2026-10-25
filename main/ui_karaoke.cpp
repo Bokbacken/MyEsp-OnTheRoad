@@ -7,7 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "app_config.h"
 #include "board_audio.h"
+#include "board_display.h"
 #include "karaoke.h"
 #include "lang.h"
 #include "my_lvgl.h"
@@ -19,7 +21,9 @@ namespace UiKaraoke {
 namespace {
 
 constexpr uint32_t TICK_MS = 40;
-constexpr uint32_t DEBOUNCE_MS = 300;
+constexpr uint32_t DEBOUNCE_MS = 500;
+// v0.13.1: the karaoke module runs in landscape (LVGL software rotation), 480 x 320.
+constexpr int32_t W = 480, H = 320;
 
 std::vector<Karaoke::SongFile> s_files;
 int s_current = -1;
@@ -29,11 +33,16 @@ lv_obj_t *s_listScr = nullptr;
 lv_obj_t *s_fontLbl = nullptr;
 lv_timer_t *s_listTimer = nullptr;
 
+// Bottom sheet (settings, tracks, sound bank) on the active screen
+lv_obj_t *s_sheet = nullptr;
+std::vector<Karaoke::FontFile> s_fonts;
+bool s_fontForSong = false;
+
 // Player screen
 struct Player {
-    lv_obj_t *scr, *prev, *cur, *next, *next2, *slider, *timeLbl, *playBtn, *playLbl, *melBtnLbl, *diag;
+    lv_obj_t *scr, *prev, *cur, *next, *next2, *slider, *timeLbl, *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
     lv_span_t *spSung, *spRest;
-    lv_obj_t *sheet;
+    Karaoke::FontState fontState;
     lv_timer_t *timer;
     int line, syl;
     uint32_t lastSec;
@@ -42,6 +51,13 @@ struct Player {
 Player P{};
 
 void showPlayer();
+void showFonts(bool forSong);
+
+void leaveToMenu()
+{
+    Display::setLandscape(false);   // Back to portrait (keeps the 180-degree setting)
+    UiYatzy::showMenu();
+}
 
 void fmtTime(char *buf, size_t cap, uint32_t us)
 {
@@ -131,20 +147,29 @@ void showList()
             return;
         }
         Karaoke::unloadFont();
-        UiYatzy::showMenu();
+        leaveToMenu();
     }, LV_EVENT_CLICKED, nullptr);
 
     s_fontLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_width(s_fontLbl, 300);
+    lv_obj_set_width(s_fontLbl, W - 140);
     lv_label_set_long_mode(s_fontLbl, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_pos(s_fontLbl, 10, 50);
-    Karaoke::startLoadFont();
+    static uint32_t fontLast = 0;
+    lv_obj_t *fb = Theme::button(scr, tr(Str::KARA_BTN_FONT), 118, 36, Theme::TEAL);
+    lv_obj_set_pos(fb, W - 126, 50);
+    lv_obj_add_event_cb(fb, [](lv_event_t *) {
+        if (Theme::debounce(fontLast, DEBOUNCE_MS)) showFonts(false);
+    }, LV_EVENT_CLICKED, nullptr);
+    // Load the default font only when none is loaded; a song font from the last song stays until a
+    // song wants another one (saves a few seconds of loading).
+    const Karaoke::FontState fs = Karaoke::fontState();
+    if (fs == Karaoke::FontState::NONE || fs == Karaoke::FontState::FAILED) Karaoke::startLoadFont();
     updateFontLabel();
 
     Karaoke::Err e = Karaoke::scan(s_files);
     lv_obj_t *info = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_pos(info, 10, 88);
-    lv_obj_set_width(info, 300);
+    lv_obj_set_pos(info, 10, 90);
+    lv_obj_set_width(info, W - 140);
     lv_label_set_long_mode(info, LV_LABEL_LONG_MODE_WRAP);
     if (e != Karaoke::Err::OK) {
         lv_label_set_text(info, Karaoke::errText(e));
@@ -158,10 +183,11 @@ void showList()
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
-    lv_obj_set_size(list, 320, 480 - 112);
+    lv_obj_set_size(list, W, H - 112);
     lv_obj_set_pos(list, 0, 112);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);   // Two columns in landscape
     lv_obj_set_style_pad_row(list, 6, 0);
+    lv_obj_set_style_pad_column(list, 8, 0);
     lv_obj_set_style_pad_hor(list, 10, 0);
     lv_obj_set_style_pad_bottom(list, 10, 0);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -169,7 +195,7 @@ void showList()
         const Karaoke::SongFile &f = s_files[i];
         lv_obj_t *b = lv_button_create(list);
         lv_obj_remove_style_all(b);
-        lv_obj_set_size(b, 300, f.artist.empty() ? 44 : 58);
+        lv_obj_set_size(b, (W - 28) / 2, 58);
         lv_obj_set_style_radius(b, 10, 0);
         lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
@@ -178,12 +204,12 @@ void showList()
         lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
         lv_obj_t *t = Theme::label(b, f.title.c_str(), &my_font_18);
         lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(t, 280);
-        lv_obj_set_pos(t, 10, 10);
+        lv_obj_set_width(t, (W - 28) / 2 - 20);
+        lv_obj_set_pos(t, 10, f.artist.empty() ? 18 : 10);
         if (!f.artist.empty()) {
             lv_obj_t *a = Theme::label(b, f.artist.c_str(), &my_font_14, Theme::MUTED);
             lv_label_set_long_mode(a, LV_LABEL_LONG_MODE_DOTS);
-            lv_obj_set_width(a, 280);
+            lv_obj_set_width(a, (W - 28) / 2 - 20);
             lv_obj_set_pos(a, 10, 34);
         }
         static uint32_t openLast = 0;
@@ -246,8 +272,32 @@ void updatePlayLabel(bool playing)
     lv_label_set_text(P.playLbl, playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
 }
 
+void updatePlayerFont()
+{
+    if (!P.fontLbl) return;
+    char buf[80];
+    switch (Karaoke::fontState()) {
+    case Karaoke::FontState::LOADING: snprintf(buf, sizeof(buf), "%s", tr(Str::KARA_FONT_LOADING)); break;
+    case Karaoke::FontState::READY: snprintf(buf, sizeof(buf), LV_SYMBOL_AUDIO " %.60s", Karaoke::fontName()); break;
+    case Karaoke::FontState::FAILED: snprintf(buf, sizeof(buf), "%s", Karaoke::errText(Karaoke::fontError())); break;
+    default: buf[0] = 0; break;
+    }
+    lv_label_set_text(P.fontLbl, buf);
+    const Karaoke::FontState st = Karaoke::fontState();
+    lv_obj_set_style_text_color(P.fontLbl, Theme::c(st == Karaoke::FontState::LOADING ? Theme::GOLD
+                                                    : st == Karaoke::FontState::FAILED ? Theme::RED : Theme::MUTED), 0);
+}
+
 void tick(lv_timer_t *)
 {
+    // The song wants another sound bank (per-song choice, or the default changed): reload
+    if (Karaoke::fontWanted()) Karaoke::ensureFont(false);
+    if (Karaoke::fontState() != P.fontState) {
+        P.fontState = Karaoke::fontState();
+        updatePlayerFont();
+        P.lastSec = 0xFFFFFFFF;   // Refresh the diagnostics line
+        P.line = -3;
+    }
     const Karaoke::View v = Karaoke::view();
     updateLyrics(v, false);
     const uint32_t sec = v.posUs / 1000000;
@@ -288,20 +338,22 @@ lv_obj_t *ctlButton(lv_obj_t *parent, const char *text, int32_t x, int32_t y, in
 // ---- Settings sheet (tempo, key, volume) -------------------------------------------------------
 void closeSheet()
 {
-    if (P.sheet) lv_obj_delete(P.sheet);
-    P.sheet = nullptr;
+    if (s_sheet) lv_obj_delete(s_sheet);   // The DELETE callback clears s_sheet
 }
 
 lv_obj_t *sheetBase(const char *title, int32_t h)
 {
     closeSheet();
-    P.sheet = lv_obj_create(P.scr);
-    lv_obj_remove_style_all(P.sheet);
-    lv_obj_set_size(P.sheet, 320, 480);
-    lv_obj_set_style_bg_color(P.sheet, Theme::c(0x000000), 0);
-    lv_obj_set_style_bg_opa(P.sheet, LV_OPA_60, 0);
-    lv_obj_set_clickable(P.sheet, true);   // Swallow taps behind the card
-    lv_obj_t *c = Theme::card(P.sheet, 304, h);
+    s_sheet = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(s_sheet);
+    lv_obj_set_size(s_sheet, W, H);
+    lv_obj_set_style_bg_color(s_sheet, Theme::c(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_sheet, LV_OPA_60, 0);
+    lv_obj_set_clickable(s_sheet, true);   // Swallow taps behind the card
+    lv_obj_add_event_cb(s_sheet, [](lv_event_t *e) {
+        if (lv_event_get_target(e) == s_sheet) s_sheet = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
+    lv_obj_t *c = Theme::card(s_sheet, W - 16, h);
     lv_obj_align(c, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_scrollable(c, false);
     lv_obj_t *t = Theme::label(c, title, &my_font_24);
@@ -352,19 +404,19 @@ void stepCb(lv_event_t *e)
 
 void showSettings()
 {
-    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 300);
+    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 262);
     const Str names[3] = {Str::KARA_TEMPO, Str::KARA_KEY, Str::KARA_VOLUME};
     for (int k = 0; k < 3; k++) {
-        const int32_t y = 50 + k * 74;
-        lv_obj_t *n = Theme::label(c, tr(names[k]), &my_font_14, Theme::MUTED);
-        lv_obj_set_pos(n, 4, y);
-        ctlButton(c, LV_SYMBOL_MINUS, 4, y + 20, 70, 44, Theme::TEAL, stepCb, (void *)(intptr_t)(k * 2));
-        ctlButton(c, LV_SYMBOL_PLUS, 210, y + 20, 70, 44, Theme::TEAL, stepCb, (void *)(intptr_t)(k * 2 + 1));
+        const int32_t y = 44 + k * 58;   // One row per setting: name | - | value | +
+        lv_obj_t *n = Theme::label(c, tr(names[k]), &my_font_18, Theme::MUTED);
+        lv_obj_set_pos(n, 4, y + 12);
+        ctlButton(c, LV_SYMBOL_MINUS, 180, y, 70, 48, Theme::TEAL, stepCb, (void *)(intptr_t)(k * 2));
+        ctlButton(c, LV_SYMBOL_PLUS, 370, y, 70, 48, Theme::TEAL, stepCb, (void *)(intptr_t)(k * 2 + 1));
         s_steps[k].value = Theme::label(c, "", &my_font_24);
         s_steps[k].kind = k;
-        lv_obj_set_width(s_steps[k].value, 120);
+        lv_obj_set_width(s_steps[k].value, 110);
         lv_obj_set_style_text_align(s_steps[k].value, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(s_steps[k].value, 82, y + 28);
+        lv_obj_set_pos(s_steps[k].value, 255, y + 10);
         lv_obj_add_event_cb(s_steps[k].value, [](lv_event_t *ev) {
             s_steps[(int)(intptr_t)lv_event_get_user_data(ev)].value = nullptr;
         }, LV_EVENT_DELETE, (void *)(intptr_t)k);
@@ -387,12 +439,12 @@ void showTracks()
 {
     const Midi::Song *s = Karaoke::song();
     if (!s) return;
-    lv_obj_t *c = sheetBase(tr(Str::KARA_PICK_MELODY), 420);
+    lv_obj_t *c = sheetBase(tr(Str::KARA_PICK_MELODY), H - 16);
     lv_obj_t *hint = Theme::label(c, tr(Str::KARA_PICK_HINT), &my_font_14, Theme::MUTED);
     lv_obj_set_pos(hint, 4, 34);
     lv_obj_t *list = lv_obj_create(c);
     lv_obj_remove_style_all(list);
-    lv_obj_set_size(list, 288, 340);
+    lv_obj_set_size(list, W - 40, H - 16 - 58 - 24);
     lv_obj_set_pos(list, 0, 58);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 4, 0);
@@ -403,7 +455,7 @@ void showTracks()
         if (ch == Midi::DRUM_CH) continue;   // Drums are never the melody
         lv_obj_t *b = lv_button_create(list);
         lv_obj_remove_style_all(b);
-        lv_obj_set_size(b, 288, ch < 0 ? 40 : 54);
+        lv_obj_set_size(b, W - 40, ch < 0 ? 40 : 54);
         lv_obj_set_style_radius(b, 8, 0);
         lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
@@ -421,7 +473,7 @@ void showTracks()
         }
         lv_obj_t *t = Theme::label(b, buf, &my_font_14, ch == sel ? Theme::ACCENT : Theme::TEXT);
         lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(t, 270);
+        lv_obj_set_width(t, W - 60);
         lv_obj_set_pos(t, 8, 6);
         if (ch >= 0) {
             snprintf(buf, sizeof(buf), "%u %s  |  %u%% %s  |  max %u%s%s", (unsigned)s->ch[ch].notes, LV_SYMBOL_AUDIO,
@@ -429,10 +481,93 @@ void showTracks()
                      ch == s->melody ? "  |  " : "", ch == s->melody ? tr(Str::KARA_AUTO) : "");
             lv_obj_t *d = Theme::label(b, buf, &my_font_14, Theme::MUTED);
             lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_DOTS);
-            lv_obj_set_width(d, 270);
+            lv_obj_set_width(d, W - 60);
             lv_obj_set_pos(d, 8, 28);
         }
         lv_obj_add_event_cb(b, pickCb, LV_EVENT_CLICKED, (void *)(intptr_t)(ch + 1));
+    }
+}
+
+// ---- Sound bank picker (global default from the list, per song from the player) ----------------
+void fontPickCb(lv_event_t *e)
+{
+    static uint32_t last = 0;
+    if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+    const int idx = (int)(intptr_t)lv_event_get_user_data(e) - 1;   // -1 = automatic / use the default
+    const char *name = idx >= 0 && idx < (int)s_fonts.size() ? s_fonts[(size_t)idx].name.c_str() : "";
+    if (s_fontForSong) {
+        Karaoke::setSongFont(name);
+        updatePlayLabel(false);
+    } else {
+        Karaoke::setDefaultFont(name);
+    }
+    Karaoke::ensureFont(true);   // Reloads only when the wanted font changed (or failed before)
+    lv_async_call([](void *) { closeSheet(); }, nullptr);
+}
+
+void showFonts(bool forSong)
+{
+    if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
+        msg(tr(Str::KARA_WAIT_FONT));
+        return;
+    }
+    if (forSong && !Karaoke::isOpen()) return;
+    s_fontForSong = forSong;
+    const Karaoke::Err se = Karaoke::scanFonts(s_fonts);
+    lv_obj_t *c = sheetBase(tr(forSong ? Str::KARA_FONT_SONG : Str::KARA_FONT_DEFAULT), H - 16);
+    lv_obj_t *hint = Theme::label(c, tr(forSong ? Str::KARA_FONT_SONG_HINT : Str::KARA_FONT_SAVED), &my_font_14,
+                                  Theme::MUTED);
+    lv_obj_set_pos(hint, 4, 34);
+    lv_obj_t *list = lv_obj_create(c);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_size(list, W - 40, H - 16 - 58 - 24);
+    lv_obj_set_pos(list, 0, 58);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 4, 0);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    const std::string sel = forSong ? Karaoke::songFont() : Karaoke::defaultFont();
+    for (int i = -1; i < (int)s_fonts.size(); i++) {
+        const bool isSel = i < 0 ? sel.empty() : s_fonts[(size_t)i].name == sel;
+        const bool ok = i < 0 || s_fonts[(size_t)i].err == Karaoke::Err::OK;
+        lv_obj_t *b = lv_button_create(list);
+        lv_obj_remove_style_all(b);
+        lv_obj_set_size(b, W - 40, i < 0 ? 40 : 54);
+        lv_obj_set_style_radius(b, 8, 0);
+        lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), 0);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(b, isSel ? 2 : 1, 0);
+        lv_obj_set_style_border_color(b, Theme::c(isSel ? Theme::ACCENT : Theme::LINE), 0);
+        lv_obj_set_style_bg_color(b, Theme::c(Theme::LINE), LV_STATE_PRESSED);
+        char buf[96];
+        if (i < 0) {
+            snprintf(buf, sizeof(buf), "%s", tr(forSong ? Str::KARA_FONT_USE_DEFAULT : Str::KARA_FONT_AUTO));
+        } else {
+            const Karaoke::FontFile &f = s_fonts[(size_t)i];
+            const bool loaded = f.name == Karaoke::fontName();
+            snprintf(buf, sizeof(buf), "%.60s%s", f.name.c_str(), loaded ? "  " LV_SYMBOL_OK : "");
+        }
+        lv_obj_t *t = Theme::label(b, buf, &my_font_18, !ok ? Theme::MUTED : isSel ? Theme::ACCENT : Theme::TEXT);
+        lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_set_width(t, W - 60);
+        lv_obj_set_pos(t, 8, i < 0 ? 9 : 5);
+        if (i >= 0) {
+            const Karaoke::FontFile &f = s_fonts[(size_t)i];
+            char d[160];
+            if (ok) snprintf(d, sizeof(d), "%.1f MB", (double)f.size / (1024.0 * 1024.0));
+            else snprintf(d, sizeof(d), "%s", Karaoke::errText(f.err));
+            lv_obj_t *dl = Theme::label(b, d, &my_font_14, ok ? Theme::MUTED : Theme::RED);
+            lv_label_set_long_mode(dl, LV_LABEL_LONG_MODE_DOTS);
+            lv_obj_set_width(dl, W - 60);
+            lv_obj_set_pos(dl, 8, 30);
+        }
+        if (ok) lv_obj_add_event_cb(b, fontPickCb, LV_EVENT_CLICKED, (void *)(intptr_t)(i + 1));
+        else lv_obj_set_clickable(b, false);   // Rejected file (SF3, too big, not a SoundFont)
+    }
+    if (se != Karaoke::Err::OK || s_fonts.empty()) {
+        lv_obj_t *n = Theme::label(list, se != Karaoke::Err::OK ? Karaoke::errText(se) : tr(Str::KARA_FONT_NONE),
+                                   &my_font_14, Theme::RED);
+        lv_obj_set_width(n, W - 60);
+        lv_label_set_long_mode(n, LV_LABEL_LONG_MODE_WRAP);
     }
 }
 
@@ -451,12 +586,13 @@ void showPlayer()
     P.line = -3;
     P.syl = -3;
     P.lastSec = 0xFFFFFFFF;
+    P.fontState = (Karaoke::FontState)0xFF;   // Forces the first font label update
     lv_obj_t *scr = P.scr = Theme::screen();
     lv_obj_t *hdr = Theme::header(scr, "");
     lv_obj_t *title = lv_obj_get_child(hdr, 0);
     lv_label_set_text(title, f.title.c_str());
     lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(title, 240);
+    lv_obj_set_width(title, W - 80);
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
         if (!Theme::debounce(backLast, DEBOUNCE_MS)) return;
@@ -464,47 +600,56 @@ void showPlayer()
         showList();
     }, LV_EVENT_CLICKED, nullptr);
 
+    // Info line: artist | active sound bank | voices + CPU
     lv_obj_t *artist = Theme::label(scr, f.artist.c_str(), &my_font_14, Theme::MUTED);
     lv_label_set_long_mode(artist, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(artist, 200);
-    lv_obj_set_pos(artist, 10, 50);
+    lv_obj_set_width(artist, 170);
+    lv_obj_set_pos(artist, 8, 47);
+    P.fontLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(P.fontLbl, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(P.fontLbl, 190);
+    lv_obj_set_pos(P.fontLbl, 184, 47);
     P.diag = Theme::label(scr, "", &my_font_14, Theme::LINE);
-    lv_obj_align(P.diag, LV_ALIGN_TOP_RIGHT, -10, 50);
+    lv_label_set_long_mode(P.diag, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(P.diag, 96);
+    lv_obj_set_style_text_align(P.diag, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(P.diag, W - 104, 47);
 
+    // Lyrics: full-width single lines around the current line (up to 3 lines when it is long)
     auto lyricLabel = [&](int32_t y, int32_t h, const lv_font_t *font, uint32_t color) {
         lv_obj_t *l = Theme::label(scr, "", font, color);
-        lv_obj_set_width(l, 304);
+        lv_obj_set_width(l, W - 16);
         lv_obj_set_height(l, h);
-        lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(l, 8, y);
         return l;
     };
-    P.prev = lyricLabel(74, 44, &my_font_18, Theme::LINE);
+    P.prev = lyricLabel(66, 22, &my_font_18, Theme::LINE);
     P.cur = lv_spangroup_create(scr);
-    lv_obj_set_width(P.cur, 304);
-    lv_obj_set_height(P.cur, 96);
-    lv_obj_set_pos(P.cur, 8, 126);
+    lv_obj_set_width(P.cur, W - 16);
+    lv_obj_set_height(P.cur, 88);
+    lv_obj_set_pos(P.cur, 8, 89);
     lv_obj_set_style_text_align(P.cur, LV_TEXT_ALIGN_CENTER, 0);   // Fixed width+height = wrap
     lv_spangroup_set_max_lines(P.cur, 3);
     lv_spangroup_set_overflow(P.cur, LV_SPAN_OVERFLOW_ELLIPSIS);
     lv_obj_set_style_text_font(P.cur, &my_font_24, 0);
-    lv_obj_set_style_text_line_space(P.cur, 4, 0);
+    lv_obj_set_style_text_line_space(P.cur, 2, 0);
     P.spSung = lv_spangroup_add_span(P.cur);
     P.spRest = lv_spangroup_add_span(P.cur);
     lv_style_set_text_color(lv_span_get_style(P.spSung), Theme::c(Theme::GOLD));
     lv_style_set_text_color(lv_span_get_style(P.spRest), Theme::c(Theme::TEXT));
-    P.next = lyricLabel(228, 46, &my_font_18, Theme::MUTED);
-    P.next2 = lyricLabel(278, 40, &my_font_14, Theme::LINE);
+    P.next = lyricLabel(178, 22, &my_font_18, Theme::MUTED);
+    P.next2 = lyricLabel(200, 18, &my_font_14, Theme::LINE);
 
     P.slider = lv_slider_create(scr);
-    lv_obj_set_size(P.slider, 280, 10);
-    lv_obj_set_pos(P.slider, 20, 326);
+    lv_obj_set_size(P.slider, 320, 8);
+    lv_obj_set_pos(P.slider, 18, 226);
     lv_slider_set_range(P.slider, 0, (int32_t)(song->lengthUs / 100000 > 0 ? song->lengthUs / 100000 : 1));
     lv_obj_set_style_bg_color(P.slider, Theme::c(Theme::LINE), LV_PART_MAIN);
     lv_obj_set_style_bg_color(P.slider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(P.slider, Theme::c(Theme::ACCENT), LV_PART_KNOB);
-    lv_obj_set_ext_click_area(P.slider, 14);
+    lv_obj_set_ext_click_area(P.slider, 10);
     lv_obj_add_event_cb(P.slider, [](lv_event_t *) { P.dragging = true; }, LV_EVENT_PRESSED, nullptr);
     lv_obj_add_event_cb(P.slider, [](lv_event_t *) {
         P.dragging = false;
@@ -513,46 +658,55 @@ void showPlayer()
         P.line = -3;
     }, LV_EVENT_RELEASED, nullptr);
     P.timeLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_width(P.timeLbl, 300);
-    lv_obj_set_style_text_align(P.timeLbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(P.timeLbl, 10, 342);
+    lv_label_set_long_mode(P.timeLbl, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(P.timeLbl, W - 356);
+    lv_obj_set_style_text_align(P.timeLbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(P.timeLbl, 348, 220);
 
-    // Row 1: restart, -5 s, play/pause, +5 s
+    // Two rows of four buttons (113 x 38) across the 480 px width
+    constexpr int32_t BW = 113, BH = 38, X0 = 8, DX = BW + 4, Y1 = 238, Y2 = 280;
     static uint32_t lastRow1[4] = {};
-    ctlButton(scr, LV_SYMBOL_PREV, 8, 366, 70, 48, Theme::LINE, [](lv_event_t *) {
+    ctlButton(scr, LV_SYMBOL_PREV, X0, Y1, BW, BH, Theme::LINE, [](lv_event_t *) {
         if (!Theme::debounce(lastRow1[0], DEBOUNCE_MS)) return;
         Karaoke::restart();
         P.line = -3;
     });
-    ctlButton(scr, "-5 s", 86, 366, 70, 48, Theme::LINE, [](lv_event_t *) {
+    ctlButton(scr, "-5 s", X0 + DX, Y1, BW, BH, Theme::LINE, [](lv_event_t *) {
         if (!Theme::debounce(lastRow1[1], 200)) return;
         Karaoke::seekRel(-5000);
         P.line = -3;
     });
-    P.playBtn = ctlButton(scr, LV_SYMBOL_PLAY, 164, 366, 70, 48, Theme::ACCENT, [](lv_event_t *) {
+    P.playBtn = ctlButton(scr, LV_SYMBOL_PLAY, X0 + 2 * DX, Y1, BW, BH, Theme::ACCENT, [](lv_event_t *) {
         if (!Theme::debounce(lastRow1[2], DEBOUNCE_MS)) return;
+        if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
+            msg(tr(Str::KARA_WAIT_FONT));
+            return;
+        }
         Karaoke::play(!Karaoke::playing());
         updatePlayLabel(Karaoke::playing());
     });
     P.playLbl = lv_obj_get_child(P.playBtn, 0);
-    ctlButton(scr, "+5 s", 242, 366, 70, 48, Theme::LINE, [](lv_event_t *) {
+    ctlButton(scr, "+5 s", X0 + 3 * DX, Y1, BW, BH, Theme::LINE, [](lv_event_t *) {
         if (!Theme::debounce(lastRow1[3], 200)) return;
         Karaoke::seekRel(5000);
         P.line = -3;
     });
-    // Row 2: tempo/key sheet, melody on/off, melody track picker
-    static uint32_t lastRow2[3] = {};
-    ctlButton(scr, tr(Str::KARA_BTN_SETTINGS), 8, 422, 112, 48, Theme::TEAL, [](lv_event_t *) {
+    // Row 2: tempo/key sheet, melody on/off, melody track picker, sound bank for this song
+    static uint32_t lastRow2[4] = {};
+    ctlButton(scr, tr(Str::KARA_BTN_SETTINGS), X0, Y2, BW, BH, Theme::TEAL, [](lv_event_t *) {
         if (Theme::debounce(lastRow2[0], DEBOUNCE_MS)) showSettings();
     });
-    lv_obj_t *mel = ctlButton(scr, "", 126, 422, 112, 48, Theme::TEAL, [](lv_event_t *) {
+    lv_obj_t *mel = ctlButton(scr, "", X0 + DX, Y2, BW, BH, Theme::TEAL, [](lv_event_t *) {
         if (!Theme::debounce(lastRow2[1], DEBOUNCE_MS)) return;
         Karaoke::setMelodyMuted(!Karaoke::melodyMuted());
         updateMelodyButton();
     });
     P.melBtnLbl = lv_obj_get_child(mel, 0);
-    ctlButton(scr, tr(Str::KARA_BTN_TRACK), 244, 422, 68, 48, Theme::TEAL, [](lv_event_t *) {
+    ctlButton(scr, tr(Str::KARA_BTN_TRACK), X0 + 2 * DX, Y2, BW, BH, Theme::TEAL, [](lv_event_t *) {
         if (Theme::debounce(lastRow2[2], DEBOUNCE_MS)) showTracks();
+    });
+    ctlButton(scr, tr(Str::KARA_BTN_FONT), X0 + 3 * DX, Y2, BW, BH, Theme::TEAL, [](lv_event_t *) {
+        if (Theme::debounce(lastRow2[3], DEBOUNCE_MS)) showFonts(true);
     });
     updateMelodyButton();
 
@@ -568,7 +722,28 @@ void showPlayer()
 void show()
 {
     s_current = -1;
+    Display::setLandscape(true, Config::get().karaFlip != 0);   // Before the screen is created
     showList();
+    if (!Config::get().soundOn) {   // Karaoke without sound makes little sense: offer to turn it on
+        lv_obj_t *q = lv_msgbox_create(nullptr);
+        lv_msgbox_add_text(q, tr(Str::KARA_SOUND_OFF_Q));
+        lv_obj_t *yes = lv_msgbox_add_footer_button(q, tr(Str::KARA_YES));
+        lv_obj_t *no = lv_msgbox_add_footer_button(q, tr(Str::KARA_NO));
+        static uint32_t ynLast = 0;
+        lv_obj_add_event_cb(yes, [](lv_event_t *e) {
+            if (!Theme::debounce(ynLast, DEBOUNCE_MS)) return;
+            AppConfig &c = Config::get();   // Same as the settings page: persist, then apply
+            c.soundOn = true;
+            Config::save();
+            Audio::setVolumes(c.soundOn, c.sfxVol, c.musicOn, c.musicVol);
+            lv_msgbox_close_async((lv_obj_t *)lv_event_get_user_data(e));
+        }, LV_EVENT_CLICKED, q);
+        lv_obj_add_event_cb(no, [](lv_event_t *e) {
+            if (!Theme::debounce(ynLast, DEBOUNCE_MS)) return;
+            lv_msgbox_close_async((lv_obj_t *)lv_event_get_user_data(e));
+        }, LV_EVENT_CLICKED, q);
+        Theme::msgboxFonts(q);
+    }
 }
 
 }  // namespace UiKaraoke

@@ -98,13 +98,17 @@ void nameFromFile(const std::string &fileName, std::string &title, std::string &
 
 // ---- Song registry -------------------------------------------------------------------------------
 // One line per song, text file (karaoke.reg on the SD card), editable by hand:
-//   <crc32 hex8> <size> <melody -1..15> <transpose -12..12> <tempo 50..150> <name...>
+//   <crc32 hex8> <size> <melody -1..15> <transpose -12..12> <tempo 50..150> [sf2=<font>] <name...>
 // Keyed by file content (CRC + size), so renaming or moving a file keeps its settings.
+// v0.13.1: optional per-song SoundFont token "sf2=<file name>" (spaces as %20, '%' as %25). It is
+// only written when set, so files without per-song fonts look exactly like v0.13.0 files; older
+// firmware reading a new line just shows the token as part of the name.
 struct RegEntry {
     uint32_t crc = 0, size = 0;
     int8_t melody = -1;
     int8_t transpose = 0;
     uint8_t tempo = 100;
+    std::string sf2;    // SoundFont file name in /sdcard/otr/sf2, "" = global default
     std::string name;
 };
 
