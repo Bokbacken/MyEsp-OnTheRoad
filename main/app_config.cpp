@@ -38,8 +38,8 @@ void defaults(AppConfig &c)
     c.musicOn = true;
     c.musicVol = 25;
     c.joyZones = 2;
-    c.joySlowMs = 150;
-    c.joyFastMs = 75;
+    c.joySlowMs = 300;
+    c.joyFastMs = 150;
     c.joyHoldMs = 300;
     c.joyDiag = 0;
     strcpy(c.tz, DEFAULT_TZ);
@@ -78,6 +78,12 @@ void begin()
             g_cfg.joyFastMs = p.getU16("joy_fast", g_cfg.joyFastMs);
             g_cfg.joyHoldMs = p.getU16("joy_hold", g_cfg.joyHoldMs);
             g_cfg.joyDiag = p.getU8("joy_diag", g_cfg.joyDiag);
+            // v0.10.0: the walking speed was halved. Settings saved by v0.9.0 with the
+            // old defaults (150/75 ms) are upgraded; customised values are kept.
+            if (p.getU8("joy_ver", 1) < 2 && g_cfg.joySlowMs == 150 && g_cfg.joyFastMs == 75) {
+                g_cfg.joySlowMs = 300;
+                g_cfg.joyFastMs = 150;
+            }
         }
     }
     if (!validHostname(g_cfg.hostname)) strcpy(g_cfg.hostname, "ontheroad");
@@ -120,6 +126,7 @@ bool save()
     ok &= p.setU16("joy_fast", g_cfg.joyFastMs);
     ok &= p.setU16("joy_hold", g_cfg.joyHoldMs);
     ok &= p.setU8("joy_diag", g_cfg.joyDiag);
+    ok &= p.setU8("joy_ver", 2);
     return p.commit() && ok;
 }
 

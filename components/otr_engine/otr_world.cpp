@@ -644,9 +644,16 @@ uint32_t Planner::heapPop()
     return top;
 }
 
-// A* with a Manhattan heuristic (every step costs >= 1, so it is admissible and consistent).
+// A* with a Manhattan heuristic (every step costs >= STEP_COST, so it is admissible and consistent).
 // Soft cells (lava without suit in Assist, water without boat, unknown fog in Assist) are only
 // expanded when allowSoft is set, with a penalty so the path uses as few of them as possible.
+//
+// Costs are scaled by STEP_COST (4) so lava can carry a small tie-break penalty in Pro mode:
+// before v0.10.0 a Pro lava step cost exactly as much as a ground step, so among several
+// equally short paths the search order decided - next to a basalt causeway the hero often cut
+// through the lava beside it (HW test: "ended up in the lava when crossing the bridge"). Now
+// Pro still takes the shortest way, but prefers the one with the fewest lava cells (a detour is
+// at least 2 steps = 8, so only paths crossing 8+ lava cells are ever traded for a detour).
 bool Planner::search(const World &w, int tx, int ty, WalkMode mode, Path &out)
 {
     const bool allowSoft = out.len < 0;   // Internal flag set by plan()
@@ -657,7 +664,7 @@ bool Planner::search(const World &w, int tx, int ty, WalkMode mode, Path &out)
     const int start = w.playerY() * MAX_W + w.playerX(), goal = ty * MAX_W + tx;
     cost_[start] = 0;
     prev_[start] = -1;
-    heapPush((uint32_t)(abs(tx - w.playerX()) + abs(ty - w.playerY())) << 12 | (uint32_t)start);
+    heapPush((uint32_t)(STEP_COST * (abs(tx - w.playerX()) + abs(ty - w.playerY()))) << 12 | (uint32_t)start);
     bool found = false;
     while (heapLen_) {
         const int cell = (int)(heapPop() & 0xFFF);
@@ -677,14 +684,14 @@ bool Planner::search(const World &w, int tx, int ty, WalkMode mode, Path &out)
             if (c == C_BLOCK) continue;
             const bool soft = c == C_BOAT || c == C_UNKNOWN || c == C_DEADLY;
             if (soft && !allowSoft) continue;
-            uint32_t step = 1;
-            if (c == C_LAVA && mode == WalkMode::ASSIST) step += 8;   // Suit charges are precious
-            if (soft) step += 64;
+            uint32_t step = STEP_COST;
+            if (c == C_LAVA) step += mode == WalkMode::ASSIST ? 8 * STEP_COST : 1;   // Suit charges are precious
+            if (soft) step += 64 * STEP_COST;
             const uint32_t g = cost_[cell] + step;
             if (g >= cost_[n]) continue;
             cost_[n] = g;
             prev_[n] = (int16_t)cell;
-            const uint32_t f = g + (uint32_t)(abs(tx - nx) + abs(ty - ny));
+            const uint32_t f = g + (uint32_t)(STEP_COST * (abs(tx - nx) + abs(ty - ny)));
             if (f < (1u << 20)) heapPush(f << 12 | (uint32_t)n);
         }
     }

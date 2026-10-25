@@ -35,14 +35,14 @@ struct AppConfig {
     uint8_t musicVol;        // Music volume 0..100 (default 25)
     // v0.9.0: adventure joystick (see components/otr_engine/include/otr_joystick.h)
     uint8_t joyZones;        // Speed zones 1..4 (default 2)
-    uint16_t joySlowMs;      // Step interval of the inner zone, 60..400 ms (default 150)
-    uint16_t joyFastMs;      // Step interval of the outer zone, 60..400 ms (default 75, <= slow)
+    uint16_t joySlowMs;      // Step interval of the inner zone, 60..600 ms (default 300)
+    uint16_t joyFastMs;      // Step interval of the outer zone, 60..600 ms (default 150, <= slow)
     uint16_t joyHoldMs;      // Hold time before auto-repeat, 100..600 ms (default 300)
     uint8_t joyDiag;         // Diagonal: 0 = dominant axis (default), 1 = alternate axes
 };
 
 // Joystick limits shared by the UI and the web API.
-constexpr uint16_t JOY_MS_MIN = 60, JOY_MS_MAX = 400, JOY_HOLD_MIN = 100, JOY_HOLD_MAX = 600;
+constexpr uint16_t JOY_MS_MIN = 60, JOY_MS_MAX = 600, JOY_HOLD_MIN = 100, JOY_HOLD_MAX = 600;
 
 namespace Config {
 // Loads settings from NVS, falling back to defaults (MyNvs::initFlash() must have run).

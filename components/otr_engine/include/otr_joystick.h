@@ -7,8 +7,10 @@
 // between them. Touches outside R count as the outer zone.
 //
 // Direction is always 4-way: the axis with the largest deflection wins ("dominant axis").
-// An exact diagonal prefers the vertical axis (up/down before left/right). Optional mode
-// ALTERNATE: when the stick is clearly diagonal (between ~22.5 and ~67.5 degrees) the steps
+// An exact diagonal prefers the vertical axis (up/down before left/right). Sectors, with 0
+// degrees straight up: up = 0 +-30, diagonal up-right = 45 +-15, right = 90 +-30, and so on
+// (v0.10.0, was 22.5 degrees). Less than 30 degrees off the dominant axis is a straight
+// direction, 30..45 degrees is "diagonal". Optional mode ALTERNATE: on a diagonal the steps
 // alternate between the two axes, giving a staircase walk. The engine never moves diagonally.
 //
 // Timing: a press outside the stop zone gives one step at once (a tap = one step). Holding
@@ -27,8 +29,8 @@ namespace Otr {
 
 struct JoyConfig {
     uint8_t zones = 2;        // 1..4 speed zones
-    uint16_t slowMs = 150;    // Step interval of the innermost zone
-    uint16_t fastMs = 75;     // Step interval of the outermost zone
+    uint16_t slowMs = 300;    // Step interval of the innermost zone (v0.10.0: was 150)
+    uint16_t fastMs = 150;    // Step interval of the outermost zone (v0.10.0: was 75)
     uint16_t holdMs = 300;    // Hold time before auto-repeat (100..600)
     uint8_t diag = 0;         // 0 = dominant axis, 1 = alternate axes on diagonals
 };
@@ -40,6 +42,9 @@ struct JoySample {
     uint8_t zone = 0;         // 0 = stop, 1..zones
     uint16_t intervalMs = 0;  // Step interval for this zone
 };
+
+// tan(30 degrees) * 1000: the boundary between a straight and a diagonal stick.
+constexpr long JOY_DIAG_TAN_1000 = 577;
 
 // Step interval of zone z (1..zones).
 inline uint16_t joyZoneMs(const JoyConfig &c, int z)
@@ -69,9 +74,9 @@ inline JoySample joySample(int dx, int dy, int radius, int stopR, const JoyConfi
     Dir h = dx < 0 ? Dir::LEFT : Dir::RIGHT;
     Dir v = dy < 0 ? Dir::UP : Dir::DOWN;
     s.dir = ax > ay ? h : v;
-    // Clearly diagonal: minor axis >= tan(22.5 deg) ~ 0.414 * major axis
-    int major = ax > ay ? ax : ay, minor = ax > ay ? ay : ax;
-    s.alt = (minor * 1000 >= major * 414) ? (ax > ay ? v : h) : s.dir;
+    // Diagonal sector: at least 30 degrees off the dominant axis, minor >= tan(30) ~ 0.577 * major
+    long major = ax > ay ? ax : ay, minor = ax > ay ? ay : ax;
+    s.alt = (minor * 1000 >= major * JOY_DIAG_TAN_1000) ? (ax > ay ? v : h) : s.dir;
     return s;
 }
 

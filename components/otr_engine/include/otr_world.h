@@ -260,6 +260,7 @@ private:
     void heapPush(uint32_t key);
     uint32_t heapPop();
 
+    static constexpr uint32_t STEP_COST = 4;   // Cost of one ground step (see search())
     static constexpr int N = MAX_W * MAX_H;
     static constexpr int HEAP = 4 * N;
     uint32_t cost_[N];

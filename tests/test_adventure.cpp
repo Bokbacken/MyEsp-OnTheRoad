@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "otr_joystick.h"
 #include "otr_maps.h"
 #include "otr_world.h"
 
@@ -783,6 +784,135 @@ static void testWorlds()
     CHECK_EQ((int)W.tile(37, 27), (int)Tile::EXIT);
 }
 
+// ---- v0.10.0: HW test "ended up in the lava when crossing the bridge several times" -------
+// Root cause: in Pro mode a lava step cost exactly as much as a ground step, so between the
+// equally short paths over the basalt causeway and through the lava beside it the A* search
+// order decided - and it cut through the lava. Repro on the real test world: build the x=14
+// causeway (rows 38..42), then walk back and forth many times, by tap-to-walk in both modes
+// and by joystick steps, and check that the hero never sets foot on lava.
+static int g_lavaSteps;
+
+static bool tapWalk(int x, int y, WalkMode m)
+{
+    const PlanResult r = P.plan(W, x, y, m, PA);
+    if (r == PlanResult::HERE) return true;
+    for (int i = 0; i < PA.len; i++) {
+        const uint32_t ev = W.move((Dir)PA.dirs[i]);
+        if (W.tile(W.playerX(), W.playerY()) == Tile::LAVA || (ev & (EV_BURNED | EV_SUIT_USED | EV_DIED))) g_lavaSteps++;
+        if (!(ev & EV_MOVED)) return false;
+    }
+    return W.playerX() == x && W.playerY() == y;
+}
+
+// Joystick: finger at `deg` degrees off straight `base` (0 up / 180 down), held in the outer zone;
+// returns the number of steps taken before reaching row `toY`.
+static int joyWalk(double deg, int toY, uint8_t diag)
+{
+    JoyController j;
+    JoyConfig c;
+    c.diag = diag;
+    j.configure(c, 54, 16);
+    const double r = deg * 3.14159265358979 / 180.0;
+    j.press((int)lround(50 * sin(r)), (int)lround(-50 * cos(r)), 0);
+    int steps = 0;
+    for (uint32_t t = 0; t < 20000 && W.playerY() != toY; t += 15) {
+        Dir d;
+        if (!j.poll(t, true, d)) continue;
+        const uint32_t ev = W.move(d);
+        steps++;
+        if (W.tile(W.playerX(), W.playerY()) == Tile::LAVA || (ev & (EV_BURNED | EV_DIED))) g_lavaSteps++;
+    }
+    j.release(20000);
+    return steps;
+}
+
+static void testBridgeRepeated()
+{
+    CHECK(W.load(WORLDS[0]));
+    // Gate, key, boathouse door, boat (as in testWorld, now with the real rules)
+    CHECK(tapWalk(17, 18, WalkMode::ASSIST));
+    for (int i = 0; i < 4; i++) W.move(Dir::RIGHT);
+    CHECK(tapWalk(22, 17, WalkMode::ASSIST));
+    W.move(Dir::DOWN);
+    CHECK(W.move(Dir::DOWN) & EV_GATE_OPEN);
+    CHECK(tapWalk(20, 10, WalkMode::ASSIST));
+    CHECK(tapWalk(44, 18, WalkMode::ASSIST));
+    CHECK_EQ(W.move(Dir::RIGHT), EV_DOOR);
+    CHECK(tapWalk(48, 20, WalkMode::ASSIST));
+    CHECK(W.hasBoat());
+    struct Push { int sx, sy; Dir d; int n; };
+    static const Push PLAN[] = {
+        {14, 33, Dir::DOWN, 4},
+        {11, 36, Dir::RIGHT, 2}, {14, 35, Dir::DOWN, 3}, {17, 35, Dir::LEFT, 2}, {14, 34, Dir::DOWN, 5},
+        {8, 35, Dir::RIGHT, 5},  {14, 34, Dir::DOWN, 6}, {20, 36, Dir::LEFT, 5}, {14, 35, Dir::DOWN, 6},
+    };
+    for (const Push &p : PLAN) {
+        CHECK(tapWalk(p.sx, p.sy, WalkMode::ASSIST));
+        for (int i = 0; i < p.n; i++) CHECK(W.move(p.d) & EV_PUSHED);
+    }
+    for (int y = 38; y <= 42; y++) CHECK_EQ((int)W.tile(14, y), (int)Tile::BASALT);
+    CHECK_EQ((int)W.tile(13, 40), (int)Tile::LAVA);
+    CHECK_EQ(W.suitCharges(), 0);
+    g_lavaSteps = 0;
+    const int used0 = W.livesUsed();
+    // Tap-to-walk, both modes: island targets whose shortest way via the causeway is exactly as
+    // long as the way through the lava (before the fix Pro burned on every one of these)
+    static const int ISLAND[][2] = {{13, 45}, {12, 44}, {16, 47}, {11, 43}, {17, 44}, {15, 48}, {13, 48}};
+    for (int mode = 0; mode < 2; mode++)
+        for (int round = 0; round < 3; round++)
+            for (const auto &t : ISLAND) {
+                CHECK(tapWalk(14, 36, (WalkMode)mode));
+                CHECK(tapWalk(t[0], t[1], (WalkMode)mode));
+                CHECK(tapWalk(14, 36, (WalkMode)mode));
+            }
+    CHECK_EQ(g_lavaSteps, 0);
+    CHECK_EQ(W.livesUsed(), used0);
+    CHECK_EQ(W.energy(), W.maxEnergy());
+    // Pro still goes straight through lava when that is really shorter
+    CHECK(tapWalk(10, 37, WalkMode::PRO));
+    CHECK_EQ((int)P.plan(W, 10, 43, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 6);
+    CHECK(tapWalk(14, 36, WalkMode::ASSIST));
+    // Joystick: down and up the causeway with a slightly crooked thumb (up to 25 degrees, both
+    // diagonal modes), 5 rounds; the causeway survives a save / restore in between
+    for (int round = 0; round < 5; round++) {
+        const double off = (round % 2 ? -1 : 1) * (round * 6.0);   // 0, -6, 12, -18, 24 degrees
+        for (uint8_t diag = 0; diag < 2; diag++) {
+            CHECK_EQ(W.playerX(), 14);
+            CHECK_EQ(joyWalk(180.0 + off, 43, diag), 7);   // (14,44) is a tree: island edge at 43
+            CHECK_EQ(W.playerX(), 14);
+            CHECK_EQ(joyWalk(off, 36, diag), 7);
+        }
+        const size_t n = W.save(SAVEBUF, sizeof(SAVEBUF));
+        CHECK(n > 0);
+        CHECK(W.restore(SAVEBUF, n));
+        for (int y = 38; y <= 42; y++) CHECK_EQ((int)W.tile(14, y), (int)Tile::BASALT);
+    }
+    CHECK_EQ(g_lavaSteps, 0);
+    CHECK_EQ(W.livesUsed(), used0);
+}
+
+// Pro tie-break in isolation: two equally short ways, one over lava -> the safe one
+static void testPlanProTieBreak()
+{
+    static const char *const m[] = {"#####", "#S..#", "#^#.#", "#...#", "#####"};
+    CHECK(loadR(m, R8));
+    CHECK_EQ((int)P.plan(W, 1, 3, WalkMode::PRO, PA), (int)PlanResult::OK);   // Straight down: lava
+    CHECK_EQ(PA.len, 2);
+    static const char *const m2[] = {"######", "#S...#", "#^^#.#", "#....#", "######"};
+    CHECK(loadR(m2, R8));
+    // (2,3): 1 right + 2 down = 3 steps, every 3-step way crosses lava -> lava (shortest wins)
+    CHECK_EQ((int)P.plan(W, 2, 3, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 3);
+    static const char *const m3[] = {"#####", "#S..#", "#^..#", "#...#", "#####"};
+    CHECK(loadR(m3, R8));
+    // (1,3) -> (3,1)... from S (1,1) to (2,3): via (1,2) lava or via (2,1),(2,2): both 3 steps
+    CHECK_EQ((int)P.plan(W, 2, 3, WalkMode::PRO, PA), (int)PlanResult::OK);
+    CHECK_EQ(PA.len, 3);
+    CHECK(!(follow(PA) & (EV_BURNED | EV_HURT)));
+    CHECK_EQ(W.energy(), 8);
+}
+
 int main()
 {
     testLoad();
@@ -802,6 +932,8 @@ int main()
     testMinesweeper();
     testSaveLoad();
     testWorlds();
+    testPlanProTieBreak();
+    testBridgeRepeated();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

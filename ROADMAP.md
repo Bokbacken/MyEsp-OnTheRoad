@@ -115,7 +115,15 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
-## v0.9.0 – Ljud, microSD, filbläddrare, joystick 🔧 (inte HW-testad)
+## v0.10.0 – Kents HW-feedback på v0.9.0 🔧 (inte HW-testad)
+- [x] Äventyret: toppstatusbaren borttagen, spelvyn börjar på y=0. Ny kontrollpanel (160 px): vänster status (liv, nycklar, båt) + menyknapp (hamburgare) och zoomknapp (-/+), mitten stor centrerad joystick (radie 74, stoppzon 23), höger Slå-ruta, röd energistapel, röd diamant + ädelstenar "11/13", "Dräkt N"
+- [x] Joystick: halverad gånghastighet, std 300/150 ms (sparade v0.9.0-standardvärden 150/75 uppgraderas), intervall 60-600 ms; gånganimationen sträcks till takten (max 260 ms) så hjälten glider jämnt
+- [x] Diagonalzoner: rakt 0±30°, diagonal 45±15° (tan 30° = 577/1000), gränsfallstester
+- [x] Bro-bugg: A* i Pro-läge såg lava och mark som lika dyra, så tryck-för-att-gå kunde skära genom lavan bredvid basaltbron. Nu vinner vägen med minst lava bland lika korta vägar; värdtest går fram och tillbaka över bron (tryck och joystick)
+- [x] Webböversikten visar SD-kort (monterat, 4-bit/1-bit, MHz, ledigt/totalt), FFat och startkontrollens resultat (samma som startbilden)
+- [ ] HW-test: ny layout, gånghastighet/-animation, diagonalkänsla, bron, webböversikt
+
+## v0.9.0 – Ljud, microSD, filbläddrare, joystick 🔧 (HW-testad delvis: ljud, SD, filbläddrare, sparning OK)
 - [x] Ljud via ES8311 (egen registerdrivare, säker uppstart: förstärkare av -> codec -> I2S 22 050 Hz -> låg volym -> förstärkare på). Saknas codec: tyst, ingen krasch
 - [x] Mixer-task: 1 musikkanal + 4 effektkanaler. Egen chiptune-synt (fyrkant/triangel/brus, ADSR, MML-melodier) som standard; WAV från SD ersätter per ljud. Ingen OPL/MIDI-emulator: de lätta alternativen är GPL eller för tunga - egen synt valdes
 - [x] Ljudhändelser i tärningsspelen (skak, kast, landning, poäng, noll, Yatzy, bust, vinst, knappklick) och äventyret (steg, slag, plock, dörr, mina, skada, liv, checkpoint, utgång). Musikslinga i menyn/tärningsspel och i äventyret

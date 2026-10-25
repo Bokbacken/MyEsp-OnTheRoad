@@ -28,6 +28,7 @@
 #include "my_time.h"
 #include "my_web.h"
 #include "my_wifi.h"
+#include "ui_boot.h"
 #include "web_assets.h"
 
 static const char *TAG = "appweb";
@@ -183,9 +184,28 @@ static void diagSd(cJSON *o)
     if (!i.mounted) return;
     cJSON_AddStringToObject(o, "name", i.name);
     cJSON_AddNumberToObject(o, "width", i.width);
+    cJSON_AddStringToObject(o, "bus", i.width == 4 ? "4-bit" : "1-bit");
     cJSON_AddNumberToObject(o, "freq_khz", i.freqKhz);
     cJSON_AddNumberToObject(o, "total", (double)i.totalBytes);
     cJSON_AddNumberToObject(o, "free", (double)i.freeBytes);
+    cJSON_AddNumberToObject(o, "used", (double)(i.totalBytes - i.freeBytes));
+    cJSON_AddNumberToObject(o, "mounts", i.generation);
+}
+
+// Boot self-test results, as shown on the device's boot screen
+static void diagBoot(cJSON *o)
+{
+    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip"};
+    cJSON *items = cJSON_AddArrayToObject(o, "items");
+    for (int n = 0; n < (int)UiBoot::Item::COUNT; n++) {
+        const UiBoot::Item it = (UiBoot::Item)n;
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "name", UiBoot::name(it));
+        cJSON_AddStringToObject(e, "state", STATE[(int)UiBoot::state(it)]);
+        cJSON_AddStringToObject(e, "detail", UiBoot::detail(it));
+        cJSON_AddItemToArray(items, e);
+    }
+    cJSON_AddNumberToObject(o, "failures", UiBoot::failures());
 }
 
 static void diagAudio(cJSON *o)
@@ -214,6 +234,7 @@ void registerDiag()
     MyDiag::add("storage", diagStorage);
     MyDiag::add("sd", diagSd);
     MyDiag::add("audio", diagAudio);
+    MyDiag::add("boot", diagBoot);
 }
 
 static esp_err_t handleInfo(httpd_req_t *r)

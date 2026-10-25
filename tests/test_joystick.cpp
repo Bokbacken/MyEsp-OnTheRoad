@@ -8,15 +8,15 @@ static const int R = 54, S = 16;
 
 static void testSample()
 {
-    JoyConfig c;   // 2 zones, 150 / 75 ms
+    JoyConfig c;   // 2 zones, 300 / 150 ms
     JoySample s = joySample(0, 0, R, S, c);
     CHECK(!s.moving && s.zone == 0 && s.intervalMs == 0);
     s = joySample(10, 10, R, S, c);   // |d| = 14.1 < 16
     CHECK(!s.moving);
     s = joySample(0, -20, R, S, c);
-    CHECK(s.moving && s.dir == Dir::UP && s.zone == 1 && s.intervalMs == 150);
+    CHECK(s.moving && s.dir == Dir::UP && s.zone == 1 && s.intervalMs == 300);
     s = joySample(0, 50, R, S, c);
-    CHECK(s.moving && s.dir == Dir::DOWN && s.zone == 2 && s.intervalMs == 75);
+    CHECK(s.moving && s.dir == Dir::DOWN && s.zone == 2 && s.intervalMs == 150);
     s = joySample(200, 0, R, S, c);   // Outside the pad = outer zone
     CHECK(s.dir == Dir::RIGHT && s.zone == 2);
     s = joySample(-30, 0, R, S, c);
@@ -24,7 +24,7 @@ static void testSample()
     // Dominant axis
     s = joySample(30, -20, R, S, c);
     CHECK(s.dir == Dir::RIGHT && s.alt == Dir::UP);
-    s = joySample(-20, 35, R, S, c);
+    s = joySample(-22, 35, R, S, c);  // 32 degrees off vertical
     CHECK(s.dir == Dir::DOWN && s.alt == Dir::LEFT);
     s = joySample(40, -5, R, S, c);   // Nearly straight: no second axis
     CHECK(s.dir == Dir::RIGHT && s.alt == Dir::RIGHT);
@@ -48,6 +48,73 @@ static void testSample()
     JoyConfig c0;
     c0.zones = 0;   // Clamped to 1
     CHECK(joySample(0, 50, R, S, c0).zone == 1);
+}
+
+// Finger at `deg` degrees (0 = straight up, clockwise), far out (outer zone).
+static JoySample at(double deg, int diag = 0)
+{
+    JoyConfig c;
+    c.diag = (uint8_t)diag;
+    const double r = deg * 3.14159265358979 / 180.0;
+    return joySample((int)lround(1000.0 * sin(r)), (int)lround(-1000.0 * cos(r)), R, S, c);
+}
+
+// v0.10.0 sectors: up = 0 +-30, diagonal = 45 +-15, right = 90 +-30 ...
+static void testSectors()
+{
+    JoySample s = at(0);
+    CHECK(s.dir == Dir::UP && s.alt == Dir::UP);
+    s = at(29);                                        // Still straight up
+    CHECK(s.dir == Dir::UP && s.alt == Dir::UP);
+    s = at(31);                                        // Diagonal up-right, vertical dominant
+    CHECK(s.dir == Dir::UP && s.alt == Dir::RIGHT);
+    s = at(44);
+    CHECK(s.dir == Dir::UP && s.alt == Dir::RIGHT);
+    s = at(46);
+    CHECK(s.dir == Dir::RIGHT && s.alt == Dir::UP);
+    s = at(59);                                        // Still diagonal
+    CHECK(s.dir == Dir::RIGHT && s.alt == Dir::UP);
+    s = at(61);                                        // Straight right
+    CHECK(s.dir == Dir::RIGHT && s.alt == Dir::RIGHT);
+    s = at(90);
+    CHECK(s.dir == Dir::RIGHT && s.alt == Dir::RIGHT);
+    s = at(119);
+    CHECK(s.dir == Dir::RIGHT && s.alt == Dir::RIGHT);
+    s = at(121);
+    CHECK(s.dir == Dir::RIGHT && s.alt == Dir::DOWN);
+    s = at(149);
+    CHECK(s.dir == Dir::DOWN && s.alt == Dir::RIGHT);
+    s = at(151);
+    CHECK(s.dir == Dir::DOWN && s.alt == Dir::DOWN);
+    s = at(209);
+    CHECK(s.dir == Dir::DOWN && s.alt == Dir::DOWN);
+    s = at(211);
+    CHECK(s.dir == Dir::DOWN && s.alt == Dir::LEFT);
+    s = at(241);
+    CHECK(s.dir == Dir::LEFT && s.alt == Dir::LEFT);
+    s = at(299);
+    CHECK(s.dir == Dir::LEFT && s.alt == Dir::LEFT);
+    s = at(301);
+    CHECK(s.dir == Dir::LEFT && s.alt == Dir::UP);
+    s = at(329);
+    CHECK(s.dir == Dir::UP && s.alt == Dir::LEFT);
+    s = at(331);
+    CHECK(s.dir == Dir::UP && s.alt == Dir::UP);
+    // Exact boundary in integers: 577/1000 is diagonal, 576/1000 is straight
+    JoyConfig c;
+    CHECK(joySample(577, -1000, R, S, c).alt == Dir::RIGHT);
+    CHECK(joySample(576, -1000, R, S, c).alt == Dir::UP);
+    // Alternate mode: 25 degrees off vertical (diagonal before v0.10.0) walks straight now
+    JoyController j;
+    c.diag = 1;
+    j.configure(c, R, S);
+    j.press((int)lround(50 * sin(25 * 3.14159265358979 / 180)), -(int)lround(50 * cos(25 * 3.14159265358979 / 180)), 0);
+    int other = 0;
+    for (uint32_t t = 0; t < 2000; t += 5) {
+        Dir d;
+        if (j.poll(t, true, d) && d != Dir::UP) other++;
+    }
+    CHECK(other == 0);
 }
 
 static int countSteps(JoyController &j, uint32_t from, uint32_t to, bool canStep = true, Dir *last = nullptr)
@@ -76,17 +143,17 @@ static void testTapAndHold()
     j.press(2, 3, 4000);
     CHECK(countSteps(j, 4000, 5000) == 0);
     j.release(5000);
-    // Hold in the outer zone for 1 s: 1 tap step + repeats every 75 ms after 300 ms hold
+    // Hold in the outer zone for 1 s: 1 tap step + repeats every 150 ms after 300 ms hold
     j.press(0, -50, 6000);
     int n = countSteps(j, 6000, 7000, true, &d);
     CHECK(d == Dir::UP);
-    CHECK(n >= 10 && n <= 11);   // 1 + (700 / 75 = 9.3 -> 9 or 10)
+    CHECK(n >= 5 && n <= 6);     // 1 + (700 / 150 = 4.7 -> 4 or 5)
     j.release(7000);
     CHECK(countSteps(j, 7000, 8000) == 0);
     // Hold in the inner zone: slower
     j.press(0, 20, 9000);
     n = countSteps(j, 9000, 10000);
-    CHECK(n >= 5 && n <= 6);     // 1 + 700 / 150
+    CHECK(n >= 3 && n <= 4);     // 1 + 700 / 300
     // Drag to stop zone pauses, back out restarts with a tap step
     j.drag(0, 2, 10000);
     CHECK(countSteps(j, 10000, 11000) == 0);
@@ -159,6 +226,7 @@ static void testAlternate()
 int main()
 {
     testSample();
+    testSectors();
     testTapAndHold();
     testBusy();
     testAlternate();

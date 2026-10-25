@@ -38,14 +38,23 @@ using Otr::Tile;
 // ----------------------------------------------------------------------------------------
 // Layout
 // ----------------------------------------------------------------------------------------
-static constexpr int32_t VIEW_Y = 44, VIEW_W = 320, VIEW_H = 320;
-static constexpr int32_t CTRL_Y = VIEW_Y + VIEW_H + 4;          // 368
+// v0.10.0: no top status bar. The viewport starts at y = 0 and the whole bottom strip
+// (160 px) is the control panel: status + menu (left) | joystick (centre) | Slå, energy,
+// gems, suit (right).
+static constexpr int32_t VIEW_Y = 0, VIEW_W = 320, VIEW_H = 320;
+static constexpr int32_t CTRL_Y = VIEW_Y + VIEW_H;               // 320
+static constexpr int32_t CTRL_H = 480 - CTRL_Y;                  // 160
 static constexpr uint32_t TICK_MS = 15;
 static constexpr uint32_t WALK_MS_32 = 150, WALK_MS_16 = 115, BUMP_MS = 110, FX_MS = 220;
 static constexpr uint32_t WALK_MS_MIN = 55;                      // Fastest walk animation (joystick)
-// Joystick (left control region): pad centre, outer radius, stop zone radius, knob radius
-static constexpr int32_t JOY_AREA_W = 200, JOY_AREA_H = 480 - CTRL_Y;
-static constexpr int32_t JOY_CX = 100, JOY_CY = JOY_AREA_H / 2, JOY_R = 53, JOY_STOP_R = 17, JOY_KNOB_R = 15;
+static constexpr uint32_t WALK_MS_MAX = 260;                     // Slowest (stretched to the joystick pace)
+// Control panel columns
+static constexpr int32_t COL_L_W = 80;                           // Left: status text + menu/zoom
+static constexpr int32_t COL_R_X = 240, COL_R_W = 320 - COL_R_X - 4;   // Right: 76 px
+// Joystick (centre column): pad centre (relative to the touch area), outer radius, stop zone, knob
+static constexpr int32_t JOY_AREA_X = COL_L_W, JOY_AREA_W = COL_R_X - COL_L_W, JOY_AREA_H = CTRL_H;
+static constexpr int32_t JOY_CX = JOY_AREA_W / 2, JOY_CY = JOY_AREA_H / 2, JOY_R = 74;
+static constexpr int32_t JOY_STOP_R = JOY_R * 17 / 53, JOY_KNOB_R = JOY_R * 15 / 53;   // Same proportions as v0.9.0
 static constexpr uint32_t TOAST_MS = 2200, ANIM_FRAME_MS = 420;
 static constexpr int SPR = 32;                                   // Art is drawn at 32 px
 static constexpr uint16_t KEY = 0xF81F;                          // Transparent (magenta)
@@ -80,7 +89,7 @@ static constexpr size_t SAVE_CAP = 32 * 1024;   // >= World::saveSize() for 64 x
 // Screen objects
 static lv_obj_t *s_scr, *s_canvas, *s_toast, *s_dialog;
 static lv_obj_t *s_activeScr;                // Screen that owns the PSRAM buffers (freed on its delete)
-static lv_obj_t *s_gemsLbl, *s_keysLbl, *s_bar, *s_barLbl, *s_livesLbl, *s_suitLbl;
+static lv_obj_t *s_gemsLbl, *s_keysLbl, *s_boatLbl, *s_bar, *s_barLbl, *s_livesLbl, *s_suitLbl, *s_zoomBtn;
 static lv_timer_t *s_timer;
 
 // View / animation state
@@ -702,25 +711,25 @@ static void updateStats()
 {
     const Otr::World &w = *s_world;
     char buf[64];
-    snprintf(buf, sizeof(buf), tr(Str::ADV_STATS), w.gems(), w.gemsTotal());
-    lv_label_set_text(s_gemsLbl, buf);
+    lv_label_set_text_fmt(s_gemsLbl, "%d/%d", w.gems(), w.gemsTotal());
     snprintf(buf, sizeof(buf), tr(Str::ADV_KEYS), w.keys());
-    if (w.hasBoat()) strncat(buf, tr(Str::ADV_BOAT_TAG), sizeof(buf) - strlen(buf) - 1);
     lv_label_set_text(s_keysLbl, buf);
-    // Energy bar: green, gold below half, red at a quarter
+    const char *boat = tr(Str::ADV_BOAT_TAG);
+    while (*boat == ' ') boat++;
+    lv_label_set_text(s_boatLbl, boat);
+    lv_obj_set_hidden(s_boatLbl, !w.hasBoat());
+    // Energy bar: red fill on a light track (Kent's mock-up); the numbers sit in the bar
     const int e = w.energy(), m = w.maxEnergy();
     lv_bar_set_range(s_bar, 0, m);
     lv_bar_set_value(s_bar, e, LV_ANIM_OFF);
-    const uint32_t col = e * 4 <= m ? Theme::RED : e * 2 <= m ? Theme::GOLD : Theme::GREEN;
-    lv_obj_set_style_bg_color(s_bar, Theme::c(col), LV_PART_INDICATOR);
-    snprintf(buf, sizeof(buf), tr(Str::ADV_ENERGY), e, m);
-    lv_label_set_text(s_barLbl, buf);
+    lv_obj_set_style_border_color(s_bar, Theme::c(e * 4 <= m ? Theme::RED : Theme::LINE), LV_PART_MAIN);
+    lv_label_set_text_fmt(s_barLbl, "%d/%d", e, m);
     if (w.livesLeft() == Otr::LIVES_INFINITE) snprintf(buf, sizeof(buf), tr(Str::ADV_LIVES_USED), w.livesUsed());
     else snprintf(buf, sizeof(buf), tr(Str::ADV_LIVES), w.livesLeft());
     lv_label_set_text(s_livesLbl, buf);
     snprintf(buf, sizeof(buf), tr(Str::ADV_SUIT_TAG), w.suitCharges());
     lv_label_set_text(s_suitLbl, buf);
-    lv_obj_set_hidden(s_suitLbl, w.suitCharges() <= 0);
+    lv_obj_set_style_text_color(s_suitLbl, Theme::c(w.suitCharges() > 0 ? Theme::ACCENT : Theme::MUTED), 0);
 }
 
 static void toast(const char *text, uint32_t color = Theme::TEXT, uint32_t ms = TOAST_MS)
@@ -1012,11 +1021,12 @@ static uint32_t doMove(Dir d)
         s_fromY = fy;
         s_moveT0 = now;
         s_moveMs = s_ts == 32 ? WALK_MS_32 : WALK_MS_16;
-        // Joystick auto-repeat faster than the walk animation: shorten the animation so the
-        // hero glides continuously at the chosen pace (never below WALK_MS_MIN).
+        // Joystick: fit the walk animation to the step interval so the hero glides
+        // continuously at the chosen pace instead of walk-pause-walk. Shorter intervals
+        // shorten it (never below WALK_MS_MIN), longer ones stretch it (up to WALK_MS_MAX).
         if (const uint32_t iv = s_joy.intervalMs()) {
             const uint32_t fit = iv > TICK_MS ? iv - TICK_MS / 2 : iv;
-            if (fit < s_moveMs) s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit;
+            s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit > WALK_MS_MAX ? WALK_MS_MAX : fit;
         }
         s_rockAnim = wasRock && (ev & Otr::EV_PUSHED) && !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
         if (s_rockAnim) {
@@ -1314,14 +1324,14 @@ static lv_obj_t *circle(lv_obj_t *parent, int32_t cx, int32_t cy, int32_t r, uin
     return o;
 }
 
-// The whole left control region is the touch area (touches outside the ring count as the
+// The whole centre column of the control panel is the touch area (touches outside the ring count as the
 // outer zone); the drawing is a ring with four arrows, a red stop zone and the finger knob.
 static void buildJoystick(lv_obj_t *scr)
 {
     lv_obj_t *area = lv_obj_create(scr);
     lv_obj_remove_style_all(area);
     lv_obj_set_size(area, JOY_AREA_W, JOY_AREA_H);
-    lv_obj_set_pos(area, 0, CTRL_Y);
+    lv_obj_set_pos(area, JOY_AREA_X, CTRL_Y);
     lv_obj_set_clickable(area, true);
     lv_obj_set_scrollable(area, false);
     lv_obj_set_gesture_bubble(area, false);
@@ -1336,8 +1346,8 @@ static void buildJoystick(lv_obj_t *scr)
 
     static const char *const SYM[4] = {LV_SYMBOL_UP, LV_SYMBOL_RIGHT, LV_SYMBOL_DOWN, LV_SYMBOL_LEFT};
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *l = Theme::label(area, SYM[i], &my_font_14, Theme::MUTED);
-        const int off = JOY_R - 11;
+        lv_obj_t *l = Theme::label(area, SYM[i], &my_font_18, Theme::MUTED);
+        const int off = JOY_R - 14;
         const int ax = Otr::dirX((Dir)i) * off, ay = Otr::dirY((Dir)i) * off;
         lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, 0);
         lv_obj_update_layout(l);
@@ -1500,6 +1510,96 @@ static void showMenu()
     }, LV_EVENT_DELETE, nullptr);
 }
 
+static void zoomLabel()
+{
+    // "-" = show more of the world (16 px tiles), "+" = back to 32 px
+    lv_label_set_text(lv_obj_get_child(s_zoomBtn, 0), s_ts == 32 ? "-" : "+");
+}
+
+// Bottom control panel (Kent's v0.9.0 mock-up):
+//   left   status text (lives, keys, boat) above the menu (hamburger) and zoom buttons
+//   centre large joystick (its red centre also stops tap-to-walk)
+//   right  Slå box, red energy bar, red gem diamond + count, suit charges
+static void buildControls()
+{
+    lv_obj_t *pan = lv_obj_create(s_scr);
+    lv_obj_remove_style_all(pan);
+    lv_obj_set_size(pan, 320, CTRL_H);
+    lv_obj_set_pos(pan, 0, CTRL_Y);
+    lv_obj_set_style_bg_color(pan, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(pan, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_side(pan, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(pan, 1, 0);
+    lv_obj_set_style_border_color(pan, Theme::c(Theme::LINE), 0);
+    lv_obj_set_scrollable(pan, false);
+
+    // Left column: status text, top-aligned
+    lv_obj_t *info = lv_obj_create(pan);
+    lv_obj_remove_style_all(info);
+    lv_obj_set_pos(info, 6, 8);
+    lv_obj_set_size(info, COL_L_W - 8, 100);
+    lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(info, 3, 0);
+    lv_obj_set_scrollable(info, false);
+    lv_obj_set_clickable(info, false);
+    lv_obj_t **left[3] = {&s_livesLbl, &s_keysLbl, &s_boatLbl};
+    for (lv_obj_t **l : left) {
+        *l = Theme::label(info, "", &my_font_14, Theme::ACCENT);
+        lv_label_set_long_mode(*l, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_width(*l, COL_L_W - 8);
+    }
+    lv_obj_set_style_text_color(s_boatLbl, Theme::c(Theme::BLUE), 0);
+    lv_obj_t *menu = Theme::button(pan, LV_SYMBOL_LIST, 40, 40, Theme::ACCENT);
+    lv_obj_set_pos(menu, 4, CTRL_H - 48);
+    lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+    s_zoomBtn = Theme::button(pan, "-", 30, 40, Theme::TEAL);
+    lv_obj_set_pos(s_zoomBtn, 47, CTRL_H - 48);
+    lv_obj_add_event_cb(s_zoomBtn, [](lv_event_t *) {
+        s_ts = s_ts == 32 ? 16 : 32;
+        zoomLabel();
+        snapPlayer();
+        s_dirty = true;
+    }, LV_EVENT_CLICKED, nullptr);
+    zoomLabel();
+
+    // Right column: the box on top is the Slå (hit) button
+    lv_obj_t *hit = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
+    lv_obj_set_pos(hit, COL_R_X, 8);
+    lv_obj_add_event_cb(hit, [](lv_event_t *) {
+        stopPath();
+        doHit();
+    }, LV_EVENT_PRESSED, nullptr);
+    s_bar = lv_bar_create(pan);
+    lv_obj_set_pos(s_bar, COL_R_X, 74);
+    lv_obj_set_size(s_bar, COL_R_W, 18);
+    lv_obj_set_style_bg_color(s_bar, Theme::c(0xEEF2F7), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_bar, 3, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_bar, 3, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_bar, Theme::c(0xE53935), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    s_barLbl = Theme::label(s_bar, "", &my_font_14, Theme::BG);
+    lv_obj_center(s_barLbl);
+    // Gem counter: red diamond (a rotated square) + "11/13"
+    lv_obj_t *gem = lv_obj_create(pan);
+    lv_obj_remove_style_all(gem);
+    lv_obj_set_size(gem, 11, 11);
+    lv_obj_set_pos(gem, COL_R_X + 5, 106);
+    lv_obj_set_style_bg_color(gem, Theme::c(0xE53935), 0);
+    lv_obj_set_style_bg_opa(gem, LV_OPA_COVER, 0);
+    lv_obj_set_style_transform_pivot_x(gem, 5, 0);
+    lv_obj_set_style_transform_pivot_y(gem, 5, 0);
+    lv_obj_set_style_transform_rotation(gem, 450, 0);
+    lv_obj_set_clickable(gem, false);
+    s_gemsLbl = Theme::label(pan, "", &my_font_14, Theme::RED);
+    lv_obj_set_pos(s_gemsLbl, COL_R_X + 24, 102);
+    s_suitLbl = Theme::label(pan, "", &my_font_14, Theme::ACCENT);
+    lv_obj_set_pos(s_suitLbl, COL_R_X + 4, 128);
+
+    buildJoystick(s_scr);
+}
+
 // ----------------------------------------------------------------------------------------
 // Game screen
 // ----------------------------------------------------------------------------------------
@@ -1508,38 +1608,6 @@ static void buildGame(bool loadFailed)
     s_scr = Theme::screen();
     s_activeScr = s_scr;
     lv_obj_add_event_cb(s_scr, screenDeleted, LV_EVENT_DELETE, nullptr);
-
-    // Compact header: menu | gems / keys | energy bar, lives, suit charges
-    lv_obj_t *hdr = lv_obj_create(s_scr);
-    lv_obj_remove_style_all(hdr);
-    lv_obj_set_size(hdr, VIEW_W, VIEW_Y);
-    lv_obj_set_style_bg_color(hdr, Theme::c(Theme::PANEL), 0);
-    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
-    lv_obj_set_scrollable(hdr, false);
-    lv_obj_t *menu = Theme::button(hdr, LV_SYMBOL_LIST, 40, 36, Theme::MUTED);
-    lv_obj_set_pos(menu, 2, 4);
-    lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
-    s_gemsLbl = Theme::label(hdr, "", &my_font_14, Theme::GOLD);
-    lv_obj_set_pos(s_gemsLbl, 48, 4);
-    s_keysLbl = Theme::label(hdr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_pos(s_keysLbl, 48, 24);
-    constexpr int32_t BAR_X = 154, BAR_W = VIEW_W - BAR_X - 4;
-    s_bar = lv_bar_create(hdr);
-    lv_obj_set_pos(s_bar, BAR_X, 4);
-    lv_obj_set_size(s_bar, BAR_W, 17);
-    lv_obj_set_style_bg_color(s_bar, Theme::c(Theme::NEST_BG), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(s_bar, Theme::c(Theme::LINE), LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_bar, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_bar, 5, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_bar, 5, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
-    s_barLbl = Theme::label(s_bar, "", &my_font_14, Theme::TEXT);
-    lv_obj_center(s_barLbl);
-    s_livesLbl = Theme::label(hdr, "", &my_font_14, Theme::TEXT);
-    lv_obj_set_pos(s_livesLbl, BAR_X, 25);
-    s_suitLbl = Theme::label(hdr, "", &my_font_14, Theme::ACCENT);
-    lv_obj_align(s_suitLbl, LV_ALIGN_TOP_RIGHT, -4, 25);
 
     // Viewport canvas
     s_canvas = lv_canvas_create(s_scr);
@@ -1560,22 +1628,7 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
-    // Controls: joystick (left; its red centre also stops tap-to-walk), Slå + Zoom (right)
-    buildJoystick(s_scr);
-    lv_obj_t *hit = Theme::button(s_scr, tr(Str::ADV_HIT), 110, 66, Theme::ACCENT, true);
-    lv_obj_set_pos(hit, 206, CTRL_Y);
-    lv_obj_add_event_cb(hit, [](lv_event_t *) {
-        stopPath();
-        doHit();
-    }, LV_EVENT_PRESSED, nullptr);
-    lv_obj_t *zoom = Theme::button(s_scr, tr(Str::ADV_ZOOM), 110, 40, Theme::TEAL);
-    lv_obj_set_pos(zoom, 206, CTRL_Y + 70);
-    lv_obj_add_event_cb(zoom, [](lv_event_t *) {
-        s_ts = s_ts == 32 ? 16 : 32;
-        snapPlayer();
-        s_dirty = true;
-    }, LV_EVENT_CLICKED, nullptr);
-
+    buildControls();
     snapPlayer();
     s_fxX = -1;
     s_bumpT0 = 0;

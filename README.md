@@ -4,7 +4,10 @@ A pocket Yatzy / Maxi-Yatzy console for the road, built on the **Heemol ESP32-S3
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.9.0 – sound (ES8311, chiptune + WAV), microSD with web file browser, adventure saves on SD and an
+> **Status:** v0.10.0 – adventure control panel without a top bar (large centred joystick, status/menu left,
+> Slå/energy/gems/suit right), half walking speed (300/150 ms), 30° straight sectors for the joystick, lava
+> tie-break fix in the Pro pathfinder (bridge bug) and SD/boot status on the web overview (not hardware-tested).
+> v0.9.0 – sound (ES8311, chiptune + WAV), microSD with web file browser, adventure saves on SD and an
 > analog-style joystick (not hardware-tested; see ROADMAP). v0.8.0 – adventure engine with tap-to-walk, energy/lives,
 > Minfältet and per-player saves (not hardware-tested). Earlier: v0.5.6 – 180° screen rotation (setting on device and web; MADCTL MX|MY + mirrored touch),
 > personal 4-digit player PINs (player file v2 with automatic v1 migration, on-device numeric keypad),

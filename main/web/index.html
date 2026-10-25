@@ -51,6 +51,24 @@
     <div class="stat" id="fps">–</div>
     <div class="muted" id="touch">Touch –</div>
   </div>
+  <div class="card">
+    <h3>SD-kort</h3>
+    <div class="stat" id="sd">–</div>
+    <div class="bar"><i id="sd-bar"></i></div>
+    <div class="muted" id="sd-info">–</div>
+  </div>
+  <div class="card">
+    <h3>Lagring (FFat)</h3>
+    <div class="stat" id="ffat">–</div>
+    <div class="bar"><i id="ffat-bar"></i></div>
+    <div class="muted" id="ffat-info">–</div>
+  </div>
+</div>
+
+<h2>Startkontroll</h2>
+<div class="card table-wrap">
+  <table id="boot"><tr><td class="muted">–</td></tr></table>
+  <p class="muted" id="boot-sum" style="margin:.5rem 0 0"></p>
 </div>
 
 <h2>Nätverk</h2>
@@ -80,6 +98,45 @@ function fmtUptime(s) {
   return (d ? d + ' d ' : '') + h + ' h ' + m + ' min';
 }
 function kb(b) { return (b / 1024).toFixed(0) + ' kB'; }
+function size(b) { return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(0) + ' MB'; }
+function esc(t) { return String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+const BOOT_STATE = {ok: ['ok', '✔ OK'], fail: ['bad', '✖ fel'], skip: ['muted', '– hoppades över'], running: ['warn', '… testas'], pending: ['muted', '… väntar']};
+function showSd(sd) {
+  if (sd && sd.ok) {
+    $('sd').innerHTML = size(sd.free) + ' <small>ledigt av ' + size(sd.total) + '</small>';
+    $('sd-bar').style.width = (sd.total ? 100 * sd.free / sd.total : 0).toFixed(0) + '%';
+    $('sd-info').textContent = 'Monterat · ' + sd.bus + ' · ' + (sd.freq_khz / 1000) + ' MHz' + (sd.name ? ' · ' + sd.name : '');
+    $('sd-info').className = 'muted';
+  } else {
+    $('sd').innerHTML = '<small>inget kort</small>';
+    $('sd-bar').style.width = '0%';
+    $('sd-info').textContent = 'Inte monterat – sätt i ett microSD-kort (FAT32)';
+    $('sd-info').className = 'warn';
+  }
+}
+function showFfat(st) {
+  if (st && st.ok) {
+    const free = st.total - st.used;
+    $('ffat').innerHTML = kb(free) + ' <small>ledigt av ' + kb(st.total) + '</small>';
+    $('ffat-bar').style.width = (st.total ? 100 * free / st.total : 0).toFixed(0) + '%';
+    $('ffat-info').textContent = st.players + ' spelare registrerade';
+    $('ffat-info').className = 'muted';
+  } else {
+    $('ffat').innerHTML = '<small>ej tillgänglig</small>';
+    $('ffat-info').textContent = 'Internt filsystem kunde inte monteras';
+    $('ffat-info').className = 'bad';
+  }
+}
+function showBoot(b) {
+  if (!b || !b.items) return;
+  $('boot').innerHTML = b.items.map(it => {
+    const [cls, txt] = BOOT_STATE[it.state] || ['', it.state];
+    return '<tr><th>' + esc(it.name) + '</th><td><span class="' + cls + '">' + txt + '</span>' +
+      (it.detail ? ' · ' + esc(it.detail) : '') + '</td></tr>';
+  }).join('');
+  $('boot-sum').textContent = b.failures ? b.failures + ' kontroll(er) misslyckades vid start' : 'Alla kontroller vid start gick igenom';
+  $('boot-sum').className = b.failures ? 'bad' : 'muted';
+}
 function rssiPct(r) { return r ? Math.max(0, Math.min(100, 2 * (r + 100))) : 0; }
 function wifiBadge(w) {
   const dot = $('wifi-dot');
@@ -110,6 +167,9 @@ async function refresh() {
     $('sta-ip').textContent = w.connected ? w.ip : '–';
     $('sta-up').textContent = w.connected ? fmtUptime(w.uptime_s) : '–';
     $('saved').textContent = w.saved_ssid || '(inget)';
+    showSd(i.sd);
+    showFfat(i.storage);
+    showBoot(i.boot);
     $('mdns').innerHTML = w.mdns ? '<a href="http://' + w.hostname + '.local/">' + w.hostname + '.local</a>' : '<span class="bad">inaktiv</span>';
   } catch (e) {
     $('wifi-dot').className = 'dot bad';

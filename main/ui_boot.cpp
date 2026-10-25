@@ -2,6 +2,7 @@
 #include "ui_boot.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "app_config.h"
 #include "board_display.h"
@@ -32,6 +33,7 @@ static lv_obj_t *s_status = nullptr;
 static lv_obj_t *s_icon[(int)Item::COUNT];
 static lv_obj_t *s_detail[(int)Item::COUNT];
 static State s_state[(int)Item::COUNT];
+static char s_text[(int)Item::COUNT][72];   // Last detail text (kept for the web overview)
 
 void show()
 {
@@ -97,9 +99,11 @@ void show()
 void set(Item item, State state, const char *detail)
 {
     int i = (int)item;
-    if (i < 0 || i >= (int)Item::COUNT || !s_screen) return;
-    DisplayLock lock;
+    if (i < 0 || i >= (int)Item::COUNT) return;
     s_state[i] = state;
+    snprintf(s_text[i], sizeof(s_text[i]), "%s", detail ? detail : "");
+    if (!s_screen) return;
+    DisplayLock lock;
     const char *sym = LV_SYMBOL_BULLET;
     uint32_t col = Theme::LINE;
     const char *def = tr(Str::BOOT_WAITING);
@@ -129,6 +133,10 @@ void setStatus(const char *text)
     DisplayLock lock;
     lv_label_set_text(s_status, text);
 }
+
+const char *name(Item item) { return itemName((int)item); }
+State state(Item item) { return (int)item >= 0 && item < Item::COUNT ? s_state[(int)item] : State::PENDING; }
+const char *detail(Item item) { return (int)item >= 0 && item < Item::COUNT ? s_text[(int)item] : ""; }
 
 int failures()
 {

@@ -14,6 +14,10 @@ void show();                                           // Builds and loads the s
 void set(Item item, State state, const char *detail = nullptr);
 void setProgress(int percent);
 void setStatus(const char *text);
-int failures();                                        // Items in FAIL state
+int failures();
+// Boot results, kept after the boot screen is gone (web overview, /api/info "boot")
+const char *name(Item item);
+State state(Item item);
+const char *detail(Item item);                         // "" = no detail text given                                        // Items in FAIL state
 
 }  // namespace UiBoot
