@@ -449,6 +449,7 @@ extern const Entry LANG_SV[] = {
     {Str::KARA_SAVED_NOTE, "Sparas per låt"},
     {Str::KARA_ERR_SF2_SF3, "Ljudbanken är komprimerad (SF3) och stöds inte. Använd en okomprimerad .sf2"},
     {Str::KARA_ERR_SONG_BIG, "Låten behöver för många sampel"},
+    {Str::KARA_TR_REJECTED, "Tonarten får inte plats i minnet – föregående tonart behålls"},
     {Str::KARA_SOUND_OFF_Q, "Ljudet är avstängt. Slå på ljudet?"},
     {Str::KARA_YES, "Ja"},
     {Str::KARA_NO, "Nej"},

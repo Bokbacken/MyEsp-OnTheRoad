@@ -4,7 +4,17 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.3 – **halving of high-rate samples**: when a song is prepared, samples recorded at ≥ 1.8 × the
+> **Status:** v0.13.4 – **resampling to the output rate**: every sample above 22 050 Hz (28/30.5/32/44.1/48 kHz)
+> is resampled to the output rate while it is read from the SD card (polyphase Kaiser-windowed sinc, 75 dB stopband;
+> loop lengths are rounded and the zone's pitch is compensated exactly). The ±12 key margin is gone: the synth loads
+> exactly the keys the song plays at the current transpose and reloads in the background when the key changes
+> (keeping the previous key if the new one does not fit). The per-song budget is now the largest free PSRAM block
+> minus 512 kB, and the game sound-clip cache is freed first. Host-measured: GeneralUser-GS + Ainbusk 6.03 → 3.10 MB,
+> with Alan Parsons "Time" 7.60 → 4.64 MB, Jnsgm2 + "Time" 6.91 → 3.85 MB – all fit now. Dropout diagnostics: every 5 s
+> the log shows render load (avg/peak), underruns and voices; NVS `kara_voices` (16–32, default 32) caps the voices.
+> **Not hardware-tested yet.**
+>
+> Previous: v0.13.3 – **halving of high-rate samples**: when a song is prepared, samples recorded at ≥ 1.8 × the
 > output rate (44.1/48 kHz) are decimated 2:1 with a 47-tap half-band FIR while they are read from the SD card
 > (loops keep their pitch; short odd loops stay at full rate). Saves up to ~1.4 MB per song with large GM banks
 > (e.g. eawpats 4.3 → 3.0 MB); banks already at 22 050 Hz are unchanged. GeneralUser-GS still cannot fit two of the

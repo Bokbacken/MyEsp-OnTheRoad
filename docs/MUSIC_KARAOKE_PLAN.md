@@ -58,7 +58,17 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
 - **v0.13.3 – halvering:** sampel med minst 1,8 × utfrekvensen (44,1/48 kHz) decimeras 2:1 med ett halvbandsfilter
   (47 tappar, Kaiser β 7, Q15; −6 dB vid 11 kHz, −53 dB vid 13 kHz) medan de läses från SD. Överlappande intervall
   halveras bara om alla zoner tillåter det; jämna loopar halveras, udda bara om de är ≥ 1 500 sampel (annars ändras
-  tonhöjden). `setHalving(false)` stänger av. Sparar 0–1,4 MB per låt med stora banker.
+  tonhöjden). `setHalving(false)` stänger av. Sparar 0–1,4 MB per låt med stora banker. Ersatt i v0.13.4.
+- **v0.13.4 – omsampling:** allt med `sample_rate` > utfrekvensen omsamplas till utfrekvensen när det läses från SD
+  (polyfas windowed-sinc, Kaiser 75 dB, brytfrekvens 0,45 × utfrekvensen, 64 faser, float). Intervall grupperas i
+  block per källfrekvens; loopar avrundas till heltal nya sampel och zonens `sample_rate` (float) kompenseras exakt,
+  så tonhöjden stämmer även för korta udda loopar och delade intervall. `setResampling(false)` stänger av.
+- **v0.13.4 – exakta tangenter:** ±12-marginalen är borta; skanningen tar exakt tangent + transponering. Ändras
+  transponeringen med en selektivt laddad bank körs `prepare()` om (låten pausas och fortsätter). Får den nya
+  tonarten inte plats behålls den gamla och ett meddelande visas.
+- **v0.13.4 – budget och diagnostik:** budgeten är största lediga PSRAM-block − 512 kB (inte längre fast 6 MB);
+  spelets ljudklippscache frigörs först. Var 5:e sekund loggas renderbelastning (medel/max), underruns och röster.
+  NVS `kara_voices` (16–32, standard 32) begränsar antalet röster.
 - **v0.13.2 – reverb och chorus:** `otr_fx` (Freeverb, public domain: 8 kamfilter + 4 allpass, längder skalade
   från 44,1 till 22,05 kHz; chorus 15 ms ±4 ms, 0,7 Hz triangel, ~4 kB). Mono-sändeffekter: sändnivån per kanal
   följer CC91 (reverb, GM-standard 40) och CC93 (chorus, 0). Renderingen sker i block om 256 sampel; röster
@@ -97,8 +107,8 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
 
 ## 5. Begränsningar
 
-- MIDI-filer max 1 MB. Ljudbanken kan vara hur stor som helst (v0.13.2), men en låt får använda högst 6 MB
-  sampeldata (PSRAM är 8 MB och delas med LVGL och ljudcache).
+- MIDI-filer max 1 MB. Ljudbanken kan vara hur stor som helst (v0.13.2). En låt får använda största lediga
+  PSRAM-blocket minus 512 kB (v0.13.4; tidigare fast 6 MB). PSRAM är 8 MB och delas med LVGL.
 - Mätt på värddatorn (v0.13.2, Kents 5 låtar): Florestan 0,23–0,63 MB per låt, Super Nintendo 0,08–0,29 MB,
   Yamaha XG 0,23–0,76 MB, GeneralUser-GS (30,8 MB) 3,5–4,8 MB; med GeneralUser får två låtar inte plats
   (Ainbusk 6,6 MB, Alan Parsons 8,3 MB – bankens dubbla stråklager använder samma sampel, så tunnning hjälper
@@ -107,7 +117,17 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
   hastighetslager), ChaosBank 0,78–1,93 MB, Jnsgm2 1,36–5,44 MB (Alan Parsons får inte plats, 6,91 MB),
   GeneralUser-GS 3,10–4,09 MB för tre låtar; Ainbusk (6,03 MB) och Alan Parsons (7,60 MB) får fortfarande inte plats
   eftersom deras sampel ligger på 28–32 kHz.
-- Max 32 samtidiga röster; vid fler stjäls den äldsta rösten.
+- Med omsampling och exakta tangenter (v0.13.4, värddatorn, budget 8 MB):
+
+  | Bank + låt | v0.13.3 | utan omsampling (exakta tangenter) | v0.13.4 | sparat av omsampling |
+  |---|---|---|---|---|
+  | GeneralUser-GS + Ainbusk | 6,03 MB (för stort) | 4,53 MB | 3,10 MB | 1,42 MB |
+  | GeneralUser-GS + Alan Parsons Time | 7,60 MB (för stort) | 6,71 MB | 4,64 MB | 2,03 MB |
+  | Jnsgm2 + Ainbusk | – | 3,86 MB | 2,92 MB | 0,94 MB |
+  | Jnsgm2 + Alan Parsons Time | 6,91 MB (för stort) | 5,50 MB | 3,85 MB | 1,65 MB |
+
+  Ingen av låtarna behöver längre tunnas. Rel. skillnad mot ej omsamplat 0,011–0,067 (första 60 s, torrt).
+- Max 32 samtidiga röster (NVS `kara_voices`, 16–32, v0.13.4); vid fler stjäls den äldsta rösten.
 - Mono 22 050 Hz (samma som mixern).
 - Ingen ljudbank ingår i repot (licens och storlek). Förslag: TimGM6mb.sf2 (GPL v2, ~5,7 MB).
 - Endast okomprimerade SF2 (version 2, 16-bitars sampel). SF3 (Ogg-komprimerade) avvisas.

@@ -4,7 +4,9 @@
    - Lowpass biquad uses float instead of double (no FPU for double on the ESP32-S3).
    - The mono render loop uses a 32.32 fixed-point sample position instead of double.
    - Voice stealing: when every voice is busy and none is releasing, the oldest voice is reused.
-   - SF3 (Ogg Vorbis) support is disabled. */
+   - SF3 (Ogg Vorbis) support is disabled.
+   - tsf_region.sample_rate is a float: samples resampled while loading get a fractional rate
+     (loop lengths are rounded to whole samples, the rate compensates exactly). */
 /* TinySoundFont - v0.9 - SoundFont2 synthesizer - https://github.com/schellingb/TinySoundFont
                                      no warranty implied; use at your own risk
    Do this:
@@ -437,7 +439,7 @@ struct tsf_voice_lfo { int samplesUntil; float level, delta; };
 struct tsf_region
 {
 	int loop_mode;
-	unsigned int sample_rate;
+	float sample_rate; /* OnTheRoad: float so resampled zones keep their exact pitch */
 	unsigned char lokey, hikey, lovel, hivel;
 	unsigned int group, offset, end, loop_start, loop_end;
 	int transpose, tune, pitch_keycenter, pitch_keytrack;
@@ -846,7 +848,7 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 								if (zoneRegion.loop_end > fontSampleCount) zoneRegion.loop_end = fontSampleCount;
 								if (zoneRegion.pitch_keycenter == -1) zoneRegion.pitch_keycenter = pshdr->originalPitch;
 								zoneRegion.tune += pshdr->pitchCorrection;
-								zoneRegion.sample_rate = pshdr->sampleRate;
+								zoneRegion.sample_rate = (float)pshdr->sampleRate;
 								if (zoneRegion.end && zoneRegion.end < fontSampleCount) zoneRegion.end++;
 								else zoneRegion.end = fontSampleCount;
 

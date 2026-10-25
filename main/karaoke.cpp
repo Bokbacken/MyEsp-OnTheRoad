@@ -15,6 +15,7 @@
 #include "board_sd.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -52,6 +53,16 @@ int s_pendingTr = 0;            // Transpose of a song opened while a font was l
 uint32_t s_songGen = 0, s_prepGen = 0, s_failGen = 0;
 volatile int s_loadPct = 0;
 bool s_taskOpenBank = false;    // Task job: open the bank first (font change) or only prepare
+// v0.13.4: the samples are loaded for the keys as transposed, so a new transpose prepares again.
+// prevTr: the transpose to fall back to when the new one does not fit; resumePlay: the song was
+// playing and continues after the reload; trRejected: told to the UI once.
+bool s_trReload = false, s_resumePlay = false;
+int s_prevTr = 0;
+volatile bool s_trRejected = false;
+// Diagnostics (logged every 5 s while a song is open)
+esp_timer_handle_t s_diagTimer = nullptr;
+volatile int s_voicesPeak = 0;
+uint32_t s_lastUnderruns = 0;
 
 struct Lock {
     Lock()
@@ -80,6 +91,8 @@ void renderCb(int32_t *acc, int n, int gainQ8, void *)
     if (s_open && s_fontState != FontState::LOADING) {
         s_player.advance((uint32_t)((uint64_t)n * 1000000u / Synth::RATE), s_synth);
         s_synth.render(acc, n, gainQ8);
+        const int v = s_synth.activeVoices();
+        if (v > s_voicesPeak) s_voicesPeak = v;
     }
     xSemaphoreGive(s_mux);
 }
@@ -217,11 +230,51 @@ bool needPrepare() { return s_open && s_synth.bankOpen() && s_songGen != s_prepG
 
 void progressCb(void *, int pct) { s_loadPct = pct; }
 
+// Every 5 s while a song is open: render load (average/peak in % of a mixer block), late blocks and
+// voices, to find the cause of dropouts on the device
+void diagCb(void *)
+{
+    const Audio::ExternalStats st = Audio::takeExternalStats();
+    const int peak = s_voicesPeak;
+    s_voicesPeak = 0;
+    const uint32_t newUnder = st.underruns - s_lastUnderruns;
+    s_lastUnderruns = st.underruns;
+    if (!s_open || s_fontState == FontState::LOADING || !st.blocks) return;
+    ESP_LOGI(TAG, "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, %s",
+             (unsigned)(st.avgLoad100 / 100), (unsigned)(st.avgLoad100 % 100), (unsigned)(st.maxLoad100 / 100),
+             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, s_synth.maxVoices(),
+             s_player.playing() ? "playing" : "paused");
+}
+
+void startDiag()
+{
+    if (!s_diagTimer) {
+        const esp_timer_create_args_t a = {.callback = &diagCb, .arg = nullptr, .dispatch_method = ESP_TIMER_TASK,
+                                           .name = "karadiag", .skip_unhandled_events = true};
+        if (esp_timer_create(&a, &s_diagTimer) != ESP_OK) return;
+    }
+    Audio::takeExternalStats();   // Start a fresh period
+    s_lastUnderruns = Audio::status().underruns;
+    s_voicesPeak = 0;
+    if (!esp_timer_is_active(s_diagTimer)) esp_timer_start_periodic(s_diagTimer, 5000000);
+}
+
+void stopDiag()
+{
+    if (s_diagTimer && esp_timer_is_active(s_diagTimer)) esp_timer_stop(s_diagTimer);
+}
+
 void fontTask(void *)
 {
     char path[128], name[64];
     Err err = Err::OK;
     s_loadPct = 0;
+    // The cached effect WAVs go first: their PSRAM counts for the song's samples (they reload on use)
+    Audio::releaseClips();
+    {
+        Lock l;
+        s_synth.setMaxVoices(Config::get().karaVoices);
+    }
     if (s_taskOpenBank) {
         {
             BoardSd::Guard g;
@@ -258,6 +311,7 @@ void fontTask(void *)
         }
     }
     // Samples for the open song; repeats while the user opens another song meanwhile
+    std::string regText;   // Register update after an accepted transpose
     for (;;) {
         Midi::Song scan;   // Copy of the events: open()/close() may run during the read
         uint32_t gen;
@@ -269,13 +323,19 @@ void fontTask(void *)
                     s_synth.setTranspose(s_pendingTr);
                     applyMelodyMute();
                     s_player.seek(s_player.position(), s_synth);
+                    if (s_trReload && err == Err::OK) {
+                        regText = updateRegistry();
+                        if (s_resumePlay) s_player.play(true);   // Continues where it stopped
+                    }
                 }
+                s_trReload = s_resumePlay = false;
                 s_fontErr = err;
                 s_fontState = err == Err::OK ? FontState::READY : FontState::FAILED;
                 break;
             }
             gen = s_songGen;
             scan.events = s_song.events;
+            s_synth.setTranspose(s_pendingTr);   // The scan records the keys as they will play
         }
         s_loadPct = 0;
         const int64_t t0 = esp_log_timestamp();
@@ -285,15 +345,27 @@ void fontTask(void *)
             le = s_synth.prepare(scan, &progressCb, nullptr);
         }
         const Sf::PrepStats st = s_synth.stats();
-        ESP_LOGI(TAG, "prepare: %s, %u bytes, %u presets, %u zones (%u halved, %u bytes saved), %u reads%s, %lld ms, PSRAM free %u",
-                 Sf::loadErrName(le), (unsigned)st.bytes, st.presets, st.regions, st.halved, (unsigned)st.halvedSaved, st.ranges,
+        ESP_LOGI(TAG, "prepare (transpose %d): %s, %u bytes of budget %u, %u presets, %u zones (%u resampled, %u bytes saved), %u reads%s, %lld ms, PSRAM free %u",
+                 s_synth.transpose(), Sf::loadErrName(le), (unsigned)st.bytes, (unsigned)st.budget, st.presets, st.regions,
+                 st.resampled, (unsigned)st.resampledSaved, st.ranges,
                  st.thinned ? " (one zone per key)" : st.reduced ? " (one velocity layer)" : "", (long long)(esp_log_timestamp() - t0),
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         Lock l;
-        if (le == Sf::LoadErr::OK) s_prepGen = gen;
-        else if (le == Sf::LoadErr::TOO_BIG) s_failGen = gen;
-        else err = mapLoadErr(le);   // Memory or card trouble: stop here
+        if (le == Sf::LoadErr::OK) {
+            s_prepGen = gen;
+        } else if (le == Sf::LoadErr::TOO_BIG && s_trReload && gen == s_songGen && s_pendingTr != s_prevTr) {
+            // The new transpose does not fit: keep the previous one (prepared again) and tell the UI
+            ESP_LOGW(TAG, "transpose %d does not fit, back to %d", s_pendingTr, s_prevTr);
+            s_pendingTr = s_prevTr;
+            s_trRejected = true;
+            if (++s_songGen == 0) s_songGen = 1;
+        } else if (le == Sf::LoadErr::TOO_BIG) {
+            s_failGen = gen;
+        } else {
+            err = mapLoadErr(le);   // Memory or card trouble: stop here
+        }
     }
+    writeRegistry(regText);
     vTaskDelete(nullptr);
 }
 
@@ -519,6 +591,7 @@ Err open(const SongFile &sf)
     s_player.load(&s_song);
     s_player.setTempo(tempo);
     s_pendingTr = tr;
+    s_trReload = s_resumePlay = false;
     s_songGen++;
     if (s_songGen == 0) s_songGen = 1;   // 0 = "none"
     if (!synthBusy()) {
@@ -535,11 +608,13 @@ Err open(const SongFile &sf)
              s_melodyReg ? " (register)" : "", (unsigned)s_crc);
     Audio::setExternalVolume(s_volume);
     Audio::setExternal(&renderCb, nullptr);
+    startDiag();
     return Err::OK;
 }
 
 void close()
 {
+    stopDiag();
     Audio::setExternal(nullptr, nullptr);
     Lock l;
     if (!s_open) return;
@@ -599,14 +674,34 @@ void setTranspose(int semis)
     {
         Lock l;
         if (!s_open || synthBusy()) return;
-        s_synth.setTranspose(semis);
+        semis = semis < -12 ? -12 : semis > 12 ? 12 : semis;
+        if (semis == s_synth.transpose()) return;
+        if (s_synth.selective() && s_synth.loaded()) {
+            // Only the keys of the current transpose are loaded: prepare again (short silence, the
+            // song continues from the same position; the register is written once it fits)
+            s_prevTr = s_synth.transpose();
+            s_pendingTr = semis;
+            s_trReload = true;
+            s_resumePlay = s_player.playing();
+            if (++s_songGen == 0) s_songGen = 1;
+            startTask(false);
+            return;
+        }
+        s_synth.setTranspose(semis);   // Whole bank in memory (or silent mode): just shift
         s_pendingTr = s_synth.transpose();
         text = updateRegistry();
     }
     writeRegistry(text);
 }
 
-int transpose() { return s_synth.transpose(); }
+int transpose() { return s_open ? s_pendingTr : s_synth.transpose(); }
+
+bool takeTransposeRejected()
+{
+    const bool r = s_trRejected;
+    s_trRejected = false;
+    return r;
+}
 
 void setMelody(int ch)
 {
@@ -654,6 +749,7 @@ View view()
     v.playing = s_player.playing();
     v.finished = s_player.finished();
     v.voices = synthBusy() ? 0 : s_synth.activeVoices();
+    v.maxVoices = s_synth.maxVoices();
     v.cpuPct = Audio::status().externalLoad;
     return v;
 }

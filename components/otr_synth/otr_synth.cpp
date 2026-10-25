@@ -78,7 +78,6 @@ inline int tsfVelocity(int d2) { return (int)(short)((d2 / 127.0f) * 127); }
 
 constexpr unsigned MERGE_GAP = 2048;   // Samples (4 kB): closer ranges are read in one go
 constexpr unsigned PAD = 4;            // Silent samples at the buffer start and end
-constexpr size_t PSRAM_RESERVE = 512u * 1024;   // Left free for the song, LVGL and the rest
 }  // namespace
 
 const char *loadErrName(LoadErr e)
@@ -184,6 +183,7 @@ LoadErr Synth::load(const char *path, int sampleRate)
     rate_ = sampleRate;
     tsf_set_output(f_, TSF_MONO, sampleRate, -14.0f);   // Headroom: dense songs (30+ voices) must not clip
     if (!tsf_set_max_voices(f_, MAX_VOICES)) { unload(); return LoadErr::NO_MEMORY; }
+    applyVoices();
     initFx();
     reset();
     return LoadErr::OK;
@@ -221,6 +221,7 @@ LoadErr Synth::open(const char *path, int sampleRate)
     snprintf(path_, sizeof(path_), "%s", path);
     tsf_set_output(f_, TSF_MONO, sampleRate, -14.0f);
     if (!tsf_set_max_voices(f_, MAX_VOICES)) { unload(); return LoadErr::NO_MEMORY; }
+    applyVoices();
     initFx();
     reset();
     return LoadErr::OK;
@@ -256,84 +257,263 @@ void Synth::recordNote(int ch, int key, int vel)
 {
     const int pi = tsf_channel_get_preset_index(f_, ch);
     if (pi < 0 || pi >= f_->presetNum) return;
-    uint64_t *km = keyMask_ + 2 * pi, *vm = velMask_ + 2 * pi;
-    if (ch == Midi::DRUM_CH) {
-        setBit(km, key);
-    } else {
-        for (int k = key - KEY_MARGIN; k <= key + KEY_MARGIN; k++)
-            if (k >= 0 && k <= 127) setBit(km, k);
-    }
-    setBit(vm, vel);
+    if (ch != Midi::DRUM_CH) key += transpose_;   // Exactly the key playback will start
+    if (key < 0 || key > 127) return;
+    setBit(keyMask_ + 2 * pi, key);
+    setBit(velMask_ + 2 * pi, vel);
 }
 
 namespace {
 struct Range {
     uint32_t lo, hi;        // Sample indices in the file's smpl chunk, [lo, hi)
     tsf_region *region;
-    bool half;              // Zone may be decimated 2:1
+    float rate;             // The zone's source sample rate
 };
+
+int64_t floorDiv(int64_t a, int64_t b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+uint32_t gcdU(uint32_t a, uint32_t b)
+{
+    while (b) {
+        const uint32_t t = a % b;
+        a = b, b = t;
+    }
+    return a;
+}
 
 // Ranges (sorted by lo) grouped into blocks that are read in one go. Overlapping ranges share
-// samples, so they form one cluster that is halved only if every zone in it may be; nearby
-// clusters (gap <= MERGE_GAP) merge only when they agree on halving.
+// samples and form one cluster. A cluster whose zones all have the same source rate above the
+// output rate is resampled on its own; the others are copied, and nearby copied clusters
+// (gap <= MERGE_GAP) merge.
+// Resampled: Q output samples per P source samples; output j sits at source position
+// a + (j - ja) * P / Q. With a loop, P/Q = L/Lout of the cluster's shortest loop (a = its zone's
+// start), so that loop is exactly Lout samples long; output [loopLo, loopHi] is computed from the
+// periodic loop signal (source [ls, le] repeated), which makes the seam seamless wherever the
+// rounded loop start lands.
 struct Block {
     uint32_t lo, hi;        // [lo, hi) in the file's smpl chunk
-    bool half;
     size_t first, last;     // Ranges [first, last)
-    uint32_t len() const { return half ? (hi - lo) / 2 + 1 : hi - lo; }   // Samples in the buffer
+    bool rs = false;
+    float rate = 0;         // Source rate (rs)
+    int64_t P = 1, Q = 1, a = 0, ja = 0;
+    uint32_t n = 0;         // Output samples (rs)
+    uint32_t loopLo = 1, loopHi = 0, ls = 0, le = 0;
+    uint32_t len() const { return rs ? n : hi - lo; }   // Samples in the buffer
 };
 
-void buildBlocks(const std::vector<Range> &ranges, std::vector<Block> &blocks)
+struct ZonePos {
+    uint32_t off, end, ls, le;
+    float rate;
+};
+
+bool hasLoop(const tsf_region &rg) { return rg.loop_mode != TSF_LOOPMODE_NONE && rg.loop_start < rg.loop_end; }
+
+// Zone positions relative to the block's output start
+ZonePos mapZone(const Block &b, const tsf_region &rg)
+{
+    auto roundY = [&](uint32_t x) { return (uint32_t)(b.ja + floorDiv(2 * ((int64_t)x - b.a) * b.Q + b.P, 2 * b.P)); };
+    ZonePos z;
+    z.off = roundY(rg.offset);
+    z.end = roundY(rg.end);
+    if (z.end < z.off) z.end = z.off;
+    if (hasLoop(rg)) {
+        const int64_t L = (int64_t)rg.loop_end - rg.loop_start + 1;   // TSF loops are inclusive
+        int64_t lout = (2 * L * b.Q + b.P) / (2 * b.P);
+        if (lout < 1) lout = 1;
+        z.ls = roundY(rg.loop_start);
+        z.le = z.ls + (uint32_t)lout - 1;
+        z.rate = (float)((double)b.rate * (double)lout / (double)L);   // Exact loop pitch
+    } else {
+        z.ls = z.le = z.off;
+        z.rate = (float)((double)b.rate * (double)b.Q / (double)b.P);
+    }
+    return z;
+}
+
+// Sets up a resampled block; false = keep the cluster at its rate
+bool planResample(Block &b, const std::vector<Range> &ranges, int outRate)
+{
+    const tsf_region *rep = nullptr;   // Shortest loop
+    for (size_t i = b.first; i < b.last; i++) {
+        const tsf_region &rg = *ranges[i].region;
+        if (hasLoop(rg) && (!rep || rg.loop_end - rg.loop_start < rep->loop_end - rep->loop_start)) rep = &rg;
+    }
+    const double r0 = (double)outRate / (double)b.rate;
+    if (rep) {
+        const int64_t L = (int64_t)rep->loop_end - rep->loop_start + 1;
+        const int64_t lout = (int64_t)floor((double)L * r0 + 0.5);
+        if (lout < (int64_t)RESAMPLE_MIN_LOOP || lout >= L) return false;
+        b.P = L, b.Q = lout;
+        b.a = rep->offset;   // The note start lands on a whole output sample
+        b.ja = ((int64_t)(rep->offset - b.lo) * b.Q + b.P - 1) / b.P;
+        b.ls = rep->loop_start, b.le = rep->loop_end;
+        b.loopLo = mapZone(b, *rep).ls;   // Lout samples = exactly one loop period of the source
+        b.loopHi = b.loopLo + (uint32_t)lout - 1;
+    } else {
+        const uint32_t s = (uint32_t)b.rate;
+        if ((float)s != b.rate) return false;   // SF2 rates are integers
+        const uint32_t g = gcdU(s, (uint32_t)outRate);
+        b.P = s / g, b.Q = (uint32_t)outRate / g;
+        b.a = b.lo, b.ja = 0;
+        b.loopLo = 1, b.loopHi = 0;
+    }
+    int64_t n = b.ja + floorDiv(((int64_t)b.hi - 1 - b.a) * b.Q, b.P) + 2;
+    for (size_t i = b.first; i < b.last; i++) {
+        const ZonePos z = mapZone(b, *ranges[i].region);
+        if ((int64_t)z.end + 2 > n) n = (int64_t)z.end + 2;
+        if ((int64_t)z.le + 2 > n) n = (int64_t)z.le + 2;
+    }
+    if (n >= (int64_t)(b.hi - b.lo)) return false;
+    b.n = (uint32_t)n;
+    return true;
+}
+
+void buildBlocks(const std::vector<Range> &ranges, std::vector<Block> &blocks, bool resample, int outRate)
 {
     blocks.clear();
     for (size_t i = 0; i < ranges.size();) {
-        uint32_t lo = ranges[i].lo, hi = ranges[i].hi;
-        bool half = ranges[i].half;
+        Block c;
+        c.lo = ranges[i].lo, c.hi = ranges[i].hi, c.first = i;
+        bool same = true;
         size_t j = i + 1;
-        for (; j < ranges.size() && ranges[j].lo < hi; j++) {
-            if (ranges[j].hi > hi) hi = ranges[j].hi;
-            half = half && ranges[j].half;
+        for (; j < ranges.size() && ranges[j].lo < c.hi; j++) {
+            if (ranges[j].hi > c.hi) c.hi = ranges[j].hi;
+            same = same && ranges[j].rate == ranges[i].rate;
         }
-        if (!blocks.empty() && blocks.back().half == half && lo <= blocks.back().hi + MERGE_GAP) {
-            if (hi > blocks.back().hi) blocks.back().hi = hi;
+        c.last = j;
+        c.rate = ranges[i].rate;
+        if (resample && same && c.rate > (float)outRate) c.rs = planResample(c, ranges, outRate);
+        if (!c.rs && !blocks.empty() && !blocks.back().rs && c.lo <= blocks.back().hi + MERGE_GAP) {
+            if (c.hi > blocks.back().hi) blocks.back().hi = c.hi;
             blocks.back().last = j;
         } else {
-            blocks.push_back({lo, hi, half, i, j});
+            blocks.push_back(c);
         }
         i = j;
     }
 }
 
-// Half-band low-pass (47 taps, Kaiser beta 7, Q15): -0.9 dB at 10 kHz, -6 dB at 11.0 kHz,
-// -53 dB at 13 kHz for a 44.1 kHz source. Odd taps 1, 3, ... 23 (mirrored); the centre is 0.5
-// and the other even taps are zero.
-constexpr int HB_HALF = 23;
-constexpr int16_t HB_TAPS[12] = {10366, -3290, 1787, -1096, 693, -433, 261, -148, 77, -35, 13, -3};
-constexpr uint32_t HB_CHUNK = 4096;   // Output samples per read
+// Polyphase Kaiser-windowed sinc for one source rate: cut-off 0.45 x the output rate, transition
+// 0.40..0.50 x the output rate, 75 dB stopband. PHASES + 1 rows of T = 2K taps (linear
+// interpolation between rows); each row sums to 1.
+constexpr int PHASES = 64;
+struct Kernel {
+    float rate = 0;
+    int K = 0, T = 0;
+    float *c = nullptr;
+};
 
-// Decimates file samples [lo, lo + n) 2:1 into out[0 .. n/2] (n/2 + 1 samples; the block edges are
-// extended by repetition). in: scratch of 2 * HB_CHUNK + 2 * HB_HALF samples.
-bool readHalved(FILE *fp, uint32_t smplPos, uint32_t lo, uint32_t n, short *out, short *in)
+double besselI0(double x)
 {
-    const uint32_t m = n / 2 + 1;
-    for (uint32_t j0 = 0; j0 < m; j0 += HB_CHUNK) {
-        const uint32_t j1 = j0 + HB_CHUNK < m ? j0 + HB_CHUNK : m;
-        const int64_t a = 2 * (int64_t)j0 - HB_HALF, b = 2 * (int64_t)(j1 - 1) + HB_HALF;   // Inclusive
-        const int64_t ra = a < 0 ? 0 : a, rb = b > (int64_t)n - 1 ? (int64_t)n - 1 : b;
-        const size_t cnt = (size_t)(rb - ra + 1);
-        if (fseek(fp, (long)(smplPos + ((uint64_t)lo + (uint64_t)ra) * 2), SEEK_SET) != 0) return false;
-        if (fread(in + (ra - a), sizeof(short), cnt, fp) != cnt) return false;
-        for (int64_t i = 0; i < ra - a; i++) in[i] = in[ra - a];
-        for (int64_t i = rb - a + 1; i <= b - a; i++) in[i] = in[rb - a];
-        for (uint32_t j = j0; j < j1; j++) {
-            const short *c = in + (2 * (int64_t)j - a);   // Centre tap
-            int32_t acc = (int32_t)c[0] << 14;            // 0.5 in Q15
-            for (int t = 0; t < 12; t++) acc += HB_TAPS[t] * ((int32_t)c[-(2 * t + 1)] + c[2 * t + 1]);
-            acc = (acc + (1 << 14)) >> 15;
-            out[j] = (short)(acc > 32767 ? 32767 : acc < -32768 ? -32768 : acc);
+    double sum = 1, term = 1;
+    for (int k = 1; k < 40; k++) {
+        term *= (x / (2 * k)) * (x / (2 * k));
+        sum += term;
+        if (term < sum * 1e-12) break;
+    }
+    return sum;
+}
+
+bool buildKernel(Kernel &k, float rate, int outRate)
+{
+    const double r0 = (double)outRate / (double)rate, fc = 0.45 * r0, A = 75.0, beta = 0.1102 * (A - 8.7);
+    const double taps = (A - 8.0) / (2.285 * 2.0 * M_PI * 0.10 * r0);
+    k.rate = rate;
+    k.K = (int)ceil(taps / 2);
+    k.T = 2 * k.K;
+    k.c = (float *)scanAlloc(sizeof(float) * (size_t)k.T * (PHASES + 1));
+    if (!k.c) return false;
+    const double i0b = besselI0(beta);
+    for (int p = 0; p <= PHASES; p++) {
+        float *row = k.c + (size_t)p * k.T;
+        double sum = 0;
+        for (int i = 0; i < k.T; i++) {
+            const double t = (double)(i - (k.K - 1)) - (double)p / PHASES;   // Tap distance in source samples
+            const double u = t / k.K;
+            double h = 0;
+            if (u > -1 && u < 1) {
+                const double x = 2 * fc * t;
+                h = 2 * fc * (fabs(x) < 1e-9 ? 1.0 : sin(M_PI * x) / (M_PI * x)) * besselI0(beta * sqrt(1 - u * u)) / i0b;
+            }
+            row[i] = (float)h;
+            sum += h;
         }
+        for (int i = 0; i < k.T; i++) row[i] = (float)(row[i] / sum);
     }
     return true;
+}
+
+// Reads file samples in [lo, hi) through two cached windows (enough for a loop seam)
+struct Reader {
+    static constexpr uint32_t WIN = 4096;
+    FILE *fp = nullptr;
+    uint32_t smplPos = 0, lo = 0, hi = 0;
+    short *win[2] = {nullptr, nullptr};
+    uint32_t start[2] = {0, 0}, cnt[2] = {0, 0};
+    int lastHit = 0;
+    bool ok = true;
+    short at(uint32_t i)
+    {
+        for (int w = 0; w < 2; w++)
+            if (i - start[w] < cnt[w]) {
+                lastHit = w;
+                return win[w][i - start[w]];
+            }
+        const int w = lastHit ^ 1;
+        const uint32_t s = i >= lo + 64 ? i - 64 : lo;
+        const uint32_t c = hi - s < WIN ? hi - s : WIN;
+        if (fseek(fp, (long)(smplPos + (uint64_t)s * 2), SEEK_SET) != 0 || fread(win[w], sizeof(short), c, fp) != c) {
+            ok = false;
+            memset(win[w], 0, c * sizeof(short));
+        }
+        start[w] = s, cnt[w] = c, lastHit = w;
+        return win[w][i - s];
+    }
+};
+
+constexpr uint32_t RS_CHUNK = 1024;   // Output samples per pass
+
+uint32_t scratchFor(const Block &b, const Kernel &k) { return (uint32_t)((RS_CHUNK * b.P + b.Q - 1) / b.Q) + 2 * (uint32_t)k.K + 4; }
+
+// Resamples block b into out[0 .. b.n). in: scratch of scratchFor() samples.
+void resampleBlock(Reader &rd, const Block &b, const Kernel &k, short *out, short *in)
+{
+    rd.lo = b.lo, rd.hi = b.hi, rd.cnt[0] = rd.cnt[1] = 0;
+    const int64_t L = (int64_t)b.le - b.ls + 1;
+    const uint32_t bounds[4] = {0, b.loopLo <= b.loopHi ? b.loopLo : 0, b.loopLo <= b.loopHi ? b.loopHi + 1 : 0, b.n};
+    for (int seg = 0; seg < 3; seg++) {
+        const bool periodic = seg == 1;
+        for (uint32_t j0 = bounds[seg]; j0 < bounds[seg + 1]; j0 += RS_CHUNK) {
+            const uint32_t j1 = j0 + RS_CHUNK < bounds[seg + 1] ? j0 + RS_CHUNK : bounds[seg + 1];
+            const int64_t num = ((int64_t)j0 - b.ja) * b.P;
+            int64_t xi = b.a + floorDiv(num, b.Q), rem = num - floorDiv(num, b.Q) * b.Q;
+            const int64_t xl = b.a + floorDiv(((int64_t)j1 - 1 - b.ja) * b.P, b.Q);
+            const int64_t s0 = xi - (k.K - 1), s1 = xl + k.K;
+            for (int64_t m = s0; m <= s1; m++) {
+                int64_t src = m;
+                if (periodic) {
+                    if (src < b.ls || src > b.le) src = b.ls + (((src - b.ls) % L) + L) % L;
+                } else {
+                    src = src < b.lo ? b.lo : src >= b.hi ? b.hi - 1 : src;
+                }
+                in[m - s0] = rd.at((uint32_t)src);
+            }
+            const float phaseScale = (float)PHASES / (float)b.Q;
+            for (uint32_t j = j0; j < j1; j++) {
+                const float f = (float)rem * phaseScale;
+                int p = (int)f;
+                if (p >= PHASES) p = PHASES - 1;
+                const float fr = f - (float)p;
+                const float *r0 = k.c + (size_t)p * k.T, *r1 = r0 + k.T;
+                const short *x = in + (xi - (k.K - 1) - s0);
+                float acc = 0;
+                for (int t = 0; t < k.T; t++) acc += (r0[t] + fr * (r1[t] - r0[t])) * (float)x[t];
+                const int v = (int)lrintf(acc);
+                out[j] = (short)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+                rem += b.P;
+                while (rem >= b.Q) rem -= b.Q, xi++;
+            }
+        }
+    }
 }
 }  // namespace
 
@@ -351,7 +531,7 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
     const int np = f_->presetNum;
 
     // 1. Scan: run the song's events through TinySoundFont's channel logic (bank select, program
-    //    changes, drum fallback) and record the preset, keys and velocities of every note-on.
+    //    changes, drum fallback) and record the preset, keys (as transposed) and velocities of every note-on.
     freeScan();
     keyMask_ = (uint64_t *)scanAlloc(sizeof(uint64_t) * 2 * (size_t)(np > 0 ? np : 1));
     velMask_ = (uint64_t *)scanAlloc(sizeof(uint64_t) * 2 * (size_t)(np > 0 ? np : 1));
@@ -380,14 +560,18 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
     }
     scanFree(want);
 
-    size_t limit = budget ? budget : SAMPLE_BUDGET;
+    // Budget: explicit, or the largest free PSRAM block minus a reserve (which the free PSRAM
+    // also caps on target)
+    size_t limit = budget;
 #ifdef ESP_PLATFORM
     const size_t freeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
     const size_t avail = freeBlock > PSRAM_RESERVE ? freeBlock - PSRAM_RESERVE : 0;
-    if (avail < limit) limit = avail;
+    if (!limit || avail < limit) limit = avail;
+#else
+    if (!limit) limit = HOST_BUDGET;
 #endif
+    stats_.budget = (uint32_t)limit;
     const uint32_t smplCount = hydra_->smplCount;
-
     // Last resort (pass 2): one layer per key. Big banks stack zones on the same key and velocity
     // (stereo pairs, panned double layers); the output is mono, so the first zone covering a key
     // plays alone. Each kept zone that lost a partner gets louder: +6 dB for a stereo pair (the
@@ -428,16 +612,9 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
     }
     std::sort(extra.begin(), extra.end());
 
+
     // 3. Sample ranges of the zones the song can trigger; over budget -> keep one velocity layer,
     //    still over -> also one layer per key
-    // Halving needs a source rate of at least 1.8 x the output rate and a loop that keeps its pitch
-    const unsigned halveRate = (unsigned)rate_ * 9 / 5;
-    auto halvable = [&](const tsf_region &rg) {
-        if (!halve_ || rg.sample_rate < halveRate) return false;
-        if (rg.loop_mode == TSF_LOOPMODE_NONE || rg.loop_start >= rg.loop_end) return true;
-        const uint32_t len = rg.loop_end - rg.loop_start + 1;   // TSF loops are inclusive
-        return len >= 16 && ((len & 1) == 0 || len >= HALVE_MIN_ODD_LOOP);
-    };
     std::vector<Range> ranges;
     std::vector<Block> blocks;
     uint32_t total = 0;
@@ -459,16 +636,16 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
                 if (thin && std::binary_search(extra.begin(), extra.end(), &rg)) continue;
                 if (rg.end <= rg.offset || rg.offset >= smplCount) continue;
                 uint32_t lo = rg.offset, hi = rg.end + 1;   // TSF interpolates with input[end]
-                if (rg.loop_mode != TSF_LOOPMODE_NONE && rg.loop_start < rg.loop_end) {
+                if (hasLoop(rg)) {
                     if (rg.loop_start < lo) lo = rg.loop_start;
                     if (rg.loop_end + 2 > hi) hi = rg.loop_end + 2;
                 }
                 if (hi > smplCount) hi = smplCount;
-                ranges.push_back({lo, hi, &rg, halvable(rg)});
+                ranges.push_back({lo, hi, &rg, rg.sample_rate});
             }
         }
         std::sort(ranges.begin(), ranges.end(), [](const Range &a, const Range &b) { return a.lo < b.lo; });
-        buildBlocks(ranges, blocks);
+        buildBlocks(ranges, blocks, resample_, rate_);
         total = 0;
         for (const Block &b : blocks) total += b.len();
         if ((size_t)(total + 2 * PAD) * 2 <= limit) {
@@ -502,7 +679,7 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
             if (i + 1 == boost.size() || boost[i + 1].first != boost[i].first) boost[i].first->attenuation -= boost[i].second;
     }
 
-    // 4. Read the merged ranges in file order into one buffer
+    // 4. Read the blocks in file order into one buffer (resampled ones through the kernel of their rate)
     short *buf = (short *)TSF_MALLOC(((size_t)total + 2 * PAD) * sizeof(short));
     if (!buf) {
         freeScan();
@@ -519,20 +696,41 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
         return LoadErr::NO_FILE;
     }
     setvbuf(fp, nullptr, _IOFBF, 16384);
-    uint32_t totalIn = 0;   // Progress counts file samples
-    bool anyHalf = false;
-    for (const Block &b : blocks) totalIn += b.hi - b.lo, anyHalf = anyHalf || b.half;
-    short *scratch = anyHalf ? (short *)scanAlloc((2 * HB_CHUNK + 2 * HB_HALF) * sizeof(short)) : nullptr;
+    std::vector<Kernel> kernels;   // One per source rate
+    bool ok = true, noMem = false;
+    uint32_t totalIn = 0, scratchLen = 0;
+    for (Block &b : blocks) {
+        totalIn += b.hi - b.lo;
+        if (!b.rs || !ok) continue;
+        size_t ki = 0;
+        while (ki < kernels.size() && kernels[ki].rate != b.rate) ki++;
+        if (ki == kernels.size()) {
+            kernels.push_back(Kernel());
+            if (!buildKernel(kernels.back(), b.rate, rate_)) ok = false, noMem = true;
+        }
+        const uint32_t s = scratchFor(b, kernels[ki]);
+        if (s > scratchLen) scratchLen = s;
+    }
+    short *scratch = nullptr, *win = nullptr;
+    if (ok && scratchLen) {
+        scratch = (short *)scanAlloc(scratchLen * sizeof(short));
+        win = (short *)scanAlloc(2 * Reader::WIN * sizeof(short));
+        if (!scratch || !win) ok = false, noMem = true;
+    }
+    Reader rd;
+    rd.fp = fp, rd.smplPos = smplPos_;
+    rd.win[0] = win, rd.win[1] = win ? win + Reader::WIN : nullptr;
     std::vector<uint32_t> dest(blocks.size());   // Where each block lives in buf
     uint32_t done = 0, out = PAD;
-    const bool noMem = anyHalf && !scratch;
-    bool ok = !noMem;
     for (size_t bi = 0; bi < blocks.size() && ok; bi++) {
         const Block &b = blocks[bi];
         dest[bi] = out;
-        if (b.half) {
-            ok = readHalved(fp, smplPos_, b.lo, b.hi - b.lo, buf + out, scratch);
-            out += b.len(), done += b.hi - b.lo;
+        if (b.rs) {
+            size_t ki = 0;
+            while (kernels[ki].rate != b.rate) ki++;
+            resampleBlock(rd, b, kernels[ki], buf + out, scratch);
+            ok = rd.ok;
+            out += b.n, done += b.hi - b.lo;
             if (cb && totalIn) cb(user, 5 + (int)((uint64_t)done * 95 / totalIn));
         } else {
             if (fseek(fp, (long)(smplPos_ + (uint64_t)b.lo * 2), SEEK_SET) != 0) ok = false;
@@ -547,7 +745,9 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
         stats_.ranges++;
     }
     fclose(fp);
+    for (Kernel &k : kernels) scanFree(k.c);
     scanFree(scratch);
+    scanFree(win);
     if (!ok) {
         TSF_FREE(buf);
         freeScan();
@@ -555,33 +755,28 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
         return noMem ? LoadErr::NO_MEMORY : LoadErr::BAD_FILE;
     }
 
-    // 5. Re-point the zones: kept ones into buf, the rest can never sound. Halved zones: positions
-    //    halve relative to the block start, the loop keeps its (rounded) half length, the rate halves.
+    // 5. Re-point the zones: kept ones into buf, the rest can never sound. Resampled zones get
+    //    their output positions and a sample rate that keeps the pitch (and loop length) exact.
     std::vector<tsf_region *> kept(ranges.size());
     for (size_t bi = 0; bi < blocks.size(); bi++) {
         const Block &b = blocks[bi];
         for (size_t i = b.first; i < b.last; i++) {
             tsf_region &rg = *ranges[i].region;
             kept[i] = &rg;
-            if (!b.half) {
+            if (!b.rs) {
                 const uint32_t d = dest[bi] - b.lo;
                 rg.offset += d, rg.end += d, rg.loop_start += d, rg.loop_end += d;
                 continue;
             }
-            const bool loop = rg.loop_mode != TSF_LOOPMODE_NONE && rg.loop_start < rg.loop_end;
-            const uint32_t len = loop ? rg.loop_end - rg.loop_start + 1 : 0;
-            rg.offset = dest[bi] + (rg.offset - b.lo) / 2;
-            rg.end = dest[bi] + (rg.end - b.lo) / 2;
-            if (loop) {
-                rg.loop_start = dest[bi] + (rg.loop_start - b.lo) / 2;
-                rg.loop_end = rg.loop_start + (len + 1) / 2 - 1;
-            } else {
-                rg.loop_start = rg.loop_end = rg.offset;   // Unused (no loop): keep it harmless
-            }
-            rg.sample_rate /= 2;
-            stats_.halved++;
+            const ZonePos z = mapZone(b, rg);
+            rg.offset = dest[bi] + z.off;
+            rg.end = dest[bi] + z.end;
+            rg.loop_start = dest[bi] + z.ls;
+            rg.loop_end = dest[bi] + z.le;
+            rg.sample_rate = z.rate;
+            stats_.resampled++;
         }
-        if (b.half) stats_.halvedSaved += ((b.hi - b.lo) - b.len()) * 2;
+        if (b.rs) stats_.resampledSaved += ((b.hi - b.lo) - b.n) * 2;
     }
     std::sort(kept.begin(), kept.end());
     for (int pi = 0; pi < np; pi++) {
@@ -754,6 +949,21 @@ void Synth::setMuted(int ch, bool m)
     } else {
         muteMask_ &= (uint16_t)~(1u << ch);
     }
+}
+
+void Synth::setMaxVoices(int n)
+{
+    maxVoices_ = n < 1 ? 1 : n > MAX_VOICES ? MAX_VOICES : n;
+    applyVoices();
+}
+
+// All MAX_VOICES are allocated; TinySoundFont only uses the first voiceNum (stealing beyond)
+void Synth::applyVoices()
+{
+    if (!f_ || !f_->voices) return;
+    for (int i = maxVoices_; i < f_->voiceNum; i++)
+        if (f_->voices[i].playingPreset != -1) tsf_voice_kill(&f_->voices[i]);
+    f_->voiceNum = f_->maxVoiceNum = maxVoices_;
 }
 
 int Synth::activeVoices() const { return f_ ? tsf_active_voice_count(f_) : 0; }

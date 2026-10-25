@@ -115,6 +115,19 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.13.4 – Omsampling till 22 050 Hz, exakt tangentskanning, dynamisk budget, hackdiagnostik 🔧 (ej HW-testad)
+- [x] `prepare()` omsamplar alla sampelintervall med `sample_rate` > utfrekvensen (28 000, 30 536, 32 000, 44 100, 48 000 Hz …) till utfrekvensen när de läses från SD: polyfas windowed-sinc, Kaiser-fönster (75 dB stoppband, brytfrekvens 0,45 × utfrekvensen), 64 faser med linjär interpolation, float-koefficienter (~10–25 kB, bara medan något omsamplas), 1 024 utsampel per pass, läscache med två fönster om 4 096 sampel. Ersätter 2:1-halveringen (halvbandsfiltret och `HALVE_MIN_ODD_LOOP` borta); sampel ≤ utfrekvensen lämnas orörda
+- [x] Loopar: looplängden avrundas till ett heltal nya sampel och zonens `sample_rate` (nu float i tsf) kompenseras exakt (källfrekvens × ny längd / gammal längd), så tonhöjden blir rätt även för korta udda loopar. Överlappande intervall som delas av zoner med olika loopar/kompensation delas upp i block per källfrekvens så att varje zon får egna, korrekt mappade gränser
+- [x] API: `Synth::setResampling()/resampling()` (på som standard), `PrepStats.resampled/resampledSaved/budget` (ersätter `setHalving`/`halved`)
+- [x] **±12-marginalen borttagen**: skanningen registrerar exakt de tangenter låten spelar med aktuell transponering (trummor otransponerade). Vid byte av transponering med selektivt laddad bank körs `prepare()` om i bakgrunden (låten pausas och fortsätter); får den nya tonarten inte plats behålls föregående och enheten visar "Tonarten får inte plats i minnet – föregående tonart behålls" (SV/EN)
+- [x] **Dynamisk budget**: största lediga PSRAM-block − 512 kB (`PSRAM_RESERVE`) i stället för fast 6 MB; utanför enheten 8 MB (`HOST_BUDGET`). Spelets ljudklippscache (SFX) frigörs innan en låt förbereds (`Audio::releaseClips()`). Budgeten loggas vid varje prepare
+- [x] **Hackdiagnostik**: var 5:e sekund under karaoke loggas renderbelastning (medel/max i % av mixerblockets tid), underruns (totalt och nya) och högsta antal aktiva röster. Ny NVS-nyckel `kara_voices` (16–32, standard 32, inget UI) begränsar antalet röster, t.ex. 24 för test; UI:t visar aktuellt tak
+- [x] Hosttester: omsampling 44,1/32/30,536/28/48 kHz × (2 000-sampels loop, udda 101-sampels loop, delat intervall med loopar 101/88) mot original, periodstabilitet via autokorrelation; transponering laddar om rätt tangenter; alla sviter gröna (4 873), bygge 0 varningar, appen 1 851 888 B (35 % av 5 MB)
+- [x] Mätt på värddatorn (22 050 Hz, budget 8 MB): GeneralUser-GS (30,8 MB) + Ainbusk 6,03 MB (v0.13.3) → **3,10 MB** (367 zoner omsamplade, 1,42 MB sparat); + Alan Parsons Time 7,60 MB (TOO_BIG) → **4,64 MB** (2,03 MB sparat). Jnsgm2 + Time 6,91 MB (TOO_BIG) → **3,85 MB**; Jnsgm2 + Ainbusk **2,92 MB**. Ingen låt behövde tunnas. Rel. skillnad mot ej omsamplat 0,011–0,067 (första 60 s, torrt)
+- [ ] Röststöld vid underrun (de tystaste rösterna) är inte gjord – först loggarna från enheten, sedan beslut
+- [ ] HW-test: laddningstid med omsampling från SD, omladdning vid transponering, diagnostikloggar för Time (32 resp. 24 röster), PSRAM-marginal
+- **Obs:** samma partitioner → vanlig OTA
+
 ## v0.13.3 – Halvering av högupplösta sampel vid laddning 🔧 (ej HW-testad)
 - [x] `prepare()` decimerar sampel med ≥ 1,8 × utfrekvensen (44,1/48 kHz vid 22 050 Hz) 2:1 när de läses från SD: halvbands-FIR, 47 tappar, Kaiser β 7, Q15 (−0,9 dB vid 10 kHz, −6 dB vid 11 kHz, −53 dB vid 13 kHz för 44,1 kHz-källa), 4 096 utsampel per läsning, skrapbuffert ~16 kB bara när något halveras
 - [x] Överlappande sampelintervall bildar block som halveras bara om alla zoner i blocket tillåter det; zonens offset, slut, loopgränser och `sample_rate` halveras
@@ -124,6 +137,7 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Mätt (Kents 5 låtar): sparar 0–1,4 MB per låt för stora banker (eawpats Ainbusk 4,31 → 2,97 MB, Alan Parsons 4,70 → 3,30; Unison 3,3–5,0 → 1,9–4,2; Masterpiece Ainbusk får nu alla hastighetslager, 5,51 MB i st f ett lager); rel. skillnad mot ohalverat 0,001–0,21 (första 60 s, torrt). Florestan och Yamaha XG oförändrade (redan 22 050 Hz)
 - [ ] **Löser inte** GeneralUser-GS + Ainbusk (minst 6,03 MB) och Alan Parsons (7,60 MB) eller Jnsgm2 + Alan Parsons (6,91 MB): de sampel låtarna använder ligger mest på 28–32 kHz, under halveringsgränsen. Möjligt nästa steg: bråktalsomsampling av allt > 22 050 Hz till utfrekvensen
 - [ ] HW-test: laddningstid med halvering från SD, ljudkvalitet (diskant), PSRAM-marginal
+- **Delvis HW-testad av Kent:** med GeneralUser GS 1.35 spelas Ainbusk och Time; Time hackar lite efter några minuter; synthljudet är "oerhört mycket bättre"
 - **Obs:** samma partitioner → vanlig OTA
 
 ## v0.13.2 – Selektiv SF2-laddning, reverb och chorus 🔧 (ej HW-testad)

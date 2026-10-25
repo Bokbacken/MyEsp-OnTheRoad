@@ -10,12 +10,15 @@
 // just the needed sample ranges from the card into one PSRAM buffer. The bank file can therefore
 // be much larger than PSRAM; the budget applies to what one song needs.
 //
-// v0.13.3 halving: samples recorded at >= 1.8 x the output rate (44.1/48 kHz for 22.05 kHz out)
-// are low-pass filtered (47-tap half-band FIR, -6 dB at a quarter of the source rate) and decimated
-// 2:1 while they are read, and their zones get half the sample rate. They take half the PSRAM and
-// play without the aliasing that TinySoundFont's linear interpolation produces when it skips every
-// other source sample. Zones with a short, odd loop (< HALVE_MIN_ODD_LOOP samples) stay at full
-// rate, because a halved loop length would detune the sustained note.
+// v0.13.4 resampling (replaces the 2:1 halving of v0.13.3): every sample whose zones are recorded
+// above the output rate (28/30.5/32/44.1/48 kHz for 22.05 kHz out) is converted to about the output
+// rate while it is read from the card, with a polyphase Kaiser-windowed sinc (75 dB stopband, cut-off
+// 0.45 x the output rate). Saves PSRAM and avoids the aliasing of TinySoundFont's linear
+// interpolation when it skips source samples. Loops must stay whole samples: each cluster of
+// overlapping zones uses a ratio that makes its shortest loop an exact integer length, other loops
+// are rounded and their zone's sample_rate (float in the patched tsf_region) compensates the pitch
+// exactly. The scan records the keys exactly as played (with the current transpose); a new
+// transpose needs a new prepare().
 #pragma once
 
 #include <stdint.h>
@@ -29,12 +32,12 @@ struct tsf_hydra;
 
 namespace Sf {
 
-constexpr int MAX_VOICES = 32;
+constexpr int MAX_VOICES = 32;                      // Voices allocated; setMaxVoices() can use fewer
 constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // load() (whole file in PSRAM) refuses larger files
-constexpr size_t SAMPLE_BUDGET = 6u * 1024 * 1024;  // prepare(): max sample data per song
-constexpr int KEY_MARGIN = 12;                      // Melodic keys are widened by +-12 (transpose never reloads)
+constexpr size_t PSRAM_RESERVE = 512u * 1024;       // prepare() auto budget: largest free PSRAM block minus this
+constexpr size_t HOST_BUDGET = 8u * 1024 * 1024;    // prepare() auto budget off target (tests/tools)
 constexpr int REDUCED_VELOCITY = 100;               // Velocity layer kept when a song is over budget
-constexpr uint32_t HALVE_MIN_ODD_LOOP = 1500;       // Odd loops shorter than this are not halved (< 1.2 cent error)
+constexpr uint32_t RESAMPLE_MIN_LOOP = 8;           // Loops shorter than this (in output samples) stay at full rate
 
 // TOO_BIG: load(): file > MAX_SF2; prepare(): the song needs more than the budget even with one
 // velocity layer and one zone per key.
@@ -52,8 +55,9 @@ struct PrepStats {
     uint16_t presets = 0;      // Presets the song uses
     uint16_t regions = 0;      // Zones kept
     uint16_t ranges = 0;       // Merged sample ranges read from the card
-    uint16_t halved = 0;       // Zones whose samples were decimated 2:1
-    uint32_t halvedSaved = 0;  // Bytes saved by halving
+    uint16_t resampled = 0;    // Zones whose samples were resampled to about the output rate
+    uint32_t resampledSaved = 0;   // Bytes saved by resampling
+    uint32_t budget = 0;       // Budget used (bytes)
     bool reduced = false;      // Over budget: only the velocity layer at REDUCED_VELOCITY was kept
     bool thinned = false;      // Still over budget: one zone per key (stereo pairs/stacked layers dropped)
 };
@@ -73,8 +77,9 @@ public:
     ~Synth() override;
     LoadErr load(const char *path, int sampleRate);   // Whole file (<= MAX_SF2), all presets
     LoadErr open(const char *path, int sampleRate);   // Structure only; needs prepare() before sound
-    // Loads the samples `song` needs (bank opened with open()). budget 0 = SAMPLE_BUDGET; the free
-    // PSRAM also limits it. Keeps the bank open on failure.
+    // Loads the samples `song` needs (bank opened with open()) for the current transpose. budget 0 =
+    // automatic (largest free PSRAM block - PSRAM_RESERVE; HOST_BUDGET off target); the free PSRAM
+    // also limits an explicit budget. Keeps the bank open on failure.
     LoadErr prepare(const Midi::Song &song, ProgressFn cb = nullptr, void *user = nullptr, size_t budget = 0);
     void unload();
     bool bankOpen() const { return f_ != nullptr; }
@@ -86,9 +91,12 @@ public:
 
     void setEffects(const Effects &e);
     const Effects &effects() const { return fx_; }
-    // Halve high-rate samples in prepare() (default on; takes effect at the next prepare)
-    void setHalving(bool on) { halve_ = on; }
-    bool halving() const { return halve_; }
+    // Resample samples above the output rate in prepare() (default on; takes effect at the next prepare)
+    void setResampling(bool on) { resample_ = on; }
+    bool resampling() const { return resample_; }
+    // Voice limit 1..MAX_VOICES (default MAX_VOICES); applies at once (voices above it are cut)
+    void setMaxVoices(int n);
+    int maxVoices() const { return maxVoices_; }
 
     void midi(uint8_t status, uint8_t d1, uint8_t d2) override;
     void reset() override;
@@ -97,7 +105,9 @@ public:
     // Mixes n mono samples into acc (16-bit scale). gainQ8: 256 = unity.
     void render(int32_t *acc, int n, int gainQ8);
 
-    void setTranspose(int semitones);   // -12..12, not applied to the drum channel
+    // -12..12, not applied to the drum channel. A selective bank only has the keys of the last
+    // prepare(): call prepare() again after a change.
+    void setTranspose(int semitones);
     int transpose() const { return transpose_; }
     void setMuted(int ch, bool muted);  // Muted channels play no new notes (sing the melody yourself)
     bool muted(int ch) const { return ch >= 0 && ch < 16 && (muteMask_ >> ch) & 1; }
@@ -108,13 +118,15 @@ private:
     void recordNote(int ch, int key, int vel);
     void initFx();
     void freeScan();
+    void applyVoices();
 
     ::tsf *f_ = nullptr;
     ::tsf_hydra *hydra_ = nullptr;
     char path_[160] = "";
     uint32_t smplPos_ = 0;
     size_t size_ = 0;
-    bool full_ = false, prepared_ = false, scanning_ = false, halve_ = true;
+    bool full_ = false, prepared_ = false, scanning_ = false, resample_ = true;
+    int maxVoices_ = MAX_VOICES;
     PrepStats stats_;
     uint64_t *keyMask_ = nullptr, *velMask_ = nullptr;   // Scan: 2 x 64 bit per preset
     Effects fx_;

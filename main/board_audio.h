@@ -56,4 +56,15 @@ constexpr int BLOCK_SAMPLES = 256;      // Samples per mixer call (at Synth::RAT
 
 Status status();
 
+// Frees the cached effect WAVs (PSRAM) before the karaoke loads a SoundFont; they load again on
+// next use. Returns once the mixer task has done it (max ~100 ms).
+void releaseClips();
+
+// External render load since the previous call (then reset): average and peak time in the
+// callback in 1/100 % of a mixer block, blocks measured, total late blocks (underruns).
+struct ExternalStats {
+    uint32_t avgLoad100, maxLoad100, blocks, underruns;
+};
+ExternalStats takeExternalStats();
+
 }  // namespace Audio

@@ -87,8 +87,12 @@ void restart();
 void seekRel(int ms);
 void setTempo(int pct);         // 50..150, saved in the register
 int tempo();
-void setTranspose(int semis);   // -12..12, saved in the register
+// -12..12, saved in the register. With a selectively loaded bank the song's samples are loaded
+// again for the new keys (state LOADING, then the song continues); if they do not fit, the
+// previous transpose stays and takeTransposeRejected() returns true once.
+void setTranspose(int semis);
 int transpose();
+bool takeTransposeRejected();
 void setMelody(int ch);         // -1..15, saved in the register (overrides the detection)
 int melody();
 bool melodyFromRegister();      // Current melody came from the register (user choice)
@@ -101,7 +105,7 @@ struct View {
     uint32_t posUs, lengthUs;
     int line, syl;
     bool playing, finished;
-    int voices;
+    int voices, maxVoices;   // Active / limit (NVS kara_voices)
     uint8_t cpuPct;
 };
 View view();

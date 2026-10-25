@@ -47,6 +47,8 @@ struct AppConfig {
     uint8_t karaRevLvl;      // Reverb level 0..100 (default 50)
     uint8_t karaCho;         // Chorus on (default 1)
     uint8_t karaChoLvl;      // Chorus level 0..100 (default 50)
+    // v0.13.4: karaoke voice limit 16..32 (default 32; NVS "kara_voices", no UI)
+    uint8_t karaVoices;
 };
 
 // Joystick limits shared by the UI and the web API.

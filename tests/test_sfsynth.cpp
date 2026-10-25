@@ -134,8 +134,10 @@ static void name20(std::vector<uint8_t> &v, const char *n)
 
 static const int SMP_LEN = 4000, SMP_GAP = 46, SMP_N = 5;
 
-// rate: sample rate of every sample; oddLoop: 101-sample loops (too short and odd to halve)
-static std::vector<uint8_t> buildSf2(bool layered = false, uint32_t rate = 22050, bool oddLoop = false)
+// rate: sample rate of every sample; oddLoop: 101-sample loops instead of 2000; sharedLoop: the
+// loud piano zone plays sample 0 (like the soft one) with a loop 13 samples shorter (overlapping
+// zones with different loops)
+static std::vector<uint8_t> buildSf2(bool layered = false, uint32_t rate = 22050, bool oddLoop = false, bool sharedLoop = false)
 {
     std::vector<uint8_t> smpl;
     for (int s = 0; s < SMP_N; s++) {
@@ -151,6 +153,7 @@ static std::vector<uint8_t> buildSf2(bool layered = false, uint32_t rate = 22050
         {{43, 0x2626}, {53, 3}},                          // inst 1: key 38
         {{54, 1}, {53, 4}},                               // inst 2
     };
+    if (sharedLoop) izones[1] = {{43, 0x7F00}, {44, 0x7F40}, {54, 1}, {3, (uint16_t)-13}, {53, 0}};
     if (layered) izones.insert(izones.begin() + 4, std::vector<Gen>{{43, 0x2424}, {53, 4}});
     const int ex = layered ? 1 : 0;
     const int instFirstBag[] = {0, 2, 4 + ex, 5 + ex};
@@ -282,7 +285,8 @@ static void testSelective()
     CHECK(s.prepare(sg, [](void *u, int pct) { Prog *p = (Prog *)u; *p->last = pct; (*p->calls)++; }, &pr) == Sf::LoadErr::OK);
     CHECK(s.loaded() && lastPct == 100 && calls >= 3);
     const Sf::PrepStats st = s.stats();
-    CHECK(st.presets == 2 && st.regions == 4 && !st.reduced && st.halved == 0);   // 22.05 kHz: nothing to halve
+    CHECK(st.presets == 2 && st.regions == 4 && !st.reduced && st.resampled == 0 && st.resampledSaved == 0);   // 22.05 kHz: as is
+    CHECK(st.budget == Sf::HOST_BUDGET);
     CHECK(st.bytes >= 4u * SMP_LEN * 2 && st.bytes < 4u * (SMP_LEN + SMP_GAP + 2048) * 2);
     CHECK(st.bytes < (uint32_t)SMP_N * (SMP_LEN + SMP_GAP) * 2);
     printf("  mini bank: %u of %zu bytes loaded, %u presets, %u zones, %u reads\n", st.bytes, s.fileSize(), st.presets, st.regions, st.ranges);
@@ -296,15 +300,32 @@ static void testSelective()
     CHECK(!ref.empty() && ref.size() == sel.size() && memcmp(ref.data(), sel.data(), ref.size() * 2) == 0);
     CHECK(rmsOf(ref.data(), ref.size()) > 300);
 
-    // Transpose +-12 needs no reload; the unused preset stays silent
+    // Transpose: prepared again for the shifted keys; the unused preset stays silent
     s.setTranspose(12);
+    CHECK(s.transpose() == 12 && s.prepare(sg) == Sf::LoadErr::OK && s.stats().regions == 4);
     const std::vector<int16_t> up = renderSong(s, sg, 30);
     CHECK(rmsOf(up.data(), up.size()) > 300);
     s.setTranspose(0);
+    CHECK(s.prepare(sg) == Sf::LoadErr::OK);
     s.reset();
     s.midi(0xC0, 5, 0);
     s.midi(0x90, 60, 100);
     CHECK(s.activeVoices() == 0);
+
+    // Voice limit: applies at once, clamped to 1..MAX_VOICES
+    s.reset();
+    CHECK(s.maxVoices() == Sf::MAX_VOICES);
+    s.setMaxVoices(2);
+    for (int k = 0; k < 4; k++) s.midi(0x90, (uint8_t)(60 + k), 100);
+    CHECK(s.maxVoices() == 2 && s.activeVoices() == 2);
+    s.setMaxVoices(1);
+    CHECK(s.activeVoices() == 1);
+    s.setMaxVoices(99);
+    CHECK(s.maxVoices() == Sf::MAX_VOICES);
+    s.midi(0x90, 70, 100);
+    CHECK(s.activeVoices() == 2);
+    s.setMaxVoices(Sf::MAX_VOICES);
+    s.reset();
 
     // Same file again: the hydra is kept
     CHECK(s.open(path, 22050) == Sf::LoadErr::OK && s.bankOpen());
@@ -385,62 +406,95 @@ static double relDiff(const std::vector<int16_t> &a, const std::vector<int16_t> 
     return r > 0 ? sqrt(d / r) : 1.0;
 }
 
-// 44.1 kHz bank: samples are decimated 2:1, take half the memory and sound the same (sines far
-// below the filter edge, same pitch incl. the loops); short odd loops keep full rate.
-static void testHalving()
+// Period (in samples, sub-sample accurate) of a periodic signal near `approx`: the lag with the best
+// normalized autocorrelation, refined with a parabola
+static double periodOf(const std::vector<int16_t> &x, double approx)
 {
-    const char *path = "/tmp/otr_hb.sf2";
+    auto corr = [&](int lag) {
+        double s = 0, e = 0;
+        for (size_t i = 0; i + (size_t)lag < x.size(); i++) s += (double)x[i] * x[i + lag], e += (double)x[i] * x[i];
+        return e > 0 ? s / e : 0;
+    };
+    int best = (int)(approx * 0.9);
+    double bv = -2;
+    for (int lag = (int)(approx * 0.9); lag <= (int)(approx * 1.1) + 1; lag++) {
+        const double c = corr(lag);
+        if (c > bv) bv = c, best = lag;
+    }
+    const double cm = corr(best - 1), cp = corr(best + 1), den = cm - 2 * bv + cp;
+    return best + (den != 0 ? 0.5 * (cm - cp) / den : 0);
+}
+
+// Banks above the output rate: samples are resampled to about 22.05 kHz, take that much less memory
+// and sound the same as the unconverted samples (relative error against TinySoundFont playing the
+// original rate); loops (long, short odd, two overlapping zones with different loops) keep their pitch.
+static void testResampling()
+{
+    const char *path = "/tmp/otr_rs.sf2";
     Midi::Song sg;
     const std::vector<uint8_t> mid = buildMidi();
     CHECK(Midi::parse(mid.data(), mid.size(), sg) == Midi::Err::OK);
     const Sf::Effects off = {false, 0, false, 0};
-    for (int odd = 0; odd < 2; odd++) {
-        const std::vector<uint8_t> sf = buildSf2(false, 44100, odd != 0);
-        FILE *fp = fopen(path, "wb");
-        CHECK(fp != nullptr);
-        if (!fp) return;
-        fwrite(sf.data(), 1, sf.size(), fp);
-        fclose(fp);
+    const uint32_t rates[] = {44100, 32000, 30536, 28000, 48000};
+    for (uint32_t rate : rates)
+        for (int variant = 0; variant < 3; variant++) {   // 2000 loops, 101 loops, shared sample 101/88
+            const bool odd = variant > 0, shared = variant == 2;
+            const std::vector<uint8_t> sf = buildSf2(false, rate, odd, shared);
+            FILE *fp = fopen(path, "wb");
+            CHECK(fp != nullptr);
+            if (!fp) return;
+            fwrite(sf.data(), 1, sf.size(), fp);
+            fclose(fp);
 
-        Sf::Synth ref, h;
-        ref.setEffects(off), h.setEffects(off);
-        ref.setHalving(false);
-        CHECK(!ref.halving() && h.halving());
-        CHECK(ref.open(path, 22050) == Sf::LoadErr::OK && ref.prepare(sg) == Sf::LoadErr::OK);
-        CHECK(h.open(path, 22050) == Sf::LoadErr::OK && h.prepare(sg) == Sf::LoadErr::OK);
-        const Sf::PrepStats a = ref.stats(), b = h.stats();
-        CHECK(a.halved == 0 && a.halvedSaved == 0 && a.regions == 4 && b.regions == 4);
-        if (!odd) {
-            CHECK(b.halved == 4);   // All four zones
-            CHECK(b.bytes < a.bytes / 2 + 64 && b.bytes > a.bytes / 2 - 64);
-        } else {
-            CHECK(b.halved == 2);   // Drums (no loop) halved, piano (101-sample loop) kept
-            CHECK(b.bytes < a.bytes * 4 / 5 && b.bytes > a.bytes / 2);
-        }
-        CHECK(b.halvedSaved > 0 && (odd || a.bytes - b.bytes == b.halvedSaved));   // Odd: blocks split differently
-        const std::vector<int16_t> x = renderSong(ref, sg, 30), y = renderSong(h, sg, 30);
-        const double rd = relDiff(x, y);
-        printf("  halving (%s loops): %u -> %u bytes, %u zones halved, rel. diff %.4f\n", odd ? "odd 101" : "2000",
-               a.bytes, b.bytes, b.halved, rd);
-        CHECK(x.size() == y.size() && rmsOf(y.data(), y.size()) > 300);
-        CHECK(rd < 0.03);
+            Sf::Synth ref, h;
+            ref.setEffects(off), h.setEffects(off);
+            ref.setResampling(false);
+            CHECK(!ref.resampling() && h.resampling());
+            CHECK(ref.open(path, 22050) == Sf::LoadErr::OK && ref.prepare(sg) == Sf::LoadErr::OK);
+            CHECK(h.open(path, 22050) == Sf::LoadErr::OK && h.prepare(sg) == Sf::LoadErr::OK);
+            const Sf::PrepStats a = ref.stats(), b = h.stats();
+            CHECK(a.resampled == 0 && a.resampledSaved == 0 && a.regions == 4 && b.regions == 4);
+            CHECK(b.resampled == 4);   // Every zone, short odd loops included
+            const double r = 22050.0 / rate, got = (double)b.bytes / a.bytes;
+            CHECK(got < r + 0.03 && got > r - 0.03);
+            CHECK(b.resampledSaved > 0);   // Copied blocks merge gaps, resampled ones not: no exact difference
+            const std::vector<int16_t> x = renderSong(ref, sg, 30), y = renderSong(h, sg, 30);
+            const double rd = relDiff(x, y);
+            CHECK(x.size() == y.size() && rmsOf(y.data(), y.size()) > 300);
+            // Shared: both test loops jump in mid-wave (88/101 samples of a 100-sample sine), the
+            // compensated 101 loop is stretched by up to half an output sample -> larger waveform error
+            CHECK(rd < (shared ? 0.3 : 0.03));
 
-        // A note held in its loop for 3 s keeps the same pitch (no drift between the two)
-        ref.reset(), h.reset();
-        ref.midi(0x90, 60, 100), h.midi(0x90, 60, 100);
-        std::vector<int16_t> lx, ly;
-        int32_t acc[256];
-        for (int k = 0; k < 22050 * 3 / 256; k++) {
-            memset(acc, 0, sizeof(acc));
-            ref.render(acc, 256, 256);
-            for (int32_t v : acc) lx.push_back((int16_t)v);
-            memset(acc, 0, sizeof(acc));
-            h.render(acc, 256, 256);
-            for (int32_t v : acc) ly.push_back((int16_t)v);
+            // Notes held in their loop for 3 s (soft and loud zone) keep the pitch: same loop period
+            // (autocorrelation) and, where the zone's loop set the ratio, the same waveform (no drift)
+            double worst = 0, pitchErr = 0;
+            for (int vel = 40; vel <= 100; vel += 60) {
+                ref.reset(), h.reset();
+                ref.midi(0x90, 60, (uint8_t)vel), h.midi(0x90, 60, (uint8_t)vel);
+                std::vector<int16_t> lx, ly;
+                int32_t acc[256];
+                for (int k = 0; k < 22050 * 3 / 256; k++) {
+                    memset(acc, 0, sizeof(acc));
+                    ref.render(acc, 256, 256);
+                    for (int32_t v : acc) lx.push_back((int16_t)v);
+                    memset(acc, 0, sizeof(acc));
+                    h.render(acc, 256, 256);
+                    for (int32_t v : acc) ly.push_back((int16_t)v);
+                }
+                const std::vector<int16_t> tx(lx.end() - 22050 / 2, lx.end()), ty(ly.end() - 22050 / 2, ly.end());
+                CHECK(rmsOf(tx.data(), tx.size()) > 300);
+                const int loop = shared && vel > 63 ? 88 : odd ? 101 : 100;   // Repeat in source samples (2000 = 20 x 100)
+                const double expect = loop * 22050.0 / rate, px = periodOf(tx, expect), py = periodOf(ty, expect);
+                const double pe = fabs(py / px - 1);
+                if (pe > pitchErr) pitchErr = pe;
+                const double d = relDiff(tx, ty);
+                if (d > worst && !(shared && vel < 64)) worst = d;   // Shared: the soft zone's 101 loop is compensated
+            }
+            printf("  resampling %u Hz (%s loops): %u -> %u bytes, rel. diff song %.4f, held %.4f, period %.5f%%\n", rate,
+                   shared ? "shared 101/88" : odd ? "odd 101" : "2000", a.bytes, b.bytes, rd, worst, pitchErr * 100);
+            CHECK(worst < (shared ? 0.05 : 0.03));
+            CHECK(pitchErr < (shared ? 0.0005 : 0.00002));   // 0.9 / 0.03 cent
         }
-        const std::vector<int16_t> tx(lx.end() - 22050 / 2, lx.end()), ty(ly.end() - 22050 / 2, ly.end());
-        CHECK(rmsOf(tx.data(), tx.size()) > 300 && relDiff(tx, ty) < 0.05);
-    }
     remove(path);
 }
 
@@ -511,18 +565,20 @@ static void testRender(const char *font, const char *song, const char *out)
         return st.thinned ? " (one zone per key)" : st.reduced ? " (one velocity layer)" : "";
     };
 
-    // Without halving first (bit-identical to the full load when the file fits in RAM)
+    // Without resampling first (bit-identical to the full load when the file fits in RAM). The
+    // budget is unlimited here so the output shows what the song really needs.
+    const size_t NO_LIMIT = (size_t)1 << 30;
     const Sf::Effects off = {false, 0, false, 0};
-    s.setHalving(false);
-    const Sf::LoadErr leFull = s.prepare(sg);
+    s.setResampling(false);
+    const Sf::LoadErr leFull = s.prepare(sg, nullptr, nullptr, NO_LIMIT);
     const Sf::PrepStats stFull = s.stats();
     if (leFull == Sf::LoadErr::OK)
-        printf("  bank %.1f MB, %d presets: hydra %.3f s; no halving: %.2f MB%s\n", (double)s.fileSize() / 1048576.0,
+        printf("  bank %.1f MB, %d presets: hydra %.3f s; no resampling: %.2f MB%s\n", (double)s.fileSize() / 1048576.0,
                s.presetCount(), tOpen, stFull.bytes / 1048576.0, info(stFull));
     else
-        printf("  bank %.1f MB, %d presets: hydra %.3f s; no halving: %s\n", (double)s.fileSize() / 1048576.0,
+        printf("  bank %.1f MB, %d presets: hydra %.3f s; no resampling: %s\n", (double)s.fileSize() / 1048576.0,
                s.presetCount(), tOpen, Sf::loadErrName(leFull));
-    std::vector<int16_t> plain;   // First 60 s without halving (for the comparison)
+    std::vector<int16_t> plain;   // First 60 s without resampling (for the comparison)
     if (leFull == Sf::LoadErr::OK) {
         s.setEffects(off);
         if (s.fileSize() <= Sf::MAX_SF2 && !stFull.reduced) {
@@ -537,15 +593,15 @@ static void testRender(const char *font, const char *song, const char *out)
         }
         plain = renderSong(s, sg, 60);
         if (out) {
-            std::string o = std::string(out) + ".nohalf.wav";
+            std::string o = std::string(out) + ".noresample.wav";
             wav(o.c_str(), plain, RATE);
         }
     }
 
-    // With halving (the device default)
-    s.setHalving(true);
+    // With resampling (the device default)
+    s.setResampling(true);
     clock_gettime(CLOCK_MONOTONIC, &b);
-    le = s.prepare(sg);
+    le = s.prepare(sg, nullptr, nullptr, NO_LIMIT);
     clock_gettime(CLOCK_MONOTONIC, &a);
     const double tPrep = (double)(a.tv_sec - b.tv_sec) + (double)(a.tv_nsec - b.tv_nsec) / 1e9;
     CHECK(le == Sf::LoadErr::OK || le == Sf::LoadErr::TOO_BIG);   // TOO_BIG is a measurement result here
@@ -554,14 +610,22 @@ static void testRender(const char *font, const char *song, const char *out)
         return;
     }
     const Sf::PrepStats &st = s.stats();
-    printf("  halving: song needs %.2f MB (%.1f%%), %u presets, %u zones (%u halved, %.2f MB saved), %u reads%s, %.3f s\n",
-           st.bytes / 1048576.0, 100.0 * st.bytes / (double)s.fileSize(), st.presets, st.regions, st.halved,
-           st.halvedSaved / 1048576.0, st.ranges, info(st), tPrep);
+    printf("  resampling: song needs %.2f MB (%.1f%%), %u presets, %u zones (%u resampled, %.2f MB saved), %u reads%s, %.3f s\n",
+           st.bytes / 1048576.0, 100.0 * st.bytes / (double)s.fileSize(), st.presets, st.regions, st.resampled,
+           st.resampledSaved / 1048576.0, st.ranges, info(st), tPrep);
     if (!plain.empty() && !st.reduced && !stFull.reduced) {
         s.setEffects(off);
         const std::vector<int16_t> y = renderSong(s, sg, 60);
-        printf("  halved vs not (first 60 s, dry): rel. diff %.3f\n", relDiff(plain, y));
+        printf("  resampled vs not (first 60 s, dry): rel. diff %.3f\n", relDiff(plain, y));
     }
+    // Typical device budgets (largest free PSRAM block - reserve): what is loaded at 6 and 7 MB
+    for (size_t mb = 6; mb <= 7; mb++) {
+        const Sf::LoadErr lb = s.prepare(sg, nullptr, nullptr, mb * 1048576);
+        const Sf::PrepStats &sb = s.stats();
+        if (lb == Sf::LoadErr::OK) printf("  budget %u MB: %.2f MB%s\n", (unsigned)mb, sb.bytes / 1048576.0, info(sb));
+        else printf("  budget %u MB: %s\n", (unsigned)mb, Sf::loadErrName(lb));
+    }
+    CHECK(s.prepare(sg, nullptr, nullptr, NO_LIMIT) == Sf::LoadErr::OK);
 
     // Whole song: dry, then with reverb + chorus
     for (int pass = 0; pass < 2; pass++) {
@@ -586,7 +650,7 @@ int main(int argc, char **argv)
     testProbe();
     testEffects();
     testSelective();
-    testHalving();
+    testResampling();
     if (argc >= 3) testRender(argv[1], argv[2], argc >= 4 ? argv[3] : nullptr);
     CHECK_DONE();
 }

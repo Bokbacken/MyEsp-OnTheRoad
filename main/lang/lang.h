@@ -445,6 +445,7 @@
     X(KARA_SAVED_NOTE) \
     X(KARA_ERR_SF2_SF3) \
     X(KARA_ERR_SONG_BIG) \
+    X(KARA_TR_REJECTED) \
     X(KARA_SOUND_OFF_Q) \
     X(KARA_YES) \
     X(KARA_NO) \

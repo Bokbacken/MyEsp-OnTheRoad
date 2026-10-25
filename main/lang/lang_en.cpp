@@ -449,6 +449,7 @@ extern const Entry LANG_EN[] = {
     {Str::KARA_SAVED_NOTE, "Saved per song"},
     {Str::KARA_ERR_SF2_SF3, "The sound bank is compressed (SF3), which is not supported. Use an uncompressed .sf2"},
     {Str::KARA_ERR_SONG_BIG, "Song needs too much sample data"},
+    {Str::KARA_TR_REJECTED, "The new key does not fit in memory – keeping the previous key"},
     {Str::KARA_SOUND_OFF_Q, "Sound is turned off. Turn sound on?"},
     {Str::KARA_YES, "Yes"},
     {Str::KARA_NO, "No"},

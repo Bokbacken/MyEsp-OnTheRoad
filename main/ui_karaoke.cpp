@@ -288,10 +288,17 @@ void updatePlayerFont()
                                                     : st == Karaoke::FontState::FAILED ? Theme::RED : Theme::MUTED), 0);
 }
 
+void refreshSteppers();
+
 void tick(lv_timer_t *)
 {
     // The song wants another sound bank (per-song choice, or the default changed): reload
     if (Karaoke::fontWanted()) Karaoke::ensureFont(false);
+    // v0.13.4: a new key needed more samples than fit; the previous key is back
+    if (Karaoke::takeTransposeRejected()) {
+        refreshSteppers();
+        msg(tr(Str::KARA_TR_REJECTED));
+    }
     if (Karaoke::fontState() != P.fontState) {
         P.fontState = Karaoke::fontState();
         updatePlayerFont();
@@ -312,7 +319,7 @@ void tick(lv_timer_t *)
         if (!P.dragging && v.lengthUs) lv_slider_set_value(P.slider, (int32_t)(v.posUs / 100000), LV_ANIM_OFF);
         updatePlayLabel(v.playing);
         if (Karaoke::fontState() == Karaoke::FontState::READY)
-            snprintf(buf, sizeof(buf), "%d/%d  %u%%", v.voices, 32, (unsigned)v.cpuPct);
+            snprintf(buf, sizeof(buf), "%d/%d  %u%%", v.voices, v.maxVoices, (unsigned)v.cpuPct);
         else
             snprintf(buf, sizeof(buf), "%s", tr(Str::KARA_SILENT));
         lv_label_set_text(P.diag, buf);

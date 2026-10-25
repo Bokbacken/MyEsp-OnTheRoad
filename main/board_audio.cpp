@@ -30,7 +30,7 @@ constexpr uint32_t MAX_CLIP_BYTES = 2u * 1024 * 1024;   // Raw WAV data limit fo
 constexpr uint8_t DAC_VOL = 0xBF;        // 0 dB; software gains do the rest
 constexpr uint8_t DAC_VOL_START = 0x40;  // Low level during bring-up
 
-enum Cmd : uint8_t { CMD_SFX, CMD_MUSIC, CMD_INVALIDATE };
+enum Cmd : uint8_t { CMD_SFX, CMD_MUSIC, CMD_INVALIDATE, CMD_FREE_CLIPS };
 struct Msg {
     Cmd cmd;
     uint8_t arg;
@@ -76,6 +76,10 @@ volatile int s_extGain = 0;    // Q8, master switch applied
 volatile uint8_t s_extVol = 70;
 volatile uint32_t s_mixSeq = 0;   // Incremented after every mixer block
 uint32_t s_extLoad100 = 0;        // Smoothed load in 1/100 %
+// Render load statistics since the last takeExternalStats() (guarded by s_statMux)
+portMUX_TYPE s_statMux = portMUX_INITIALIZER_UNLOCKED;
+uint64_t s_extSum100 = 0;
+uint32_t s_extCnt = 0, s_extMax100 = 0;
 
 // Mixer task state (only touched by the task)
 FxChannel s_fx[FX_CHANNELS];
@@ -342,6 +346,7 @@ void handle(const Msg &m)
         startMusic(cur);
         break;
     }
+    case CMD_FREE_CLIPS: freeClips(); break;
     }
 }
 
@@ -366,6 +371,11 @@ void mixerTask(void *)
             ext(s_acc, BLOCK, s_soundOn ? s_extGain : 0, s_extCtx);
             const uint32_t pct100 = (uint32_t)((esp_timer_get_time() - t0) * 10000 / (BLOCK * 1000000LL / Synth::RATE));
             s_extLoad100 = (s_extLoad100 * 15 + pct100) / 16;
+            portENTER_CRITICAL(&s_statMux);
+            s_extSum100 += pct100;
+            s_extCnt++;
+            if (pct100 > s_extMax100) s_extMax100 = pct100;
+            portEXIT_CRITICAL(&s_statMux);
         } else if (s_music != Sound::Music::NONE) {
             if (s_musicFile) renderStream(mg);
             else s_song.render(s_acc, BLOCK, mg);
@@ -527,6 +537,28 @@ void play(Sound::Sfx s)
 void music(Sound::Music m) { post(CMD_MUSIC, (uint8_t)m); }
 void stopMusic() { music(Sound::Music::NONE); }
 void invalidateFiles() { post(CMD_INVALIDATE, 0); }
+
+void releaseClips()
+{
+    if (!s_running) return;
+    post(CMD_FREE_CLIPS, 0);
+    // The command runs at the start of the next mixer block: wait for two blocks (max ~100 ms)
+    const uint32_t seq = s_mixSeq;
+    for (int i = 0; i < 20 && (uint32_t)(s_mixSeq - seq) < 2; i++) vTaskDelay(pdMS_TO_TICKS(5));
+}
+
+ExternalStats takeExternalStats()
+{
+    ExternalStats st{};
+    portENTER_CRITICAL(&s_statMux);
+    st.blocks = s_extCnt;
+    st.avgLoad100 = s_extCnt ? (uint32_t)(s_extSum100 / s_extCnt) : 0;
+    st.maxLoad100 = s_extMax100;
+    s_extSum100 = 0, s_extCnt = 0, s_extMax100 = 0;
+    portEXIT_CRITICAL(&s_statMux);
+    st.underruns = s_underruns;
+    return st;
+}
 
 Status status()
 {
