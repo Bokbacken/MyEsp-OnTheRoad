@@ -113,6 +113,38 @@ const char *const MINE_WORLD[MINE_WORLD_H] = {
     "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",  // 29
 };
 
+// Byn (v0.11.0): dialogue demo, no Bible text yet (see otr_story_village.cpp). The baker (1)
+// outside his bakery sends you with a bun to the shepherd (2) who blocks the gap in the tree line; the old man at
+// the well (3) has a riddle and the key to the shed (gems). Behind the shepherd: meadow + exit.
+const char *const VILLAGE[VILLAGE_H] = {
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",  // 0
+    "T.....*...............b.....X..T",  // 1
+    "T..b.......TT.............*....T",  // 2
+    "T.....................TT.......T",  // 3
+    "T..*.......b......*............T",  // 4
+    "TTTTTTTTTTTTTTT2TTTTTTTTTTTTTTTT",  // 5
+    "T..............................T",  // 6
+    "T..#######..............#####..T",  // 7
+    "T..#_____#.....,,,,.....#_+_#..T",  // 8
+    "T..#_____#.....,~~,.....#___#..T",  // 9
+    "T..#_____#.....,~~,3....#+__#..T",  // 10
+    "T..##___##.....,,,,.....##D##..T",  // 11
+    "T.......1......................T",  // 12
+    "T....b.......c.........b.......T",  // 13
+    "T.......TT..........TT.........T",  // 14
+    "T..............................T",  // 15
+    "T...b.....................*....T",  // 16
+    "T.........TTT.......T..........T",  // 17
+    "T..T...........S.........c.....T",  // 18
+    "T.......*...........TT.........T",  // 19
+    "T..............................T",  // 20
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",  // 21
+};
+
+static const Treasure VILLAGE_TREASURES[] = {
+    {13, 13, Obj::POTION, 2}, {22, 1, Obj::GEM, 0}, {25, 18, Obj::HEART, 1},
+};
+
 static const Treasure TEST_TREASURES[] = {
     {52, 5, Obj::HEART, 1},  {48, 10, Obj::POTION, 3}, {54, 10, Obj::SUIT, 0},  {40, 18, Obj::POTION, 2},
     {41, 18, Obj::HEART, 1}, {42, 6, Obj::HEART, 2},   {48, 46, Obj::POTION, 3}, {4, 16, Obj::POTION, 2},
@@ -127,12 +159,15 @@ static const Treasure MINE_TREASURES[] = {
 //                                 start cap  lives           lava mine suit +/max potion heart fog
 static constexpr Rules TEST_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
 static constexpr Rules MINE_RULES = {8, 20, 3, 3, 4, 3, 1, 2, 1, true};
+static constexpr Rules VILLAGE_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
 
 const MapDef WORLDS[WORLD_COUNT] = {
     {WORLD_TEST, TEST_WORLD, TEST_WORLD_H, TEST_RULES, TEST_TREASURES,
      (int)(sizeof(TEST_TREASURES) / sizeof(TEST_TREASURES[0]))},
     {WORLD_MINES, MINE_WORLD, MINE_WORLD_H, MINE_RULES, MINE_TREASURES,
      (int)(sizeof(MINE_TREASURES) / sizeof(MINE_TREASURES[0]))},
+    {WORLD_VILLAGE, VILLAGE, VILLAGE_H, VILLAGE_RULES, VILLAGE_TREASURES,
+     (int)(sizeof(VILLAGE_TREASURES) / sizeof(VILLAGE_TREASURES[0]))},
 };
 
 }  // namespace Otr

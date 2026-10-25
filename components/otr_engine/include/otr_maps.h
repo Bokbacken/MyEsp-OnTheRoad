@@ -8,6 +8,7 @@
 //             D  locked door (floor)           B  boat (sand)   * + $  gem on grass/floor/sand
 //             b  bush (hit once)   p  energy potion   h  heart (+max energy)   u  protective suit
 //             l  extra life        m  hidden mine (minesweeper worlds)
+//   people    1..9 a person on grass (number = Npc::num in the world's story script, otr_story.h)
 //   start     S  (grass)
 // Hidden treasures are not in the rows but in a Treasure list per world (MapDef).
 #pragma once
@@ -24,8 +25,12 @@ constexpr int MINE_WORLD_W = 40;
 constexpr int MINE_WORLD_H = 30;
 extern const char *const MINE_WORLD[MINE_WORLD_H];
 
-enum WorldId : uint8_t { WORLD_TEST = 1, WORLD_MINES = 2 };
-constexpr int WORLD_COUNT = 2;
-extern const MapDef WORLDS[WORLD_COUNT];   // [0] Testvärlden, [1] Minfältet
+constexpr int VILLAGE_W = 32;
+constexpr int VILLAGE_H = 22;
+extern const char *const VILLAGE[VILLAGE_H];
+
+enum WorldId : uint8_t { WORLD_TEST = 1, WORLD_MINES = 2, WORLD_VILLAGE = 3 };
+constexpr int WORLD_COUNT = 3;
+extern const MapDef WORLDS[WORLD_COUNT];   // [0] Testvärlden, [1] Minfältet, [2] Byn (dialogue demo)
 
 }  // namespace Otr

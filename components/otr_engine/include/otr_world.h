@@ -44,6 +44,7 @@ enum class Tile : uint8_t {
 enum class Obj : uint8_t {
     NONE, ROCK, CRATE, KEY, DOOR, BOAT, GEM,
     BUSH, POTION, HEART, SUIT, LIFE, MINE,
+    NPC,      // v0.11.0: a person (objAmount = map number 1..9, see otr_story.h); blocks the cell
     COUNT
 };
 
@@ -85,6 +86,8 @@ enum Event : uint32_t {
     EV_CHECKPOINT = 1u << 27, // New respawn point
     EV_EXIT = 1u << 28,       // Reached the exit
     EV_REVEALED = 1u << 29,   // Fog cells were revealed
+    // v0.11.0
+    EV_TALK = 1u << 30,       // Walked into / hit a person: start a conversation (talkNpc())
 };
 
 // Per world / game configuration (data driven, part of MapDef). Plain aggregate.
@@ -177,6 +180,19 @@ public:
 
     bool playerCanEnter(int x, int y) const;     // Terrain + object check (no side effects)
 
+    // People (v0.11.0). A person stands on a cell like a rock that cannot be pushed; walking into
+    // it or hitting it returns EV_TALK and remembers its number in talkNpc().
+    int npcAt(int x, int y) const { return rawObj(x, y) == Obj::NPC ? val_[y][x] : 0; }
+    int facingNpc() const { return npcAt(px_ + dirX(facing_), py_ + dirY(facing_)); }
+    int talkNpc() const { return talkNpc_; }    // Person of the last EV_TALK
+    bool findNpc(int num, int &x, int &y) const;
+    // Moves person num to (x, y): free ground (no object, not the player). False = unchanged.
+    bool moveNpc(int num, int x, int y);
+    bool removeNpc(int num);
+    // Story effects on the world
+    bool clearObj(int x, int y);                 // Opens a door / removes a rock, crate or bush
+    void addKeys(int n);
+
     // Save / restore of the complete mutable state. Format (little endian, see otr_world.cpp):
     // header {magic "OTRS", version, map id, w, h, body size} + body + CRC32. load() of the map
     // must have been done first; restore() validates everything and leaves the world untouched
@@ -215,6 +231,7 @@ private:
     int energy_, maxEnergy_, livesLeft_, livesUsed_, suit_;
     bool boat_, gateOpen_, gameOver_, exitReached_;
     uint8_t mapId_;
+    uint8_t talkNpc_;
     uint32_t rev_;
 };
 

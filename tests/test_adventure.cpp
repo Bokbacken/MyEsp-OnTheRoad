@@ -913,6 +913,80 @@ static void testPlanProTieBreak()
     CHECK_EQ(W.energy(), 8);
 }
 
+// ---- v0.11.0: people (Obj::NPC) ---------------------------------------------------------------
+static void testPeople()
+{
+    static const char *const m[] = {"S1..", "....", "..2."};
+    CHECK(load(m));
+    CHECK_EQ((int)W.tile(1, 0), (int)Tile::GRASS);
+    CHECK_EQ((int)W.obj(1, 0), (int)Obj::NPC);
+    CHECK_EQ(W.npcAt(1, 0), 1);
+    CHECK_EQ(W.npcAt(2, 2), 2);
+    CHECK_EQ(W.npcAt(0, 0), 0);
+    CHECK_EQ(W.move(Dir::RIGHT), EV_BLOCKED | EV_TALK);    // Blocks, starts a talk
+    CHECK_EQ(W.facingNpc(), 1);
+    CHECK_EQ(W.playerX(), 0);
+    CHECK_EQ(W.talkNpc(), 1);
+    CHECK_EQ(W.hit(), EV_TALK);                            // Hitting a person = talking
+    CHECK_EQ((int)W.obj(1, 0), (int)Obj::NPC);             // ... and never hurts
+    W.move(Dir::DOWN);
+    CHECK_EQ(W.facingNpc(), 0);
+    int x = -1, y = -1;
+    CHECK(W.findNpc(2, x, y));
+    CHECK_EQ(x, 2);
+    CHECK_EQ(y, 2);
+    CHECK(!W.findNpc(5, x, y));
+    CHECK(!W.moveNpc(2, 0, 1));                            // The player stands there
+    CHECK(!W.moveNpc(2, 1, 0));                            // Occupied by person 1
+    CHECK(!W.moveNpc(2, 9, 9));                            // Outside
+    CHECK(W.moveNpc(2, 3, 1));
+    CHECK_EQ(W.npcAt(2, 2), 0);
+    CHECK_EQ(W.npcAt(3, 1), 2);
+    CHECK(W.removeNpc(1));
+    CHECK_EQ((int)W.obj(1, 0), (int)Obj::NONE);
+    CHECK(!W.removeNpc(1));
+    // Save / restore keeps the people
+    uint8_t buf[512];
+    const size_t n = W.save(buf, sizeof(buf));
+    CHECK(n > 0);
+    CHECK(load(m));
+    CHECK(W.restore(buf, n));
+    CHECK_EQ(W.npcAt(3, 1), 2);
+    CHECK_EQ(W.npcAt(1, 0), 0);
+    // The same number twice is a map error
+    static const char *const dup[] = {"S1.1"};
+    CHECK(!load(dup));
+    // Story effects on the world
+    static const char *const d[] = {"SD.", "..."};
+    CHECK(load(d));
+    W.addKeys(2);
+    CHECK_EQ(W.keys(), 2);
+    W.addKeys(-5);
+    CHECK_EQ(W.keys(), 0);
+    CHECK(W.clearObj(1, 0));
+    CHECK_EQ((int)W.obj(1, 0), (int)Obj::NONE);
+    CHECK(!W.clearObj(2, 1));                              // Nothing there
+}
+
+static void testVillage()
+{
+    for (int y = 0; y < VILLAGE_H; y++) CHECK_EQ((int)strlen(VILLAGE[y]), VILLAGE_W);
+    CHECK_EQ(WORLD_COUNT, 3);
+    CHECK(W.load(WORLDS[2]));
+    CHECK_EQ(W.mapId(), WORLD_VILLAGE);
+    int x, y;
+    CHECK(W.findNpc(1, x, y));
+    CHECK(W.findNpc(2, x, y));
+    CHECK_EQ(x, 15);
+    CHECK_EQ(y, 5);
+    CHECK(W.findNpc(3, x, y));
+    CHECK_EQ((int)W.obj(26, 11), (int)Obj::DOOR);
+    // The shepherd closes the only way north: nothing above row 5 is reachable until she moves
+    CHECK(P.plan(W, 28, 1, WalkMode::PRO, PA) != PlanResult::OK);
+    CHECK(W.moveNpc(2, 16, 6));
+    CHECK_EQ((int)P.plan(W, 15, 4, WalkMode::PRO, PA), (int)PlanResult::OK);
+}
+
 int main()
 {
     testLoad();
@@ -934,6 +1008,8 @@ int main()
     testWorlds();
     testPlanProTieBreak();
     testBridgeRepeated();
+    testPeople();
+    testVillage();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

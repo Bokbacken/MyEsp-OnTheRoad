@@ -47,7 +47,9 @@ bool decode(char c, Cell &out)
     case 'u': out = {Tile::GRASS, Obj::SUIT}; return true;
     case 'l': out = {Tile::GRASS, Obj::LIFE}; return true;
     case 'm': out = {Tile::GRASS, Obj::MINE}; return true;
-    default: return false;
+    default:
+        if (c >= '1' && c <= '9') { out = {Tile::GRASS, Obj::NPC}; return true; }   // Person (number = digit)
+        return false;
     }
 }
 
@@ -64,7 +66,7 @@ bool isGround(Tile t)
     }
 }
 
-bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH; }
+bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH || o == Obj::NPC; }
 bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
@@ -109,6 +111,13 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
             if (!decode(rows[y][x], c)) return false;
             terrain_[y][x] = (uint8_t)c.t;
             obj_[y][x] = (uint8_t)c.o;
+            if (c.o == Obj::NPC) {
+                const char d = rows[y][x];
+                for (int py = 0; py <= y; py++)   // Every person number at most once
+                    for (int qx = 0; qx < (py == y ? x : (int)w); qx++)
+                        if (rows[py][qx] == d) return false;
+                val_[y][x] = (uint8_t)(d - '0');
+            }
             if (c.o == Obj::GEM) gemsTotal_++;
             if (c.t == Tile::PLATE) plates_++;
             if (rows[y][x] == 'S') {
@@ -354,6 +363,9 @@ uint32_t World::move(Dir d)
     uint32_t ev = 0;
 
     switch (obj(tx, ty)) {
+    case Obj::NPC:
+        talkNpc_ = (uint8_t)val_[ty][tx];
+        return EV_BLOCKED | EV_TALK;
     case Obj::DOOR:
         if (keys_ <= 0) return EV_BLOCKED | EV_NEED_KEY;
         keys_--;
@@ -433,6 +445,10 @@ uint32_t World::hit()
     if (!inside(tx, ty)) return EV_NONE;
     const Obj o = obj(tx, ty);
     uint32_t ev = 0;
+    if (o == Obj::NPC) {   // Nobody gets hit: talk instead
+        talkNpc_ = (uint8_t)val_[ty][tx];
+        return EV_TALK;
+    }
     if (o == Obj::CRATE || o == Obj::BUSH) {
         set(tx, ty, Obj::NONE);
         uncover(tx, ty, ev);
@@ -452,6 +468,65 @@ uint32_t World::hit()
     }
     if (t == Tile::WALL || t == Tile::TREE || (t == Tile::GATE && !gateOpen_)) return EV_HIT;
     return EV_NONE;   // Swing at nothing
+}
+
+// ---- People / story effects ----------------------------------------------------------------
+
+bool World::findNpc(int num, int &x, int &y) const
+{
+    for (int cy = 0; cy < h_; cy++)
+        for (int cx = 0; cx < w_; cx++)
+            if (npcAt(cx, cy) == num && num > 0) {
+                x = cx;
+                y = cy;
+                return true;
+            }
+    return false;
+}
+
+bool World::moveNpc(int num, int x, int y)
+{
+    int ox, oy;
+    if (!findNpc(num, ox, oy)) return false;
+    if (ox == x && oy == y) return true;
+    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || (x == px_ && y == py_) || !isGround(tile(x, y))) return false;
+    obj_[oy][ox] = (uint8_t)Obj::NONE;
+    val_[oy][ox] = 0;
+    obj_[y][x] = (uint8_t)Obj::NPC;
+    val_[y][x] = (uint8_t)num;
+    rev_++;
+    uint32_t ev = 0;
+    uncover(ox, oy, ev);
+    return true;
+}
+
+bool World::removeNpc(int num)
+{
+    int x, y;
+    if (!findNpc(num, x, y)) return false;
+    obj_[y][x] = (uint8_t)Obj::NONE;
+    val_[y][x] = 0;
+    rev_++;
+    uint32_t ev = 0;
+    uncover(x, y, ev);
+    return true;
+}
+
+bool World::clearObj(int x, int y)
+{
+    const Obj o = rawObj(x, y);
+    if (o != Obj::DOOR && o != Obj::ROCK && o != Obj::CRATE && o != Obj::BUSH) return false;
+    set(x, y, Obj::NONE);
+    uint32_t ev = 0;
+    uncover(x, y, ev);
+    updateGates(ev);
+    return true;
+}
+
+void World::addKeys(int n)
+{
+    keys_ = keys_ + n < 0 ? 0 : keys_ + n > 99 ? 99 : keys_ + n;
+    rev_++;
 }
 
 // ---- Save / restore -------------------------------------------------------------------------
@@ -540,6 +615,7 @@ bool World::restore(const uint8_t *buf, size_t n)
         const uint8_t *c = cells + i * CELL_BYTES;
         if (c[0] >= (uint8_t)Tile::COUNT || c[1] >= (uint8_t)Obj::COUNT || c[3] >= (uint8_t)Obj::COUNT || c[5] > 3)
             return false;
+        if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
     }
     // Apply
     px_ = px; py_ = py; cpX_ = cpx; cpY_ = cpy; facing_ = (Dir)facing;
