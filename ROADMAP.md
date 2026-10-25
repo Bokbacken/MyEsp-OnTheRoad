@@ -2,6 +2,12 @@
 
 Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat.
 
+### Aktuellt fokus – tillbaka till bibeläventyret
+- **Karaoke pausad på Kents begäran:** grunden fungerar mycket väl enligt Kent. Det innebär inte att alla funktioner i v0.13.7 är HW-verifierade; kvarvarande testpunkter står kvar. Inga nya karaokeändringar nu.
+- **Nästa fokus: Josefs resa** enligt [bibeläventyrsplanen](docs/BIBLE_ADVENTURE_PLAN.md). Dialogmotorn, demobyn och live view finns; inget Josef-kapitel är implementerat ännu. Nästa redan planerade steg är **C: flera kartor per värld, sparformat v2 med berättelsestatus/aktuell karta, uppdragslogg och världsspecifik HUD**. Börja konkret med kartövergångar och bakåtkompatibel sparning. Roadmapens v0.15.0 är planeringsmålet; planens äldre v0.13.0-rubriker för C–E är inaktuella, inte färdiga releaser.
+- [ ] **MineSweeper-utbyggnad (Kents idé, TODO):** cirka **10–15 banor med ökande svårighetsgrad**, **skyddsdräkt att hitta** och **bomber som spränger 3×3 eller 4×4 dolda rutor**. Inte implementerat. Exakt banantal/progression, dräktens skydd och hållbarhet, bombtillgång, placering/förankring av sprängytan (särskilt 4×4), kanthantering och samspelet med minor är **oavgjorda**. Motorns befintliga dräktregler beslutar inte dessa nya mekaniker.
+- [ ] **Eventspellistor kvar som TODO:** Kent bygger själv listor med låtar och ordning via webbsidan, med TXT/JSON som planerad lagring. Ingen automatisk filsortering; alla får välja låt. Favoriter/senaste är uppskjutna. Ingen implementation under karaokepausen.
+
 ## v0.2.0 – grund ✅ (HW-verifierad)
 - Display ST77922 QSPI, touch, LED, bakgrundsbelysning, bootskärm med självtest
 - Yatzy / Maxi-Yatzy (fritt och i ordning), 1–8 spelare
