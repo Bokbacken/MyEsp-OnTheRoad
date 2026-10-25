@@ -20,6 +20,7 @@
   <a href="/players">Spelare</a>
   <a href="/settings" class="active">Inställningar</a>
   <a href="/diag">Diagnostik</a>
+  <a href="/files">Filer</a>
   <a href="/update">Uppdatera</a>
 </nav>
 
@@ -90,6 +91,33 @@
     <label class="check"><input type="checkbox" id="led_enabled" name="led_enabled"> RGB-LED aktiv</label>
     <label for="led_brightness">LED-ljusstyrka: <b id="led-val">–</b></label>
     <input type="range" id="led_brightness" name="led_brightness" min="0" max="255" step="1">
+  </fieldset>
+  <fieldset>
+    <legend>Ljud</legend>
+    <label class="check"><input type="checkbox" id="sound_on" name="sound_on"> Ljud på</label>
+    <label for="sfx_vol">Effektvolym: <b id="sfx-val">–</b> %</label>
+    <input type="range" id="sfx_vol" name="sfx_vol" min="0" max="100" step="5">
+    <label class="check"><input type="checkbox" id="music_on" name="music_on"> Bakgrundsmusik</label>
+    <label for="music_vol">Musikvolym: <b id="music-val">–</b> %</label>
+    <input type="range" id="music_vol" name="music_vol" min="0" max="100" step="5">
+    <p class="muted">Egna ljud kan läggas på SD-kortet under <code>/otr/sounds/</code> och
+    <code>/otr/music/</code> (WAV, se <a href="/files">Filer</a>).</p>
+  </fieldset>
+  <fieldset>
+    <legend>Äventyr – joystick</legend>
+    <label for="joy_zones">Hastighetszoner: <b id="zones-val">–</b></label>
+    <input type="range" id="joy_zones" name="joy_zones" min="1" max="4" step="1">
+    <label for="joy_slow_ms">Långsammast (inre zon): <b id="slow-val">–</b> ms/steg</label>
+    <input type="range" id="joy_slow_ms" name="joy_slow_ms" min="60" max="400" step="5">
+    <label for="joy_fast_ms">Snabbast (yttre zon): <b id="fast-val">–</b> ms/steg</label>
+    <input type="range" id="joy_fast_ms" name="joy_fast_ms" min="60" max="400" step="5">
+    <label for="joy_hold_ms">Håll för upprepning: <b id="hold-val">–</b> ms</label>
+    <input type="range" id="joy_hold_ms" name="joy_hold_ms" min="100" max="600" step="10">
+    <label for="joy_diag">Diagonalt läge</label>
+    <select id="joy_diag" name="joy_diag">
+      <option value="0">Dominant axel (standard)</option>
+      <option value="1">Växla axlar</option>
+    </select>
   </fieldset>
   <fieldset>
     <legend>Språk / Language</legend>
@@ -180,6 +208,15 @@ function bindRange(id, out) {
 const updB = bindRange('brightness', 'brightness-val');
 const updL = bindRange('led_brightness', 'led-val');
 const updA = bindRange('roll_anim_ms', 'anim-val');
+const updSfx = bindRange('sfx_vol', 'sfx-val');
+const updMus = bindRange('music_vol', 'music-val');
+const updZ = bindRange('joy_zones', 'zones-val');
+const updSl = bindRange('joy_slow_ms', 'slow-val');
+const updFa = bindRange('joy_fast_ms', 'fast-val');
+const updH = bindRange('joy_hold_ms', 'hold-val');
+// Fastest may never be slower than slowest.
+$('joy_slow_ms').addEventListener('input', () => { if (+$('joy_fast_ms').value > +$('joy_slow_ms').value) { $('joy_fast_ms').value = $('joy_slow_ms').value; updFa(); } });
+$('joy_fast_ms').addEventListener('input', () => { if (+$('joy_fast_ms').value > +$('joy_slow_ms').value) { $('joy_slow_ms').value = $('joy_fast_ms').value; updSl(); } });
 
 function fill(c) {
   cfg = c;
@@ -197,6 +234,13 @@ function fill(c) {
   $('maxi_saved_rolls').checked = c.maxi_saved_rolls;
   if (c.throw_mode !== undefined) $('throw_mode').value = c.throw_mode;
   $('hostname').value = c.hostname;
+  if (c.sound_on !== undefined) {
+    $('sound_on').checked = c.sound_on; $('music_on').checked = c.music_on;
+    $('sfx_vol').value = c.sfx_vol; updSfx(); $('music_vol').value = c.music_vol; updMus();
+    $('joy_zones').value = c.joy_zones; updZ(); $('joy_slow_ms').value = c.joy_slow_ms; updSl();
+    $('joy_fast_ms').value = c.joy_fast_ms; updFa(); $('joy_hold_ms').value = c.joy_hold_ms; updH();
+    $('joy_diag').value = c.joy_diag;
+  }
   if (c.langs) {
     const sel = $('lang');
     sel.innerHTML = '';
@@ -370,6 +414,15 @@ $('cfg-form').addEventListener('submit', async e => {
     roll_anim_ms: $('roll_anim_ms').value,
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
     throw_mode: $('throw_mode').value,
+    sound_on: $('sound_on').checked ? '1' : '0',
+    sfx_vol: $('sfx_vol').value,
+    music_on: $('music_on').checked ? '1' : '0',
+    music_vol: $('music_vol').value,
+    joy_zones: $('joy_zones').value,
+    joy_slow_ms: $('joy_slow_ms').value,
+    joy_fast_ms: $('joy_fast_ms').value,
+    joy_hold_ms: $('joy_hold_ms').value,
+    joy_diag: $('joy_diag').value,
     lang: $('lang').value,
     hostname: host,
     tz: $('tz').value.trim()

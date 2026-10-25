@@ -386,7 +386,15 @@
     X(SET_AUDIO_INFO) \
     X(SET_SD_REMOUNT) \
     X(BOOT_SD_FREE) \
-    X(BOOT_SD_NONE)
+    X(BOOT_SD_NONE) \
+    X(WEB_ERR_FS_PATH) \
+    X(WEB_ERR_FS_NOCARD) \
+    X(WEB_ERR_FS_NOTFOUND) \
+    X(WEB_ERR_FS_EXISTS) \
+    X(WEB_ERR_FS_NOTEMPTY) \
+    X(WEB_ERR_FS_IO) \
+    X(WEB_ERR_FS_FULL) \
+    X(WEB_ERR_FS_ROOT)
 // clang-format on
 
 enum class Str : uint16_t {

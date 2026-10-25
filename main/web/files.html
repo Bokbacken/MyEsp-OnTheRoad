@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Filer</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.crumbs { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-bottom: .6rem; }
+.crumbs a { cursor: pointer; }
+.files td.act { white-space: nowrap; text-align: right; }
+.files td.act button { padding: .2rem .5rem; margin-left: .2rem; }
+.files td.name a { cursor: pointer; }
+.files tr.dir td.name { font-weight: 600; }
+.seg { display: inline-flex; gap: .3rem; }
+.seg button.on { background: var(--otr-orange); color: #000; }
+</style>
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9856;</div>
+    <div class="otr-project">ONTHEROAD<small>Filer</small></div>
+    <div class="otr-wifi"><span class="dot" id="live-dot"></span><span id="live-text">–</span></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/game">Live</a>
+  <a href="/players">Spelare</a>
+  <a href="/settings">Inställningar</a>
+  <a href="/diag">Diagnostik</a>
+  <a href="/files" class="active">Filer</a>
+  <a href="/update">Uppdatera</a>
+</nav>
+
+<h2>Filbläddrare</h2>
+<div class="card">
+  <div class="row" style="margin-top:0">
+    <span class="seg">
+      <button type="button" class="secondary on" id="root-sd">SD-kort</button>
+      <button type="button" class="secondary" id="root-ffat">Intern flash</button>
+    </span>
+    <span class="muted" id="usage">–</span>
+  </div>
+  <div class="crumbs" id="crumbs"></div>
+  <div id="nocard" hidden>
+    <p class="bad">Inget SD-kort monterat.</p>
+    <div class="row"><button type="button" class="secondary" id="remount-btn">Läs in SD-kortet igen</button></div>
+  </div>
+  <div class="table-wrap"><table class="files"><thead><tr><th>Namn</th><th>Storlek</th><th>Ändrad</th><th></th></tr></thead>
+    <tbody id="list"></tbody></table></div>
+  <p class="muted" id="truncated" hidden>Visar de första 400 posterna.</p>
+</div>
+
+<h2>Ladda upp / ny katalog</h2>
+<div class="card">
+  <p class="muted">Uppladdning, radering, namnbyte och nya kataloger kräver admin-PIN (om en PIN är satt).
+  Filen sparas i katalogen som visas ovan.</p>
+  <label for="pin">Admin-PIN</label>
+  <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off">
+  <label for="file">Filer</label>
+  <input type="file" id="file" multiple>
+  <label class="check"><input type="checkbox" id="overwrite"> Skriv över befintliga filer</label>
+  <progress id="prog" max="100" value="0" hidden></progress>
+  <div class="muted" id="prog-text"></div>
+  <div class="row">
+    <button type="button" class="primary" id="upload-btn">Ladda upp</button>
+    <button type="button" class="secondary" id="mkdir-btn">Ny katalog</button>
+  </div>
+</div>
+
+<h2>Katalogstruktur</h2>
+<div class="card">
+  <p class="muted">Enheten använder följande kataloger på SD-kortet (skapas automatiskt vid behov):</p>
+  <ul class="muted">
+    <li><code>/otr/sounds/&lt;namn&gt;.wav</code> – egna ljudeffekter (ersätter de inbyggda), t.ex. <code>dice_roll.wav</code>, <code>step.wav</code></li>
+    <li><code>/otr/music/adventure.wav</code>, <code>/otr/music/dice.wav</code> – egen bakgrundsmusik (spelas i loop)</li>
+    <li><code>/otr/adventure/saves/</code> – sparade äventyr</li>
+    <li><code>/otr/adventure/maps/</code> – reserverad för framtida kartor</li>
+  </ul>
+  <p class="muted">WAV: PCM 8 eller 16 bitar, mono eller stereo, 8–48 kHz (bäst: 16 bitar mono 22 050 Hz).
+  Effekter högst ca 2 MB totalt i minnet; musik strömmas från kortet.</p>
+</div>
+
+<div class="toast" id="toast"></div>
+<footer>MyEsp-OnTheRoad · ej HW-testad</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let root = 'sd', path = '/';
+const PIN_KEY = 'otr-admin-pin';
+$('pin').value = sessionStorage.getItem(PIN_KEY) || '';
+$('pin').addEventListener('input', () => sessionStorage.setItem(PIN_KEY, $('pin').value));
+
+function toast(msg, ok = true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'ok' : 'bad');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.className = 'toast', 3200);
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+function size(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' kB';
+  if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+  return (b / 1073741824).toFixed(2) + ' GB';
+}
+function join(dir, name) { return (dir.endsWith('/') ? dir : dir + '/') + name; }
+function qs(o) { return new URLSearchParams(o).toString(); }
+async function post(url, data) {
+  const r = await fetch(url, {method: 'POST', body: new URLSearchParams(Object.assign({root, pin: $('pin').value}, data))});
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+function crumbs() {
+  const parts = path.split('/').filter(Boolean);
+  const el = $('crumbs');
+  el.innerHTML = '';
+  const add = (txt, p) => {
+    const a = document.createElement('a');
+    a.textContent = txt;
+    a.onclick = () => go(p);
+    el.appendChild(a);
+  };
+  add(root === 'sd' ? 'SD-kort' : 'Intern flash', '/');
+  let acc = '';
+  for (const p of parts) {
+    el.appendChild(document.createTextNode(' / '));
+    acc += '/' + p;
+    add(p, acc);
+  }
+}
+
+function row(e) {
+  const tr = document.createElement('tr');
+  const full = join(path, e.name);
+  if (e.dir) tr.className = 'dir';
+  const tdName = document.createElement('td'); tdName.className = 'name';
+  const a = document.createElement('a');
+  a.textContent = (e.dir ? '\u{1F4C1} ' : '') + e.name;
+  if (e.dir) a.onclick = () => go(full);
+  else a.href = '/api/fs/download?' + qs({root, path: full});
+  tdName.appendChild(a);
+  const tdSize = document.createElement('td'); tdSize.textContent = e.dir ? '' : size(e.size);
+  const tdTime = document.createElement('td'); tdTime.className = 'muted';
+  tdTime.textContent = e.mtime > 946684800 ? new Date(e.mtime * 1000).toLocaleString('sv-SE') : '';
+  const tdAct = document.createElement('td'); tdAct.className = 'act';
+  const btn = (txt, title, cls, fn) => { const b = document.createElement('button'); b.type = 'button';
+    b.className = cls; b.textContent = txt; b.title = title; b.onclick = fn; tdAct.appendChild(b); };
+  btn('\u270E', 'Byt namn', 'secondary', async () => {
+    const name = prompt('Nytt namn för ' + e.name + ':', e.name);
+    if (!name || name === e.name) return;
+    try { await post('/api/fs/rename', {path: full, name}); toast('Namnet ändrat'); load(); }
+    catch (err) { toast(err.message, false); }
+  });
+  btn('\u2715', 'Radera', 'danger', async () => {
+    if (!confirm('Radera ' + (e.dir ? 'katalogen ' : '') + e.name + '?' + (e.dir ? ' (måste vara tom)' : ''))) return;
+    try { await post('/api/fs/delete', {path: full}); toast('Raderad'); load(); }
+    catch (err) { toast(err.message, false); }
+  });
+  tr.append(tdName, tdSize, tdTime, tdAct);
+  return tr;
+}
+
+async function load() {
+  crumbs();
+  try {
+    const r = await fetch('/api/fs/list?' + qs({root, path}), {cache: 'no-store'});
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+    $('live-dot').className = 'dot ok';
+    $('live-text').textContent = 'ansluten';
+    $('nocard').hidden = j.mounted || root !== 'sd';
+    $('usage').textContent = j.mounted ? size(j.free) + ' ledigt av ' + size(j.total) : (root === 'sd' ? 'inget kort' : 'ej monterad');
+    const list = $('list');
+    list.innerHTML = '';
+    if (path !== '/') {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td'); td.colSpan = 4;
+      const a = document.createElement('a'); a.textContent = '\u2191 ..'; a.style.cursor = 'pointer';
+      a.onclick = () => go(path.replace(/\/[^/]+\/?$/, '') || '/');
+      td.appendChild(a); tr.appendChild(td); list.appendChild(tr);
+    }
+    const entries = j.entries.slice().sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, 'sv'));
+    for (const e of entries) list.appendChild(row(e));
+    if (!entries.length && j.mounted) list.insertAdjacentHTML('beforeend', '<tr><td colspan="4" class="muted">Tom katalog</td></tr>');
+    $('truncated').hidden = !j.truncated;
+  } catch (e) {
+    if (path !== '/' && /finns inte|not found/i.test(e.message)) { path = '/'; return load(); }
+    $('live-dot').className = 'dot bad';
+    $('live-text').textContent = 'fel';
+    toast(e.message, false);
+  }
+}
+function go(p) { path = p || '/'; load(); }
+function setRoot(r) {
+  root = r; path = '/';
+  $('root-sd').classList.toggle('on', r === 'sd');
+  $('root-ffat').classList.toggle('on', r === 'ffat');
+  load();
+}
+$('root-sd').onclick = () => setRoot('sd');
+$('root-ffat').onclick = () => setRoot('ffat');
+
+$('remount-btn').onclick = async () => {
+  try { const j = await post('/api/sd/remount', {}); toast(j.mounted ? 'SD-kortet monterat' : 'Inget SD-kort hittades', j.mounted); load(); }
+  catch (err) { toast(err.message, false); }
+};
+
+$('mkdir-btn').onclick = async () => {
+  const name = prompt('Namn på ny katalog:');
+  if (!name) return;
+  try { await post('/api/fs/mkdir', {path: join(path, name)}); toast('Katalog skapad'); load(); }
+  catch (err) { toast(err.message, false); }
+};
+
+function uploadOne(f, idx, count) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    const q = {root, path: join(path, f.name), pin: $('pin').value};
+    if ($('overwrite').checked) q.overwrite = '1';
+    x.open('POST', '/api/fs/upload?' + qs(q));
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.upload.onprogress = ev => {
+      if (!ev.lengthComputable) return;
+      $('prog').value = Math.round(ev.loaded * 100 / ev.total);
+      $('prog-text').textContent = (count > 1 ? (idx + 1) + '/' + count + ': ' : '') + f.name + ' · ' + size(ev.loaded) + ' av ' + size(ev.total);
+    };
+    x.onload = () => {
+      let j = {};
+      try { j = JSON.parse(x.responseText); } catch (e) {}
+      if (x.status >= 200 && x.status < 300 && j.ok !== false) resolve();
+      else reject(new Error(f.name + ': ' + (j.error || ('HTTP ' + x.status))));
+    };
+    x.onerror = () => reject(new Error(f.name + ': överföringen avbröts'));
+    x.send(f);
+  });
+}
+$('upload-btn').onclick = async () => {
+  const files = Array.from($('file').files);
+  if (!files.length) return toast('Välj en eller flera filer', false);
+  $('upload-btn').disabled = true;
+  $('prog').hidden = false;
+  let done = 0;
+  try {
+    for (let i = 0; i < files.length; i++) { await uploadOne(files[i], i, files.length); done++; }
+    toast(done === 1 ? 'Filen uppladdad' : done + ' filer uppladdade');
+    $('file').value = '';
+  } catch (err) { toast(err.message, false); }
+  $('upload-btn').disabled = false;
+  $('prog').hidden = true;
+  $('prog-text').textContent = '';
+  load();
+};
+load();
+</script>
+</body>
+</html>

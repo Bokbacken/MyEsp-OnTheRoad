@@ -391,6 +391,14 @@ extern const Entry LANG_SV[] = {
     {Str::SET_SD_REMOUNT, "Läs in SD-kortet igen"},
     {Str::BOOT_SD_FREE, ", SD %u MB ledigt"},
     {Str::BOOT_SD_NONE, ", inget SD-kort"},
+    {Str::WEB_ERR_FS_PATH, "Ogiltig sökväg eller filnamn"},
+    {Str::WEB_ERR_FS_NOCARD, "Lagringen är inte monterad (inget SD-kort?)"},
+    {Str::WEB_ERR_FS_NOTFOUND, "Filen eller katalogen finns inte"},
+    {Str::WEB_ERR_FS_EXISTS, "Det finns redan en fil eller katalog med det namnet"},
+    {Str::WEB_ERR_FS_NOTEMPTY, "Katalogen är inte tom"},
+    {Str::WEB_ERR_FS_IO, "Läs- eller skrivfel"},
+    {Str::WEB_ERR_FS_FULL, "Lagringen är full"},
+    {Str::WEB_ERR_FS_ROOT, "Roten kan inte ändras"},
 };
 
 extern const LangDef DEF_SV = {"sv", "Svenska", LANG_SV, sizeof(LANG_SV) / sizeof(LANG_SV[0])};

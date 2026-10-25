@@ -9,6 +9,9 @@
 
 #include "app_config.h"
 #include "app_players.h"
+#include "app_web_files.h"
+#include "board_audio.h"
+#include "board_sd.h"
 #include "board_display.h"
 #include "board_touch.h"
 #include "esp_heap_caps.h"
@@ -173,6 +176,33 @@ static void diagStorage(cJSON *o)
     cJSON_AddNumberToObject(o, "players", Players::count());
 }
 
+static void diagSd(cJSON *o)
+{
+    const BoardSd::Info i = BoardSd::info();
+    cJSON_AddBoolToObject(o, "ok", i.mounted);
+    if (!i.mounted) return;
+    cJSON_AddStringToObject(o, "name", i.name);
+    cJSON_AddNumberToObject(o, "width", i.width);
+    cJSON_AddNumberToObject(o, "freq_khz", i.freqKhz);
+    cJSON_AddNumberToObject(o, "total", (double)i.totalBytes);
+    cJSON_AddNumberToObject(o, "free", (double)i.freeBytes);
+}
+
+static void diagAudio(cJSON *o)
+{
+    const Audio::Status s = Audio::status();
+    cJSON_AddBoolToObject(o, "ok", s.running);
+    cJSON_AddBoolToObject(o, "codec", s.codecFound);
+    cJSON_AddBoolToObject(o, "amp", s.ampOn);
+    const char *mus = Sound::musicName(s.music);
+    cJSON_AddStringToObject(o, "music", mus ? mus : "");
+    cJSON_AddBoolToObject(o, "music_file", s.musicFromFile);
+    cJSON_AddNumberToObject(o, "channels", s.busyChannels);
+    cJSON_AddNumberToObject(o, "files_cached", s.filesCached);
+    cJSON_AddNumberToObject(o, "underruns", s.underruns);
+    cJSON_AddStringToObject(o, "error", s.error ? s.error : "");
+}
+
 void registerDiag()
 {
     MyDiag::add("wifi", diagWifi);
@@ -182,6 +212,8 @@ void registerDiag()
     MyDiag::add("rtc", diagRtc);
     MyDiag::add("ota", diagOta);
     MyDiag::add("storage", diagStorage);
+    MyDiag::add("sd", diagSd);
+    MyDiag::add("audio", diagAudio);
 }
 
 static esp_err_t handleInfo(httpd_req_t *r)
@@ -222,6 +254,15 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "throw_mode", c.throwMode);
     cJSON_AddNumberToObject(o, "rotation", c.rotation);
     cJSON_AddStringToObject(o, "lang", c.lang);
+    cJSON_AddBoolToObject(o, "sound_on", c.soundOn);
+    cJSON_AddNumberToObject(o, "sfx_vol", c.sfxVol);
+    cJSON_AddBoolToObject(o, "music_on", c.musicOn);
+    cJSON_AddNumberToObject(o, "music_vol", c.musicVol);
+    cJSON_AddNumberToObject(o, "joy_zones", c.joyZones);
+    cJSON_AddNumberToObject(o, "joy_slow_ms", c.joySlowMs);
+    cJSON_AddNumberToObject(o, "joy_fast_ms", c.joyFastMs);
+    cJSON_AddNumberToObject(o, "joy_hold_ms", c.joyHoldMs);
+    cJSON_AddNumberToObject(o, "joy_diag", c.joyDiag);
     cJSON *langs = cJSON_AddArrayToObject(o, "langs");
     for (int i = 0; i < Lang::count(); i++) {
         cJSON *l = cJSON_CreateObject();
@@ -250,8 +291,17 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         if (v != 0 && v != 180) bad = true;
         else next.rotation = (uint16_t)v;
     }
+    if (q.getInt("sfx_vol", 0, 100, v, bad)) next.sfxVol = (uint8_t)v;
+    if (q.getInt("music_vol", 0, 100, v, bad)) next.musicVol = (uint8_t)v;
+    if (q.getInt("joy_zones", 1, 4, v, bad)) next.joyZones = (uint8_t)v;
+    if (q.getInt("joy_slow_ms", JOY_MS_MIN, JOY_MS_MAX, v, bad)) next.joySlowMs = (uint16_t)v;
+    if (q.getInt("joy_fast_ms", JOY_MS_MIN, JOY_MS_MAX, v, bad)) next.joyFastMs = (uint16_t)v;
+    if (q.getInt("joy_hold_ms", JOY_HOLD_MIN, JOY_HOLD_MAX, v, bad)) next.joyHoldMs = (uint16_t)v;
+    if (q.getInt("joy_diag", 0, 1, v, bad)) next.joyDiag = (uint8_t)v;
     if (bad) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NUMBER));
     if (q.getBool("led_enabled", b)) next.ledEnabled = b;
+    if (q.getBool("sound_on", b)) next.soundOn = b;
+    if (q.getBool("music_on", b)) next.musicOn = b;
     if (q.getBool("maxi_saved_rolls", b)) next.maxiSavedRolls = b;
     char buf[64];
     if (q.has("tz")) {
@@ -280,6 +330,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         }
     }
     const bool pinChanged = strcmp(next.adminPin, Config::get().adminPin) != 0;
+    Config::sanitize(next);
     Config::get() = next;
     if (!Config::save()) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_NVS));
     if (s_configCb) s_configCb();
@@ -1163,7 +1214,7 @@ bool begin()
 {
     MyWeb::Config c;
     c.adminOk = Config::adminOk;
-    c.maxUris = 56;
+    c.maxUris = 72;
     c.maxSockets = 12;   // Room for 4 WebSocket clients next to normal page loads (LWIP: 16)
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
@@ -1179,6 +1230,7 @@ bool begin()
     ok &= MyWeb::on("/api/players", HTTP_POST, handlePlayersPost);
     ok &= MyWeb::on("/api/reset", HTTP_POST, handleReset);
     ok &= MyWeb::on("/api/game", HTTP_GET, handleGame);
+    ok &= AppWebFiles::registerRoutes();
     ok &= wsBegin();
     if (!ok) ESP_LOGE(TAG, "route registration failed");
     return ok;

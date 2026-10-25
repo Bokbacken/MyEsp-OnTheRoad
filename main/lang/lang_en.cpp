@@ -391,6 +391,14 @@ extern const Entry LANG_EN[] = {
     {Str::SET_SD_REMOUNT, "Re-read the SD card"},
     {Str::BOOT_SD_FREE, ", SD %u MB free"},
     {Str::BOOT_SD_NONE, ", no SD card"},
+    {Str::WEB_ERR_FS_PATH, "Invalid path or file name"},
+    {Str::WEB_ERR_FS_NOCARD, "Storage not mounted (no SD card?)"},
+    {Str::WEB_ERR_FS_NOTFOUND, "File or directory not found"},
+    {Str::WEB_ERR_FS_EXISTS, "A file or directory with that name already exists"},
+    {Str::WEB_ERR_FS_NOTEMPTY, "Directory is not empty"},
+    {Str::WEB_ERR_FS_IO, "Read or write error"},
+    {Str::WEB_ERR_FS_FULL, "Storage is full"},
+    {Str::WEB_ERR_FS_ROOT, "The root cannot be changed"},
 };
 
 extern const LangDef DEF_EN = {"en", "English", LANG_EN, sizeof(LANG_EN) / sizeof(LANG_EN[0])};

@@ -20,6 +20,7 @@
   <a href="/players">Spelare</a>
   <a href="/settings">Inställningar</a>
   <a href="/diag" class="active">Diagnostik</a>
+  <a href="/files">Filer</a>
   <a href="/update">Uppdatera</a>
 </nav>
 
@@ -89,6 +90,10 @@ async function refresh() {
       ['Sketch / ledigt app-utrymme', kb(i.sketch_size) + ' / ' + kb(i.sketch_free)],
       ['App-partition (kör / nästa OTA)', esc(i.ota.running + ' / ' + i.ota.next) + ' · ' + kb(i.ota.slot_size)],
       ['Lagring (FFat)', i.storage.ok ? kb(i.storage.used) + ' av ' + kb(i.storage.total) + ' · ' + i.storage.players + ' spelare' : 'ej tillgänglig'],
+      ['SD-kort', i.sd && i.sd.ok ? esc(i.sd.name) + ' · ' + i.sd.width + '-bit ' + (i.sd.freq_khz / 1000) + ' MHz · ' + mb(i.sd.free) + ' ledigt av ' + mb(i.sd.total) : '<span class="muted">inget kort</span>'],
+      ['Ljud (ES8311)', i.audio ? (i.audio.ok ? '<span class="ok">igång</span>' : '<span class="bad">' + (i.audio.codec ? 'fel' : 'codec saknas') + '</span>') +
+        ' · förstärkare ' + (i.audio.amp ? 'på' : 'av') + ' · musik ' + esc(i.audio.music || '–') + (i.audio.music_file ? ' (SD)' : '') +
+        ' · ' + i.audio.files_cached + ' WAV · ' + i.audio.underruns + ' underruns' + (i.audio.error ? ' · <span class="bad">' + esc(i.audio.error) + '</span>' : '') : '–'],
       ['Klocka', i.clock.epoch ? new Date(i.clock.epoch * 1000).toLocaleString('sv-SE') + ' · ' +
         (i.clock.certain ? '<span class="ok">' + esc(i.clock.source) + '</span>' : '<span class="warn">' + esc(i.clock.source) + '</span>') : '<span class="muted">ej satt</span>'],
       ['Senaste NTP', i.clock.ntp_age_s < 0 ? '–' : i.clock.ntp_age_s + ' s sedan'],
