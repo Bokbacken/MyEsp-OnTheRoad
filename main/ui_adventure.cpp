@@ -49,7 +49,7 @@ static constexpr uint32_t WALK_MS_32 = 150, WALK_MS_16 = 115, BUMP_MS = 110, FX_
 static constexpr uint32_t WALK_MS_MIN = 55;                      // Fastest walk animation (joystick)
 static constexpr uint32_t WALK_MS_MAX = 260;                     // Slowest (stretched to the joystick pace)
 // Control panel columns
-static constexpr int32_t COL_L_W = 80;                           // Left: status text + menu/zoom
+static constexpr int32_t COL_L_W = 80;                           // Left: counters + menu/mute
 static constexpr int32_t COL_R_X = 240, COL_R_W = 320 - COL_R_X - 4;   // Right: 76 px
 // Joystick (centre column): pad centre (relative to the touch area), outer radius, stop zone, knob
 static constexpr int32_t JOY_AREA_X = COL_L_W, JOY_AREA_W = COL_R_X - COL_L_W, JOY_AREA_H = CTRL_H;
@@ -72,9 +72,21 @@ enum Spr : uint8_t {
     S_COUNT
 };
 
+// HUD icons: 20 px copies of the world sprites, anti-aliased onto the panel colour so they can be
+// shown with plain RGB565 canvases (no colour key needed in LVGL).
+static constexpr int HUD_PX = 20;
+enum HudIcon : uint8_t {
+    H_LIFE, H_SUIT, H_KEY, H_GEM,   // Left column: counters
+    H_BOAT,                         // Right column: carried items (on/off)
+    H_COUNT
+};
+// Lives use the extra-life heart (green, +) so the counter matches the pickup that raises it.
+static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT};
+
 struct Sprites {
     uint16_t big[S_COUNT][SPR * SPR];
     uint16_t small[S_COUNT][(SPR / 2) * (SPR / 2)];
+    uint16_t hud[H_COUNT][HUD_PX * HUD_PX];
 };
 
 static Sprites *s_spr = nullptr;
@@ -89,7 +101,13 @@ static constexpr size_t SAVE_CAP = 32 * 1024;   // >= World::saveSize() for 64 x
 // Screen objects
 static lv_obj_t *s_scr, *s_canvas, *s_toast, *s_dialog;
 static lv_obj_t *s_activeScr;                // Screen that owns the PSRAM buffers (freed on its delete)
-static lv_obj_t *s_gemsLbl, *s_keysLbl, *s_boatLbl, *s_bar, *s_barLbl, *s_livesLbl, *s_suitLbl, *s_zoomBtn;
+static lv_obj_t *s_bar, *s_barLbl, *s_muteBtn;
+// HUD left column: one counter label per row (lives, suit, keys, gems)
+enum HudCount : uint8_t { C_LIVES, C_SUIT, C_KEYS, C_GEMS, C_COUNT };
+static lv_obj_t *s_count[C_COUNT];
+static lv_obj_t *s_itemBox;                   // HUD right column: icons of carried items
+static lv_obj_t *s_item[H_COUNT];             // Item icon objects (only item slots are used)
+static uint32_t s_soundTapMs, s_zoomTapMs, s_menuTapMs, s_modeTapMs;   // Double-tap guards
 static lv_timer_t *s_timer;
 
 // View / animation state
@@ -707,29 +725,34 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
 // ----------------------------------------------------------------------------------------
 // HUD
 // ----------------------------------------------------------------------------------------
+static void setCount(HudCount c, int value, uint32_t onColor)
+{
+    lv_label_set_text_fmt(s_count[c], "%d", value);
+    lv_obj_set_style_text_color(s_count[c], Theme::c(value > 0 ? onColor : Theme::MUTED), 0);
+}
+
 static void updateStats()
 {
     const Otr::World &w = *s_world;
-    char buf[64];
-    lv_label_set_text_fmt(s_gemsLbl, "%d/%d", w.gems(), w.gemsTotal());
-    snprintf(buf, sizeof(buf), tr(Str::ADV_KEYS), w.keys());
-    lv_label_set_text(s_keysLbl, buf);
-    const char *boat = tr(Str::ADV_BOAT_TAG);
-    while (*boat == ' ') boat++;
-    lv_label_set_text(s_boatLbl, boat);
-    lv_obj_set_hidden(s_boatLbl, !w.hasBoat());
+    // Left column: symbol + count. Assist mode has unlimited lives: show lives used as "-N".
+    if (w.livesLeft() == Otr::LIVES_INFINITE) {
+        lv_label_set_text_fmt(s_count[C_LIVES], "\xE2\x80\x93%d", w.livesUsed());   // en dash
+        lv_obj_set_style_text_color(s_count[C_LIVES], Theme::c(Theme::MUTED), 0);
+    } else {
+        setCount(C_LIVES, w.livesLeft(), Theme::TEXT);
+    }
+    setCount(C_SUIT, w.suitCharges(), Theme::ACCENT);
+    setCount(C_KEYS, w.keys(), Theme::GOLD);
+    lv_label_set_text_fmt(s_count[C_GEMS], "%d/%d", w.gems(), w.gemsTotal());
+    lv_obj_set_style_text_color(s_count[C_GEMS], Theme::c(w.gems() > 0 ? Theme::TEAL : Theme::MUTED), 0);
+    // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
+    lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     // Energy bar: red fill on a light track (Kent's mock-up); the numbers sit in the bar
     const int e = w.energy(), m = w.maxEnergy();
     lv_bar_set_range(s_bar, 0, m);
     lv_bar_set_value(s_bar, e, LV_ANIM_OFF);
     lv_obj_set_style_border_color(s_bar, Theme::c(e * 4 <= m ? Theme::RED : Theme::LINE), LV_PART_MAIN);
     lv_label_set_text_fmt(s_barLbl, "%d/%d", e, m);
-    if (w.livesLeft() == Otr::LIVES_INFINITE) snprintf(buf, sizeof(buf), tr(Str::ADV_LIVES_USED), w.livesUsed());
-    else snprintf(buf, sizeof(buf), tr(Str::ADV_LIVES), w.livesLeft());
-    lv_label_set_text(s_livesLbl, buf);
-    snprintf(buf, sizeof(buf), tr(Str::ADV_SUIT_TAG), w.suitCharges());
-    lv_label_set_text(s_suitLbl, buf);
-    lv_obj_set_style_text_color(s_suitLbl, Theme::c(w.suitCharges() > 0 ? Theme::ACCENT : Theme::MUTED), 0);
 }
 
 static void toast(const char *text, uint32_t color = Theme::TEXT, uint32_t ms = TOAST_MS)
@@ -1422,6 +1445,7 @@ static void freeAll()
     s_activeScr = nullptr;
     s_scr = nullptr;
     s_joyKnob = nullptr;
+    s_muteBtn = nullptr;
     s_joy.cancel();
     s_pathPos = -1;
 }
@@ -1447,6 +1471,7 @@ static const char *modeText() { return tr(Config::get().advMode == 1 ? Str::ADV_
 
 static void toggleMode(lv_event_t *e)
 {
+    if (!Theme::debounce(s_modeTapMs)) return;
     AppConfig &c = Config::get();
     c.advMode = c.advMode == 1 ? 0 : 1;
     Config::save();
@@ -1461,8 +1486,47 @@ static lv_obj_t *menuButton(lv_obj_t *parent, const char *text, uint32_t color, 
     return b;
 }
 
+static const char *soundText()
+{
+    return Config::get().soundOn ? trp(LV_SYMBOL_VOLUME_MAX "  ", Str::ADV_SOUND_ON)
+                                 : trp(LV_SYMBOL_MUTE "  ", Str::ADV_SOUND_OFF);
+}
+
+static const char *zoomText()
+{
+    // 32 px tiles -> offer "see more" (16 px); 16 px -> offer zooming back in
+    return s_ts == 32 ? trp(LV_SYMBOL_MINUS "  ", Str::ADV_ZOOM_OUT) : trp(LV_SYMBOL_PLUS "  ", Str::ADV_ZOOM_IN);
+}
+
+static void muteIcon()
+{
+    if (s_muteBtn) lv_label_set_text(lv_obj_get_child(s_muteBtn, 0), Config::get().soundOn ? LV_SYMBOL_VOLUME_MAX : LV_SYMBOL_MUTE);
+}
+
+// Master sound on/off (same setting as Settings > Sound), from the quick button or the menu.
+// Returns false when swallowed by the double-tap guard.
+static bool toggleSound()
+{
+    if (!Theme::debounce(s_soundTapMs)) return false;
+    AppConfig &c = Config::get();
+    c.soundOn = !c.soundOn;
+    Config::save();
+    Audio::setVolumes(c.soundOn, c.sfxVol, c.musicOn, c.musicVol);
+    muteIcon();
+    return true;
+}
+
+static void toggleZoom()
+{
+    if (!Theme::debounce(s_zoomTapMs)) return;
+    s_ts = s_ts == 32 ? 16 : 32;
+    snapPlayer();
+    s_dirty = true;
+}
+
 static void showMenu()
 {
+    if (s_dialog) return;   // Already open (double tap on the hamburger)
     stopPath();
     s_joy.cancel();
     joyShow(false, 0, 0);
@@ -1473,6 +1537,13 @@ static void showMenu()
     lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(c, 8, 0);
+    menuButton(c, soundText(), Theme::LINE, [](lv_event_t *e) {
+        if (toggleSound()) lv_label_set_text(lv_obj_get_child(lv_event_get_target_obj(e), 0), soundText());
+    });
+    menuButton(c, zoomText(), Theme::LINE, [](lv_event_t *e) {
+        toggleZoom();
+        lv_label_set_text(lv_obj_get_child(lv_event_get_target_obj(e), 0), zoomText());
+    });
     menuButton(c, modeText(), Theme::TEAL, toggleMode);
     lv_obj_t *help = lv_label_create(c);
     lv_label_set_text(help, tr(Str::ADV_MODE_HELP));
@@ -1510,16 +1581,45 @@ static void showMenu()
     }, LV_EVENT_DELETE, nullptr);
 }
 
-static void zoomLabel()
+// 32 px sprite -> HUD_PX icon: box-filtered, colour-key pixels count as panel colour, so the edges
+// are anti-aliased against the panel background.
+static void makeHudIcons()
 {
-    // "-" = show more of the world (16 px tiles), "+" = back to 32 px
-    lv_label_set_text(lv_obj_get_child(s_zoomBtn, 0), s_ts == 32 ? "-" : "+");
+    const lv_color_t pc = Theme::c(Theme::PANEL);
+    const int pr = pc.red, pg = pc.green, pb = pc.blue;
+    for (int i = 0; i < H_COUNT; i++) {
+        const uint16_t *src = s_spr->big[HUD_SPRITE[i]];
+        for (int y = 0; y < HUD_PX; y++)
+            for (int x = 0; x < HUD_PX; x++) {
+                const int sx0 = x * SPR / HUD_PX, sx1 = (x + 1) * SPR / HUD_PX;
+                const int sy0 = y * SPR / HUD_PX, sy1 = (y + 1) * SPR / HUD_PX;
+                int r = 0, g = 0, b = 0, n = 0;
+                for (int sy = sy0; sy < sy1; sy++)
+                    for (int sx = sx0; sx < sx1; sx++, n++) {
+                        const uint16_t c = src[sy * SPR + sx];
+                        if (c == KEY) { r += pr; g += pg; b += pb; continue; }
+                        r += ((c >> 11) & 0x1F) * 255 / 31;
+                        g += ((c >> 5) & 0x3F) * 255 / 63;
+                        b += (c & 0x1F) * 255 / 31;
+                    }
+                s_spr->hud[i][y * HUD_PX + x] =
+                    (uint16_t)((((r / n) >> 3) << 11) | (((g / n) >> 2) << 5) | ((b / n) >> 3));
+            }
+    }
 }
 
-// Bottom control panel (Kent's v0.9.0 mock-up):
-//   left   status text (lives, keys, boat) above the menu (hamburger) and zoom buttons
+static lv_obj_t *hudIcon(lv_obj_t *parent, HudIcon i)
+{
+    lv_obj_t *cv = lv_canvas_create(parent);
+    lv_canvas_set_buffer(cv, s_spr->hud[i], HUD_PX, HUD_PX, LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_clickable(cv, false);
+    return cv;
+}
+
+// Bottom control panel (Kent's v0.10.x sketch):
+//   left   symbol + count rows (lives, suit, keys, gems) above the menu (hamburger) and mute buttons
 //   centre large joystick (its red centre also stops tap-to-walk)
-//   right  Slå box, red energy bar, red gem diamond + count, suit charges
+//   right  Slå box, red energy bar, icons of carried items (boat, later knife/sword ...; 2 rows)
 static void buildControls()
 {
     lv_obj_t *pan = lv_obj_create(s_scr);
@@ -1532,40 +1632,37 @@ static void buildControls()
     lv_obj_set_style_border_width(pan, 1, 0);
     lv_obj_set_style_border_color(pan, Theme::c(Theme::LINE), 0);
     lv_obj_set_scrollable(pan, false);
+    makeHudIcons();
 
-    // Left column: status text, top-aligned
+    // Left column: icon + count per row, top-aligned (a 5th row still fits above the buttons)
     lv_obj_t *info = lv_obj_create(pan);
     lv_obj_remove_style_all(info);
-    lv_obj_set_pos(info, 6, 8);
-    lv_obj_set_size(info, COL_L_W - 8, 100);
+    lv_obj_set_pos(info, 6, 6);
+    lv_obj_set_size(info, COL_L_W - 8, CTRL_H - 54);
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(info, 3, 0);
+    lv_obj_set_style_pad_row(info, 2, 0);
     lv_obj_set_scrollable(info, false);
     lv_obj_set_clickable(info, false);
-    lv_obj_t **left[3] = {&s_livesLbl, &s_keysLbl, &s_boatLbl};
-    for (lv_obj_t **l : left) {
-        *l = Theme::label(info, "", &my_font_14, Theme::ACCENT);
-        lv_label_set_long_mode(*l, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_width(*l, COL_L_W - 8);
+    static constexpr HudIcon rowIcon[C_COUNT] = {H_LIFE, H_SUIT, H_KEY, H_GEM};
+    for (int r = 0; r < C_COUNT; r++) {
+        lv_obj_t *row = lv_obj_create(info);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, COL_L_W - 8, HUD_PX);
+        lv_obj_set_scrollable(row, false);
+        lv_obj_set_clickable(row, false);
+        hudIcon(row, rowIcon[r]);
+        s_count[r] = Theme::label(row, "", &my_font_14, Theme::TEXT);
+        lv_obj_align(s_count[r], LV_ALIGN_LEFT_MID, HUD_PX + 6, 0);
     }
-    lv_obj_set_style_text_color(s_boatLbl, Theme::c(Theme::BLUE), 0);
-    lv_obj_t *menu = Theme::button(pan, LV_SYMBOL_LIST, 40, 40, Theme::ACCENT);
+    lv_obj_t *menu = Theme::button(pan, LV_SYMBOL_LIST, 36, 40, Theme::ACCENT);
     lv_obj_set_pos(menu, 4, CTRL_H - 48);
-    lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
-    s_zoomBtn = Theme::button(pan, "-", 30, 40, Theme::TEAL);
-    lv_obj_set_pos(s_zoomBtn, 47, CTRL_H - 48);
-    lv_obj_add_event_cb(s_zoomBtn, [](lv_event_t *) {
-        // Debounce: at most one toggle per 500 ms (a double tap used to zoom out and back in)
-        static int64_t last_zoom_ms = 0;
-        const int64_t now = (int64_t)lv_tick_get();
-        if (now - last_zoom_ms < 500) return;
-        last_zoom_ms = now;
-        s_ts = s_ts == 32 ? 16 : 32;
-        zoomLabel();
-        snapPlayer();
-        s_dirty = true;
+    lv_obj_add_event_cb(menu, [](lv_event_t *) {
+        if (Theme::debounce(s_menuTapMs)) showMenu();
     }, LV_EVENT_CLICKED, nullptr);
-    zoomLabel();
+    s_muteBtn = Theme::button(pan, LV_SYMBOL_VOLUME_MAX, 34, 40, Theme::TEAL);
+    lv_obj_set_pos(s_muteBtn, 43, CTRL_H - 48);
+    lv_obj_add_event_cb(s_muteBtn, [](lv_event_t *) { toggleSound(); }, LV_EVENT_CLICKED, nullptr);
+    muteIcon();
 
     // Right column: the box on top is the Slå (hit) button
     lv_obj_t *hit = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
@@ -1586,21 +1683,18 @@ static void buildControls()
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     s_barLbl = Theme::label(s_bar, "", &my_font_14, Theme::BG);
     lv_obj_center(s_barLbl);
-    // Gem counter: red diamond (a rotated square) + "11/13"
-    lv_obj_t *gem = lv_obj_create(pan);
-    lv_obj_remove_style_all(gem);
-    lv_obj_set_size(gem, 11, 11);
-    lv_obj_set_pos(gem, COL_R_X + 5, 106);
-    lv_obj_set_style_bg_color(gem, Theme::c(0xE53935), 0);
-    lv_obj_set_style_bg_opa(gem, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_pivot_x(gem, 5, 0);
-    lv_obj_set_style_transform_pivot_y(gem, 5, 0);
-    lv_obj_set_style_transform_rotation(gem, 450, 0);
-    lv_obj_set_clickable(gem, false);
-    s_gemsLbl = Theme::label(pan, "", &my_font_14, Theme::RED);
-    lv_obj_set_pos(s_gemsLbl, COL_R_X + 24, 102);
-    s_suitLbl = Theme::label(pan, "", &my_font_14, Theme::ACCENT);
-    lv_obj_set_pos(s_suitLbl, COL_R_X + 4, 128);
+    // Carried items: icons in a wrapping row, two rows of three fit under the energy bar
+    s_itemBox = lv_obj_create(pan);
+    lv_obj_remove_style_all(s_itemBox);
+    lv_obj_set_pos(s_itemBox, COL_R_X, 100);
+    lv_obj_set_size(s_itemBox, COL_R_W, CTRL_H - 104);
+    lv_obj_set_flex_flow(s_itemBox, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(s_itemBox, 6, 0);
+    lv_obj_set_style_pad_row(s_itemBox, 6, 0);
+    lv_obj_set_scrollable(s_itemBox, false);
+    lv_obj_set_clickable(s_itemBox, false);
+    for (int i = 0; i < H_COUNT; i++) s_item[i] = nullptr;
+    s_item[H_BOAT] = hudIcon(s_itemBox, H_BOAT);
 
     buildJoystick(s_scr);
 }

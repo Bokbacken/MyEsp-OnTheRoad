@@ -20,6 +20,7 @@ struct Info {
     uint32_t touchCount;     // Press events since boot
     uint32_t irqCount;
     uint32_t readErrors;
+    uint32_t bridgedGaps;    // Short release glitches suppressed by the release debounce
 };
 
 // Creates the I2C bus (400 kHz), scans it, resets and probes the controller and registers the

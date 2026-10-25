@@ -23,6 +23,7 @@ constexpr int REPORT_BYTES = 7;
 constexpr int MAX_POINTS = 5;
 constexpr uint32_t IDLE_POLL_MS = 100;        // Safety poll if an INT edge is missed
 constexpr int I2C_TIMEOUT_MS = 20;
+constexpr uint32_t RELEASE_HOLD_MS = 60;     // Finger must stay up this long to count as released
 
 Touch::Info g_info = {};
 uint8_t g_scan[16];
@@ -30,6 +31,8 @@ int g_scanCount = 0;
 volatile uint32_t g_irq = 0;
 uint32_t g_irqSeen = 0;
 uint32_t g_lastPoll = 0;
+uint32_t g_lastDown = 0;          // Last read that saw the finger down
+bool g_gap = false;               // Finger up, but still inside RELEASE_HOLD_MS
 lv_indev_t *g_indev = nullptr;
 volatile bool g_rot180 = false;   // v0.5.6: panel turned 180 degrees (MADCTL MX|MY)
 i2c_master_bus_handle_t g_bus = nullptr;
@@ -105,18 +108,30 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         g_lastPoll = now;
         bool pressed;
         uint16_t x = g_info.lastX, y = g_info.lastY;
-        if (readPoint(pressed, x, y)) {
-            if (pressed) {
-                if (x >= LCD_H_RES) x = LCD_H_RES - 1;
-                if (y >= LCD_V_RES) y = LCD_V_RES - 1;
-                if (!g_info.pressed) g_info.touchCount++;
-                g_info.lastX = x;
-                g_info.lastY = y;
-            }
-            g_info.pressed = pressed;
-        } else {
+        bool ok = readPoint(pressed, x, y);
+        if (!ok) {
             g_info.readErrors++;
-            g_info.pressed = false;
+            pressed = false;          // Treated as a (possibly false) release, filtered below
+        }
+        if (pressed) {
+            if (x >= LCD_H_RES) x = LCD_H_RES - 1;
+            if (y >= LCD_V_RES) y = LCD_V_RES - 1;
+            if (!g_info.pressed) g_info.touchCount++;
+            g_info.lastX = x;
+            g_info.lastY = y;
+            if (g_gap) g_info.bridgedGaps++;   // Finger came back within the hold window
+            g_gap = false;
+            g_info.pressed = true;
+            g_lastDown = now;
+        } else if (g_info.pressed) {
+            // Release debounce: a held finger can drop out for one or two reads (controller
+            // report gap or I2C error). Without this, LVGL sees release+press and every button
+            // fires twice. Only report "released" once the finger stayed up RELEASE_HOLD_MS.
+            g_gap = true;
+            if (now - g_lastDown >= RELEASE_HOLD_MS) {
+                g_info.pressed = false;
+                g_gap = false;
+            }
         }
     }
     g_info.irqCount = irq;

@@ -247,6 +247,10 @@
     X(ADV_TITLE) \
     X(ADV_HIT) \
     X(ADV_ZOOM) \
+    X(ADV_ZOOM_IN) \
+    X(ADV_ZOOM_OUT) \
+    X(ADV_SOUND_ON) \
+    X(ADV_SOUND_OFF) \
     X(ADV_STATS) \
     X(ADV_BOAT_TAG) \
     X(ADV_GEM) \

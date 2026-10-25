@@ -34,6 +34,15 @@ constexpr uint32_t NEST_BG     = 0x0B1420;   // Darker "nest" for held dice
 
 inline lv_color_t c(uint32_t hex) { return lv_color_hex(hex); }
 
+// Double-tap guard for toggle-type actions: returns true if the action may run, false when it
+// arrives within `ms` of the previous accepted one. `last` is per-control state (0 = never).
+inline bool debounce(uint32_t &last, uint32_t ms = 500)
+{
+    if (last != 0 && lv_tick_elaps(last) < ms) return false;
+    last = lv_tick_get() | 1;   // Never store 0 (means "never")
+    return true;
+}
+
 // Plain screen with the theme background.
 inline lv_obj_t *screen()
 {

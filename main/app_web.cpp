@@ -128,6 +128,7 @@ static void diagTouch(cJSON *o)
     cJSON_AddNumberToObject(o, "touches", ti.touchCount);
     cJSON_AddNumberToObject(o, "irqs", ti.irqCount);
     cJSON_AddNumberToObject(o, "errors", ti.readErrors);
+    cJSON_AddNumberToObject(o, "bridged", ti.bridgedGaps);
 }
 
 static void diagClock(cJSON *o)

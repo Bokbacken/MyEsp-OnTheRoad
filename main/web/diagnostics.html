@@ -117,6 +117,7 @@ async function refresh() {
       ['Upplösning / punkter', t.max_x + ' × ' + t.max_y + ' / ' + t.max_points],
       ['Senaste punkt', t.last_x + ', ' + t.last_y + (t.pressed ? ' <span class="ok">(nedtryckt)</span>' : '')],
       ['Tryck / IRQ / läsfel', t.touches + ' / ' + t.irqs + ' / ' + (t.errors ? '<span class="bad">' + t.errors + '</span>' : 0)],
+      ['Filtrerade släpp-glapp', t.bridged ?? '–'],
       ['I²C-enheter', i.i2c.length ? i.i2c.map(a => '<code>' + esc(a) + '</code>').join(' ') : '<span class="bad">inga</span>'],
     ]);
     rows('wifi', [

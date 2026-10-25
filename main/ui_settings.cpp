@@ -228,7 +228,20 @@ static lv_obj_t *switchRow(lv_obj_t *parent, const char *title, bool on, lv_even
     lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_color(sw, Theme::c(Theme::ACCENT), (lv_style_selector_t)LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(sw, cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    // Double-tap guard: a second flip within 500 ms is undone silently (setting the state from
+    // code does not emit VALUE_CHANGED) and never reaches the real callback.
+    struct SwCtx { lv_event_cb_t cb; uint32_t last; };
+    auto *ctx = new SwCtx{cb, 0};
+    lv_obj_add_event_cb(sw, [](lv_event_t *e) {
+        auto *c = (SwCtx *)lv_event_get_user_data(e);
+        lv_obj_t *o = lv_event_get_target_obj(e);
+        if (!Theme::debounce(c->last)) {
+            lv_obj_set_state(o, LV_STATE_CHECKED, !lv_obj_has_state(o, LV_STATE_CHECKED));
+            return;
+        }
+        c->cb(e);
+    }, LV_EVENT_VALUE_CHANGED, ctx);
+    lv_obj_add_event_cb(sw, [](lv_event_t *e) { delete (SwCtx *)lv_event_get_user_data(e); }, LV_EVENT_DELETE, ctx);
     return sw;
 }
 

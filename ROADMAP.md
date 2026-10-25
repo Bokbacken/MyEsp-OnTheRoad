@@ -123,6 +123,12 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] Webböversikten visar SD-kort (monterat, 4-bit/1-bit, MHz, ledigt/totalt), FFat och startkontrollens resultat (samma som startbilden)
 - [ ] HW-test: ny layout, gånghastighet/-animation, diagonalkänsla, bron, webböversikt
 
+
+## v0.10.x (ej taggad) – dubbeltryck + HUD-symboler 🔧 (inte HW-testad)
+- [x] Dubbeltryck, grundorsak (trolig): touchkontrollern tappar fingret 1-2 avläsningar → LVGL såg släpp+tryck → knappar löste två gånger. Släpp-debounce i touchdrivern (fingret måste vara uppe 60 ms); räknare "Filtrerade släpp-glapp" på diagnostiksidan
+- [x] Extra skydd 500 ms på alla toggles: inställningarnas switchar (LED, ljud, musik, maxi-sparade kast), äventyrets ljud, zoom, Pro/Assist och hamburgermenyn
+- [x] Äventyrs-HUD: vänster symbol + antal (liv, dräkt, nycklar, ädelstenar), höger ikoner för föremål man bär (båt; plats för 2 rader), 20 px ikoner nedskalade från världens sprites
+- [x] Snabb ljud av/på-knapp bredvid hamburgaren; zoom flyttad in i hamburgermenyn (överst: Ljud, Zoom)
 ## v0.9.0 – Ljud, microSD, filbläddrare, joystick 🔧 (HW-testad delvis: ljud, SD, filbläddrare, sparning OK)
 - [x] Ljud via ES8311 (egen registerdrivare, säker uppstart: förstärkare av -> codec -> I2S 22 050 Hz -> låg volym -> förstärkare på). Saknas codec: tyst, ingen krasch
 - [x] Mixer-task: 1 musikkanal + 4 effektkanaler. Egen chiptune-synt (fyrkant/triangel/brus, ADSR, MML-melodier) som standard; WAV från SD ersätter per ljud. Ingen OPL/MIDI-emulator: de lätta alternativen är GPL eller för tunga - egen synt valdes
