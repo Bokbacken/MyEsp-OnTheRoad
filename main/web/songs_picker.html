@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Välj låt</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+body { max-width: 44rem; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.langs button { padding: .3rem .6rem; font-size: .9rem; }
+.langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
+.bar2 { display: flex; gap: .5rem; align-items: center; margin: .6rem 0; }
+.bar2 input { flex: 1; min-width: 0; }
+.bar2 button { white-space: nowrap; }
+#crumbs { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; margin: .4rem 0; font-size: .95rem; }
+#crumbs a { cursor: pointer; }
+#crumbs span.sep { color: var(--otr-muted); }
+#status { color: var(--otr-muted); min-height: 1.3em; font-size: .9rem; }
+#now { color: var(--otr-teal); font-weight: 600; min-height: 1.3em; word-break: break-word; }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; align-items: center; gap: .7rem; padding: .7rem .6rem; border-bottom: 1px solid var(--otr-line);
+  cursor: pointer; border-radius: .5rem; }
+ul.list li:hover, ul.list li:focus { background: var(--otr-panel); outline: none; }
+ul.list li .ic { font-size: 1.3rem; width: 1.6rem; text-align: center; flex: none; }
+ul.list li .tx { flex: 1; min-width: 0; }
+ul.list li .t1 { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ul.list li .t2 { color: var(--otr-muted); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ul.list li .n { color: var(--otr-muted); font-size: .85rem; flex: none; }
+ul.list li.cur .t1 { color: var(--otr-orange); }
+ul.list li.busy { opacity: .5; pointer-events: none; }
+#more { width: 100%; margin-top: .6rem; display: none; }
+.hint { color: var(--otr-muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/karaoke.html">&#127908; <span data-t="karaoke"></span></a></nav>
+<div class="top">
+  <h1>&#128203; <span data-t="title"></span></h1>
+  <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
+</div>
+<div id="now"></div>
+<div class="bar2">
+  <input type="search" id="q" autocomplete="off" enterkeyhint="search">
+  <button id="rescan" class="secondary" onclick="rescan()" data-t="rescan"></button>
+</div>
+<div id="crumbs"></div>
+<div id="status"></div>
+<ul class="list" id="list"></ul>
+<button id="more" onclick="load(true)" data-t="more"></button>
+<p class="hint" data-t="hint"></p>
+
+<script>
+// v0.13.7 song picker: folders from GET /api/karaoke/songs?dir=, search with ?q= (artist + title, all
+// folders), a tap opens and starts the song on the device (POST /api/karaoke/open). No PIN.
+const T = {
+  sv: { title: 'Välj låt', karaoke: 'Webbkaraoke', rescan: 'Skanna om', more: 'Visa fler', all: 'Alla låtar',
+        search: 'Sök artist eller titel', songs: '{0} låtar', none: 'Inga låtar här',
+        nomatch: 'Inga träffar för "{0}"', matches: '{0} träffar för "{1}"', scanning: 'Söker låtar på SD-kortet ...',
+        opening: 'Öppnar {0} ...', playing: 'Spelas: {0}', open: 'Öppen: {0}', failed: 'Kunde inte öppna: {0}',
+        neterr: 'Ingen kontakt med enheten', limit: 'Max {0} låtar visas', shown: 'visar {0} av {1}',
+        hint: 'Låten startar på enheten. Lyssna i telefonen via Webbkaraoke. Mappar organiserar du själv på SD-kortet (/otr/karaoke).' },
+  en: { title: 'Choose song', karaoke: 'Web karaoke', rescan: 'Rescan', more: 'Show more', all: 'All songs',
+        search: 'Search artist or title', songs: '{0} songs', none: 'No songs here',
+        nomatch: 'No matches for "{0}"', matches: '{0} matches for "{1}"', scanning: 'Scanning the SD card for songs ...',
+        opening: 'Opening {0} ...', playing: 'Playing: {0}', open: 'Open: {0}', failed: 'Could not open: {0}',
+        neterr: 'No contact with the device', limit: 'Max {0} songs shown', shown: 'showing {0} of {1}',
+        hint: 'The song starts on the device. Listen on your phone via Web karaoke. You organise the folders yourself on the SD card (/otr/karaoke).' }
+};
+let L = 'sv';
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+const $ = id => document.getElementById(id);
+let dir = '', query = '', last = null, songs = [], busy = false, pollTimer = 0, seq = 0;
+
+function setLang(l, save) {
+  if (!T[l]) return;
+  L = l;
+  document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  $('q').placeholder = t('search');
+  $('l-sv').classList.toggle('on', l === 'sv');
+  $('l-en').classList.toggle('on', l === 'en');
+  if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
+  if (last) render();
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function go(d) { dir = d; query = ''; $('q').value = ''; load(false); }
+
+async function load(more) {
+  const my = ++seq;
+  const off = more ? songs.length : 0;
+  const p = new URLSearchParams({ offset: off, limit: 200 });
+  if (query) p.set('q', query); else p.set('dir', dir);
+  try {
+    const r = await fetch('/api/karaoke/songs?' + p, { cache: 'no-store' });
+    const j = await r.json();
+    if (my !== seq) return;           // A newer request is on its way
+    if (!j.ok) throw new Error(j.error || r.status);
+    if (!more) songs = [];
+    songs = songs.concat(j.songs || []);
+    last = j;
+    render();
+    clearTimeout(pollTimer);
+    if (j.scanning) pollTimer = setTimeout(() => load(false), 1500);   // Fill in when the scan ends
+  } catch (e) {
+    if (my === seq) $('status').textContent = t('neterr');
+  }
+}
+
+function crumbs() {
+  const c = $('crumbs');
+  c.textContent = '';
+  const add = (label, d) => {
+    const a = el('a', '', label);
+    a.href = '#';
+    a.onclick = ev => { ev.preventDefault(); go(d); };
+    c.appendChild(a);
+  };
+  add('\u{1F3E0} ' + t('all'), '');
+  if (query) return;
+  let acc = '';
+  dir.split('/').filter(Boolean).forEach(part => {
+    acc = acc ? acc + '/' + part : part;
+    c.appendChild(el('span', 'sep', '›'));
+    add(part, acc);
+  });
+}
+
+function nameOf(s) { return (s.artist ? s.artist + ' – ' : '') + s.title; }
+
+function render() {
+  const j = last;
+  crumbs();
+  const list = $('list');
+  list.textContent = '';
+  if (!query && dir) {
+    const li = el('li');
+    li.tabIndex = 0;
+    li.appendChild(el('span', 'ic', '\u2B05'));
+    li.appendChild(el('span', 'tx', '..'));
+    const up = dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '';
+    li.onclick = () => go(up);
+    list.appendChild(li);
+  }
+  (j.dirs || []).forEach(d => {
+    const li = el('li');
+    li.tabIndex = 0;
+    li.appendChild(el('span', 'ic', '\u{1F4C1}'));
+    const tx = el('span', 'tx');
+    tx.appendChild(el('div', 't1', d.name));
+    li.appendChild(tx);
+    li.appendChild(el('span', 'n', t('songs', d.count)));
+    li.onclick = () => go(d.path);
+    li.onkeydown = e => { if (e.key === 'Enter') go(d.path); };
+    list.appendChild(li);
+  });
+  songs.forEach(s => {
+    const li = el('li', s.path === j.current ? 'cur' : '');
+    li.tabIndex = 0;
+    li.appendChild(el('span', 'ic', s.path === j.current && j.playing ? '\u25B6' : '\u266A'));
+    const tx = el('span', 'tx');
+    tx.appendChild(el('div', 't1', s.title));
+    const sub = [s.artist, query && s.dir ? '\u{1F4C1} ' + s.dir : ''].filter(Boolean).join('  ·  ');
+    if (sub) tx.appendChild(el('div', 't2', sub));
+    li.appendChild(tx);
+    li.onclick = () => openSong(s, li);
+    li.onkeydown = e => { if (e.key === 'Enter') openSong(s, li); };
+    list.appendChild(li);
+  });
+  let st;
+  if (j.scanning) st = t('scanning');
+  else if (j.error) st = j.error;
+  else if (query) st = j.count ? t('matches', j.count, query) : t('nomatch', query);
+  else st = j.count ? t('songs', j.count) : t('none');
+  if (songs.length < j.count) st += ' (' + t('shown', songs.length, j.count) + ')';
+  if (j.limitReached && !query && !dir) st += ' – ' + t('limit', 2000);
+  $('status').textContent = st;
+  $('more').style.display = songs.length < j.count ? 'block' : 'none';
+  $('rescan').disabled = !!j.scanning;
+  const cur = songs.find(s => s.path === j.current);
+  $('now').textContent = j.current ? t(j.playing ? 'playing' : 'open', cur ? nameOf(cur) : j.current.split('/').pop()) : '';
+}
+
+async function openSong(s, li) {
+  if (busy) return;   // Double-tap guard
+  busy = true;
+  li.classList.add('busy');
+  $('now').textContent = t('opening', nameOf(s));
+  try {
+    const r = await fetch('/api/karaoke/open', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                 body: JSON.stringify({ path: s.path }) });
+    const j = await r.json().catch(() => ({ ok: false, error: r.status }));
+    if (!j.ok) $('now').textContent = t('failed', j.error || r.status);
+    else setTimeout(() => load(false), 800);   // Shows the song as playing
+  } catch (e) {
+    $('now').textContent = t('neterr');
+  }
+  setTimeout(() => { busy = false; li.classList.remove('busy'); }, 1000);
+}
+
+async function rescan() {
+  $('rescan').disabled = true;
+  try { await fetch('/api/karaoke/rescan', { method: 'POST' }); } catch (e) {}
+  setTimeout(() => load(false), 500);
+}
+
+let qTimer = 0;
+$('q').addEventListener('input', () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { query = $('q').value.trim(); load(false); }, 300);
+});
+
+let saved = null;
+try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
+load(false);
+</script>
+</body>
+</html>

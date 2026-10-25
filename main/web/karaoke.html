@@ -30,7 +30,7 @@ body { max-width: 40rem; }
 </style>
 </head>
 <body>
-<nav><a href="/">&#8592; OnTheRoad</a></nav>
+<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/karaoke/songs" id="pick">&#128203; <span data-t="pick"></span></a></nav>
 <div class="top">
   <h1>&#127908; Karaoke</h1>
   <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
@@ -51,13 +51,13 @@ body { max-width: 40rem; }
 // text frames = JSON hello/state/newrow/lyric/clear/countdown/full. Lyric events arrive in the PCM stream at the
 // sample where the syllable starts, so each one is shown when the audio received before it has played.
 const T = {
-  sv: { connect: 'Anslut', disconnect: 'Koppla ned', idle: 'Inte ansluten', connecting: 'Ansluter …',
+  sv: { pick: 'Välj låt', connect: 'Anslut', disconnect: 'Koppla ned', idle: 'Inte ansluten', connecting: 'Ansluter …',
         listening: 'Ansluten – ljudet spelas här, enhetens högtalare är tyst',
         waiting: 'Ansluten – väntar på att en låt öppnas i karaoken på enheten',
         lost: 'Anslutningen bröts – försöker igen …', full: 'För många lyssnare (max 3)',
         noaudio: 'Webbläsaren saknar Web Audio', song: 'Låt: {0}',
         hint: 'Telefon och enhet måste vara på samma nätverk. Ljudet ligger ca 0,3 s efter enheten.' },
-  en: { connect: 'Connect', disconnect: 'Disconnect', idle: 'Not connected', connecting: 'Connecting …',
+  en: { pick: 'Choose song', connect: 'Connect', disconnect: 'Disconnect', idle: 'Not connected', connecting: 'Connecting …',
         listening: 'Connected – the sound plays here, the device speaker is muted',
         waiting: 'Connected – waiting for a song to be opened in the karaoke on the device',
         lost: 'Connection lost – retrying …', full: 'Too many listeners (max 3)',
