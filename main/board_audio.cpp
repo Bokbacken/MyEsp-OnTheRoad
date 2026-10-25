@@ -80,6 +80,11 @@ uint32_t s_extLoad100 = 0;        // Smoothed load in 1/100 %
 portMUX_TYPE s_statMux = portMUX_INITIALIZER_UNLOCKED;
 uint64_t s_extSum100 = 0;
 uint32_t s_extCnt = 0, s_extMax100 = 0;
+// v0.13.5 web karaoke: tap of the mixed mono output, and the speaker mute while a browser listens
+volatile Tap s_tap = nullptr;
+void *volatile s_tapCtx = nullptr;
+volatile bool s_webStream = false;
+bool s_webMuted = false;   // Mixer task: DAC volume currently at 0 for the web stream
 
 // Mixer task state (only touched by the task)
 FxChannel s_fx[FX_CHANNELS];
@@ -92,6 +97,7 @@ Stream *s_stream = nullptr;   // PSRAM
 bool s_musicFile = false;
 int32_t s_acc[BLOCK];
 int16_t s_out[BLOCK * 2];
+int16_t s_mono[BLOCK];
 
 // ---- ES8311 -----------------------------------------------------------------------------
 bool wr(uint8_t reg, uint8_t val)
@@ -361,14 +367,22 @@ void mixerTask(void *)
     for (;;) {
         Msg m;
         while (xQueueReceive(s_queue, &m, 0) == pdTRUE) handle(m);
-        setAmp(s_soundOn);
+        // Web stream: the browser plays the sound, the speaker is silent (DAC volume 0, amplifier
+        // off) so it does not echo; the synth keeps running at its normal level for the stream
+        const bool web = s_webStream;
+        if (web != s_webMuted) {
+            wr(0x32, web ? 0x00 : DAC_VOL);
+            s_webMuted = web;
+            ESP_LOGI(TAG, "web stream %s: speaker %s", web ? "on" : "off", web ? "muted" : "restored");
+        }
+        setAmp(s_soundOn && !web);
 
         memset(s_acc, 0, sizeof(s_acc));
         const int sg = s_sfxGain, mg = s_musicGain;
         const ExternalRender ext = s_ext;
         if (ext) {
             const int64_t t0 = esp_timer_get_time();
-            ext(s_acc, BLOCK, s_soundOn ? s_extGain : 0, s_extCtx);
+            ext(s_acc, BLOCK, (s_soundOn || web) ? s_extGain : 0, s_extCtx);
             const uint32_t pct100 = (uint32_t)((esp_timer_get_time() - t0) * 10000 / (BLOCK * 1000000LL / Synth::RATE));
             s_extLoad100 = (s_extLoad100 * 15 + pct100) / 16;
             portENTER_CRITICAL(&s_statMux);
@@ -397,8 +411,10 @@ void mixerTask(void *)
             int32_t v = s_acc[i];
             if (v > 32767) v = 32767;
             if (v < -32768) v = -32768;
-            s_out[2 * i] = s_out[2 * i + 1] = (int16_t)v;
+            s_out[2 * i] = s_out[2 * i + 1] = s_mono[i] = (int16_t)v;
         }
+        const Tap tap = s_tap;
+        if (tap) tap(s_mono, BLOCK, s_tapCtx);
         s_mixSeq = s_mixSeq + 1;
         size_t written = 0;
         TickType_t t0 = xTaskGetTickCount();
@@ -529,6 +545,24 @@ void setExternal(ExternalRender fn, void *ctx)
     s_ext = fn;
 }
 
+void setTap(Tap fn, void *ctx)
+{
+    if (!fn) {
+        s_tap = nullptr;
+        if (s_running) {   // Wait until the mixer no longer runs the old tap (max ~50 ms)
+            const uint32_t seq = s_mixSeq;
+            for (int i = 0; i < 10 && (uint32_t)(s_mixSeq - seq) < 2; i++) vTaskDelay(pdMS_TO_TICKS(5));
+        }
+        s_tapCtx = nullptr;
+        return;
+    }
+    s_tapCtx = ctx;
+    s_tap = fn;
+}
+
+void setWebStream(bool active) { s_webStream = active; }
+bool webStream() { return s_webStream; }
+
 void play(Sound::Sfx s)
 {
     if (s_sfxGain > 0) post(CMD_SFX, (uint8_t)s);
@@ -572,6 +606,7 @@ Status status()
     for (auto &c : s_clips) st.filesCached += c.state == 2 ? 1 : 0;
     st.underruns = s_underruns;
     st.external = s_ext != nullptr;
+    st.webStream = s_webStream;
     st.externalLoad = (uint8_t)(s_extLoad100 / 100 > 255 ? 255 : s_extLoad100 / 100);
     st.error = s_error;
     return st;

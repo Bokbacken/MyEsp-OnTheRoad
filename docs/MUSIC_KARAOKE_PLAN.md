@@ -69,6 +69,12 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
 - **v0.13.4 – budget och diagnostik:** budgeten är största lediga PSRAM-block − 512 kB (inte längre fast 6 MB);
   spelets ljudklippscache frigörs först. Var 5:e sekund loggas renderbelastning (medel/max), underruns och röster.
   NVS `kara_voices` (16–32, standard 32) begränsar antalet röster.
+- **v0.13.5 – webbkaraoke:** mixerns färdiga monoblock går via `Audio::setTap()` till en låsfri ring
+  (`main/kara_stream`, 32 kB i PSRAM) och skickas av `main/kara_web` som binärframes (512 sampel int16, 22 050 Hz)
+  på WebSocket `/ws/karaoke`. Texten (`newrow`/`lyric`/`clear`, JSON) läggs i strömmen vid exakt rätt sampel av
+  `LyricTracker` i mixertasken, så sidan `/karaoke` visar stavelsen när motsvarande ljud spelas (0,3 s förbuffring).
+  Är minst en webbläsare ansluten och en låt öppen tystas högtalaren (`Audio::setWebStream`: ES8311 DAC-volym 0,
+  förstärkaren av). Max 3 lyssnare. NVS `kara_webstream=0` stänger av endpointen. Bandbredd ~44 kB/s per lyssnare.
 - **v0.13.2 – reverb och chorus:** `otr_fx` (Freeverb, public domain: 8 kamfilter + 4 allpass, längder skalade
   från 44,1 till 22,05 kHz; chorus 15 ms ±4 ms, 0,7 Hz triangel, ~4 kB). Mono-sändeffekter: sändnivån per kanal
   följer CC91 (reverb, GM-standard 40) och CC93 (chorus, 0). Renderingen sker i block om 256 sampel; röster

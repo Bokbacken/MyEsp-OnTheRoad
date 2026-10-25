@@ -20,6 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "game_live.h"
+#include "kara_web.h"
 #include "adv_live.h"
 #include "my_diag.h"
 #include "my_log.h"
@@ -1267,7 +1268,7 @@ bool begin()
 {
     MyWeb::Config c;
     c.adminOk = Config::adminOk;
-    c.maxUris = 72;
+    c.maxUris = 76;
     c.maxSockets = 12;   // Room for 4 WebSocket clients next to normal page loads (LWIP: 16)
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
@@ -1286,6 +1287,7 @@ bool begin()
     ok &= MyWeb::on("/api/adventure", HTTP_GET, handleAdventure);
     ok &= AppWebFiles::registerRoutes();
     ok &= wsBegin();
+    if (Config::get().karaWebStream) ok &= KaraWeb::begin();   // v0.13.5 web karaoke
     if (!ok) ESP_LOGE(TAG, "route registration failed");
     return ok;
 }

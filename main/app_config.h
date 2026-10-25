@@ -49,6 +49,9 @@ struct AppConfig {
     uint8_t karaChoLvl;      // Chorus level 0..100 (default 50)
     // v0.13.4: karaoke voice limit 16..32 (default 32; NVS "kara_voices", no UI)
     uint8_t karaVoices;
+    // v0.13.5: web karaoke stream /ws/karaoke (default 1; NVS "kara_webstream", no UI). 0 = the
+    // endpoint is never registered (limited bandwidth)
+    uint8_t karaWebStream;
 };
 
 // Joystick limits shared by the UI and the web API.

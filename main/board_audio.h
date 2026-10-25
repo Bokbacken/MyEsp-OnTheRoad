@@ -31,6 +31,7 @@ struct Status {
     uint32_t underruns;   // Mixer blocks that were late (DMA ran dry)
     bool external;        // An external music source (karaoke) is active
     uint8_t externalLoad; // Its render time in % of a mixer block (smoothed)
+    bool webStream;       // v0.13.5: a browser plays the karaoke, the speaker is muted
     const char *error;    // Last error ("" if none)
 };
 
@@ -55,6 +56,15 @@ void setExternalVolume(uint8_t vol);   // 0..100
 constexpr int BLOCK_SAMPLES = 256;      // Samples per mixer call (at Synth::RATE)
 
 Status status();
+
+// v0.13.5 web karaoke. The tap gets every mixed block (mono int16, after clipping, independent of the
+// speaker mute) in the mixer task; it must not block. nullptr removes it (returns once unused).
+using Tap = void (*)(const int16_t *pcm, int n, void *ctx);
+void setTap(Tap fn, void *ctx);
+// active: a browser plays the karaoke stream - the speaker is muted (ES8311 DAC volume 0, amplifier
+// off) while the external source keeps its level (even with the master switch off). false restores.
+void setWebStream(bool active);
+bool webStream();
 
 // Frees the cached effect WAVs (PSRAM) before the karaoke loads a SoundFont; they load again on
 // next use. Returns once the mixer task has done it (max ~100 ms).

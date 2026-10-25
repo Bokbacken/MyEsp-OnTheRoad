@@ -4,7 +4,14 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.4 – **resampling to the output rate**: every sample above 22 050 Hz (28/30.5/32/44.1/48 kHz)
+> **Status:** v0.13.5 – **web karaoke**: open `http://<device>/karaoke` on a phone, tap Connect and the karaoke
+> plays in the browser. The device streams 22 050 Hz mono 16-bit PCM over the WebSocket `/ws/karaoke` (1 024-byte
+> frames) with the lyrics as JSON text frames placed at the exact sample, so the page highlights each syllable as it
+> is heard (0.3 s buffer). While a browser is connected and a song is open the device speaker is muted automatically
+> (ES8311 DAC volume 0) and restored when the last listener leaves. Max 3 listeners; NVS `kara_webstream=0` disables
+> the endpoint. **Not hardware-tested yet.**
+>
+> Previous: v0.13.4 – **resampling to the output rate**: every sample above 22 050 Hz (28/30.5/32/44.1/48 kHz)
 > is resampled to the output rate while it is read from the SD card (polyphase Kaiser-windowed sinc, 75 dB stopband;
 > loop lengths are rounded and the zone's pitch is compensated exactly). The ±12 key margin is gone: the synth loads
 > exactly the keys the song plays at the current transpose and reloads in the background when the key changes

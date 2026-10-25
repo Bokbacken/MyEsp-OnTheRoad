@@ -10,6 +10,7 @@
 #include "app_config.h"
 #include "board_audio.h"
 #include "board_display.h"
+#include "kara_web.h"
 #include "karaoke.h"
 #include "lang.h"
 #include "my_lvgl.h"
@@ -311,7 +312,7 @@ void tick(lv_timer_t *)
     if (sec != P.lastSec || v.finished != P.finished) {
         P.lastSec = sec;
         P.finished = v.finished;
-        char a[12], b[12], buf[64];
+        char a[12], b[12], buf[128];
         fmtTime(a, sizeof(a), v.posUs);
         fmtTime(b, sizeof(b), v.lengthUs);
         snprintf(buf, sizeof(buf), "%s / %s%s%s", a, b, v.finished ? "  " : "", v.finished ? tr(Str::KARA_END) : "");
@@ -322,6 +323,12 @@ void tick(lv_timer_t *)
             snprintf(buf, sizeof(buf), "%d/%d  %u%%", v.voices, v.maxVoices, (unsigned)v.cpuPct);
         else
             snprintf(buf, sizeof(buf), "%s", tr(Str::KARA_SILENT));
+        if (Audio::webStream()) {   // v0.13.5: the browser plays the sound, the speaker is muted
+            const size_t used = strlen(buf);
+            snprintf(buf + used, sizeof(buf) - used, "  |  ");
+            const size_t used2 = strlen(buf);
+            snprintf(buf + used2, sizeof(buf) - used2, tr(Str::KARA_WEB_ACTIVE), KaraWeb::clients());
+        }
         lv_label_set_text(P.diag, buf);
     }
 }

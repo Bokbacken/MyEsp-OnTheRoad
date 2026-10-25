@@ -29,6 +29,7 @@ ASSETS = [
     ("WEB_PLAY_HTML", "play.html", HTML, ["/play", "/play.html"]),
     ("WEB_ADVENTURE_HTML", "adventure.html", HTML, ["/adventure", "/adventure.html"]),
     ("WEB_FILES_HTML", "files.html", HTML, ["/files", "/files.html"]),
+    ("WEB_KARAOKE_HTML", "karaoke.html", HTML, ["/karaoke", "/karaoke.html"]),
     ("WEB_STYLE_CSS", "style.css", "text/css; charset=utf-8", ["/style.css"]),
 ]
 

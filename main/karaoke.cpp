@@ -16,6 +16,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "kara_web.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -91,6 +92,7 @@ void renderCb(int32_t *acc, int n, int gainQ8, void *)
     if (s_open && s_fontState != FontState::LOADING) {
         s_player.advance((uint32_t)((uint64_t)n * 1000000u / Synth::RATE), s_synth);
         s_synth.render(acc, n, gainQ8);
+        KaraWeb::onRender(s_song, s_player.position());   // v0.13.5: lyric events for the web stream
         const int v = s_synth.activeVoices();
         if (v > s_voicesPeak) s_voicesPeak = v;
     }
@@ -608,6 +610,7 @@ Err open(const SongFile &sf)
              s_melodyReg ? " (register)" : "", (unsigned)s_crc);
     Audio::setExternalVolume(s_volume);
     Audio::setExternal(&renderCb, nullptr);
+    KaraWeb::setSong(true, s_fileName.c_str());
     startDiag();
     return Err::OK;
 }
@@ -615,6 +618,7 @@ Err open(const SongFile &sf)
 void close()
 {
     stopDiag();
+    KaraWeb::setSong(false, nullptr);
     Audio::setExternal(nullptr, nullptr);
     Lock l;
     if (!s_open) return;

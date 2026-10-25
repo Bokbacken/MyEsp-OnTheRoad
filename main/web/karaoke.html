@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnTheRoad – Karaoke</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+body { max-width: 40rem; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.langs button { padding: .3rem .6rem; font-size: .9rem; }
+.langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
+#song { color: var(--otr-teal); font-weight: 600; min-height: 1.3em; word-break: break-word; }
+#status { color: var(--otr-muted); min-height: 1.3em; }
+.stage { background: var(--otr-panel); border: 1px solid var(--otr-line); border-radius: .9rem;
+  padding: 1.2rem .8rem; margin: .8rem 0; min-height: 13rem; display: flex; flex-direction: column;
+  justify-content: center; text-align: center; gap: .9rem; }
+#prev, #next { color: var(--otr-muted); font-size: 1rem; min-height: 1.3em; }
+#cur { font-size: clamp(1.5rem, 7vw, 2.4rem); font-weight: 700; line-height: 1.25; min-height: 1.3em; }
+#cur .sung { color: var(--otr-orange); }
+#cur .now { color: var(--otr-orange); text-decoration: underline; text-underline-offset: .2em; }
+#go { width: 100%; font-size: 1.3rem; padding: .9rem; background: var(--otr-orange); color: var(--otr-navy); }
+#go.off { background: var(--otr-teal); }
+.hint { color: var(--otr-muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">&#8592; OnTheRoad</a></nav>
+<div class="top">
+  <h1>&#127908; Karaoke</h1>
+  <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
+</div>
+<div id="song"></div>
+<div id="status" data-t="idle"></div>
+<div class="stage">
+  <div id="prev"></div>
+  <div id="cur"></div>
+  <div id="next"></div>
+</div>
+<button id="go" onclick="toggle()" data-t="connect"></button>
+<p class="hint" data-t="hint"></p>
+
+<script>
+// v0.13.5 web karaoke. Protocol (/ws/karaoke): binary frames = 22 050 Hz mono int16 PCM (512 samples),
+// text frames = JSON hello/state/newrow/lyric/clear/full. Lyric events arrive in the PCM stream at the
+// sample where the syllable starts, so each one is shown when the audio received before it has played.
+const T = {
+  sv: { connect: 'Anslut', disconnect: 'Koppla ned', idle: 'Inte ansluten', connecting: 'Ansluter …',
+        listening: 'Ansluten – ljudet spelas här, enhetens högtalare är tyst',
+        waiting: 'Ansluten – väntar på att en låt öppnas i karaoken på enheten',
+        lost: 'Anslutningen bröts – försöker igen …', full: 'För många lyssnare (max 3)',
+        noaudio: 'Webbläsaren saknar Web Audio', song: 'Låt: {0}',
+        hint: 'Telefon och enhet måste vara på samma nätverk. Ljudet ligger ca 0,3 s efter enheten.' },
+  en: { connect: 'Connect', disconnect: 'Disconnect', idle: 'Not connected', connecting: 'Connecting …',
+        listening: 'Connected – the sound plays here, the device speaker is muted',
+        waiting: 'Connected – waiting for a song to be opened in the karaoke on the device',
+        lost: 'Connection lost – retrying …', full: 'Too many listeners (max 3)',
+        noaudio: 'This browser has no Web Audio', song: 'Song: {0}',
+        hint: 'Phone and device must be on the same network. The sound is about 0.3 s behind the device.' }
+};
+let L = 'sv';
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+let statusKey = 'idle', songName = '';
+function setLang(l, save) {
+  if (!T[l]) return;
+  L = l;
+  document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  document.getElementById('l-sv').classList.toggle('on', l === 'sv');
+  document.getElementById('l-en').classList.toggle('on', l === 'en');
+  if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
+  showStatus(statusKey);
+  showSong();
+}
+function showStatus(k) { statusKey = k; document.getElementById('status').textContent = t(k); }
+function showSong() { document.getElementById('song').textContent = songName ? t('song', songName) : ''; }
+
+// --- Lyrics --------------------------------------------------------------------------------
+const lyr = { row: -1, syls: [], k: -1, prev: '', next: '' };
+function renderLyrics() {
+  document.getElementById('prev').textContent = lyr.prev;
+  document.getElementById('next').textContent = lyr.next;
+  const cur = document.getElementById('cur');
+  cur.textContent = '';
+  lyr.syls.forEach((s, i) => {
+    const sp = document.createElement('span');
+    sp.textContent = s;
+    if (i < lyr.k) sp.className = 'sung';
+    else if (i === lyr.k) sp.className = 'now';
+    cur.appendChild(sp);
+  });
+}
+function applyEvent(m) {
+  if (m.type === 'newrow') {
+    if (m.row !== lyr.row && lyr.syls.length) lyr.prev = lyr.syls.join('');
+    lyr.row = m.row; lyr.syls = m.syls || []; lyr.k = -1; lyr.next = m.next || '';
+  } else if (m.type === 'lyric') {
+    if (m.row !== lyr.row) { lyr.row = m.row; lyr.syls = [m.text]; lyr.k = 0; }
+    else lyr.k = m.k;
+  } else if (m.type === 'clear') {
+    lyr.row = -1; lyr.syls = []; lyr.k = -1; lyr.prev = ''; lyr.next = '';
+  }
+  renderLyrics();
+}
+
+// --- Audio ---------------------------------------------------------------------------------
+const RATE = 22050, LEAD = 0.3, MAX_AHEAD = 1.5;
+let ctx = null, nextTime = 0;
+function makeContext() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  let c;
+  try { c = new AC({ sampleRate: RATE }); } catch (e) { c = new AC(); }   // createBuffer resamples
+  // iOS Safari: unlock the output with a short silent buffer inside the tap
+  const b = c.createBuffer(1, 1, RATE), s = c.createBufferSource();
+  s.buffer = b; s.connect(c.destination); s.start(0);
+  return c;
+}
+function latency() { return ctx ? (ctx.outputLatency || ctx.baseLatency || 0) : 0; }
+function playPcm(buf) {
+  if (!ctx) return;
+  const pcm = new Int16Array(buf), n = pcm.length;
+  if (!n) return;
+  const now = ctx.currentTime;
+  if (nextTime < now + 0.02) nextTime = now + LEAD;              // Start or underrun: build the lead again
+  else if (nextTime > now + MAX_AHEAD) return;                    // Far ahead (tab was asleep): drop
+  const ab = ctx.createBuffer(1, n, RATE), f = ab.getChannelData(0);
+  for (let i = 0; i < n; i++) f[i] = pcm[i] / 32768;
+  const src = ctx.createBufferSource();
+  src.buffer = ab;
+  src.connect(ctx.destination);
+  src.start(nextTime);
+  nextTime += n / RATE;
+}
+// A lyric event belongs to the sample right after the PCM received so far: show it when that plays.
+function scheduleEvent(m) {
+  if (!ctx) { applyEvent(m); return; }
+  const at = Math.max(nextTime, ctx.currentTime);
+  const ms = (at - ctx.currentTime + latency()) * 1000;
+  if (ms < 15) applyEvent(m); else setTimeout(() => applyEvent(m), ms);
+}
+
+// --- WebSocket -----------------------------------------------------------------------------
+let ws = null, want = false, retry = null;
+function connect() {
+  if (retry) { clearTimeout(retry); retry = null; }
+  showStatus('connecting');
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/karaoke');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => ws.send('{"cmd":"hello"}');
+  ws.onmessage = ev => {
+    if (typeof ev.data !== 'string') { playPcm(ev.data); return; }
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === 'hello' || m.type === 'state') {
+      songName = m.open ? (m.song || '') : '';
+      showSong();
+      showStatus(m.open ? 'listening' : 'waiting');
+      if (!m.open) applyEvent({ type: 'clear' });
+    } else if (m.type === 'full') {
+      want = false; showStatus('full'); setButton();
+    } else {
+      scheduleEvent(m);
+    }
+  };
+  ws.onclose = () => {
+    ws = null;
+    if (want) { showStatus('lost'); retry = setTimeout(connect, 2000); }
+    else if (statusKey !== 'full') showStatus('idle');
+  };
+}
+function setButton() {
+  const b = document.getElementById('go');
+  b.dataset.t = want ? 'disconnect' : 'connect';
+  b.textContent = t(b.dataset.t);
+  b.classList.toggle('off', want);
+}
+function toggle() {
+  if (!want) {
+    if (!ctx) ctx = makeContext();            // Must happen inside the tap (mobile autoplay rules)
+    if (!ctx) { showStatus('noaudio'); return; }
+    if (ctx.state === 'suspended') ctx.resume();
+    nextTime = 0;
+    want = true;
+    connect();
+  } else {
+    want = false;
+    if (retry) { clearTimeout(retry); retry = null; }
+    if (ws) ws.close();
+    if (ctx) { ctx.close(); ctx = null; }
+    songName = ''; showSong();
+    applyEvent({ type: 'clear' });
+    showStatus('idle');
+  }
+  setButton();
+}
+
+let saved = null;
+try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'));
+setButton();
+</script>
+</body>
+</html>

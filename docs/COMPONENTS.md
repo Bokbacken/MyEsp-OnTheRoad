@@ -32,6 +32,13 @@ skickas in som parametrar/callbacks.
 - Släppfilter (release debounce) i touchdrivern `main/board_touch.cpp` – fortfarande i `main/` eftersom
   drivern är kortspecifik (ST77922-touch, 0x55). Se punkt 2.
 
+### Nytt i v0.13.5 (i `main/`)
+- `kara_stream.h/.cpp` (`KaraStream`): låsfri SPSC-ring för PCM + texthändelser från mixertasken till
+  sändartasken, `LyricTracker` och JSON-formatering. Ren C++ utan IDF-beroenden, hosttestad (test_karastream).
+  Kan flyttas till en komponent (t.ex. `otr_stream`) om fler strömmar behövs.
+- `kara_web.h/.cpp` (`KaraWeb`): WebSocket `/ws/karaoke`, klienttabell (max 3), sändartask, koppling till
+  `Audio::setTap/setWebStream` och karaoken. Stannar i `main/` (beror på webbservern, ljudet och `app_config`).
+
 ### Nytt i v0.11.1 (i `main/`)
 - `adv_live.h/.cpp` (`AdvLive`): ögonblicksbild av äventyret för webben (`/api/adventure`, sidan
   `/adventure`). Eget lås (`std::mutex`) och versionsnummer, karta med egen revision, buffertar i PSRAM.
