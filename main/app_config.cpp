@@ -33,6 +33,15 @@ void defaults(AppConfig &c)
     c.maxiSavedRolls = true;
     c.throwMode = 0;
     c.advMode = 0;
+    c.soundOn = true;
+    c.sfxVol = 60;
+    c.musicOn = true;
+    c.musicVol = 25;
+    c.joyZones = 2;
+    c.joySlowMs = 150;
+    c.joyFastMs = 75;
+    c.joyHoldMs = 300;
+    c.joyDiag = 0;
     strcpy(c.tz, DEFAULT_TZ);
     strcpy(c.lang, "sv");
 }
@@ -60,12 +69,22 @@ void begin()
             p.getStr("lang", g_cfg.lang, sizeof(g_cfg.lang));
             g_cfg.advMode = p.getU8("adv_mode", 0) > 1 ? 0 : p.getU8("adv_mode", 0);
             g_cfg.rotation = p.getU16("rotation", 0) == 180 ? 180 : 0;
+            g_cfg.soundOn = p.getBool("snd_on", g_cfg.soundOn);
+            g_cfg.sfxVol = p.getU8("sfx_vol", g_cfg.sfxVol);
+            g_cfg.musicOn = p.getBool("mus_on", g_cfg.musicOn);
+            g_cfg.musicVol = p.getU8("mus_vol", g_cfg.musicVol);
+            g_cfg.joyZones = p.getU8("joy_zones", g_cfg.joyZones);
+            g_cfg.joySlowMs = p.getU16("joy_slow", g_cfg.joySlowMs);
+            g_cfg.joyFastMs = p.getU16("joy_fast", g_cfg.joyFastMs);
+            g_cfg.joyHoldMs = p.getU16("joy_hold", g_cfg.joyHoldMs);
+            g_cfg.joyDiag = p.getU8("joy_diag", g_cfg.joyDiag);
         }
     }
     if (!validHostname(g_cfg.hostname)) strcpy(g_cfg.hostname, "ontheroad");
     if (!validAdminPin(g_cfg.adminPin, true)) g_cfg.adminPin[0] = 0;
     if (!validTz(g_cfg.tz)) strcpy(g_cfg.tz, DEFAULT_TZ);
     if (!Lang::valid(g_cfg.lang)) strcpy(g_cfg.lang, "sv");
+    sanitize(g_cfg);
     ESP_LOGI(TAG, "loaded: host=%s bl=%u%% pin=%s", g_cfg.hostname, g_cfg.brightness, g_cfg.adminPin[0] ? "set" : "none");
 }
 
@@ -91,6 +110,16 @@ bool save()
     ok &= p.setStr("lang", g_cfg.lang);
     ok &= p.setU8("adv_mode", g_cfg.advMode);
     ok &= p.setU16("rotation", g_cfg.rotation == 180 ? 180 : 0);
+    sanitize(g_cfg);
+    ok &= p.setBool("snd_on", g_cfg.soundOn);
+    ok &= p.setU8("sfx_vol", g_cfg.sfxVol);
+    ok &= p.setBool("mus_on", g_cfg.musicOn);
+    ok &= p.setU8("mus_vol", g_cfg.musicVol);
+    ok &= p.setU8("joy_zones", g_cfg.joyZones);
+    ok &= p.setU16("joy_slow", g_cfg.joySlowMs);
+    ok &= p.setU16("joy_fast", g_cfg.joyFastMs);
+    ok &= p.setU16("joy_hold", g_cfg.joyHoldMs);
+    ok &= p.setU8("joy_diag", g_cfg.joyDiag);
     return p.commit() && ok;
 }
 
@@ -190,6 +219,18 @@ bool validTz(const char *tz)
     for (size_t i = 0; i < n; i++)
         if (tz[i] < 0x21 || tz[i] > 0x7E) return false;
     return true;
+}
+
+void sanitize(AppConfig &c)
+{
+    if (c.sfxVol > 100) c.sfxVol = 100;
+    if (c.musicVol > 100) c.musicVol = 100;
+    c.joyZones = MySys::clamp<uint8_t>(c.joyZones, 1, 4);
+    c.joySlowMs = MySys::clamp<uint16_t>(c.joySlowMs, JOY_MS_MIN, JOY_MS_MAX);
+    c.joyFastMs = MySys::clamp<uint16_t>(c.joyFastMs, JOY_MS_MIN, JOY_MS_MAX);
+    if (c.joyFastMs > c.joySlowMs) c.joyFastMs = c.joySlowMs;
+    c.joyHoldMs = MySys::clamp<uint16_t>(c.joyHoldMs, JOY_HOLD_MIN, JOY_HOLD_MAX);
+    if (c.joyDiag > 1) c.joyDiag = 0;
 }
 
 }  // namespace Config

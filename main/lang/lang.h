@@ -366,7 +366,27 @@
     X(PIN_GUEST_NO_WEB) \
     X(SET_ROTATION) \
     X(SET_ROT_0) \
-    X(SET_ROT_180)
+    X(SET_ROT_180) \
+    X(SET_SOUND) \
+    X(SET_SOUND_ON) \
+    X(SET_SFX_VOL) \
+    X(SET_MUSIC_ON) \
+    X(SET_MUSIC_VOL) \
+    X(SET_JOY) \
+    X(SET_JOY_ZONES) \
+    X(SET_JOY_SLOW) \
+    X(SET_JOY_FAST) \
+    X(SET_JOY_HOLD) \
+    X(SET_JOY_DIAG) \
+    X(SET_JOY_DIAG_DOM) \
+    X(SET_JOY_DIAG_ALT) \
+    X(SET_MS_PER_STEP) \
+    X(SET_SD_INFO) \
+    X(SET_SD_NONE) \
+    X(SET_AUDIO_INFO) \
+    X(SET_SD_REMOUNT) \
+    X(BOOT_SD_FREE) \
+    X(BOOT_SD_NONE)
 // clang-format on
 
 enum class Str : uint16_t {

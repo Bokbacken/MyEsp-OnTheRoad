@@ -12,6 +12,8 @@
 #include "app_config.h"
 #include "app_players.h"
 #include "app_web.h"
+#include "board_audio.h"
+#include "board_sd.h"
 #include "lang.h"
 #include "board_backlight.h"
 #include "board_display.h"
@@ -85,6 +87,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
     const bool fsOk = MyFat::mount("ffat", "/ffat", true);   // First boot formats (a few seconds)
     if (fsOk) MyLog::setEventFile("/ffat/events.log");
+    const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
     const AppConfig &cfg = Config::get();
     Lang::setLang(cfg.lang);
@@ -190,14 +193,24 @@ extern "C" void app_main(void)
             if (displayOk) Rgb::setBase(0, 0, 25);
         }
     }
+    // Sound: ES8311 on the same bus. Amplifier stays off unless the codec came up cleanly.
+    {
+        const bool audioOk = Audio::begin(Touch::bus());
+        Audio::setVolumes(cfg.soundOn, cfg.sfxVol, cfg.musicOn, cfg.musicVol);
+        ESP_LOGI(TAG, "audio %s", audioOk ? "ok" : "not available");
+    }
     UiBoot::setProgress(50);
 
     // Storage: FFat (mounted above) + player registry
     {
         bool ok = fsOk && Players::begin();
         char buf[64];
-        snprintf(buf, sizeof(buf), tr(Str::BOOT_FS_INFO),
-                 (unsigned)((MyFat::totalBytes() - MyFat::usedBytes()) >> 10), Players::count());
+        int len = snprintf(buf, sizeof(buf), tr(Str::BOOT_FS_INFO),
+                           (unsigned)((MyFat::totalBytes() - MyFat::usedBytes()) >> 10), Players::count());
+        if (len > 0 && len < (int)sizeof(buf)) {
+            if (sdOk) snprintf(buf + len, sizeof(buf) - len, tr(Str::BOOT_SD_FREE), (unsigned)(BoardSd::info().freeBytes >> 20));
+            else snprintf(buf + len, sizeof(buf) - len, "%s", tr(Str::BOOT_SD_NONE));
+        }
         UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL,
                     ok ? buf : tr(Str::BOOT_FS_FAIL));
     }
@@ -255,6 +268,7 @@ extern "C" void app_main(void)
     for (;;) {
         MyWifi::loop();
         MyTime::loop();
+        BoardSd::poll(MySys::millis());   // Card removed / inserted
         // Keep the RTC in step with a certain clock: right after each NTP sync / manual set, otherwise every
         // 10 minutes (covers manual sets; writes only when the drift is >= 1 s).
         const bool changed = MyTime::takeClockChanged();

@@ -5,7 +5,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "board_audio.h"
 #include "board_backlight.h"
+#include "board_sd.h"
 #include "board_display.h"
 #include "app_config.h"
 #include "board_rgb.h"
@@ -21,6 +23,8 @@ namespace UiSettings {
 
 static AppConfig s_edit;            // Working copy, committed on "Spara"
 static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo;
+static lv_obj_t *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
+static lv_obj_t *s_slowSl, *s_fastSl;
 static lv_timer_t *s_timer = nullptr;
 
 // Display (MADCTL) and touch mirroring together. Also called from the web server task, hence
@@ -39,7 +43,10 @@ void applyHardware()
     Rgb::setEnabled(c.ledEnabled);
     Rgb::setBrightness(c.ledBrightness);
     applyRotation(c.rotation == 180);
+    Audio::setVolumes(c.soundOn, c.sfxVol, c.musicOn, c.musicVol);
 }
+
+static void previewSound() { Audio::setVolumes(s_edit.soundOn, s_edit.sfxVol, s_edit.musicOn, s_edit.musicVol); }
 
 static void refreshInfo(lv_timer_t *)
 {
@@ -57,6 +64,16 @@ static void refreshInfo(lv_timer_t *)
     snprintf(buf, sizeof(buf), tr(Str::SET_TOUCH_INFO), ti.present ? "OK" : tr(Str::SET_MISSING), ti.lastX, ti.lastY,
              (unsigned long)ti.touchCount);
     lv_label_set_text(s_touchInfo, buf);
+    BoardSd::Info si = BoardSd::info();
+    int n = si.mounted ? snprintf(buf, sizeof(buf), tr(Str::SET_SD_INFO), si.name, si.width, (unsigned)(si.totalBytes >> 20),
+                                  (unsigned)(si.freeBytes >> 20))
+                       : snprintf(buf, sizeof(buf), "%s", tr(Str::SET_SD_NONE));
+    Audio::Status as = Audio::status();
+    if (n > 0 && n < (int)sizeof(buf) - 2) {
+        buf[n++] = '\n';
+        snprintf(buf + n, sizeof(buf) - n, tr(Str::SET_AUDIO_INFO), as.running ? "OK" : tr(Str::SET_MISSING));
+    }
+    lv_label_set_text(s_sdInfo, buf);
 }
 
 static lv_obj_t *sliderRow(lv_obj_t *parent, const char *title, int min, int max, int value, lv_obj_t **valLabel,
@@ -103,6 +120,55 @@ static void onAnim(lv_event_t *e)
     lv_label_set_text_fmt(s_animVal, "%d ms", s_edit.rollAnimMs);
 }
 
+static void onSfx(lv_event_t *e)
+{
+    s_edit.sfxVol = (uint8_t)lv_slider_get_value(lv_event_get_target_obj(e));
+    lv_label_set_text_fmt(s_sfxVal, "%d %%", s_edit.sfxVol);
+    previewSound();
+}
+
+static void onMusic(lv_event_t *e)
+{
+    s_edit.musicVol = (uint8_t)lv_slider_get_value(lv_event_get_target_obj(e));
+    lv_label_set_text_fmt(s_musVal, "%d %%", s_edit.musicVol);
+    previewSound();
+}
+
+static void onZones(lv_event_t *e)
+{
+    s_edit.joyZones = (uint8_t)lv_slider_get_value(lv_event_get_target_obj(e));
+    lv_label_set_text_fmt(s_zoneVal, "%d", s_edit.joyZones);
+}
+
+// Slowest / fastest step interval; the other slider follows so that fast <= slow.
+static void onSlow(lv_event_t *e)
+{
+    s_edit.joySlowMs = (uint16_t)(lv_slider_get_value(lv_event_get_target_obj(e)) / 5 * 5);
+    lv_label_set_text_fmt(s_slowVal, tr(Str::SET_MS_PER_STEP), s_edit.joySlowMs);
+    if (s_fastSl && s_edit.joyFastMs > s_edit.joySlowMs) {
+        s_edit.joyFastMs = s_edit.joySlowMs;
+        lv_slider_set_value(s_fastSl, s_edit.joyFastMs, LV_ANIM_OFF);
+        lv_label_set_text_fmt(s_fastVal, tr(Str::SET_MS_PER_STEP), s_edit.joyFastMs);
+    }
+}
+
+static void onFast(lv_event_t *e)
+{
+    s_edit.joyFastMs = (uint16_t)(lv_slider_get_value(lv_event_get_target_obj(e)) / 5 * 5);
+    lv_label_set_text_fmt(s_fastVal, tr(Str::SET_MS_PER_STEP), s_edit.joyFastMs);
+    if (s_slowSl && s_edit.joySlowMs < s_edit.joyFastMs) {
+        s_edit.joySlowMs = s_edit.joyFastMs;
+        lv_slider_set_value(s_slowSl, s_edit.joySlowMs, LV_ANIM_OFF);
+        lv_label_set_text_fmt(s_slowVal, tr(Str::SET_MS_PER_STEP), s_edit.joySlowMs);
+    }
+}
+
+static void onHold(lv_event_t *e)
+{
+    s_edit.joyHoldMs = (uint16_t)(lv_slider_get_value(lv_event_get_target_obj(e)) / 10 * 10);
+    lv_label_set_text_fmt(s_holdVal, "%d ms", s_edit.joyHoldMs);
+}
+
 static void leave(bool save)
 {
     if (s_timer) {
@@ -118,6 +184,15 @@ static void leave(bool save)
         Config::get().maxiSavedRolls = s_edit.maxiSavedRolls;
         Config::get().throwMode = s_edit.throwMode;
         Config::get().rotation = s_edit.rotation;
+        Config::get().soundOn = s_edit.soundOn;
+        Config::get().sfxVol = s_edit.sfxVol;
+        Config::get().musicOn = s_edit.musicOn;
+        Config::get().musicVol = s_edit.musicVol;
+        Config::get().joyZones = s_edit.joyZones;
+        Config::get().joySlowMs = s_edit.joySlowMs;
+        Config::get().joyFastMs = s_edit.joyFastMs;
+        Config::get().joyHoldMs = s_edit.joyHoldMs;
+        Config::get().joyDiag = s_edit.joyDiag;
         snprintf(Config::get().lang, sizeof(Config::get().lang), "%s", s_edit.lang);
         Config::save();
         Lang::setLang(Config::get().lang);
@@ -208,6 +283,24 @@ void show()
         applyRotation(s_edit.rotation == 180);
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
+    // Sound: previewed live (volumes + a sample effect when a slider is released)
+    lv_obj_t *snd = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(snd, LV_FLEX_FLOW_COLUMN);
+    Theme::label(snd, trp(LV_SYMBOL_AUDIO "  ", Str::SET_SOUND), &my_font_14, Theme::ACCENT);
+    switchRow(snd, tr(Str::SET_SOUND_ON), s_edit.soundOn, [](lv_event_t *e) {
+        s_edit.soundOn = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+        previewSound();
+        Audio::play(Sound::Sfx::CLICK);
+    });
+    lv_obj_t *sfx = sliderRow(snd, tr(Str::SET_SFX_VOL), 0, 100, s_edit.sfxVol, &s_sfxVal, onSfx);
+    lv_obj_add_event_cb(sfx, [](lv_event_t *) { Audio::play(Sound::Sfx::SCORE); }, LV_EVENT_RELEASED, nullptr);
+    switchRow(snd, tr(Str::SET_MUSIC_ON), s_edit.musicOn, [](lv_event_t *e) {
+        s_edit.musicOn = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+        previewSound();
+    });
+    lv_obj_t *mus = sliderRow(snd, tr(Str::SET_MUSIC_VOL), 0, 100, s_edit.musicVol, &s_musVal, onMusic);
+    lv_obj_add_event_cb(mus, [](lv_event_t *) { Audio::play(Sound::Sfx::CLICK); }, LV_EVENT_RELEASED, nullptr);
+
     lv_obj_t *game = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(game, LV_FLEX_FLOW_COLUMN);
     sliderRow(game, tr(Str::SET_ROLL_ANIM), 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim);
@@ -228,6 +321,23 @@ void show()
     lv_obj_t *tm = styledDropdown(game, tmOpts, s_edit.throwMode ? 1 : 0);
     lv_obj_add_event_cb(tm, [](lv_event_t *e) {
         s_edit.throwMode = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    // Adventure joystick (components/otr_engine/include/otr_joystick.h)
+    lv_obj_t *joy = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(joy, LV_FLEX_FLOW_COLUMN);
+    Theme::label(joy, trp(LV_SYMBOL_GPS "  ", Str::SET_JOY), &my_font_14, Theme::ACCENT);
+    s_slowSl = s_fastSl = nullptr;
+    sliderRow(joy, tr(Str::SET_JOY_ZONES), 1, 4, s_edit.joyZones, &s_zoneVal, onZones);
+    s_slowSl = sliderRow(joy, tr(Str::SET_JOY_SLOW), JOY_MS_MIN, JOY_MS_MAX, s_edit.joySlowMs, &s_slowVal, onSlow);
+    s_fastSl = sliderRow(joy, tr(Str::SET_JOY_FAST), JOY_MS_MIN, JOY_MS_MAX, s_edit.joyFastMs, &s_fastVal, onFast);
+    sliderRow(joy, tr(Str::SET_JOY_HOLD), JOY_HOLD_MIN, JOY_HOLD_MAX, s_edit.joyHoldMs, &s_holdVal, onHold);
+    Theme::label(joy, tr(Str::SET_JOY_DIAG), &my_font_14, Theme::MUTED);
+    static char diagOpts[96];
+    snprintf(diagOpts, sizeof(diagOpts), "%s\n%s", tr(Str::SET_JOY_DIAG_DOM), tr(Str::SET_JOY_DIAG_ALT));
+    lv_obj_t *jd = styledDropdown(joy, diagOpts, s_edit.joyDiag ? 1 : 0);
+    lv_obj_add_event_cb(jd, [](lv_event_t *e) {
+        s_edit.joyDiag = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
@@ -251,6 +361,15 @@ void show()
     lv_label_set_long_mode(s_netInfo, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(s_netInfo, LV_PCT(100));
     s_touchInfo = Theme::label(net, "", &my_font_14, Theme::MUTED);
+    s_sdInfo = Theme::label(net, "", &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(s_sdInfo, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_width(s_sdInfo, LV_PCT(100));
+    lv_obj_t *sdBtn = Theme::button(net, trp(LV_SYMBOL_SD_CARD " ", Str::SET_SD_REMOUNT), LV_PCT(100), 40, Theme::TEAL);
+    lv_obj_add_event_cb(sdBtn, [](lv_event_t *) {
+        BoardSd::remount();
+        Audio::invalidateFiles();
+        refreshInfo(nullptr);
+    }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *wifiBtn = Theme::button(net, trp(LV_SYMBOL_WIFI " ", Str::SET_CHANGE_WIFI), LV_PCT(100), 40, Theme::TEAL);
     lv_obj_add_event_cb(wifiBtn, [](lv_event_t *) {
         if (s_timer) {
