@@ -4,7 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.11.1 – adventure live view: new page `/adventure` shows the running adventure read-only
+> **Status:** v0.12.0 – new partition layout **B1**: 2 × 5 MB app slots (OTA) + 5.9 MB FFat (was 2 × 3 MB +
+> 9 MB), and the firmware is now built with size optimisation (`-Os`): 1.77 MB, 34 % of a slot.
+> **Requires a one-time USB flash of the merged image; FFat is reformatted (players and adventure saves on FFat are
+> lost).** Not hardware-tested yet.
+> v0.11.1 – adventure live view: new page `/adventure` shows the running adventure read-only
 > (canvas map with player, people, items and gates, HUD with energy/lives/keys/gems/items, and the current
 > dialogue with speaker, full text, reference and choices), fed by a separate `AdvLive` snapshot via
 > `/api/adventure` (map only sent when its revision changes). Links from the overview and `/game`.
@@ -172,7 +176,16 @@ lasts until it is empty; the boot checklist shows "tid ogiltig (batteri?)" when 
 
 Requires **ESP-IDF 6.1** (`idf.py`). Managed components (LVGL 9.6.0, mdns, cJSON, led_strip) are
 fetched automatically on the first build (`dependencies.lock` pins the versions). Board settings
-(16 MB flash, OPI PSRAM, custom partition table, app rollback) are in `sdkconfig.defaults`.
+(16 MB flash, OPI PSRAM, custom partition table, app rollback, `-Os`) are in `sdkconfig.defaults`.
+
+| Partition | Offset | Size |
+|---|---:|---:|
+| nvs | 0x9000 | 20 kB |
+| otadata | 0xE000 | 8 kB |
+| app0 (ota_0) | 0x10000 | 5 MB |
+| app1 (ota_1) | 0x510000 | 5 MB |
+| ffat | 0xA10000 | 5.9 MB |
+| coredump | 0xFF0000 | 64 kB |
 
 ```sh
 . ~/esp/esp-idf-v6.1/export.sh
@@ -233,11 +246,16 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Ico
 
 ## Flashing and updating
 
+- **To v0.12.0 (partition layout B1) – one time, over USB:** flash `MyEsp_OnTheRoad-v0.12.0-merged.bin` at
+  offset `0x0` (esptool.js / esptool). OTA cannot change the partition table. The FFat partition moves and is
+  formatted on first boot (a few seconds), so `players.bin` and adventure saves on FFat are lost; the merged
+  image also resets NVS (settings, saved networks). Files on the microSD card are not touched.
 - **First time, and from Arduino builds (≤ v0.3.x) to v0.4.0:** flash `MyEsp_OnTheRoad-vX.Y.Z-merged.bin`
   at offset `0x0` over USB (esptool.js / esptool). This also installs the ESP-IDF bootloader needed for
   OTA rollback. The partition table is unchanged, so the FFat players file is kept; the merged image does
   overwrite the NVS area (settings and saved networks are reset). To keep NVS, flash the separate files
   instead: bootloader `0x0`, partition table `0x8000`, `ota_data_initial.bin` `0xe000`, app `0x10000`.
+  (Applies to v0.4.0–v0.11.x only; from v0.12.0 the table differs, see above.)
 - **After that:** open `http://ontheroad.local/update` and upload `MyEsp_OnTheRoad-vX.Y.Z-ota.bin`.
   Settings, saved networks and players are kept.
 
@@ -274,7 +292,7 @@ tests/                Host unit tests (games, saved networks, scroll wheel, play
                       audio synth, file paths, adventure engine, joystick)
 tools/embed_web.py    main/web/ -> main/web_assets.h generator
 tools/lvgl8to9.py     Helper used for the LVGL 8 -> 9 API rename
-partitions.csv        Same layout as Arduino app3M_fat9M_16MB
+partitions.csv        B1: nvs 20 kB, otadata, app0/app1 5 MB each, ffat 5.9 MB, coredump 64 kB
 ```
 
 ## Roadmap

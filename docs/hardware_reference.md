@@ -493,6 +493,7 @@ Recommended board settings:
 - USB CDC on boot enabled
 - RGB565/LVGL color depth 16
 - partition scheme selected to leave enough application and filesystem space
+  (ESP-IDF build from v0.12.0: layout B1 = 2 × 5 MB app + 5.9 MB FFat, see README)
 
 Potential libraries:
 

@@ -186,7 +186,7 @@ static void fillList()
 
         bool isCurrent = wi.connected && strcmp(wi.ssid, n.ssid) == 0;
         char name[48];
-        snprintf(name, sizeof(name), "%s%s", n.ssid, isCurrent ? " " LV_SYMBOL_OK : "");
+        snprintf(name, sizeof(name), "%.32s%s", n.ssid, isCurrent ? " " LV_SYMBOL_OK : "");
         lv_obj_t *l = Theme::label(row, name, &my_font_18, isCurrent ? Theme::GREEN : Theme::TEXT);
         lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
         lv_obj_set_width(l, 178);

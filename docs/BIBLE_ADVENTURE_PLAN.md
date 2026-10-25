@@ -182,7 +182,7 @@ deklarerade. Dessutom stilkontroll av talspråket (1.3), namnkontroll mot bibeln
   Dialogrutan ligger i `ui_adventure.cpp`; berättelsestatus sparas som `.sts` bredvid `.sav`
   (sparformat v2 kommer i steg C).
 
-### Steg C – Flera kartor, uppdrag, sparformat v2 · v0.12.0
+### Steg C – Flera kartor, uppdrag, sparformat v2 · v0.13.0
 - Världar med flera kartor (utgångar/dörrar → annan karta + startpunkt). En karta åt gången i PSRAM.
 - Sparformat **v2**: dagens block + `StoryState` + aktuell karta. v1-sparningar läses fortfarande för de
   gamla världarna.

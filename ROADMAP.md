@@ -115,6 +115,14 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.12.0 – Partitionslayout B1 och storleksoptimering 🔧 (ej HW-testad)
+- [x] Ny partitionstabell B1: app0/app1 5 MB vardera (OTA), FFat 5,88 MB på 0xA10000, coredump 64 kB (tidigare 2 × 3 MB app + 9 MB FFat)
+- [x] Bygget optimeras för storlek (`-Os`, `CONFIG_COMPILER_OPTIMIZATION_SIZE`): appen 1 768 448 B (34 % av 5 MB), förut 1 934 432 B med `-Og`
+- [x] Falsk trunkeringsvarning med `-Os` i `ui_wifi.cpp` åtgärdad (`%.32s`); bygge 0 fel/0 varningar
+- [x] FFat formateras automatiskt vid första start (`format_if_mount_failed`)
+- [ ] HW-test: USB-flash av merged.bin vid 0x0, första start formaterar FFat, ny spelare sparas, OTA till nästa version
+- **Obs:** kräver engångsflash via USB; spelarfil och äventyrssparningar på FFat försvinner (Kent: OK)
+
 ## v0.11.1 – Live view för äventyret 🔧 (ej HW-testad)
 - [x] Ny modul `main/adv_live.h/.cpp` (`AdvLive`): egen ögonblicksbild med eget lås och versionsnummer, skild från `game_live`-unionen. Karta (terräng, objekt, minsiffror, dimma) med kartrevision som bara skickas när den ändrats; spelare (position, riktning, båt), energi, liv, nycklar, ädelstenar, dräkt, föremål, personer och aktuell dialog med val (låsta med tips). Buffertar i PSRAM. Dolda minor läcker inte
 - [x] Äventyret publicerar bara när något ändrats (signatur över position, statistik, revision, föremål, dialognod och språk) och markerar inaktivt när man lämnar
@@ -202,7 +210,7 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 ## Planerat – bibliskt äventyr (se docs/BIBLE_ADVENTURE_PLAN.md)
 - [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (HW-testad av Kent)
 - [x] v0.11.1 – Live view för äventyret på webben (`/adventure`, ej HW-testad)
-- [ ] v0.12.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
+- [ ] v0.13.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
 - [ ] v0.13.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
 - [ ] v0.14+ – kapitel 2–6, manus från SD, engelska
 
@@ -216,5 +224,5 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] 802.11k/v/r-roaming (möjligt nu med ESP-IDF)
 
 ## Möjliga framtida förbättringar
-- Partitionering 6 + 6 MB app (OTA) + ~4 MB lagring (i dag 3 + 3 MB app + 9 MB FFat) – kräver USB-flash och flytt av spelarfilen
+- MIDI-spelare och karaoke (.mid/.kar från SD) – se svaret i chatten; designfrågor öppna innan kodning
 - Packad lagring med miniz i ROM (`tinfl`/`tdefl`): komprimera i PSRAM och spara packat på FFat (historik/loggar); görs som delad komponent så att den kan återanvändas i MyPi-projekten
