@@ -1,10 +1,13 @@
 // ui_adventure.cpp - OnTheRoad Engine test world (see header).
 #include "ui_adventure.h"
 
+#include <errno.h>
 #include <math.h>
 #include <new>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -12,11 +15,14 @@
 
 #include "app_config.h"
 #include "app_players.h"
+#include "board_audio.h"
 #include "board_rgb.h"
+#include "board_sd.h"
 #include "lang.h"
 #include "my_lvgl.h"
 #include "my_storage.h"
 #include "my_theme.h"
+#include "otr_joystick.h"
 #include "otr_maps.h"
 #include "otr_world.h"
 #include "ui_yatzy.h"
@@ -36,6 +42,10 @@ static constexpr int32_t VIEW_Y = 44, VIEW_W = 320, VIEW_H = 320;
 static constexpr int32_t CTRL_Y = VIEW_Y + VIEW_H + 4;          // 368
 static constexpr uint32_t TICK_MS = 15;
 static constexpr uint32_t WALK_MS_32 = 150, WALK_MS_16 = 115, BUMP_MS = 110, FX_MS = 220;
+static constexpr uint32_t WALK_MS_MIN = 55;                      // Fastest walk animation (joystick)
+// Joystick (left control region): pad centre, outer radius, stop zone radius, knob radius
+static constexpr int32_t JOY_AREA_W = 200, JOY_AREA_H = 480 - CTRL_Y;
+static constexpr int32_t JOY_CX = 100, JOY_CY = JOY_AREA_H / 2, JOY_R = 53, JOY_STOP_R = 17, JOY_KNOB_R = 15;
 static constexpr uint32_t TOAST_MS = 2200, ANIM_FRAME_MS = 420;
 static constexpr int SPR = 32;                                   // Art is drawn at 32 px
 static constexpr uint16_t KEY = 0xF81F;                          // Transparent (magenta)
@@ -84,7 +94,9 @@ static uint32_t s_bumpT0;
 static int s_fxX = -1, s_fxY = -1;            // Impact effect cell
 static uint32_t s_fxT0;
 static uint32_t s_toastUntil;
-static int s_hold = -1;                       // Held direction (Dir) or -1
+static Otr::JoyController s_joy;              // Joystick state (press / drag / release -> steps)
+static lv_obj_t *s_joyKnob, *s_joyArrow[4];
+static int s_joyLit = -1;                     // Highlighted arrow (Dir) or -1
 static bool s_longDone;                       // Long press used (flag): ignore the release
 static int s_pathPos = -1;                    // Tap-to-walk: next step in s_path, -1 = idle
 static bool s_replanned;                      // NEED_BOAT walk already re-planned once
@@ -726,35 +738,104 @@ static void closeDialog()
 }
 
 // ----------------------------------------------------------------------------------------
-// Save / load: /ffat/adv_<player id>_<world id>.sav = World::save() image (versioned, CRC32)
+// Save / load: World::save() image (versioned, CRC32) per player and world, file name
+// adv_<player id>_<world id>.sav. Primary place is the microSD card
+// (/sdcard/otr/adventure/saves/), fallback the internal Flash-FAT (/ffat/). Reading looks on
+// the card first. A successful card save removes the Flash-FAT copy (the save "moves" to the
+// card), so an old internal copy can never shadow newer progress.
 // ----------------------------------------------------------------------------------------
-static void savePath(char *out, size_t cap, uint16_t pid, int worldIdx)
+static constexpr const char *SD_ADV_DIR = "/sdcard/otr/adventure";
+static constexpr const char *SD_SAVE_DIR = "/sdcard/otr/adventure/saves";
+static constexpr const char *SD_MAP_DIR = "/sdcard/otr/adventure/maps";   // Reserved (future maps)
+
+static void savePath(char *out, size_t cap, uint16_t pid, int worldIdx, bool sd)
 {
     char rel[32];
     snprintf(rel, sizeof(rel), "/adv_%u_%u.sav", (unsigned)pid, (unsigned)Otr::WORLDS[worldIdx].id);
-    MyFat::path(out, cap, rel);
+    if (sd) snprintf(out, cap, "%s%s", SD_SAVE_DIR, rel);
+    else MyFat::path(out, cap, rel);
 }
 
-static bool hasSave(uint16_t pid, int worldIdx)
+static bool fileExists(const char *p)
 {
-    if (!pid || !MyFat::mounted()) return false;
+    struct stat st;
+    return stat(p, &st) == 0 && !S_ISDIR(st.st_mode);
+}
+
+// Where the save of (pid, world) is: 1 = SD, 2 = Flash-FAT, 0 = none.
+static int saveWhere(uint16_t pid, int worldIdx)
+{
+    if (!pid) return 0;
     char p[96];
-    savePath(p, sizeof(p), pid, worldIdx);
-    return MyFat::exists(p);
+    {
+        BoardSd::Guard g;
+        if (BoardSd::mounted()) {
+            savePath(p, sizeof(p), pid, worldIdx, true);
+            if (fileExists(p)) return 1;
+        }
+    }
+    if (!MyFat::mounted()) return 0;
+    savePath(p, sizeof(p), pid, worldIdx, false);
+    return MyFat::exists(p) ? 2 : 0;
+}
+
+static bool hasSave(uint16_t pid, int worldIdx) { return saveWhere(pid, worldIdx) != 0; }
+
+static size_t readFile(const char *p, bool sd)
+{
+    if (sd) BoardSd::lock();
+    FILE *f = fopen(p, "rb");
+    size_t n = 0;
+    if (f) {
+        n = fread(s_saveBuf, 1, SAVE_CAP, f);
+        fclose(f);
+    }
+    if (sd) BoardSd::unlock();
+    return n;
 }
 
 // Restores the current player's save into the (freshly loaded) world. False = world unchanged.
+// A broken card copy falls back to the Flash-FAT copy if there is one.
 static bool loadSave()
 {
-    if (!hasSave(s_playerId, s_worldIdx)) return false;
+    const int where = saveWhere(s_playerId, s_worldIdx);
+    if (!where) return false;
     char p[96];
-    savePath(p, sizeof(p), s_playerId, s_worldIdx);
-    FILE *f = fopen(p, "rb");
+    for (int place = where; place <= 2; place++) {
+        const bool sd = place == 1;
+        savePath(p, sizeof(p), s_playerId, s_worldIdx, sd);
+        if (!sd && !MyFat::exists(p)) break;
+        const size_t n = readFile(p, sd);
+        if (n && s_world->restore(s_saveBuf, n)) {
+            ESP_LOGI(TAG, "loaded %s", p);
+            return true;
+        }
+        ESP_LOGW(TAG, "%s: invalid save (%u B)", p, (unsigned)n);
+    }
+    return false;
+}
+
+// tmp + rename on the card (FAT rename() does not replace: the old file is removed first; a
+// crash in between leaves the .tmp, which is only a lost save point, never a corrupt one).
+static bool writeSdAtomic(const char *p, const void *data, size_t n)
+{
+    BoardSd::Guard g;
+    if (!BoardSd::mounted()) return false;
+    BoardSd::ensureDir(SD_SAVE_DIR);
+    BoardSd::ensureDir(SD_MAP_DIR);
+    char tmp[104];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", p);
+    FILE *f = fopen(tmp, "wb");
     if (!f) return false;
-    const size_t n = fread(s_saveBuf, 1, SAVE_CAP, f);
-    fclose(f);
-    const bool ok = s_world->restore(s_saveBuf, n);
-    if (!ok) ESP_LOGW(TAG, "%s: invalid save (%u B)", p, (unsigned)n);
+    bool ok = fwrite(data, 1, n, f) == n;
+    ok = (fflush(f) == 0) && ok;
+    ok = (fsync(fileno(f)) == 0) && ok;
+    ok = (fclose(f) == 0) && ok;
+    if (ok) {
+        unlink(p);
+        ok = rename(tmp, p) == 0;
+    }
+    if (!ok) unlink(tmp);
     return ok;
 }
 
@@ -770,12 +851,21 @@ static void markSaved()
 static bool saveNow()
 {
     s_saveWanted = false;
-    if (!s_playerId || s_world->gameOver() || !MyFat::mounted()) return false;
+    if (!s_playerId || s_world->gameOver()) return false;
     const size_t n = s_world->save(s_saveBuf, SAVE_CAP);
+    if (!n) return false;
     char p[96];
-    savePath(p, sizeof(p), s_playerId, s_worldIdx);
     const int64_t t0 = esp_timer_get_time();
-    const bool ok = n && MyFat::writeAtomic(p, nullptr, 0, s_saveBuf, n);
+    savePath(p, sizeof(p), s_playerId, s_worldIdx, true);
+    bool ok = writeSdAtomic(p, s_saveBuf, n);
+    if (ok) {
+        char old[96];
+        savePath(old, sizeof(old), s_playerId, s_worldIdx, false);
+        if (MyFat::mounted() && MyFat::exists(old)) unlink(old);
+    } else if (MyFat::mounted()) {
+        savePath(p, sizeof(p), s_playerId, s_worldIdx, false);
+        ok = MyFat::writeAtomic(p, nullptr, 0, s_saveBuf, n);
+    }
     ESP_LOGI(TAG, "save %s: %s (%u B, %d ms)", p, ok ? "ok" : "FAILED", (unsigned)n, (int)((esp_timer_get_time() - t0) / 1000));
     if (ok) markSaved();
     return ok;
@@ -857,6 +947,33 @@ static void eventToasts(uint32_t ev)
     if (ev & Otr::EV_CHECKPOINT) s_saveWanted = true;
 }
 
+// One sound per move: the most important event wins.
+static void playEvents(uint32_t ev)
+{
+    using Sound::Sfx;
+    Sfx s;
+    if (ev & Otr::EV_GAME_OVER) s = Sfx::GAME_OVER;
+    else if (ev & Otr::EV_DIED) s = Sfx::LIFE_LOST;
+    else if (ev & Otr::EV_MINE) s = Sfx::MINE;
+    else if (ev & Otr::EV_BURNED) s = Sfx::HURT;
+    else if (ev & Otr::EV_EXIT) s = Sfx::EXIT;
+    else if (ev & Otr::EV_ALL_GEMS) s = Sfx::WIN;
+    else if (ev & (Otr::EV_GEM | Otr::EV_TREASURE)) s = Sfx::GEM;
+    else if (ev & (Otr::EV_KEY | Otr::EV_BOAT)) s = Sfx::KEY;
+    else if (ev & Otr::EV_LIFE) s = Sfx::LIFE;
+    else if (ev & Otr::EV_HEART) s = Sfx::HEART;
+    else if (ev & (Otr::EV_POTION | Otr::EV_SUIT)) s = Sfx::POTION;
+    else if (ev & Otr::EV_CHECKPOINT) s = Sfx::CHECKPOINT;
+    else if (ev & (Otr::EV_DOOR | Otr::EV_GATE_OPEN)) s = Sfx::DOOR;
+    else if (ev & Otr::EV_NEED_KEY) s = Sfx::LOCKED;
+    else if (ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE)) s = Sfx::SPLASH;
+    else if (ev & Otr::EV_PUSHED) s = Sfx::PUSH;
+    else if (ev & Otr::EV_MOVED) s = Sfx::STEP;
+    else if (ev & Otr::EV_BLOCKED) s = Sfx::BUMP;
+    else return;
+    Audio::play(s);
+}
+
 // One step. Returns the world events (0 if the previous step is still animating).
 static uint32_t doMove(Dir d)
 {
@@ -868,6 +985,7 @@ static uint32_t doMove(Dir d)
     const Tile targetTile = s_world->tile(tx, ty);
     const uint32_t ev = s_world->move(d);
     s_dirty = true;
+    playEvents(ev);
     char buf[80];
 
     if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
@@ -894,6 +1012,12 @@ static uint32_t doMove(Dir d)
         s_fromY = fy;
         s_moveT0 = now;
         s_moveMs = s_ts == 32 ? WALK_MS_32 : WALK_MS_16;
+        // Joystick auto-repeat faster than the walk animation: shorten the animation so the
+        // hero glides continuously at the chosen pace (never below WALK_MS_MIN).
+        if (const uint32_t iv = s_joy.intervalMs()) {
+            const uint32_t fit = iv > TICK_MS ? iv - TICK_MS / 2 : iv;
+            if (fit < s_moveMs) s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit;
+        }
         s_rockAnim = wasRock && (ev & Otr::EV_PUSHED) && !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
         if (s_rockAnim) {
             s_rockFromX = tx;
@@ -939,6 +1063,7 @@ static void doHit()
     s_bumpDx = Otr::dirX(s_world->facing());
     s_bumpDy = Otr::dirY(s_world->facing());
     s_bumpT0 = now;
+    Audio::play(ev & Otr::EV_BROKE ? Sound::Sfx::BREAK : ev & Otr::EV_HIT ? Sound::Sfx::HIT : Sound::Sfx::BUMP);
     if (ev & Otr::EV_HIT) {
         s_fxX = tx;
         s_fxY = ty;
@@ -954,7 +1079,7 @@ static void doHit()
 static void walkTo(int tx, int ty)
 {
     stopPath();
-    s_hold = -1;
+    s_joy.cancel();
     const Otr::PlanResult r = s_planner->plan(*s_world, tx, ty, walkMode(), *s_path);
     switch (r) {
     case Otr::PlanResult::HERE: return;
@@ -997,7 +1122,7 @@ static void resetWorld(bool showHelp = true)
     if (!s_world->load(Otr::WORLDS[s_worldIdx])) ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
     snapPlayer();
     stopPath();
-    s_hold = -1;
+    s_joy.cancel();
     s_fxX = -1;
     s_bumpT0 = 0;
     s_dirty = true;
@@ -1045,8 +1170,12 @@ static void tick(lv_timer_t *)
 {
     const uint32_t now = nowMs();
     if (!s_dialog) {
-        if (s_hold >= 0 && !busy(now)) {
-            doMove((Dir)s_hold);
+        Dir jd;
+        if (s_joy.poll(now, !busy(now) && !s_world->gameOver(), jd)) {
+            stopPath();
+            doMove(jd);
+        } else if (s_joy.held()) {
+            // Finger on the joystick (stop zone or waiting for the next step): no path walking
         } else if (s_pathPos >= 0 && !busy(now)) {
             if (s_pathPos >= s_path->len) {
                 finishPath();
@@ -1084,7 +1213,7 @@ static void tick(lv_timer_t *)
     }
 
     // Autosave when idle: after a checkpoint, and every minute if anything changed
-    const bool idle = !busy(now) && s_pathPos < 0 && s_hold < 0 && !s_dialog;
+    const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog;
     if (idle && s_playerId) {
         const bool changed = s_world->revision() != s_savedRev || s_world->steps() != s_savedSteps;
         if (s_saveWanted || (changed && now - s_lastSaveMs >= 60000)) saveNow();
@@ -1107,17 +1236,119 @@ static void tick(lv_timer_t *)
 // ----------------------------------------------------------------------------------------
 // Input
 // ----------------------------------------------------------------------------------------
-static void padEvent(lv_event_t *e)
+// Joystick: knob follows the finger (clamped to the pad), the active direction arrow lights up.
+static void joyShow(bool down, int dx, int dy)
 {
-    const int d = (int)(intptr_t)lv_event_get_user_data(e);
-    const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        stopPath();
-        s_hold = d;
-        doMove((Dir)d);
-    } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) && s_hold == d) {
-        s_hold = -1;
+    if (!s_joyKnob) return;
+    int lit = -1;
+    if (down) {
+        const float d = sqrtf((float)(dx * dx + dy * dy));
+        const float lim = (float)(JOY_R - JOY_KNOB_R / 2);
+        if (d > lim) {
+            dx = (int)((float)dx * lim / d);
+            dy = (int)((float)dy * lim / d);
+        }
+        lv_obj_set_pos(s_joyKnob, JOY_CX + dx - JOY_KNOB_R, JOY_CY + dy - JOY_KNOB_R);
+        const Otr::JoySample js = s_joy.sample();
+        if (js.moving) lit = (int)js.dir;
     }
+    lv_obj_set_hidden(s_joyKnob, !down);
+    if (lit != s_joyLit) {
+        for (int i = 0; i < 4; i++)
+            lv_obj_set_style_text_color(s_joyArrow[i], Theme::c(i == lit ? Theme::ACCENT : Theme::MUTED), 0);
+        s_joyLit = lit;
+    }
+}
+
+static void joyEvent(lv_event_t *e)
+{
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_RELEASED &&
+        code != LV_EVENT_PRESS_LOST)
+        return;
+    lv_obj_t *area = (lv_obj_t *)lv_event_get_current_target(e);
+    lv_point_t pt;
+    lv_indev_get_point(lv_indev_active(), &pt);
+    lv_area_t a;
+    lv_obj_get_coords(area, &a);
+    const int dx = pt.x - (a.x1 + JOY_CX), dy = pt.y - (a.y1 + JOY_CY);
+    const uint32_t now = nowMs();
+    if (code == LV_EVENT_PRESSED) {
+        stopPath();   // Any touch on the joystick also stops tap-to-walk (the old STOP button)
+        s_joy.press(dx, dy, now);
+    } else if (code == LV_EVENT_PRESSING) {
+        s_joy.drag(dx, dy, now);
+    } else {
+        s_joy.release(now);
+        joyShow(false, 0, 0);
+        return;
+    }
+    joyShow(true, dx, dy);
+}
+
+static void configureJoy()
+{
+    const AppConfig &c = Config::get();
+    Otr::JoyConfig jc;
+    jc.zones = c.joyZones;
+    jc.slowMs = c.joySlowMs;
+    jc.fastMs = c.joyFastMs;
+    jc.holdMs = c.joyHoldMs;
+    jc.diag = c.joyDiag;
+    s_joy.configure(jc, JOY_R, JOY_STOP_R);
+}
+
+static lv_obj_t *circle(lv_obj_t *parent, int32_t cx, int32_t cy, int32_t r, uint32_t bg, lv_opa_t opa, uint32_t border)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, 2 * r, 2 * r);
+    lv_obj_set_pos(o, cx - r, cy - r);
+    lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(o, Theme::c(bg), 0);
+    lv_obj_set_style_bg_opa(o, opa, 0);
+    lv_obj_set_style_border_color(o, Theme::c(border), 0);
+    lv_obj_set_style_border_width(o, 2, 0);
+    lv_obj_set_clickable(o, false);
+    lv_obj_set_scrollable(o, false);
+    return o;
+}
+
+// The whole left control region is the touch area (touches outside the ring count as the
+// outer zone); the drawing is a ring with four arrows, a red stop zone and the finger knob.
+static void buildJoystick(lv_obj_t *scr)
+{
+    lv_obj_t *area = lv_obj_create(scr);
+    lv_obj_remove_style_all(area);
+    lv_obj_set_size(area, JOY_AREA_W, JOY_AREA_H);
+    lv_obj_set_pos(area, 0, CTRL_Y);
+    lv_obj_set_clickable(area, true);
+    lv_obj_set_scrollable(area, false);
+    lv_obj_set_gesture_bubble(area, false);
+    lv_obj_add_event_cb(area, joyEvent, LV_EVENT_ALL, nullptr);
+
+    circle(area, JOY_CX, JOY_CY, JOY_R, Theme::PANEL_RAISED, LV_OPA_COVER, Theme::LINE);
+    // Speed zone guide ring halfway out (subtle)
+    lv_obj_t *mid = circle(area, JOY_CX, JOY_CY, (JOY_R + JOY_STOP_R) / 2 + 4, Theme::PANEL, LV_OPA_COVER, Theme::LINE);
+    lv_obj_set_style_border_width(mid, 1, 0);
+    lv_obj_set_style_border_opa(mid, LV_OPA_50, 0);
+    circle(area, JOY_CX, JOY_CY, JOY_STOP_R, 0x5A2328, LV_OPA_COVER, Theme::RED);
+
+    static const char *const SYM[4] = {LV_SYMBOL_UP, LV_SYMBOL_RIGHT, LV_SYMBOL_DOWN, LV_SYMBOL_LEFT};
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *l = Theme::label(area, SYM[i], &my_font_14, Theme::MUTED);
+        const int off = JOY_R - 11;
+        const int ax = Otr::dirX((Dir)i) * off, ay = Otr::dirY((Dir)i) * off;
+        lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, 0);
+        lv_obj_update_layout(l);
+        lv_obj_set_pos(l, JOY_CX + ax - lv_obj_get_width(l) / 2, JOY_CY + ay - lv_obj_get_height(l) / 2);
+        lv_obj_set_clickable(l, false);
+        s_joyArrow[i] = l;
+    }
+    s_joyKnob = circle(area, JOY_CX, JOY_CY, JOY_KNOB_R, Theme::ACCENT, LV_OPA_80, Theme::TEXT);
+    lv_obj_set_hidden(s_joyKnob, true);
+    s_joyLit = -1;
+    configureJoy();
 }
 
 // Viewport: tap = walk there (A*), tap on the hero = hit, long press (minefield) = flag.
@@ -1180,7 +1411,8 @@ static void freeAll()
     s_saveBuf = nullptr;
     s_activeScr = nullptr;
     s_scr = nullptr;
-    s_hold = -1;
+    s_joyKnob = nullptr;
+    s_joy.cancel();
     s_pathPos = -1;
 }
 
@@ -1196,16 +1428,10 @@ static void leave()
     stopPath();
     closeDialog();
     if (s_timer) lv_timer_pause(s_timer);
+    s_joy.cancel();
     saveNow();
+    Audio::stopMusic();
     UiYatzy::showMenu();
-}
-
-static lv_obj_t *padButton(lv_obj_t *scr, const char *sym, int32_t x, int32_t y, int32_t w, int32_t h, Dir d)
-{
-    lv_obj_t *b = Theme::button(scr, sym, w, h, Theme::LINE);
-    lv_obj_set_pos(b, x, y);
-    lv_obj_add_event_cb(b, padEvent, LV_EVENT_ALL, (void *)(intptr_t)d);
-    return b;
 }
 
 static const char *modeText() { return tr(Config::get().advMode == 1 ? Str::ADV_MODE_PRO : Str::ADV_MODE_ASSIST); }
@@ -1229,7 +1455,8 @@ static lv_obj_t *menuButton(lv_obj_t *parent, const char *text, uint32_t color, 
 static void showMenu()
 {
     stopPath();
-    s_hold = -1;
+    s_joy.cancel();
+    joyShow(false, 0, 0);
     lv_obj_t *mb = dialog(nullptr);
     lv_msgbox_add_title(mb, tr(Str::ADV_MENU_TITLE));
     lv_msgbox_add_close_button(mb);
@@ -1334,18 +1561,8 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
-    // Controls: arrow pad with STOP in the middle (left), Slå + Zoom (right)
-    constexpr int32_t PW = 62, PH = 36;
-    padButton(s_scr, LV_SYMBOL_UP, 4 + PW + 4, CTRL_Y, PW, PH, Dir::UP);
-    padButton(s_scr, LV_SYMBOL_LEFT, 4, CTRL_Y + PH + 2, PW, PH, Dir::LEFT);
-    padButton(s_scr, LV_SYMBOL_RIGHT, 4 + 2 * (PW + 4), CTRL_Y + PH + 2, PW, PH, Dir::RIGHT);
-    padButton(s_scr, LV_SYMBOL_DOWN, 4 + PW + 4, CTRL_Y + 2 * (PH + 2), PW, PH, Dir::DOWN);
-    lv_obj_t *stop = Theme::button(s_scr, LV_SYMBOL_STOP, PW, PH, Theme::RED);
-    lv_obj_set_pos(stop, 4 + PW + 4, CTRL_Y + PH + 2);
-    lv_obj_add_event_cb(stop, [](lv_event_t *) {
-        stopPath();
-        s_hold = -1;
-    }, LV_EVENT_PRESSED, nullptr);
+    // Controls: joystick (left; its red centre also stops tap-to-walk), Slå + Zoom (right)
+    buildJoystick(s_scr);
     lv_obj_t *hit = Theme::button(s_scr, tr(Str::ADV_HIT), 110, 66, Theme::ACCENT, true);
     lv_obj_set_pos(hit, 206, CTRL_Y);
     lv_obj_add_event_cb(hit, [](lv_event_t *) {
@@ -1375,6 +1592,7 @@ static void buildGame(bool loadFailed)
     tick(nullptr);
     s_timer = lv_timer_create(tick, TICK_MS, nullptr);
     Theme::loadScreen(s_scr);
+    Audio::music(Sound::Music::ADVENTURE);
     if (s_world->gameOver()) showGameOver();
 }
 
