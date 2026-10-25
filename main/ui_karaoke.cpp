@@ -36,6 +36,8 @@ lv_timer_t *s_listTimer = nullptr;
 
 // Bottom sheet (settings, tracks, sound bank) on the active screen
 lv_obj_t *s_sheet = nullptr;
+// v0.13.6.1: "sound bank loading" dialog, closed automatically when loading ends
+lv_obj_t *s_waitDlg = nullptr;
 std::vector<Karaoke::FontFile> s_fonts;
 bool s_fontForSong = false;
 
@@ -79,6 +81,10 @@ lv_obj_t *backButton(lv_obj_t *scr)
 // ---- Song list ---------------------------------------------------------------------------------
 void updateFontLabel()
 {
+    if (s_waitDlg && Karaoke::fontState() != Karaoke::FontState::LOADING) {
+        lv_msgbox_close_async(s_waitDlg);
+        s_waitDlg = nullptr;
+    }
     if (!s_fontLbl) return;
     switch (Karaoke::fontState()) {
     case Karaoke::FontState::LOADING:
@@ -103,11 +109,22 @@ void updateFontLabel()
     }
 }
 
-void msg(const char *text)
+void msg(const char *text, bool isWait = false)
 {
+    if (isWait && s_waitDlg) {
+        lv_msgbox_close_async(s_waitDlg);
+        s_waitDlg = nullptr;
+    }
     lv_obj_t *m = lv_msgbox_create(nullptr);
     lv_msgbox_add_text(m, text);
-    lv_msgbox_add_close_button(m);
+    if (isWait) {
+        s_waitDlg = m;   // No close button: closed when the font state leaves LOADING
+        lv_obj_add_event_cb(m, [](lv_event_t *e) {
+            if (lv_event_get_target(e) == s_waitDlg) s_waitDlg = nullptr;
+        }, LV_EVENT_DELETE, nullptr);
+    } else {
+        lv_msgbox_add_close_button(m);
+    }
     Theme::msgboxFonts(m);
 }
 
@@ -115,7 +132,7 @@ void openSong(int idx)
 {
     if (idx < 0 || idx >= (int)s_files.size()) return;
     if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
-        msg(tr(Str::KARA_WAIT_FONT));
+        msg(tr(Str::KARA_WAIT_FONT), true);
         return;
     }
     Karaoke::Err e = Karaoke::open(s_files[(size_t)idx]);
@@ -147,7 +164,7 @@ void showList()
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
         if (!Theme::debounce(backLast, DEBOUNCE_MS)) return;
         if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
-            msg(tr(Str::KARA_WAIT_FONT));
+            msg(tr(Str::KARA_WAIT_FONT), true);
             return;
         }
         Karaoke::unloadFont();
@@ -332,6 +349,10 @@ void tick(lv_timer_t *)
     }
     if (Karaoke::fontState() != P.fontState) {
         P.fontState = Karaoke::fontState();
+        if (s_waitDlg && P.fontState != Karaoke::FontState::LOADING) {
+            lv_msgbox_close_async(s_waitDlg);
+            s_waitDlg = nullptr;
+        }
         updatePlayerFont();
         P.lastSec = 0xFFFFFFFF;   // Refresh the diagnostics line
         P.line = -3;
@@ -553,7 +574,7 @@ void fontPickCb(lv_event_t *e)
 void showFonts(bool forSong)
 {
     if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
-        msg(tr(Str::KARA_WAIT_FONT));
+        msg(tr(Str::KARA_WAIT_FONT), true);
         return;
     }
     if (forSong && !Karaoke::isOpen()) return;
@@ -743,7 +764,7 @@ void showPlayer()
     P.playBtn = ctlButton(scr, LV_SYMBOL_PLAY, X0 + 2 * DX, Y1, BW, BH, Theme::ACCENT, [](lv_event_t *) {
         if (!Theme::debounce(lastRow1[2], DEBOUNCE_MS)) return;
         if (Karaoke::fontState() == Karaoke::FontState::LOADING) {
-            msg(tr(Str::KARA_WAIT_FONT));
+            msg(tr(Str::KARA_WAIT_FONT), true);
             return;
         }
         Karaoke::play(!Karaoke::playing());
