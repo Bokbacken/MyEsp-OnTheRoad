@@ -9,6 +9,13 @@
 // them, incl. bank select and the drum channel), builds regions for those presets only and reads
 // just the needed sample ranges from the card into one PSRAM buffer. The bank file can therefore
 // be much larger than PSRAM; the budget applies to what one song needs.
+//
+// v0.13.3 halving: samples recorded at >= 1.8 x the output rate (44.1/48 kHz for 22.05 kHz out)
+// are low-pass filtered (47-tap half-band FIR, -6 dB at a quarter of the source rate) and decimated
+// 2:1 while they are read, and their zones get half the sample rate. They take half the PSRAM and
+// play without the aliasing that TinySoundFont's linear interpolation produces when it skips every
+// other source sample. Zones with a short, odd loop (< HALVE_MIN_ODD_LOOP samples) stay at full
+// rate, because a halved loop length would detune the sustained note.
 #pragma once
 
 #include <stdint.h>
@@ -27,6 +34,7 @@ constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // load() (whole file in PSR
 constexpr size_t SAMPLE_BUDGET = 6u * 1024 * 1024;  // prepare(): max sample data per song
 constexpr int KEY_MARGIN = 12;                      // Melodic keys are widened by +-12 (transpose never reloads)
 constexpr int REDUCED_VELOCITY = 100;               // Velocity layer kept when a song is over budget
+constexpr uint32_t HALVE_MIN_ODD_LOOP = 1500;       // Odd loops shorter than this are not halved (< 1.2 cent error)
 
 // TOO_BIG: load(): file > MAX_SF2; prepare(): the song needs more than the budget even with one
 // velocity layer and one zone per key.
@@ -44,6 +52,8 @@ struct PrepStats {
     uint16_t presets = 0;      // Presets the song uses
     uint16_t regions = 0;      // Zones kept
     uint16_t ranges = 0;       // Merged sample ranges read from the card
+    uint16_t halved = 0;       // Zones whose samples were decimated 2:1
+    uint32_t halvedSaved = 0;  // Bytes saved by halving
     bool reduced = false;      // Over budget: only the velocity layer at REDUCED_VELOCITY was kept
     bool thinned = false;      // Still over budget: one zone per key (stereo pairs/stacked layers dropped)
 };
@@ -76,6 +86,9 @@ public:
 
     void setEffects(const Effects &e);
     const Effects &effects() const { return fx_; }
+    // Halve high-rate samples in prepare() (default on; takes effect at the next prepare)
+    void setHalving(bool on) { halve_ = on; }
+    bool halving() const { return halve_; }
 
     void midi(uint8_t status, uint8_t d1, uint8_t d2) override;
     void reset() override;
@@ -101,7 +114,7 @@ private:
     char path_[160] = "";
     uint32_t smplPos_ = 0;
     size_t size_ = 0;
-    bool full_ = false, prepared_ = false, scanning_ = false;
+    bool full_ = false, prepared_ = false, scanning_ = false, halve_ = true;
     PrepStats stats_;
     uint64_t *keyMask_ = nullptr, *velMask_ = nullptr;   // Scan: 2 x 64 bit per preset
     Effects fx_;

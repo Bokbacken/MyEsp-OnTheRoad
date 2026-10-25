@@ -55,6 +55,10 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   (stereopar och staplade lager tas bort; kvarvarande zon +6 dB för stereopar, +3 dB annars). Räcker inte det:
   felet `SONG_TOO_BIG` ("Låten behöver för många sampel") och banken förblir öppen. Banker större än PSRAM fungerar
   alltså. Idén kommer från copych/ESP32_SF2_Sampler_Synthesizer (MIT); koden är egen.
+- **v0.13.3 – halvering:** sampel med minst 1,8 × utfrekvensen (44,1/48 kHz) decimeras 2:1 med ett halvbandsfilter
+  (47 tappar, Kaiser β 7, Q15; −6 dB vid 11 kHz, −53 dB vid 13 kHz) medan de läses från SD. Överlappande intervall
+  halveras bara om alla zoner tillåter det; jämna loopar halveras, udda bara om de är ≥ 1 500 sampel (annars ändras
+  tonhöjden). `setHalving(false)` stänger av. Sparar 0–1,4 MB per låt med stora banker.
 - **v0.13.2 – reverb och chorus:** `otr_fx` (Freeverb, public domain: 8 kamfilter + 4 allpass, längder skalade
   från 44,1 till 22,05 kHz; chorus 15 ms ±4 ms, 0,7 Hz triangel, ~4 kB). Mono-sändeffekter: sändnivån per kanal
   följer CC91 (reverb, GM-standard 40) och CC93 (chorus, 0). Renderingen sker i block om 256 sampel; röster
@@ -99,6 +103,10 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
   Yamaha XG 0,23–0,76 MB, GeneralUser-GS (30,8 MB) 3,5–4,8 MB; med GeneralUser får två låtar inte plats
   (Ainbusk 6,6 MB, Alan Parsons 8,3 MB – bankens dubbla stråklager använder samma sampel, så tunnning hjälper
   knappt). Selektiv rendering är bit-identisk med hel laddning.
+- Med halvering (v0.13.3): eawpats 1,28–3,30 MB, Unison 1,87–4,18 MB, Masterpiece 1,53–5,51 MB (Ainbusk nu med alla
+  hastighetslager), ChaosBank 0,78–1,93 MB, Jnsgm2 1,36–5,44 MB (Alan Parsons får inte plats, 6,91 MB),
+  GeneralUser-GS 3,10–4,09 MB för tre låtar; Ainbusk (6,03 MB) och Alan Parsons (7,60 MB) får fortfarande inte plats
+  eftersom deras sampel ligger på 28–32 kHz.
 - Max 32 samtidiga röster; vid fler stjäls den äldsta rösten.
 - Mono 22 050 Hz (samma som mixern).
 - Ingen ljudbank ingår i repot (licens och storlek). Förslag: TimGM6mb.sf2 (GPL v2, ~5,7 MB).

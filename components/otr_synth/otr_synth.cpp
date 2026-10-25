@@ -270,7 +270,71 @@ namespace {
 struct Range {
     uint32_t lo, hi;        // Sample indices in the file's smpl chunk, [lo, hi)
     tsf_region *region;
+    bool half;              // Zone may be decimated 2:1
 };
+
+// Ranges (sorted by lo) grouped into blocks that are read in one go. Overlapping ranges share
+// samples, so they form one cluster that is halved only if every zone in it may be; nearby
+// clusters (gap <= MERGE_GAP) merge only when they agree on halving.
+struct Block {
+    uint32_t lo, hi;        // [lo, hi) in the file's smpl chunk
+    bool half;
+    size_t first, last;     // Ranges [first, last)
+    uint32_t len() const { return half ? (hi - lo) / 2 + 1 : hi - lo; }   // Samples in the buffer
+};
+
+void buildBlocks(const std::vector<Range> &ranges, std::vector<Block> &blocks)
+{
+    blocks.clear();
+    for (size_t i = 0; i < ranges.size();) {
+        uint32_t lo = ranges[i].lo, hi = ranges[i].hi;
+        bool half = ranges[i].half;
+        size_t j = i + 1;
+        for (; j < ranges.size() && ranges[j].lo < hi; j++) {
+            if (ranges[j].hi > hi) hi = ranges[j].hi;
+            half = half && ranges[j].half;
+        }
+        if (!blocks.empty() && blocks.back().half == half && lo <= blocks.back().hi + MERGE_GAP) {
+            if (hi > blocks.back().hi) blocks.back().hi = hi;
+            blocks.back().last = j;
+        } else {
+            blocks.push_back({lo, hi, half, i, j});
+        }
+        i = j;
+    }
+}
+
+// Half-band low-pass (47 taps, Kaiser beta 7, Q15): -0.9 dB at 10 kHz, -6 dB at 11.0 kHz,
+// -53 dB at 13 kHz for a 44.1 kHz source. Odd taps 1, 3, ... 23 (mirrored); the centre is 0.5
+// and the other even taps are zero.
+constexpr int HB_HALF = 23;
+constexpr int16_t HB_TAPS[12] = {10366, -3290, 1787, -1096, 693, -433, 261, -148, 77, -35, 13, -3};
+constexpr uint32_t HB_CHUNK = 4096;   // Output samples per read
+
+// Decimates file samples [lo, lo + n) 2:1 into out[0 .. n/2] (n/2 + 1 samples; the block edges are
+// extended by repetition). in: scratch of 2 * HB_CHUNK + 2 * HB_HALF samples.
+bool readHalved(FILE *fp, uint32_t smplPos, uint32_t lo, uint32_t n, short *out, short *in)
+{
+    const uint32_t m = n / 2 + 1;
+    for (uint32_t j0 = 0; j0 < m; j0 += HB_CHUNK) {
+        const uint32_t j1 = j0 + HB_CHUNK < m ? j0 + HB_CHUNK : m;
+        const int64_t a = 2 * (int64_t)j0 - HB_HALF, b = 2 * (int64_t)(j1 - 1) + HB_HALF;   // Inclusive
+        const int64_t ra = a < 0 ? 0 : a, rb = b > (int64_t)n - 1 ? (int64_t)n - 1 : b;
+        const size_t cnt = (size_t)(rb - ra + 1);
+        if (fseek(fp, (long)(smplPos + ((uint64_t)lo + (uint64_t)ra) * 2), SEEK_SET) != 0) return false;
+        if (fread(in + (ra - a), sizeof(short), cnt, fp) != cnt) return false;
+        for (int64_t i = 0; i < ra - a; i++) in[i] = in[ra - a];
+        for (int64_t i = rb - a + 1; i <= b - a; i++) in[i] = in[rb - a];
+        for (uint32_t j = j0; j < j1; j++) {
+            const short *c = in + (2 * (int64_t)j - a);   // Centre tap
+            int32_t acc = (int32_t)c[0] << 14;            // 0.5 in Q15
+            for (int t = 0; t < 12; t++) acc += HB_TAPS[t] * ((int32_t)c[-(2 * t + 1)] + c[2 * t + 1]);
+            acc = (acc + (1 << 14)) >> 15;
+            out[j] = (short)(acc > 32767 ? 32767 : acc < -32768 ? -32768 : acc);
+        }
+    }
+    return true;
+}
 }  // namespace
 
 LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t budget)
@@ -366,7 +430,16 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
 
     // 3. Sample ranges of the zones the song can trigger; over budget -> keep one velocity layer,
     //    still over -> also one layer per key
+    // Halving needs a source rate of at least 1.8 x the output rate and a loop that keeps its pitch
+    const unsigned halveRate = (unsigned)rate_ * 9 / 5;
+    auto halvable = [&](const tsf_region &rg) {
+        if (!halve_ || rg.sample_rate < halveRate) return false;
+        if (rg.loop_mode == TSF_LOOPMODE_NONE || rg.loop_start >= rg.loop_end) return true;
+        const uint32_t len = rg.loop_end - rg.loop_start + 1;   // TSF loops are inclusive
+        return len >= 16 && ((len & 1) == 0 || len >= HALVE_MIN_ODD_LOOP);
+    };
     std::vector<Range> ranges;
+    std::vector<Block> blocks;
     uint32_t total = 0;
     const int passes = extra.empty() ? 2 : 3;
     for (int pass = 0; pass < passes; pass++) {
@@ -391,22 +464,13 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
                     if (rg.loop_end + 2 > hi) hi = rg.loop_end + 2;
                 }
                 if (hi > smplCount) hi = smplCount;
-                ranges.push_back({lo, hi, &rg});
+                ranges.push_back({lo, hi, &rg, halvable(rg)});
             }
         }
         std::sort(ranges.begin(), ranges.end(), [](const Range &a, const Range &b) { return a.lo < b.lo; });
+        buildBlocks(ranges, blocks);
         total = 0;
-        uint32_t curLo = 0, curHi = 0;
-        bool open = false;
-        for (const Range &r : ranges) {
-            if (open && r.lo <= curHi + MERGE_GAP) {
-                if (r.hi > curHi) curHi = r.hi;
-                continue;
-            }
-            if (open) total += curHi - curLo;
-            curLo = r.lo, curHi = r.hi, open = true;
-        }
-        if (open) total += curHi - curLo;
+        for (const Block &b : blocks) total += b.len();
         if ((size_t)(total + 2 * PAD) * 2 <= limit) {
             stats_.reduced = reduce;
             stats_.thinned = thin;
@@ -455,44 +519,69 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
         return LoadErr::NO_FILE;
     }
     setvbuf(fp, nullptr, _IOFBF, 16384);
-    std::vector<uint32_t> base(ranges.size());   // Per range: start of its merged block (lo) ...
-    std::vector<uint32_t> dest(ranges.size());   // ... and where that block lives in buf
+    uint32_t totalIn = 0;   // Progress counts file samples
+    bool anyHalf = false;
+    for (const Block &b : blocks) totalIn += b.hi - b.lo, anyHalf = anyHalf || b.half;
+    short *scratch = anyHalf ? (short *)scanAlloc((2 * HB_CHUNK + 2 * HB_HALF) * sizeof(short)) : nullptr;
+    std::vector<uint32_t> dest(blocks.size());   // Where each block lives in buf
     uint32_t done = 0, out = PAD;
-    bool ok = true;
-    for (size_t i = 0; i < ranges.size() && ok;) {
-        uint32_t lo = ranges[i].lo, hi = ranges[i].hi;
-        size_t j = i + 1;
-        while (j < ranges.size() && ranges[j].lo <= hi + MERGE_GAP) {
-            if (ranges[j].hi > hi) hi = ranges[j].hi;
-            j++;
-        }
-        for (size_t k = i; k < j; k++) base[k] = lo, dest[k] = out;
-        if (fseek(fp, (long)(smplPos_ + (uint64_t)lo * 2), SEEK_SET) != 0) ok = false;
-        uint32_t left = hi - lo;
-        while (ok && left) {
-            const uint32_t step = left > 16384 ? 16384 : left;
-            if (fread(buf + out, sizeof(short), step, fp) != step) ok = false;
-            out += step, left -= step, done += step;
-            if (cb && total) cb(user, 5 + (int)((uint64_t)done * 95 / total));
+    const bool noMem = anyHalf && !scratch;
+    bool ok = !noMem;
+    for (size_t bi = 0; bi < blocks.size() && ok; bi++) {
+        const Block &b = blocks[bi];
+        dest[bi] = out;
+        if (b.half) {
+            ok = readHalved(fp, smplPos_, b.lo, b.hi - b.lo, buf + out, scratch);
+            out += b.len(), done += b.hi - b.lo;
+            if (cb && totalIn) cb(user, 5 + (int)((uint64_t)done * 95 / totalIn));
+        } else {
+            if (fseek(fp, (long)(smplPos_ + (uint64_t)b.lo * 2), SEEK_SET) != 0) ok = false;
+            uint32_t left = b.hi - b.lo;
+            while (ok && left) {
+                const uint32_t step = left > 16384 ? 16384 : left;
+                if (fread(buf + out, sizeof(short), step, fp) != step) ok = false;
+                out += step, left -= step, done += step;
+                if (cb && totalIn) cb(user, 5 + (int)((uint64_t)done * 95 / totalIn));
+            }
         }
         stats_.ranges++;
-        i = j;
     }
     fclose(fp);
+    scanFree(scratch);
     if (!ok) {
         TSF_FREE(buf);
         freeScan();
         reset();
-        return LoadErr::BAD_FILE;
+        return noMem ? LoadErr::NO_MEMORY : LoadErr::BAD_FILE;
     }
 
-    // 5. Re-point the zones: kept ones into buf, the rest can never sound
+    // 5. Re-point the zones: kept ones into buf, the rest can never sound. Halved zones: positions
+    //    halve relative to the block start, the loop keeps its (rounded) half length, the rate halves.
     std::vector<tsf_region *> kept(ranges.size());
-    for (size_t i = 0; i < ranges.size(); i++) {
-        tsf_region &rg = *ranges[i].region;
-        const uint32_t d = dest[i] - base[i];
-        rg.offset += d, rg.end += d, rg.loop_start += d, rg.loop_end += d;
-        kept[i] = &rg;
+    for (size_t bi = 0; bi < blocks.size(); bi++) {
+        const Block &b = blocks[bi];
+        for (size_t i = b.first; i < b.last; i++) {
+            tsf_region &rg = *ranges[i].region;
+            kept[i] = &rg;
+            if (!b.half) {
+                const uint32_t d = dest[bi] - b.lo;
+                rg.offset += d, rg.end += d, rg.loop_start += d, rg.loop_end += d;
+                continue;
+            }
+            const bool loop = rg.loop_mode != TSF_LOOPMODE_NONE && rg.loop_start < rg.loop_end;
+            const uint32_t len = loop ? rg.loop_end - rg.loop_start + 1 : 0;
+            rg.offset = dest[bi] + (rg.offset - b.lo) / 2;
+            rg.end = dest[bi] + (rg.end - b.lo) / 2;
+            if (loop) {
+                rg.loop_start = dest[bi] + (rg.loop_start - b.lo) / 2;
+                rg.loop_end = rg.loop_start + (len + 1) / 2 - 1;
+            } else {
+                rg.loop_start = rg.loop_end = rg.offset;   // Unused (no loop): keep it harmless
+            }
+            rg.sample_rate /= 2;
+            stats_.halved++;
+        }
+        if (b.half) stats_.halvedSaved += ((b.hi - b.lo) - b.len()) * 2;
     }
     std::sort(kept.begin(), kept.end());
     for (int pi = 0; pi < np; pi++) {

@@ -115,6 +115,17 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.13.3 – Halvering av högupplösta sampel vid laddning 🔧 (ej HW-testad)
+- [x] `prepare()` decimerar sampel med ≥ 1,8 × utfrekvensen (44,1/48 kHz vid 22 050 Hz) 2:1 när de läses från SD: halvbands-FIR, 47 tappar, Kaiser β 7, Q15 (−0,9 dB vid 10 kHz, −6 dB vid 11 kHz, −53 dB vid 13 kHz för 44,1 kHz-källa), 4 096 utsampel per läsning, skrapbuffert ~16 kB bara när något halveras
+- [x] Överlappande sampelintervall bildar block som halveras bara om alla zoner i blocket tillåter det; zonens offset, slut, loopgränser och `sample_rate` halveras
+- [x] Loopar behåller tonhöjden: jämna loopar halveras alltid, udda bara om de är ≥ `HALVE_MIN_ODD_LOOP` (1 500 sampel, < 1,2 cent fel); kortare udda loopar och sampel < 39,7 kHz laddas i full upplösning
+- [x] `Synth::setHalving()/halving()` (på som standard), `PrepStats.halved/halvedSaved`; karaoke loggar antal halverade zoner och sparade byte
+- [x] Hosttester: halverade sinusar mot original (rel. skillnad ~0,01), 101-sampels udda loopar oförändrade, 2 000-sampels loopar halverade och tonstabila över 3 s; realtestet jämför halverat mot ohalverat; alla sviter gröna (4 673), bygge 0 varningar, appen 1 840 960 B (35 % av 5 MB)
+- [x] Mätt (Kents 5 låtar): sparar 0–1,4 MB per låt för stora banker (eawpats Ainbusk 4,31 → 2,97 MB, Alan Parsons 4,70 → 3,30; Unison 3,3–5,0 → 1,9–4,2; Masterpiece Ainbusk får nu alla hastighetslager, 5,51 MB i st f ett lager); rel. skillnad mot ohalverat 0,001–0,21 (första 60 s, torrt). Florestan och Yamaha XG oförändrade (redan 22 050 Hz)
+- [ ] **Löser inte** GeneralUser-GS + Ainbusk (minst 6,03 MB) och Alan Parsons (7,60 MB) eller Jnsgm2 + Alan Parsons (6,91 MB): de sampel låtarna använder ligger mest på 28–32 kHz, under halveringsgränsen. Möjligt nästa steg: bråktalsomsampling av allt > 22 050 Hz till utfrekvensen
+- [ ] HW-test: laddningstid med halvering från SD, ljudkvalitet (diskant), PSRAM-marginal
+- **Obs:** samma partitioner → vanlig OTA
+
 ## v0.13.2 – Selektiv SF2-laddning, reverb och chorus 🔧 (ej HW-testad)
 - [x] `Sf::Synth::open()` läser bara bankens struktur (hydra) och kommer ihåg var sampeldatan börjar; `prepare(låt)` skannar låten genom TinySoundFonts egen kanallogik (bank select, programbyten, trumkanal) och läser bara de sampelintervall låten kan spela (förinställningar, tangenter ±12, hastigheter) från SD till en PSRAM-buffert. Budget 6 MB per låt (mindre om PSRAM saknas). Banker på över 30 MB fungerar (idé från copych/ESP32_SF2_Sampler_Synthesizer, MIT)
 - [x] Transponering ±12 laddar aldrig om (melodiska tangenter breddas ±12 vid skanningen; trummor exakt)

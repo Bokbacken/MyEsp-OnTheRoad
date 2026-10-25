@@ -4,7 +4,13 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.2 – **selective SoundFont loading + reverb/chorus**: opening a bank now reads only its structure
+> **Status:** v0.13.3 – **halving of high-rate samples**: when a song is prepared, samples recorded at ≥ 1.8 × the
+> output rate (44.1/48 kHz) are decimated 2:1 with a 47-tap half-band FIR while they are read from the SD card
+> (loops keep their pitch; short odd loops stay at full rate). Saves up to ~1.4 MB per song with large GM banks
+> (e.g. eawpats 4.3 → 3.0 MB); banks already at 22 050 Hz are unchanged. GeneralUser-GS still cannot fit two of the
+> five test songs (their samples are 28–32 kHz). `Synth::setHalving(false)` turns it off. **Not hardware-tested yet.**
+>
+> Previous: v0.13.2 – **selective SoundFont loading + reverb/chorus**: opening a bank now reads only its structure
 > (hydra); when a song is opened the synth scans it (presets, keys ±12 so transposing never reloads, velocities,
 > bank select and drum channel exactly as TinySoundFont picks zones) and reads only those sample ranges from the SD
 > card into PSRAM (budget 6 MB per song). Banks larger than PSRAM work – the 7 MB limit is gone (GeneralUser-GS,

@@ -285,8 +285,8 @@ void fontTask(void *)
             le = s_synth.prepare(scan, &progressCb, nullptr);
         }
         const Sf::PrepStats st = s_synth.stats();
-        ESP_LOGI(TAG, "prepare: %s, %u bytes, %u presets, %u zones, %u reads%s, %lld ms, PSRAM free %u",
-                 Sf::loadErrName(le), (unsigned)st.bytes, st.presets, st.regions, st.ranges,
+        ESP_LOGI(TAG, "prepare: %s, %u bytes, %u presets, %u zones (%u halved, %u bytes saved), %u reads%s, %lld ms, PSRAM free %u",
+                 Sf::loadErrName(le), (unsigned)st.bytes, st.presets, st.regions, st.halved, (unsigned)st.halvedSaved, st.ranges,
                  st.thinned ? " (one zone per key)" : st.reduced ? " (one velocity layer)" : "", (long long)(esp_log_timestamp() - t0),
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         Lock l;

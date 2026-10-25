@@ -9,6 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <string>
 #include <vector>
 
 #include "check.h"
@@ -133,7 +134,8 @@ static void name20(std::vector<uint8_t> &v, const char *n)
 
 static const int SMP_LEN = 4000, SMP_GAP = 46, SMP_N = 5;
 
-static std::vector<uint8_t> buildSf2(bool layered = false)
+// rate: sample rate of every sample; oddLoop: 101-sample loops (too short and odd to halve)
+static std::vector<uint8_t> buildSf2(bool layered = false, uint32_t rate = 22050, bool oddLoop = false)
 {
     std::vector<uint8_t> smpl;
     for (int s = 0; s < SMP_N; s++) {
@@ -178,8 +180,8 @@ static std::vector<uint8_t> buildSf2(bool layered = false)
         const uint32_t st = (uint32_t)s * (SMP_LEN + SMP_GAP);
         char nm[20];
         snprintf(nm, sizeof(nm), "Sine%d", s);
-        name20(shdr, nm), le32v(shdr, st), le32v(shdr, st + SMP_LEN), le32v(shdr, st + 1000), le32v(shdr, st + 1000 + 100 * 20 / (s + 1) * (s + 1) / 1);
-        le32v(shdr, 22050), shdr.push_back(60), shdr.push_back(0), le16(shdr, 0), le16(shdr, 1);
+        name20(shdr, nm), le32v(shdr, st), le32v(shdr, st + SMP_LEN), le32v(shdr, st + 1000), le32v(shdr, st + 1000 + (oddLoop ? 101 : 2000));
+        le32v(shdr, rate), shdr.push_back(60), shdr.push_back(0), le16(shdr, 0), le16(shdr, 1);
     }
     name20(shdr, "EOS"), le32v(shdr, 0), le32v(shdr, 0), le32v(shdr, 0), le32v(shdr, 0), le32v(shdr, 0), shdr.push_back(0), shdr.push_back(0), le16(shdr, 0), le16(shdr, 0);
 
@@ -280,7 +282,7 @@ static void testSelective()
     CHECK(s.prepare(sg, [](void *u, int pct) { Prog *p = (Prog *)u; *p->last = pct; (*p->calls)++; }, &pr) == Sf::LoadErr::OK);
     CHECK(s.loaded() && lastPct == 100 && calls >= 3);
     const Sf::PrepStats st = s.stats();
-    CHECK(st.presets == 2 && st.regions == 4 && !st.reduced);
+    CHECK(st.presets == 2 && st.regions == 4 && !st.reduced && st.halved == 0);   // 22.05 kHz: nothing to halve
     CHECK(st.bytes >= 4u * SMP_LEN * 2 && st.bytes < 4u * (SMP_LEN + SMP_GAP + 2048) * 2);
     CHECK(st.bytes < (uint32_t)SMP_N * (SMP_LEN + SMP_GAP) * 2);
     printf("  mini bank: %u of %zu bytes loaded, %u presets, %u zones, %u reads\n", st.bytes, s.fileSize(), st.presets, st.regions, st.ranges);
@@ -374,6 +376,74 @@ static void testSelective()
     remove(path);
 }
 
+// Relative RMS difference of two renders (same length expected)
+static double relDiff(const std::vector<int16_t> &a, const std::vector<int16_t> &b)
+{
+    const size_t n = a.size() < b.size() ? a.size() : b.size();
+    double d = 0, r = 0;
+    for (size_t i = 0; i < n; i++) d += ((double)a[i] - b[i]) * ((double)a[i] - b[i]), r += (double)a[i] * a[i];
+    return r > 0 ? sqrt(d / r) : 1.0;
+}
+
+// 44.1 kHz bank: samples are decimated 2:1, take half the memory and sound the same (sines far
+// below the filter edge, same pitch incl. the loops); short odd loops keep full rate.
+static void testHalving()
+{
+    const char *path = "/tmp/otr_hb.sf2";
+    Midi::Song sg;
+    const std::vector<uint8_t> mid = buildMidi();
+    CHECK(Midi::parse(mid.data(), mid.size(), sg) == Midi::Err::OK);
+    const Sf::Effects off = {false, 0, false, 0};
+    for (int odd = 0; odd < 2; odd++) {
+        const std::vector<uint8_t> sf = buildSf2(false, 44100, odd != 0);
+        FILE *fp = fopen(path, "wb");
+        CHECK(fp != nullptr);
+        if (!fp) return;
+        fwrite(sf.data(), 1, sf.size(), fp);
+        fclose(fp);
+
+        Sf::Synth ref, h;
+        ref.setEffects(off), h.setEffects(off);
+        ref.setHalving(false);
+        CHECK(!ref.halving() && h.halving());
+        CHECK(ref.open(path, 22050) == Sf::LoadErr::OK && ref.prepare(sg) == Sf::LoadErr::OK);
+        CHECK(h.open(path, 22050) == Sf::LoadErr::OK && h.prepare(sg) == Sf::LoadErr::OK);
+        const Sf::PrepStats a = ref.stats(), b = h.stats();
+        CHECK(a.halved == 0 && a.halvedSaved == 0 && a.regions == 4 && b.regions == 4);
+        if (!odd) {
+            CHECK(b.halved == 4);   // All four zones
+            CHECK(b.bytes < a.bytes / 2 + 64 && b.bytes > a.bytes / 2 - 64);
+        } else {
+            CHECK(b.halved == 2);   // Drums (no loop) halved, piano (101-sample loop) kept
+            CHECK(b.bytes < a.bytes * 4 / 5 && b.bytes > a.bytes / 2);
+        }
+        CHECK(b.halvedSaved > 0 && (odd || a.bytes - b.bytes == b.halvedSaved));   // Odd: blocks split differently
+        const std::vector<int16_t> x = renderSong(ref, sg, 30), y = renderSong(h, sg, 30);
+        const double rd = relDiff(x, y);
+        printf("  halving (%s loops): %u -> %u bytes, %u zones halved, rel. diff %.4f\n", odd ? "odd 101" : "2000",
+               a.bytes, b.bytes, b.halved, rd);
+        CHECK(x.size() == y.size() && rmsOf(y.data(), y.size()) > 300);
+        CHECK(rd < 0.03);
+
+        // A note held in its loop for 3 s keeps the same pitch (no drift between the two)
+        ref.reset(), h.reset();
+        ref.midi(0x90, 60, 100), h.midi(0x90, 60, 100);
+        std::vector<int16_t> lx, ly;
+        int32_t acc[256];
+        for (int k = 0; k < 22050 * 3 / 256; k++) {
+            memset(acc, 0, sizeof(acc));
+            ref.render(acc, 256, 256);
+            for (int32_t v : acc) lx.push_back((int16_t)v);
+            memset(acc, 0, sizeof(acc));
+            h.render(acc, 256, 256);
+            for (int32_t v : acc) ly.push_back((int16_t)v);
+        }
+        const std::vector<int16_t> tx(lx.end() - 22050 / 2, lx.end()), ty(ly.end() - 22050 / 2, ly.end());
+        CHECK(rmsOf(tx.data(), tx.size()) > 300 && relDiff(tx, ty) < 0.05);
+    }
+    remove(path);
+}
+
 static void testEffects()
 {
     const int RATE = 22050;
@@ -437,31 +507,60 @@ static void testRender(const char *font, const char *song, const char *out)
     CHECK(le == Sf::LoadErr::OK);
     if (le != Sf::LoadErr::OK) return;
     const double tOpen = (double)(b.tv_sec - a.tv_sec) + (double)(b.tv_nsec - a.tv_nsec) / 1e9;
+    auto info = [](const Sf::PrepStats &st) {
+        return st.thinned ? " (one zone per key)" : st.reduced ? " (one velocity layer)" : "";
+    };
+
+    // Without halving first (bit-identical to the full load when the file fits in RAM)
+    const Sf::Effects off = {false, 0, false, 0};
+    s.setHalving(false);
+    const Sf::LoadErr leFull = s.prepare(sg);
+    const Sf::PrepStats stFull = s.stats();
+    if (leFull == Sf::LoadErr::OK)
+        printf("  bank %.1f MB, %d presets: hydra %.3f s; no halving: %.2f MB%s\n", (double)s.fileSize() / 1048576.0,
+               s.presetCount(), tOpen, stFull.bytes / 1048576.0, info(stFull));
+    else
+        printf("  bank %.1f MB, %d presets: hydra %.3f s; no halving: %s\n", (double)s.fileSize() / 1048576.0,
+               s.presetCount(), tOpen, Sf::loadErrName(leFull));
+    std::vector<int16_t> plain;   // First 60 s without halving (for the comparison)
+    if (leFull == Sf::LoadErr::OK) {
+        s.setEffects(off);
+        if (s.fileSize() <= Sf::MAX_SF2 && !stFull.reduced) {
+            Sf::Synth full;
+            full.setEffects(off);
+            if (full.load(font, RATE) == Sf::LoadErr::OK) {
+                const std::vector<int16_t> x = renderSong(full, sg, 30), y = renderSong(s, sg, 30);
+                const bool same = x.size() == y.size() && memcmp(x.data(), y.data(), x.size() * 2) == 0;
+                CHECK(same);
+                printf("  selective == full (first %.0f s): %s\n", (double)x.size() / RATE, same ? "identical" : "DIFFERENT");
+            }
+        }
+        plain = renderSong(s, sg, 60);
+        if (out) {
+            std::string o = std::string(out) + ".nohalf.wav";
+            wav(o.c_str(), plain, RATE);
+        }
+    }
+
+    // With halving (the device default)
+    s.setHalving(true);
+    clock_gettime(CLOCK_MONOTONIC, &b);
     le = s.prepare(sg);
     clock_gettime(CLOCK_MONOTONIC, &a);
     const double tPrep = (double)(a.tv_sec - b.tv_sec) + (double)(a.tv_nsec - b.tv_nsec) / 1e9;
-    CHECK(le == Sf::LoadErr::OK);
+    CHECK(le == Sf::LoadErr::OK || le == Sf::LoadErr::TOO_BIG);   // TOO_BIG is a measurement result here
     if (le != Sf::LoadErr::OK) {
         printf("  %s: prepare failed: %s\n", song, Sf::loadErrName(le));
         return;
     }
     const Sf::PrepStats &st = s.stats();
-    printf("  bank %.1f MB, %d presets: hydra %.3f s; song needs %.2f MB (%.1f%%), %u presets, %u zones, %u reads%s, %.3f s\n",
-           (double)s.fileSize() / 1048576.0, s.presetCount(), tOpen, st.bytes / 1048576.0, 100.0 * st.bytes / (double)s.fileSize(),
-           st.presets, st.regions, st.ranges, st.thinned ? " (one zone per key)" : st.reduced ? " (one velocity layer)" : "", tPrep);
-
-    // Bit-identical to the full load (first 30 s, effects off) when the file fits in RAM
-    const Sf::Effects off = {false, 0, false, 0};
-    if (s.fileSize() <= Sf::MAX_SF2 && !st.reduced) {
-        Sf::Synth full;
-        full.setEffects(off);
+    printf("  halving: song needs %.2f MB (%.1f%%), %u presets, %u zones (%u halved, %.2f MB saved), %u reads%s, %.3f s\n",
+           st.bytes / 1048576.0, 100.0 * st.bytes / (double)s.fileSize(), st.presets, st.regions, st.halved,
+           st.halvedSaved / 1048576.0, st.ranges, info(st), tPrep);
+    if (!plain.empty() && !st.reduced && !stFull.reduced) {
         s.setEffects(off);
-        if (full.load(font, RATE) == Sf::LoadErr::OK) {
-            const std::vector<int16_t> x = renderSong(full, sg, 30), y = renderSong(s, sg, 30);
-            const bool same = x.size() == y.size() && memcmp(x.data(), y.data(), x.size() * 2) == 0;
-            CHECK(same);
-            printf("  selective == full (first %.0f s): %s\n", (double)x.size() / RATE, same ? "identical" : "DIFFERENT");
-        }
+        const std::vector<int16_t> y = renderSong(s, sg, 60);
+        printf("  halved vs not (first 60 s, dry): rel. diff %.3f\n", relDiff(plain, y));
     }
 
     // Whole song: dry, then with reverb + chorus
@@ -477,7 +576,7 @@ static void testRender(const char *font, const char *song, const char *out)
                pass ? "fx" : "dry", songSecs, secs, 100.0 * secs / songSecs, rms, clip);
         CHECK(rms > 300);
         CHECK(clip < (long)pcm.size() / 1000);
-        if (out && pass == 1) wav(out, pcm, RATE);
+        if (out && pass == 0) wav(out, std::vector<int16_t>(pcm.begin(), pcm.begin() + (pcm.size() < (size_t)RATE * 60 ? pcm.size() : (size_t)RATE * 60)), RATE);
     }
 }
 
@@ -487,6 +586,7 @@ int main(int argc, char **argv)
     testProbe();
     testEffects();
     testSelective();
+    testHalving();
     if (argc >= 3) testRender(argv[1], argv[2], argc >= 4 ? argv[3] : nullptr);
     CHECK_DONE();
 }
