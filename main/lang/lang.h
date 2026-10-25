@@ -410,7 +410,39 @@
     X(WEB_ERR_FS_NOTEMPTY) \
     X(WEB_ERR_FS_IO) \
     X(WEB_ERR_FS_FULL) \
-    X(WEB_ERR_FS_ROOT)
+    X(WEB_ERR_FS_ROOT) \
+    X(MENU_KARAOKE) \
+    X(MENU_SUB_KARAOKE) \
+    X(KARA_FONT_LOADING) \
+    X(KARA_FONT_READY) \
+    X(KARA_SONGS) \
+    X(KARA_NO_SONGS) \
+    X(KARA_SILENT) \
+    X(KARA_WAIT_FONT) \
+    X(KARA_ERR_NO_SD) \
+    X(KARA_ERR_NO_SF2) \
+    X(KARA_ERR_SF2_BIG) \
+    X(KARA_ERR_SF2_BAD) \
+    X(KARA_ERR_MEMORY) \
+    X(KARA_ERR_NO_FILE) \
+    X(KARA_ERR_FILE_BIG) \
+    X(KARA_ERR_FILE_BAD) \
+    X(KARA_NO_LYRICS) \
+    X(KARA_END) \
+    X(KARA_BTN_SETTINGS) \
+    X(KARA_MELODY_ON) \
+    X(KARA_MELODY_OFF) \
+    X(KARA_BTN_TRACK) \
+    X(KARA_TEMPO) \
+    X(KARA_KEY) \
+    X(KARA_VOLUME) \
+    X(KARA_PICK_MELODY) \
+    X(KARA_PICK_HINT) \
+    X(KARA_CH_NONE) \
+    X(KARA_CH_FMT) \
+    X(KARA_AUTO) \
+    X(KARA_MATCH) \
+    X(KARA_SAVED_NOTE)
 // clang-format on
 
 enum class Str : uint16_t {

@@ -4,7 +4,17 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.12.0 – new partition layout **B1**: 2 × 5 MB app slots (OTA) + 5.9 MB FFat (was 2 × 3 MB +
+> **Status:** v0.13.0 – **karaoke mode**: new pure-C++ components `otr_midi` (SMF/.kar parser, lyrics with
+> syllable timing, melody-track detection, sequencer, per-song registry; 102 host tests) and `otr_synth`
+> (vendored TinySoundFont, patched for 16-bit samples in PSRAM, float filters, fixed-point mono render and voice
+> stealing, max 32 voices). A new gold **Karaoke** card in the menu: song list from `/otr/karaoke`, lyrics on the
+> device with word-by-word highlighting (previous/current/next line), play/pause, seek, tempo 50–150 %, key ±12,
+> volume, melody on/off (sing it yourself) and a melody-track picker. Tempo, key and melody track are saved per
+> song in `karaoke.reg` (keyed by CRC32 + size, survives renames). The synth runs in the audio mixer task through
+> a new external-source hook (dice/adventure music is paused, not lost). A SoundFont (`.sf2`, max 7 MB) is needed
+> in `/otr/sf2` for sound – without one the lyrics play silently. Same B1 partitions as v0.12.0 → plain OTA.
+> **Not hardware-tested yet.** Microphone + scoring is planned next ([docs/MUSIC_KARAOKE_PLAN.md](docs/MUSIC_KARAOKE_PLAN.md)).
+> v0.12.0 – new partition layout **B1**: 2 × 5 MB app slots (OTA) + 5.9 MB FFat (was 2 × 3 MB +
 > 9 MB), and the firmware is now built with size optimisation (`-Os`): 1.77 MB, 34 % of a slot.
 > **Requires a one-time USB flash of the merged image; FFat is reformatted (players and adventure saves on FFat are
 > lost).** Not hardware-tested yet.
@@ -39,6 +49,9 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
+- **Karaoke (v0.13.0, not hardware-tested)** – plays `.mid`/`.kar` from the SD card through a SoundFont synth
+  (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
+  per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
 - **Sound (v0.9.0, hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
   channels, built-in chiptune synth (square/triangle/noise, ADSR, MML tunes). Any sound can be replaced by a WAV on
   the SD card. Volumes and on/off on the device and in the web settings.
@@ -55,7 +68,14 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 /sdcard/otr/music/adventure.wav     looping music (adventure); dice.wav = menus and dice games
 /sdcard/otr/adventure/saves/        adventure saves (fallback: internal flash)
 /sdcard/otr/adventure/maps/         reserved for future maps
+/sdcard/otr/karaoke/                karaoke songs (.mid / .kar, max 1 MB each); "Artist_Title.mid" gives artist + title
+/sdcard/otr/karaoke/karaoke.reg     per-song settings (melody track, key, tempo) – created automatically, plain text
+/sdcard/otr/sf2/                    SoundFont for karaoke (.sf2, max 7 MB); default.sf2 is preferred, else the first .sf2
 ```
+
+SoundFont: not included (licence and size). A good fit is **TimGM6mb.sf2** (~5.7 MB, GPL v2):
+<https://github.com/arbruijn/TimGM6mb/raw/master/TimGM6mb.sf2> – upload it to `/otr/sf2/` with the web file browser.
+It is loaded into PSRAM when the karaoke menu opens (a few seconds) and freed when you leave.
 
 WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effects are cached in PSRAM
 (max ~2 MB total); music is streamed. Missing file = built-in tone version.
@@ -242,6 +262,8 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.c
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_story.cpp components/otr_story/*.cpp -o tests/test_story && ./tests/test_story   # dialogue engine + village script
 g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o tests/test_advlive && ./tests/test_advlive   # adventure live snapshot + JSON
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_midi/include -Itests tests/test_midi.cpp components/otr_midi/*.cpp -o tests/test_midi && ./tests/test_midi [file.mid ...]   # MIDI/KAR parser, lyrics, melody, registry
+g++ -std=c++17 -Wall -Wextra -O2 -Icomponents/otr_midi/include -Icomponents/otr_synth/include -Itests tests/test_sfsynth.cpp components/otr_synth/otr_synth.cpp components/otr_midi/*.cpp -o tests/test_sfsynth && ./tests/test_sfsynth font.sf2 song.mid [out.wav]   # SF2 synth render
 ```
 
 ## Flashing and updating

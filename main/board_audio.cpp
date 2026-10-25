@@ -13,6 +13,7 @@
 #include "driver/i2s_std.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -23,7 +24,7 @@ namespace Audio {
 
 namespace {
 
-constexpr int BLOCK = 256;               // Samples per mixer block (11.6 ms)
+constexpr int BLOCK = BLOCK_SAMPLES;     // Samples per mixer block (11.6 ms)
 constexpr int FX_CHANNELS = 4;
 constexpr uint32_t MAX_CLIP_BYTES = 2u * 1024 * 1024;   // Raw WAV data limit for effects
 constexpr uint8_t DAC_VOL = 0xBF;        // 0 dB; software gains do the rest
@@ -69,6 +70,12 @@ volatile bool s_soundOn = true;
 volatile int s_sfxGain = 0, s_musicGain = 0;   // Q8
 const char *s_error = "";
 uint32_t s_underruns = 0;
+volatile ExternalRender s_ext = nullptr;
+void *volatile s_extCtx = nullptr;
+volatile int s_extGain = 0;    // Q8, master switch applied
+volatile uint8_t s_extVol = 70;
+volatile uint32_t s_mixSeq = 0;   // Incremented after every mixer block
+uint32_t s_extLoad100 = 0;        // Smoothed load in 1/100 %
 
 // Mixer task state (only touched by the task)
 FxChannel s_fx[FX_CHANNELS];
@@ -353,7 +360,13 @@ void mixerTask(void *)
 
         memset(s_acc, 0, sizeof(s_acc));
         const int sg = s_sfxGain, mg = s_musicGain;
-        if (s_music != Sound::Music::NONE) {
+        const ExternalRender ext = s_ext;
+        if (ext) {
+            const int64_t t0 = esp_timer_get_time();
+            ext(s_acc, BLOCK, s_soundOn ? s_extGain : 0, s_extCtx);
+            const uint32_t pct100 = (uint32_t)((esp_timer_get_time() - t0) * 10000 / (BLOCK * 1000000LL / Synth::RATE));
+            s_extLoad100 = (s_extLoad100 * 15 + pct100) / 16;
+        } else if (s_music != Sound::Music::NONE) {
             if (s_musicFile) renderStream(mg);
             else s_song.render(s_acc, BLOCK, mg);
         }
@@ -376,6 +389,7 @@ void mixerTask(void *)
             if (v < -32768) v = -32768;
             s_out[2 * i] = s_out[2 * i + 1] = (int16_t)v;
         }
+        s_mixSeq = s_mixSeq + 1;
         size_t written = 0;
         TickType_t t0 = xTaskGetTickCount();
         i2s_channel_write(s_tx, s_out, sizeof(s_out), &written, portMAX_DELAY);
@@ -458,7 +472,7 @@ bool begin(i2c_master_bus_handle_t bus)
 
     // 5. Mixer task; it ramps the DAC volume and switches the amplifier on
     s_queue = xQueueCreate(24, sizeof(Msg));
-    if (!s_queue || xTaskCreatePinnedToCore(mixerTask, "audio", 6144, nullptr, 6, nullptr, 0) != pdPASS) {
+    if (!s_queue || xTaskCreatePinnedToCore(mixerTask, "audio", 8192, nullptr, 6, nullptr, 0) != pdPASS) {
         s_error = "mixer task failed";
         ESP_LOGE(TAG, "%s", s_error);
         return false;
@@ -478,6 +492,31 @@ void setVolumes(bool soundOn, uint8_t sfxVol, bool musicOn, uint8_t musicVol)
     s_sfxGain = soundOn ? sfxVol * sfxVol * 512 / 10000 : 0;
     s_musicGain = (soundOn && musicOn) ? musicVol * musicVol * 384 / 10000 : 0;
     s_soundOn = soundOn;
+}
+
+void setExternalVolume(uint8_t vol)
+{
+    if (vol > 100) vol = 100;
+    s_extVol = vol;
+    s_extGain = vol * vol * 512 / 10000;   // Up to 2x the synth level (the SF2 synth has 14 dB headroom)
+}
+
+void setExternal(ExternalRender fn, void *ctx)
+{
+    if (!fn) {
+        s_ext = nullptr;
+        // Wait until the mixer finished a block without the old callback (max ~50 ms)
+        if (s_running) {
+            const uint32_t seq = s_mixSeq;
+            for (int i = 0; i < 10 && (uint32_t)(s_mixSeq - seq) < 2; i++) vTaskDelay(pdMS_TO_TICKS(5));
+        }
+        s_extCtx = nullptr;
+        s_extLoad100 = 0;
+        return;
+    }
+    if (s_extGain == 0 && s_extVol) setExternalVolume(s_extVol);
+    s_extCtx = ctx;
+    s_ext = fn;
 }
 
 void play(Sound::Sfx s)
@@ -500,6 +539,8 @@ Status status()
     for (auto &f : s_fx) st.busyChannels += f.active ? 1 : 0;
     for (auto &c : s_clips) st.filesCached += c.state == 2 ? 1 : 0;
     st.underruns = s_underruns;
+    st.external = s_ext != nullptr;
+    st.externalLoad = (uint8_t)(s_extLoad100 / 100 > 255 ? 255 : s_extLoad100 / 100);
     st.error = s_error;
     return st;
 }

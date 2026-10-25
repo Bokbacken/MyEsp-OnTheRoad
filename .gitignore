@@ -21,3 +21,8 @@ tests/test_adventure
 tests/test_live
 tests/test_story
 tests/test_advlive
+tests/test_midi
+tests/test_sfsynth
+tests/test_audio
+tests/test_fspath
+tests/test_joystick

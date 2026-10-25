@@ -1,6 +1,6 @@
 # Återanvändbara komponenter – status och plan
 
-Senast uppdaterad: 2026-10-25 (v0.11.1).
+Senast uppdaterad: 2026-10-25 (v0.13.0).
 
 Målet är att allt som inte är OnTheRoad-specifikt ska kunna lyftas in i syskonprojekten
 (MyPi-Companion, MyPi-Hotspot) utan ändringar. Regeln: en komponent under `components/` får **inte**
@@ -22,6 +22,8 @@ skickas in som parametrar/callbacks.
 | `my_lvgl` | LVGL 9: tick, task, rekursiv mutex, ritbuffertar (PSRAM eller intern RAM), pekdon via callback | LVGL | – | all UI |
 | `my_ui` | Tema (färger, kort, knappar, msgbox-fonter), fonter med å/ä/ö + symboler, skrollhjulstangentbord (`my_charwheel`, `mypi_kbd_core.h`), textinmatning, **`Theme::debounce()`** (dubbeltryckskydd, ny) | LVGL | `mypi_kbd_core.h` (test_core) | all UI |
 | `otr_story` (v0.11.0) | Dialoger: `Script` (personer, noder, val, villkor, effekter, föremål, uppdrag), `StoryState` (flaggor/räknare/föremål/uppdrag + serialisering), `Dialog`-körare, `validate()`, `StoryHost` för världseffekter; demomanuset Byn (`otr_stories.h`) | ingen (ren C++17) | test_story | äventyret |
+| `otr_midi` (v0.13.0) | MIDI/KAR: SMF-parser, tempokarta, text/lyrics → stavelser och rader, kanalstatistik, melodispårsdetektering, `Player` (sekvenserare: sök, tempo, transponering, tysta kanal), register `karaoke.reg` (CRC32+storlek), artist/titel ur filnamn | ingen (ren C++17) | test_midi | karaoke |
+| `otr_synth` (v0.13.0) | SoundFont-synt: vendrad TinySoundFont (`tsf.h`, MIT) patchad för int16-sampel, float-filter, fixpunkt-mono, röststöld; `SfSynth` tar MIDI-händelser och renderar int16 mono | otr_midi; på enheten `heap` (allokering i PSRAM) | test_sfsynth | karaoke |
 | `otr_engine` | Äventyrsmotorn: `otr_world` (rutnät, terräng/objekt, regler, skatter, sparformat, A*-planerare Pro/Assist), `otr_maps` (inbyggda världar), `otr_joystick.h` (zoner, takt, diagonal) | ingen (ren C++17) | test_adventure, test_joystick | äventyret |
 
 ### Nytt sedan v0.10.0

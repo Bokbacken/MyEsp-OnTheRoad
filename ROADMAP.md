@@ -115,6 +115,23 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.13.0 – Karaoke: MIDI/KAR, SF2-synt, text på enheten 🔧 (ej HW-testad)
+- [x] Ny komponent `otr_midi` (ren C++17): SMF format 0/1, running status, sysex/meta, tempokarta, .kar-text (`@`-taggar, `/` och `\\` som rad/vers) och vanliga lyrics-händelser, stavelser → rader, melodispårsdetektering (textträff, enstämmighet, spårnamn), sekvenserare med sökning/tempo/transponering, register `karaoke.reg`
+- [x] Ny komponent `otr_synth`: vendrad TinySoundFont, patchad för 16-bitars sampel i PSRAM (halva minnet), float-filter (S3 saknar double-FPU), fixpunkts-monorendering, röststöld, max 32 röster, -14 dB headroom
+- [x] `Audio::setExternal()` – extern musikkälla i mixertasken; vanlig musik pausas under karaoke och fortsätter efteråt; CPU-mätning
+- [x] `karaoke.h/.cpp`: låtskanning, asynkron SF2-laddning, sekvenserare + synt i mixertasken bakom mutex, tyst läge utan ljudbank
+- [x] `ui_karaoke`: låtlista (artist/titel ur filnamnet), spelare med föregående/aktuell/nästa rad och ord-för-ord-markering i guld, reglage för sökning, spela/paus, Tempo/ton-ark (tempo 50–150 %, tonart ±12, volym), Melodi på/av, Spår-väljare med statistik per kanal
+- [x] Menyn har sex kort (Karaoke i guld längst ned); 27 nya strängar SV/EN
+- [x] Hosttester: test_midi (102, mot Kents 5 filer) och test_sfsynth (14 per fil; alla 5 renderas, högst 32 röster); alla 15 sviter gröna; bygge 0 fel/0 varningar, appen 1 818 480 B (35 % av 5 MB)
+- [ ] HW-test: SF2-laddning från SD (tid, PSRAM), ljudkvalitet/CPU på S3, textsynk, tempo/ton, melodispårsval sparas, återgång till spelmusik
+- **Obs:** samma partitioner som v0.12.0 → vanlig OTA. Ljudbanken (.sf2) ingår inte; se README
+
+## v0.14.0 – Mikrofon och poäng ⏳ (se docs/MUSIC_KARAOKE_PLAN.md)
+- [ ] ES8311 ADC-ingång (mikrofon), I2S full duplex
+- [ ] Tonhöjdsdetektering (YIN/autokorrelation) på mikrofonen, jämförelse mot melodispåret (oktavokänslig)
+- [ ] Poäng per rad och låt, tonhöjdslinje på skärmen, topplista per låt
+- [ ] Låtar och text i webben (`/karaoke`, live view)
+
 ## v0.12.0 – Partitionslayout B1 och storleksoptimering 🔧 (ej HW-testad)
 - [x] Ny partitionstabell B1: app0/app1 5 MB vardera (OTA), FFat 5,88 MB på 0xA10000, coredump 64 kB (tidigare 2 × 3 MB app + 9 MB FFat)
 - [x] Bygget optimeras för storlek (`-Os`, `CONFIG_COMPILER_OPTIMIZATION_SIZE`): appen 1 768 448 B (34 % av 5 MB), förut 1 934 432 B med `-Og`
@@ -210,9 +227,9 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 ## Planerat – bibliskt äventyr (se docs/BIBLE_ADVENTURE_PLAN.md)
 - [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (HW-testad av Kent)
 - [x] v0.11.1 – Live view för äventyret på webben (`/adventure`, ej HW-testad)
-- [ ] v0.13.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
-- [ ] v0.13.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
-- [ ] v0.14+ – kapitel 2–6, manus från SD, engelska
+- [ ] v0.15.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
+- [ ] v0.15.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
+- [ ] v0.16+ – kapitel 2–6, manus från SD, engelska
 
 ## Planerat – utbrytning av komponenter (se docs/COMPONENTS.md)
 - [ ] `my_audio` (synt/mixer + ES8311), `my_sd` + `my_fsweb` (SD + filbläddrare), `my_touch`-filter, numpad till `my_ui`, `my_i18n`

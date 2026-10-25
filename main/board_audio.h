@@ -29,6 +29,8 @@ struct Status {
     uint8_t busyChannels;
     uint8_t filesCached;  // Effect WAVs loaded from SD
     uint32_t underruns;   // Mixer blocks that were late (DMA ran dry)
+    bool external;        // An external music source (karaoke) is active
+    uint8_t externalLoad; // Its render time in % of a mixer block (smoothed)
     const char *error;    // Last error ("" if none)
 };
 
@@ -42,6 +44,15 @@ void play(Sound::Sfx s);
 void music(Sound::Music m);          // Sound::Music::NONE stops; same as current = keeps playing
 void stopMusic();
 void invalidateFiles();              // Files under /sdcard/otr changed: reload WAVs on next use
+
+// External music source (karaoke synth). While set it replaces the music channel (the game music
+// is paused, not forgotten). The callback runs in the mixer task and adds n mono samples (16-bit
+// scale) to acc; gainQ8 is the master switch * setExternalVolume(). nullptr removes it; the call
+// returns once the mixer no longer runs the old callback.
+using ExternalRender = void (*)(int32_t *acc, int n, int gainQ8, void *ctx);
+void setExternal(ExternalRender fn, void *ctx);
+void setExternalVolume(uint8_t vol);   // 0..100
+constexpr int BLOCK_SAMPLES = 256;      // Samples per mixer call (at Synth::RATE)
 
 Status status();
 
