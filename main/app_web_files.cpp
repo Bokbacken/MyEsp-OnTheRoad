@@ -9,6 +9,7 @@
 //   POST /api/fs/rename   root, path, name, pin     new name in the same directory
 //   POST /api/fs/mkdir    root, path, pin           creates one directory
 //   POST /api/sd/remount  pin                       unmount + mount the card again
+//   v0.13.7: /api/files (paginated list), /api/files/mkdir, /api/files/bulk (DELETE), /api/files/move
 #include "app_web_files.h"
 
 #include <dirent.h>
@@ -19,15 +20,20 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <string>
+
 #include "board_audio.h"
 #include "board_sd.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "files_page.h"
 #include "fs_path.h"
+#include "kara_index.h"
 #include "lang.h"
 #include "my_log.h"
 #include "my_storage.h"
 #include "my_web.h"
+#include "web_util.h"
 
 static const char *TAG = "webfs";
 
@@ -415,6 +421,416 @@ static esp_err_t handleRemount(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
+// ----------------------------------------------------------------------------------------
+// v0.13.7 file manager API (JSON bodies; changing requests need the admin PIN as "pin" query
+// parameter or X-Admin-Pin header):
+//   GET    /api/files?root=&dir=&page=1&limit=50&sort=name|size|mtime&order=asc|desc
+//   POST   /api/files/mkdir  {"root","path"}               creates missing parents too
+//   DELETE /api/files/bulk   {"root","paths":[..]}         files and folders (recursive)
+//   POST   /api/files/move   {"root","paths":[..],"dest"}  dest is created when missing
+// ----------------------------------------------------------------------------------------
+namespace {
+
+constexpr int LIST_MAX = 4000;      // Entries read from one directory
+constexpr int BULK_MAX = 500;       // Paths per bulk request
+constexpr size_t BODY_MAX = 64 * 1024;
+constexpr int TREE_DEPTH = 16;
+
+// Resolves a root name + user path from a JSON request. Returns an HTTP code (0 = ok).
+int resolveTarget(const char *root, const char *user, Target &t)
+{
+    if (!root || !*root || !strcmp(root, "sd")) t.sd = true;
+    else if (!strcmp(root, "ffat")) t.sd = false;
+    else return 400;
+    t.root = t.sd ? BoardSd::MOUNT : MyFat::basePath();
+    if (!user || !FsPath::resolve(t.root, user, t.path, sizeof(t.path))) return 400;
+    if (!rootMounted(t.sd)) return 503;
+    return 0;
+}
+
+esp_err_t codeError(httpd_req_t *r, int code)
+{
+    if (code == 503) return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_FS_NOCARD));
+    return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+}
+
+const char *jsonStr(const cJSON *o, const char *key)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
+    return cJSON_IsString(v) ? v->valuestring : nullptr;
+}
+
+// mkdir -p below the root (each step takes the SD lock separately)
+int mkdirs(const Target &t)
+{
+    char p[PATH_CAP];
+    snprintf(p, sizeof(p), "%s", t.path);
+    const size_t rootLen = strlen(t.root);
+    for (size_t i = rootLen + 1;; i++) {
+        const char c = p[i];
+        if (c != '/' && c != 0) continue;
+        p[i] = 0;
+        {
+            Lock lk(t.sd);
+            struct stat st = {};
+            if (stat(p, &st) == 0) {
+                if (!S_ISDIR(st.st_mode)) return EEXIST;
+            } else if (mkdir(p, 0775) != 0 && errno != EEXIST) {
+                return errno ? errno : EIO;
+            }
+        }
+        if (c == 0) break;
+        p[i] = '/';
+    }
+    return 0;
+}
+
+// Recursive delete. Child names are collected before recursing so no directory is modified
+// while it is being read; the SD lock is held per step so audio streaming keeps going.
+int removeTree(bool sd, const char *path, int depth)
+{
+    struct stat st = {};
+    {
+        Lock lk(sd);
+        if (stat(path, &st) != 0) return ENOENT;
+        if (!S_ISDIR(st.st_mode)) return unlink(path) == 0 ? 0 : (errno ? errno : EIO);
+    }
+    if (depth > TREE_DEPTH) return ENOTEMPTY;
+    for (;;) {
+        std::string names;   // '\0'-separated batch
+        int batch = 0;
+        {
+            Lock lk(sd);
+            DIR *d = opendir(path);
+            if (!d) return errno ? errno : EIO;
+            struct dirent *e;
+            while (batch < 64 && (e = readdir(d)) != nullptr) {
+                if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+                names.append(e->d_name);
+                names += '\0';
+                batch++;
+            }
+            closedir(d);
+        }
+        if (!batch) break;
+        char *child = (char *)psAlloc(PATH_CAP + 260);
+        if (!child) return ENOMEM;
+        int err = 0;
+        for (size_t i = 0; i < names.size() && !err; i += strlen(names.c_str() + i) + 1) {
+            if ((size_t)snprintf(child, PATH_CAP + 260, "%s/%s", path, names.c_str() + i) >= PATH_CAP + 260) {
+                err = ENAMETOOLONG;
+                break;
+            }
+            err = removeTree(sd, child, depth + 1);
+        }
+        free(child);
+        if (err) return err;
+    }
+    Lock lk(sd);
+    return rmdir(path) == 0 ? 0 : (errno ? errno : EIO);
+}
+
+const char *errName(int err)
+{
+    switch (err) {
+    case ENOENT: return tr(Str::WEB_ERR_FS_NOTFOUND);
+    case EEXIST: return tr(Str::WEB_ERR_FS_EXISTS);
+    case ENOTEMPTY: return tr(Str::WEB_ERR_FS_NOTEMPTY);
+    case ENOSPC: return tr(Str::WEB_ERR_FS_FULL);
+    case EINVAL: return tr(Str::WEB_ERR_FS_PATH);
+    default: return tr(Str::WEB_ERR_FS_IO);
+    }
+}
+
+// Answer {ok, done, failed:[{path,error}]}
+esp_err_t bulkAnswer(httpd_req_t *r, int done, cJSON *failed)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", cJSON_GetArraySize(failed) == 0);
+    cJSON_AddNumberToObject(o, "done", done);
+    cJSON_AddItemToObject(o, "failed", failed);
+    return MyWeb::sendJson(r, 200, o);
+}
+
+void addFail(cJSON *failed, const char *path, int err)
+{
+    cJSON *f = cJSON_CreateObject();
+    cJSON_AddStringToObject(f, "path", path ? path : "");
+    cJSON_AddStringToObject(f, "error", errName(err));
+    cJSON_AddItemToArray(failed, f);
+}
+
+}  // namespace
+
+static esp_err_t handleFiles(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    char root[8] = "sd", dir[PATH_CAP] = "/", sortS[8] = "name", order[8] = "asc";
+    if (q.has("root")) q.get("root", root, sizeof(root));
+    if (q.has("dir") && !q.get("dir", dir, sizeof(dir))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    if (q.has("sort")) q.get("sort", sortS, sizeof(sortS));
+    if (q.has("order")) q.get("order", order, sizeof(order));
+    long page = 1, limit = 50;
+    bool bad = false;
+    q.getInt("page", 1, 100000, page, bad);
+    q.getInt("limit", 1, 500, limit, bad);
+    if (bad) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    const bool sd = strcmp(root, "ffat") != 0;
+    if (!rootMounted(sd)) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddBoolToObject(o, "ok", true);
+        cJSON_AddStringToObject(o, "root", sd ? "sd" : "ffat");
+        cJSON_AddStringToObject(o, "path", "/");
+        cJSON_AddBoolToObject(o, "mounted", false);
+        cJSON_AddArrayToObject(o, "entries");
+        return MyWeb::sendJson(r, 200, o);
+    }
+    Target *t = (Target *)psAlloc(sizeof(Target));
+    if (!t) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    const int code = resolveTarget(root, dir, *t);
+    if (code) {
+        free(t);
+        return codeError(r, code);
+    }
+    KaraIndex::PsVector<FilesPage::Item> items;
+    KaraIndex::PsVector<char> pool;
+    int err = 0;
+    bool truncated = false;
+    {
+        char *full = (char *)psAlloc(PATH_CAP + 260);
+        Lock lk(t->sd);
+        DIR *d = full ? opendir(t->path) : nullptr;
+        if (!full) err = ENOMEM;
+        else if (!d) err = errno ? errno : ENOENT;
+        else {
+            struct dirent *e;
+            while ((e = readdir(d)) != nullptr) {
+                if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+                if ((int)items.size() >= LIST_MAX) {
+                    truncated = true;
+                    break;
+                }
+                snprintf(full, PATH_CAP + 260, "%s/%s", t->path, e->d_name);
+                struct stat st = {};
+                const bool okStat = stat(full, &st) == 0;
+                FilesPage::Item it;
+                it.name = (uint32_t)pool.size();
+                pool.insert(pool.end(), e->d_name, e->d_name + strlen(e->d_name) + 1);
+                it.dir = okStat ? S_ISDIR(st.st_mode) : e->d_type == DT_DIR;
+                it.size = it.dir ? 0 : (uint64_t)st.st_size;
+                it.mtime = okStat ? (int64_t)st.st_mtime : 0;
+                items.push_back(it);
+            }
+            closedir(d);
+        }
+        free(full);
+    }
+    if (err) {
+        free(t);
+        return ioError(r, err);
+    }
+    FilesPage::sortItems(items, pool.data(), FilesPage::parseSort(sortS), !strcmp(order, "desc"));
+    const FilesPage::Page pg = FilesPage::pageOf((int)items.size(), (int)page, (int)limit);
+    int dirs = 0;
+    uint64_t bytes = 0;
+    for (const FilesPage::Item &it : items) {
+        dirs += it.dir;
+        bytes += it.size;
+    }
+    std::string o;
+    o.reserve(256 + (size_t)pg.count * 96);
+    o += "{\"ok\":true,\"root\":";
+    WebUtil::appendStr(o, t->sd ? "sd" : "ffat");
+    o += ",\"path\":";
+    WebUtil::appendStr(o, relPath(*t));
+    o += ",\"mounted\":true";
+    uint64_t total, freeB;
+    if (t->sd) {
+        const BoardSd::Info i = BoardSd::info();
+        total = i.totalBytes;
+        freeB = i.freeBytes;
+    } else {
+        total = MyFat::totalBytes();
+        const uint64_t used = MyFat::usedBytes();
+        freeB = total > used ? total - used : 0;
+    }
+    o += ",\"total\":"; WebUtil::appendNum(o, total);
+    o += ",\"free\":"; WebUtil::appendNum(o, freeB);
+    o += ",\"count\":"; WebUtil::appendNum(o, items.size());
+    o += ",\"dirs\":"; WebUtil::appendNum(o, (unsigned)dirs);
+    o += ",\"bytes\":"; WebUtil::appendNum(o, bytes);
+    o += ",\"page\":"; WebUtil::appendNum(o, (unsigned)pg.page);
+    o += ",\"pages\":"; WebUtil::appendNum(o, (unsigned)pg.pages);
+    o += ",\"limit\":"; WebUtil::appendNum(o, (unsigned)limit);
+    o += ",\"truncated\":";
+    o += truncated ? "true" : "false";
+    o += ",\"entries\":[";
+    for (int i = 0; i < pg.count; i++) {
+        const FilesPage::Item &it = items[(size_t)(pg.first + i)];
+        if (i) o += ',';
+        o += "{\"name\":";
+        WebUtil::appendStr(o, pool.data() + it.name);
+        o += it.dir ? ",\"dir\":true" : ",\"dir\":false";
+        o += ",\"size\":"; WebUtil::appendNum(o, it.size);
+        o += ",\"mtime\":"; WebUtil::appendNum(o, it.mtime > 0 ? (unsigned long long)it.mtime : 0);
+        o += '}';
+    }
+    o += "]}";
+    free(t);
+    return WebUtil::sendJsonText(r, o);
+}
+
+static esp_err_t handleFilesMkdir(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    cJSON *j = WebUtil::readJson(r, 2048);
+    if (!j) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    Target t;
+    const int code = resolveTarget(jsonStr(j, "root"), jsonStr(j, "path"), t);
+    cJSON_Delete(j);
+    if (code) return codeError(r, code);
+    if (FsPath::isRoot(t.root, t.path) || !FsPath::validName(baseName(t.path)))
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    {
+        Lock lk(t.sd);
+        struct stat st = {};
+        if (stat(t.path, &st) == 0) return ioError(r, EEXIST);
+    }
+    const int err = mkdirs(t);
+    if (err) return ioError(r, err);
+    changed(t);
+    MyLog::event("files", "mkdir %s", t.path);
+    return MyWeb::sendOk(r);
+}
+
+static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    cJSON *j = WebUtil::readJson(r, BODY_MAX);
+    const cJSON *paths = j ? cJSON_GetObjectItemCaseSensitive(j, "paths") : nullptr;
+    if (!cJSON_IsArray(paths) || cJSON_GetArraySize(paths) < 1 || cJSON_GetArraySize(paths) > BULK_MAX) {
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    }
+    const char *root = jsonStr(j, "root");
+    Target *t = (Target *)psAlloc(sizeof(Target));
+    if (!t) {
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    }
+    cJSON *failed = cJSON_CreateArray();
+    int done = 0;
+    bool any = false, sd = true;
+    const cJSON *p;
+    cJSON_ArrayForEach(p, paths)
+    {
+        const char *user = cJSON_IsString(p) ? p->valuestring : nullptr;
+        const int code = resolveTarget(root, user, *t);
+        if (code == 503) {
+            addFail(failed, user, EIO);
+            break;
+        }
+        if (code || FsPath::isRoot(t->root, t->path)) {
+            addFail(failed, user, EINVAL);
+            continue;
+        }
+        sd = t->sd;
+        const int err = removeTree(t->sd, t->path, 0);
+        if (err) {
+            addFail(failed, user, err);
+            ESP_LOGW(TAG, "bulk delete %s: %d", t->path, err);
+        } else {
+            done++;
+            any = true;
+            MyLog::event("files", "deleted %s", t->path);
+        }
+    }
+    if (any && sd) {
+        BoardSd::refreshUsage();
+        Audio::invalidateFiles();
+    }
+    free(t);
+    cJSON_Delete(j);
+    return bulkAnswer(r, done, failed);
+}
+
+static esp_err_t handleFilesMove(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    cJSON *j = WebUtil::readJson(r, BODY_MAX);
+    const cJSON *paths = j ? cJSON_GetObjectItemCaseSensitive(j, "paths") : nullptr;
+    if (!cJSON_IsArray(paths) || cJSON_GetArraySize(paths) < 1 || cJSON_GetArraySize(paths) > BULK_MAX) {
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    }
+    const char *root = jsonStr(j, "root");
+    Target *dest = (Target *)psAlloc(sizeof(Target));
+    Target *src = (Target *)psAlloc(sizeof(Target));
+    char *to = (char *)psAlloc(PATH_CAP);
+    if (!dest || !src || !to) {
+        free(dest);
+        free(src);
+        free(to);
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    }
+    esp_err_t res;
+    const int code = resolveTarget(root, jsonStr(j, "dest"), *dest);
+    int err = code ? 0 : (FsPath::isRoot(dest->root, dest->path) ? 0 : mkdirs(*dest));
+    if (code) res = codeError(r, code);
+    else if (err) res = ioError(r, err);
+    else {
+        cJSON *failed = cJSON_CreateArray();
+        int done = 0;
+        const cJSON *p;
+        cJSON_ArrayForEach(p, paths)
+        {
+            const char *user = cJSON_IsString(p) ? p->valuestring : nullptr;
+            if (resolveTarget(root, user, *src) || FsPath::isRoot(src->root, src->path) ||
+                FilesPage::isInside(dest->path, src->path)) {   // Also refuses moving a folder into itself
+                addFail(failed, user, EINVAL);
+                continue;
+            }
+            const char *name = baseName(src->path);
+            if ((size_t)snprintf(to, PATH_CAP, "%s/%s", dest->path, name) >= PATH_CAP) {
+                addFail(failed, user, EINVAL);
+                continue;
+            }
+            const size_t parentLen = (size_t)(name - src->path) - 1;
+            if (parentLen == strlen(dest->path) && !strncasecmp(src->path, dest->path, parentLen)) {
+                done++;   // Already there
+                continue;
+            }
+            err = 0;
+            {
+                Lock lk(src->sd);
+                struct stat st = {};
+                if (stat(src->path, &st) != 0) err = ENOENT;
+                else if (stat(to, &st) == 0) err = EEXIST;
+                else if (rename(src->path, to) != 0) err = errno ? errno : EIO;
+            }
+            if (err) addFail(failed, user, err);
+            else {
+                done++;
+                MyLog::event("files", "moved %s -> %s", src->path, to);
+            }
+        }
+        if (done) {
+            changed(*dest);
+            if (dest->sd) Audio::invalidateFiles();   // The source may have been below /sdcard/otr/
+        }
+        res = bulkAnswer(r, done, failed);
+    }
+    free(dest);
+    free(src);
+    free(to);
+    cJSON_Delete(j);
+    return res;
+}
+
 bool registerRoutes()
 {
     bool ok = MyWeb::on("/api/fs/list", HTTP_GET, handleList);
@@ -424,6 +840,10 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/fs/rename", HTTP_POST, handleRename);
     ok &= MyWeb::on("/api/fs/mkdir", HTTP_POST, handleMkdir);
     ok &= MyWeb::on("/api/sd/remount", HTTP_POST, handleRemount);
+    ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
+    ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);
+    ok &= MyWeb::on("/api/files/bulk", HTTP_DELETE, handleFilesBulkDelete);
+    ok &= MyWeb::on("/api/files/move", HTTP_POST, handleFilesMove);
     return ok;
 }
 
