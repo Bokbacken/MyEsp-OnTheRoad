@@ -1,6 +1,6 @@
 # Plan: bibliskt äventyr med dialoger
 
-Status: **plan, ingen kod skriven.** Skrivet 2026-10-25 efter v0.10.0 + HUD-commit `40ea276`.
+Status: **steg A + B byggda i v0.11.0 (ej HW-testade)**, resten plan. Första versionen av planen: Skrivet 2026-10-25 efter v0.10.0 + HUD-commit `40ea276`.
 Uppdaterad 2026-10-25 med Kents riktlinjer för text, namn och utseende (avsnitt 1.2–1.5).
 Bygger vidare på [ENGINE_2D_BRIEF.md](ENGINE_2D_BRIEF.md) (Kroz-inspirerat, vänlig ton) och
 [COMPONENTS.md](COMPONENTS.md) (ny komponent `otr_story`).
@@ -157,20 +157,24 @@ deklarerade. Dessutom stilkontroll av talspråket (1.3), namnkontroll mot bibeln
 
 ## 3. Tekniska steg
 
-### Steg A – `otr_story` (ren C++, hosttestad) · v0.11.0
+### Steg A – `otr_story` (ren C++, hosttestad) · v0.11.0 ✅ (182 hosttester)
 - Datamodell: `Npc`, `Node` (talare, text-id, villkor), `Choice` (text-id, villkor, effekter, nästa),
   `Cond` (flagga, räknare ≥/≤, har föremål, uppdragsstatus), `Effect` (se ovan).
 - `StoryState`: 256 flaggor (bitset), 16 räknare, 32 föremål, 16 uppdrag. Serialiseras.
 - `Dialog`-körare: `start(npc)`, `choices()`, `choose(i)` → nästa nod eller slut + effekter.
 - Hosttester: villkor, effekter, nodval, slutnoder, serialisering och ett litet testmanus.
 
-### Steg B – Motor och UI · v0.11.0
+### Steg B – Motor och UI · v0.11.0 ✅ (byggt, ej HW-testat)
 - `Obj::NPC` med person-id och riktning. Personen blockerar rutan och kan flyttas av effekter. Enkel
   "titta mot spelaren"-animation.
 - Kontextknapp: Slå → **Prata** när man står vänd mot en person.
 - Dialog-UI i `ui_adventure.cpp` (eller egen `ui_dialog.cpp`): dialogruta + porträtt + 4 knappar,
   skrivmaskinseffekt och dialogljud ("blip").
 - Demokarta "Byn" med 3 personer som visar alla funktioner. Ingen bibeltext ännu, bara mekaniken.
+- **Gjort:** Bullbert (bagaren), Fårhild (herden), Gamle Brunolf (gubben vid brunnen) i
+  `components/otr_story/otr_story_village.cpp` (handskrivet manus i C++ tills `story2c.py` finns).
+  Dialogrutan ligger i `ui_adventure.cpp`; berättelsestatus sparas som `.sts` bredvid `.sav`
+  (sparformat v2 kommer i steg C).
 
 ### Steg C – Flera kartor, uppdrag, sparformat v2 · v0.12.0
 - Världar med flera kartor (utgångar/dörrar → annan karta + startpunkt). En karta åt gången i PSRAM.

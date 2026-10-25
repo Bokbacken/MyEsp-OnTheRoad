@@ -7,7 +7,7 @@ idf_component_register(
        "lang/lang.cpp" "lang/lang_sv.cpp" "lang/lang_en.cpp"
   INCLUDE_DIRS "." "lang"
   REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui
-           otr_engine lvgl__lvgl espressif__led_strip espressif__cjson
+           otr_engine otr_story lvgl__lvgl espressif__led_strip espressif__cjson
            esp_lcd esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_driver_spi esp_timer esp_app_format
            esp_driver_i2s esp_driver_sdmmc sdmmc fatfs vfs)
 

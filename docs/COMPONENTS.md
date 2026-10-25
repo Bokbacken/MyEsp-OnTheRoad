@@ -21,6 +21,7 @@ skickas in som parametrar/callbacks.
 | `my_web` | `esp_http_server`-omslag: rutter, gzip-assets, JSON-hjälp, admin-PIN, logg/OTA/omstart-rutter | esp_http_server, cJSON, my_log, my_ota | – | webbsidor |
 | `my_lvgl` | LVGL 9: tick, task, rekursiv mutex, ritbuffertar (PSRAM eller intern RAM), pekdon via callback | LVGL | – | all UI |
 | `my_ui` | Tema (färger, kort, knappar, msgbox-fonter), fonter med å/ä/ö + symboler, skrollhjulstangentbord (`my_charwheel`, `mypi_kbd_core.h`), textinmatning, **`Theme::debounce()`** (dubbeltryckskydd, ny) | LVGL | `mypi_kbd_core.h` (test_core) | all UI |
+| `otr_story` (v0.11.0) | Dialoger: `Script` (personer, noder, val, villkor, effekter, föremål, uppdrag), `StoryState` (flaggor/räknare/föremål/uppdrag + serialisering), `Dialog`-körare, `validate()`, `StoryHost` för världseffekter; demomanuset Byn (`otr_stories.h`) | ingen (ren C++17) | test_story | äventyret |
 | `otr_engine` | Äventyrsmotorn: `otr_world` (rutnät, terräng/objekt, regler, skatter, sparformat, A*-planerare Pro/Assist), `otr_maps` (inbyggda världar), `otr_joystick.h` (zoner, takt, diagonal) | ingen (ren C++17) | test_adventure, test_joystick | äventyret |
 
 ### Nytt sedan v0.10.0
@@ -40,7 +41,7 @@ Ordnat efter nytta. Inget av detta är gjort ännu.
 | 3 | `my_touch` (generisk del) | Släppfiltret + IRQ/poll-logiken i `board_touch.cpp` | Filtret som ren funktion (hosttestbar), kontrollerspecifik läsning som callback | Samma dubbeltrycksproblem kan uppstå på MyPi-Hotspot-skärmen |
 | 4 | `my_ui` utökning | `ui_numpad.*` (PIN-tangentbord), generell msgbox-/dialoghjälp | Ta bort `lang.h`-beroendet (texter in som parametrar) | PIN-inmatning finns även i syskonprojekten |
 | 5 | `my_i18n` | `lang/lang.h`-mekaniken (X-makro, `tr()`, `trp()`, reservspråk) | Strängtabellerna stannar i projektet; bara mekanismen flyttas | Samma språkstöd i alla projekt |
-| 6 | `otr_story` (ny, del av äventyret) | – (ny kod) | Dialogträd, flaggor, uppdrag, NPC:er – ren C++ som `otr_engine` | Se [BIBLE_ADVENTURE_PLAN.md](BIBLE_ADVENTURE_PLAN.md) |
+| 6 | ~~`otr_story`~~ | – | **Klar i v0.11.0** (se tabellen ovan) | Se [BIBLE_ADVENTURE_PLAN.md](BIBLE_ADVENTURE_PLAN.md) |
 | 7 | `dice_engine` | `game_*.cpp`, `game_base.h`, `dice_cup.*`, `game_live.*` | Redan ren C++; behöver bara egen CMake-komponent | Återanvändning i ett annat tärningsprojekt; låg prio |
 
 ### Stannar i projektet

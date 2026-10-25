@@ -40,6 +40,8 @@ const SfxDef SFX[(int)Sfx::COUNT] = {
     {"game_over",  "t100 @3 v13 x2,80,10,120 o4 g8 e8 c8 < g4. s-5 g4"},
     {"checkpoint", "t220 @1 v11 x2,40,8,50 o5 g16 > d16 g8"},
     {"exit",       "t200 @1 v12 x2,40,9,80 o5 c16 e16 g16 > c16 r16 < g16 > c4"},
+    {"talk",       "t300 @2 v6 x0,8,0,6 o6 c64"},
+    {"quest",      "t220 @1 v11 x2,40,8,60 o5 g16 > c16 e16 g8"},
 };
 
 // ---- Adventure theme: 8 bars, C major, 132 bpm --------------------------------------------

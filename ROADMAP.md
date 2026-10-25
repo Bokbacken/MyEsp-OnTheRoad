@@ -1,6 +1,6 @@
 # MyEsp-OnTheRoad – Roadmap
 
-Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat.
+Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat.
 
 ## v0.2.0 – grund ✅ (HW-verifierad)
 - Display ST77922 QSPI, touch, LED, bakgrundsbelysning, bootskärm med självtest
@@ -115,6 +115,18 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Admin: radera enskilda resultat (admin-PIN), nollställ statistik
 - [ ] Export (CSV/JSON) via webben
 
+## v0.11.0 – Dialoger: `otr_story`, personer, Prata, demokarta "Byn" ✅ 🔧 (inte HW-testad)
+- [x] Ny komponent `components/otr_story` (ren C++17, hosttestad): `Script` (personer, noder med varianter, val med villkor/effekter, föremål, uppdrag), `StoryState` (256 flaggor, 16 räknare, 32 föremål, 16 uppdrag, serialisering), `Dialog`-körare (start, val, låsta val med tips, dolda val, slutnoder), `validate()` för manus. `StoryHost` för världseffekter (flytta/ta bort person, öppna, nycklar) och ljud
+- [x] Motorn: `Obj::NPC` med person-id och riktning, blockerar rutan (A* går runt), `EV_TALK` + `talkNpc()`
+- [x] Prata-knapp: Slå byts till **Prata** när hjälten står vänd mot en person. Tryck på en person på kartan → hjälten går till närmaste lediga granncell, vänder sig och börjar prata
+- [x] Dialog-UI: ruta över kartans nedre del med porträtt (48×48, 2× pixelkonst), namn, skrivmaskinstext med "blip" och referensrad; upp till 4 svarsknappar i panelen (låsta val grå med tips), 500 ms dubbeltryckskydd. Tryck på rutan hoppar över skrivmaskinen
+- [x] Personsprites (3 utseenden: bagare, herde, gubbe) som vänder sig mot hjälten
+- [x] Demokarta "Byn" med Bullbert (bagaren), Fårhild (herden) och Gamle Brunolf (gubben vid brunnen): flaggor, räknare, föremål (bulle), uppdrag (frukost), gåta med 4 svar, låsta/dolda val, berättarrad, världseffekter. Ingen bibeltext
+- [x] Berättelsestatus sparas som `.sts` bredvid världens `.sav` (SD först, annars FFat)
+- [x] Ljud `talk` (blip) och `quest`; 12 nya strängar SV/EN
+- [x] Hosttester: test_story 182 (nytt), alla övriga oförändrat gröna; bygge 0 fel/0 varningar
+- [ ] HW-test: Prata-knappen, gå-och-prata, dialogrutans läsbarhet, skrivmaskinstakt, svarsknappar, sparning/återläsning av `.sts`
+
 ## v0.10.0 – Kents HW-feedback på v0.9.0 🔧 (HW-testad av Kent: joystick, hastighet, diagonaler, brobugg, webb-SD-status)
 - [x] Äventyret: toppstatusbaren borttagen, spelvyn börjar på y=0. Ny kontrollpanel (160 px): vänster status (liv, nycklar, båt) + menyknapp (hamburgare) och zoomknapp (-/+), mitten stor centrerad joystick (radie 74, stoppzon 23), höger Slå-ruta, röd energistapel, röd diamant + ädelstenar "11/13", "Dräkt N"
 - [x] Joystick: halverad gånghastighet, std 300/150 ms (sparade v0.9.0-standardvärden 150/75 uppgraderas), intervall 60-600 ms; gånganimationen sträcks till takten (max 260 ms) så hjälten glider jämnt
@@ -179,7 +191,7 @@ Status per 2026-10-24. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [ ] Nästa: SD + ES8311, kartformat/`tmx2otr.py`, dialog, riktiga tilesets
 
 ## Planerat – bibliskt äventyr (se docs/BIBLE_ADVENTURE_PLAN.md)
-- [ ] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn"
+- [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (byggd, ej HW-testad)
 - [ ] v0.12.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
 - [ ] v0.13.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
 - [ ] v0.14+ – kapitel 2–6, manus från SD, engelska

@@ -39,6 +39,8 @@ enum class Sfx : uint8_t {
     GAME_OVER,    // Game over
     CHECKPOINT,   // Checkpoint reached
     EXIT,         // Level exit / win
+    TALK,         // Dialogue: typewriter blip
+    QUEST,        // Dialogue: quest started / done
     COUNT
 };
 

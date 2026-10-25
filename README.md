@@ -4,7 +4,12 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** main after v0.10.0 (`40ea276`, untagged) – touch release filter against double taps, 500 ms
+> **Status:** v0.11.0 – conversations in the adventure: new pure-C++ component `otr_story` (dialogue
+> trees, conditions, effects, flags, items, quests; 182 host tests), people on the map (`Obj::NPC`), the
+> Hit button turns into **Talk** when facing a person, tap a person to walk there and talk, dialogue box
+> with portrait + typewriter text and up to 4 answer buttons, demo world "Byn" (the village) with three
+> people. Story state is saved as `.sts` next to the world save. **Not hardware-tested yet.**
+> Before that (`40ea276`) – touch release filter against double taps, 500 ms
 > guard on every toggle, new adventure HUD (icon + count rows left, carried items right, quick sound on/off,
 > zoom in the hamburger menu); not hardware-tested yet. Next: a Bible adventure with conversations
 > ([docs/BIBLE_ADVENTURE_PLAN.md](docs/BIBLE_ADVENTURE_PLAN.md)).
@@ -212,6 +217,7 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itests/stub tests/test_live.cpp main/game_l
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_story.cpp components/otr_story/*.cpp -o tests/test_story && ./tests/test_story   # dialogue engine + village script
 ```
 
 ## Flashing and updating

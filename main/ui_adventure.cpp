@@ -24,6 +24,8 @@
 #include "my_theme.h"
 #include "otr_joystick.h"
 #include "otr_maps.h"
+#include "otr_stories.h"
+#include "otr_story.h"
 #include "otr_world.h"
 #include "ui_yatzy.h"
 
@@ -69,6 +71,8 @@ enum Spr : uint8_t {
     S_PL_UP, S_PL_RIGHT, S_PL_DOWN, S_PL_LEFT, S_IMPACT,
     S_CHECK, S_CHECK_ON, S_EXIT, S_CRATER, S_FOG, S_FLAG, S_BUSH, S_POTION, S_HEART, S_SUIT, S_LIFE,
     S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
+    S_NPC0,                                   // v0.11.0: people, NPC_LOOKS looks x 4 directions (Dir order)
+    S_NPC_LAST = S_NPC0 + 3 * 4 - 1,
     S_COUNT
 };
 
@@ -83,10 +87,13 @@ enum HudIcon : uint8_t {
 // Lives use the extra-life heart (green, +) so the counter matches the pickup that raises it.
 static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT};
 
+static constexpr int NPC_LOOKS = 3;           // Npc::look 0..2 (baker, shepherd, old man)
+static constexpr int PORTRAIT_PX = 48;        // Dialogue portrait: head + shoulders of the sprite, 2x
 struct Sprites {
     uint16_t big[S_COUNT][SPR * SPR];
     uint16_t small[S_COUNT][(SPR / 2) * (SPR / 2)];
     uint16_t hud[H_COUNT][HUD_PX * HUD_PX];
+    uint16_t portrait[NPC_LOOKS][PORTRAIT_PX * PORTRAIT_PX];
 };
 
 static Sprites *s_spr = nullptr;
@@ -139,6 +146,21 @@ static uint32_t s_lastRev, s_lastFrame;
 static int32_t s_lastCamX = -1, s_lastCamY = -1;
 // Statistics
 static uint32_t s_renderUs, s_renderAccUs, s_renders, s_statT0;
+// Story / dialogue (v0.11.0)
+static const Otr::Story::Script *s_story;     // Script of the current world, nullptr = none
+static Otr::Story::StoryState s_storyState;   // What the conversations changed (saved as .sts)
+static Otr::Story::Dialog s_talk;
+static int s_talkNum;                         // Person being talked to (map number), 0 = none
+static int s_walkTalkNum;                     // Tap on a person: walk there, then talk to it
+static int s_pendingChoice = -2;              // Picked answer, handled in the next tick (-1 = close)
+static lv_obj_t *s_talkBox, *s_talkPortrait, *s_talkName, *s_talkText, *s_talkRef, *s_talkPanel;
+static lv_obj_t *s_hitBtn;                    // Slå / Prata
+static bool s_hitTalk;
+static uint32_t s_hitTapMs, s_choiceTapMs;
+static const char *s_twText;                  // Typewriter: full text, bytes shown, next char time
+static int s_twLen, s_twPos, s_twChars;
+static uint32_t s_twNext;
+static char s_twBuf[4 * Otr::Story::MAX_TEXT_CHARS + 4];
 
 static uint32_t nowMs() { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -304,7 +326,21 @@ static void artLava(uint16_t *s, int frame)
     }
 }
 
-static void artPlayer(uint16_t *s, Dir d)
+// A person: the hero (look -1) or a villager (Npc::look 0..NPC_LOOKS-1). Same body, own colours
+// and one detail each (baker's hat, shepherd's crook, old man's beard).
+struct PersonLook {
+    uint8_t tr, tg, tb;   // Tunic (shaded left -> right)
+    uint8_t hr, hg, hb;   // Hair
+    uint8_t extra;        // 0 none, 1 chef's hat, 2 crook, 3 beard
+};
+static constexpr PersonLook HERO_LOOK = {255, 150, 58, 92, 58, 34, 0};
+static constexpr PersonLook NPC_LOOK[NPC_LOOKS] = {
+    {240, 236, 226, 150, 96, 52, 1},    // Baker: white clothes, chef's hat
+    {104, 176, 86, 214, 170, 86, 2},    // Shepherd: green tunic, fair hair, crook
+    {136, 98, 160, 206, 206, 212, 3},   // Old man: purple robe, grey hair, beard
+};
+
+static void artPerson(uint16_t *s, Dir d, const PersonLook &lk)
 {
     fillKey(s);
     // Shadow
@@ -313,17 +349,25 @@ static void artPlayer(uint16_t *s, Dir d)
             const float dx = (x - 15.5f) / 8.f, dy = (y - 28.f) / 2.5f;
             if (dx * dx + dy * dy <= 1.f) px(s, x, y, rgb(20, 40, 24));
         }
-    // Body (orange tunic) + belt
+    // Crook behind the body when seen from the front / back
+    const uint16_t wood = rgb(120, 78, 40);
+    const int crookX = d == Dir::LEFT ? 5 : 26;
+    if (lk.extra == 2) {
+        line(s, crookX, 6, crookX, 29, wood, 2);
+        line(s, crookX, 6, crookX + (d == Dir::LEFT ? 3 : -3), 3, wood, 2);
+        line(s, crookX + (d == Dir::LEFT ? 3 : -3), 3, crookX + (d == Dir::LEFT ? 5 : -5), 5, wood, 2);
+    }
+    // Body (tunic) + belt
     for (int y = 14; y < 28; y++)
         for (int x = 9; x < 23; x++) {
             const float dx = (x - 15.5f) / 7.f;
-            if (y > 16 || dx * dx < 0.6f) px(s, x, y, rgb(255 - (x - 9) * 4, 150 - (x - 9) * 3, 58));
+            if (y > 16 || dx * dx < 0.6f) px(s, x, y, rgb(lk.tr - (x - 9) * 4, lk.tg - (x - 9) * 3, lk.tb - (x - 9) * (lk.extra ? 2 : 0)));
         }
-    rect(s, 9, 22, 22, 23, rgb(90, 56, 30));
+    rect(s, 9, 22, 22, 23, lk.extra == 1 ? rgb(200, 196, 186) : rgb(90, 56, 30));
     // Head
     disc(s, 15.5f, 10.f, 6.5f, rgb(244, 200, 160));
     // Hair
-    const uint16_t hair = rgb(92, 58, 34);
+    const uint16_t hair = rgb(lk.hr, lk.hg, lk.hb);
     for (int y = 3; y < 17; y++)
         for (int x = 8; x < 24; x++) {
             const float dx = x + 0.5f - 15.5f, dy = y + 0.5f - 10.f;
@@ -335,6 +379,15 @@ static void artPlayer(uint16_t *s, Dir d)
             if (d == Dir::RIGHT && x < 13) on = true;
             if (on) px(s, x, y, hair);
         }
+    // Beard (not seen from behind)
+    if (lk.extra == 3 && d != Dir::UP) {
+        const float bx = d == Dir::LEFT ? 13.5f : d == Dir::RIGHT ? 17.5f : 15.5f;
+        for (int y = 12; y < 20; y++)
+            for (int x = 9; x < 23; x++) {
+                const float dx = (x + 0.5f - bx) / 4.5f, dy = (y + 0.5f - 13.f) / 6.5f;
+                if (dx * dx + dy * dy <= 1.f && y >= 13) px(s, x, y, rgb(232, 232, 236));
+            }
+    }
     const uint16_t eye = rgb(30, 30, 46);
     switch (d) {
     case Dir::DOWN: px(s, 13, 11, eye); px(s, 18, 11, eye); px(s, 13, 10, eye); px(s, 18, 10, eye); break;
@@ -342,11 +395,34 @@ static void artPlayer(uint16_t *s, Dir d)
     case Dir::RIGHT: px(s, 20, 10, eye); px(s, 20, 11, eye); break;
     default: break;
     }
+    // Chef's hat: puffy white top on a band
+    if (lk.extra == 1) {
+        const uint16_t w = rgb(250, 250, 248), sh = rgb(214, 214, 210);
+        disc(s, 12.5f, 2.5f, 3.2f, w);
+        disc(s, 18.5f, 2.5f, 3.2f, w);
+        disc(s, 15.5f, 1.8f, 3.4f, w);
+        rect(s, 10, 3, 21, 5, w);
+        rect(s, 10, 5, 21, 5, sh);
+    }
     // Arms hint at the facing direction
     const uint16_t skin = rgb(230, 186, 146);
     if (d == Dir::LEFT) rect(s, 6, 17, 9, 19, skin);
     else if (d == Dir::RIGHT) rect(s, 22, 17, 25, 19, skin);
     else { rect(s, 7, 17, 9, 21, skin); rect(s, 22, 17, 24, 21, skin); }
+    if (lk.extra == 2 && d != Dir::UP) rect(s, crookX - 1, 17, crookX + 1, 19, skin);   // Hand on the crook
+}
+
+static void artPlayer(uint16_t *s, Dir d) { artPerson(s, d, HERO_LOOK); }
+
+// Portrait: rows 0..23, columns 4..27 of the front sprite, 2x nearest (crisp pixel art) on a
+// soft vertical gradient, so it can be an RGB565 canvas without colour key.
+static void makePortrait(uint16_t *out, const uint16_t *front)
+{
+    for (int y = 0; y < PORTRAIT_PX; y++)
+        for (int x = 0; x < PORTRAIT_PX; x++) {
+            const uint16_t c = front[(y / 2) * SPR + 4 + x / 2];
+            out[y * PORTRAIT_PX + x] = c != KEY ? c : rgb(44 + y / 3, 70 + y / 3, 100 + y / 4);
+        }
 }
 
 static void makeArt(Sprites *sp)
@@ -448,6 +524,10 @@ static void makeArt(Sprites *sp)
     artPlayer(b[S_PL_RIGHT], Dir::RIGHT);
     artPlayer(b[S_PL_DOWN], Dir::DOWN);
     artPlayer(b[S_PL_LEFT], Dir::LEFT);
+    for (int l = 0; l < NPC_LOOKS; l++) {
+        for (int d = 0; d < 4; d++) artPerson(b[S_NPC0 + l * 4 + d], (Dir)d, NPC_LOOK[l]);
+        makePortrait(sp->portrait[l], b[S_NPC0 + l * 4 + (int)Dir::DOWN]);
+    }
     fillKey(b[S_IMPACT]);
     for (int i = 0; i < 8; i++) {
         const float a = i * 0.785f;
@@ -642,6 +722,24 @@ static int objSprite(Obj o)
     }
 }
 
+// A person looks at the hero when they are close (dominant axis), otherwise it looks around now
+// and then.
+static int npcSprite(int x, int y, uint32_t now)
+{
+    const int num = s_world->npcAt(x, y);
+    const Otr::Story::Npc *n = s_story ? s_story->npcByNum(num) : nullptr;
+    const int look = (n ? n->look : num + NPC_LOOKS - 1) % NPC_LOOKS;
+    const int dx = s_world->playerX() - x, dy = s_world->playerY() - y;
+    Dir d;
+    if (num == s_talkNum || (abs(dx) <= 3 && abs(dy) <= 3)) {
+        d = abs(dx) >= abs(dy) ? (dx < 0 ? Dir::LEFT : Dir::RIGHT) : (dy < 0 ? Dir::UP : Dir::DOWN);
+    } else {
+        static constexpr Dir IDLE[4] = {Dir::DOWN, Dir::LEFT, Dir::DOWN, Dir::RIGHT};
+        d = IDLE[hash3((uint32_t)num, now / 2600, 31) & 3];
+    }
+    return S_NPC0 + look * 4 + (int)d;
+}
+
 static float moveProgress(uint32_t now)
 {
     if (!s_moveMs) return 1.f;
@@ -668,6 +766,7 @@ static void camera(int ppx, int ppy, int32_t &cx, int32_t &cy)
     const int ww = s_world->width() * s_ts, wh = s_world->height() * s_ts;
     cx = ppx + s_ts / 2 - VIEW_W / 2;
     cy = ppy + s_ts / 2 - VIEW_H / 2;
+    if (s_talkPanel) cy += VIEW_H / 4;   // Talking: hero in the upper half, above the dialogue box
     cx = cx < 0 ? 0 : cx > ww - VIEW_W ? ww - VIEW_W : cx;
     cy = cy < 0 ? 0 : cy > wh - VIEW_H ? wh - VIEW_H : cy;
 }
@@ -707,7 +806,8 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
                 if (n > 0 && w.tile(tx, ty) != Tile::WALL && w.tile(tx, ty) != Tile::TREE) blit(S_NUM1 + n - 1, sx, sy, true);
             }
             if (rockSliding && tx == s_rockToX && ty == s_rockToY) continue;   // Drawn below
-            const int o = objSprite(w.obj(tx, ty));
+            const Obj ob = w.obj(tx, ty);
+            const int o = ob == Obj::NPC ? npcSprite(tx, ty, now) : objSprite(ob);
             if (o >= 0) blit(o, sx, sy, o != S_DOOR);
         }
     if (rockSliding) {
@@ -780,10 +880,11 @@ static constexpr const char *SD_ADV_DIR = "/sdcard/otr/adventure";
 static constexpr const char *SD_SAVE_DIR = "/sdcard/otr/adventure/saves";
 static constexpr const char *SD_MAP_DIR = "/sdcard/otr/adventure/maps";   // Reserved (future maps)
 
-static void savePath(char *out, size_t cap, uint16_t pid, int worldIdx, bool sd)
+// ext "sav": the world; "sts": the story state of the same game (v0.11.0, worlds with people).
+static void savePath(char *out, size_t cap, uint16_t pid, int worldIdx, bool sd, const char *ext = "sav")
 {
     char rel[32];
-    snprintf(rel, sizeof(rel), "/adv_%u_%u.sav", (unsigned)pid, (unsigned)Otr::WORLDS[worldIdx].id);
+    snprintf(rel, sizeof(rel), "/adv_%u_%u.%s", (unsigned)pid, (unsigned)Otr::WORLDS[worldIdx].id, ext);
     if (sd) snprintf(out, cap, "%s%s", SD_SAVE_DIR, rel);
     else MyFat::path(out, cap, rel);
 }
@@ -840,6 +941,15 @@ static bool loadSave()
         const size_t n = readFile(p, sd);
         if (n && s_world->restore(s_saveBuf, n)) {
             ESP_LOGI(TAG, "loaded %s", p);
+            s_storyState.clear();
+            if (s_story) {   // The story state lives next to the world save
+                savePath(p, sizeof(p), s_playerId, s_worldIdx, sd, "sts");
+                const size_t m = readFile(p, sd);
+                if (!m || !s_storyState.restore(s_saveBuf, m)) {
+                    ESP_LOGW(TAG, "%s: no valid story state (%u B), starting fresh", p, (unsigned)m);
+                    s_storyState.clear();
+                }
+            }
             return true;
         }
         ESP_LOGW(TAG, "%s: invalid save (%u B)", p, (unsigned)n);
@@ -890,6 +1000,7 @@ static bool saveNow()
     const int64_t t0 = esp_timer_get_time();
     savePath(p, sizeof(p), s_playerId, s_worldIdx, true);
     bool ok = writeSdAtomic(p, s_saveBuf, n);
+    const bool sd = ok;
     if (ok) {
         char old[96];
         savePath(old, sizeof(old), s_playerId, s_worldIdx, false);
@@ -897,6 +1008,17 @@ static bool saveNow()
     } else if (MyFat::mounted()) {
         savePath(p, sizeof(p), s_playerId, s_worldIdx, false);
         ok = MyFat::writeAtomic(p, nullptr, 0, s_saveBuf, n);
+    }
+    if (ok && s_story) {   // Story state in the same place as the world
+        uint8_t st[Otr::Story::StoryState::SAVE_BYTES];
+        const size_t sn = s_storyState.save(st, sizeof(st));
+        char sp[96];
+        savePath(sp, sizeof(sp), s_playerId, s_worldIdx, sd, "sts");
+        ok = sd ? writeSdAtomic(sp, st, sn) : MyFat::writeAtomic(sp, nullptr, 0, st, sn);
+        if (ok && sd) {
+            savePath(sp, sizeof(sp), s_playerId, s_worldIdx, false, "sts");
+            if (MyFat::mounted() && MyFat::exists(sp)) unlink(sp);
+        }
     }
     ESP_LOGI(TAG, "save %s: %s (%u B, %d ms)", p, ok ? "ok" : "FAILED", (unsigned)n, (int)((esp_timer_get_time() - t0) / 1000));
     if (ok) markSaved();
@@ -909,7 +1031,11 @@ static bool saveNow()
 static bool busy(uint32_t now) { return s_moveMs && now - s_moveT0 < s_moveMs; }
 static Otr::WalkMode walkMode() { return Config::get().advMode == 1 ? Otr::WalkMode::PRO : Otr::WalkMode::ASSIST; }
 
-static void stopPath() { s_pathPos = -1; }
+static void stopPath()
+{
+    s_pathPos = -1;
+    s_walkTalkNum = 0;
+}
 static void showGameOver();
 
 static void snapPlayer()
@@ -984,6 +1110,7 @@ static void playEvents(uint32_t ev)
 {
     using Sound::Sfx;
     Sfx s;
+    if (ev & Otr::EV_TALK) return;   // The conversation has its own sounds
     if (ev & Otr::EV_GAME_OVER) s = Sfx::GAME_OVER;
     else if (ev & Otr::EV_DIED) s = Sfx::LIFE_LOST;
     else if (ev & Otr::EV_MINE) s = Sfx::MINE;
@@ -1005,6 +1132,310 @@ static void playEvents(uint32_t ev)
     else return;
     Audio::play(s);
 }
+
+
+// ----------------------------------------------------------------------------------------
+// Dialogue (v0.11.0): box over the lower part of the map (portrait, name, typewriter text,
+// reference line) and up to 4 answer buttons (36 px) in place of the control panel.
+// ----------------------------------------------------------------------------------------
+static constexpr int32_t TALK_W = VIEW_W - 12, TALK_PAD = 10, TALK_TEXT_X = PORTRAIT_PX + 10;
+static constexpr int32_t CHOICE_H = 36, CHOICE_GAP = 4;
+static constexpr uint32_t TW_CHAR_MS = 22, TW_COMMA_MS = 90, TW_STOP_MS = 180;
+
+static void joyShow(bool down, int dx, int dy);
+static bool talking() { return s_talkPanel != nullptr; }
+static int langIdx() { return strcmp(Lang::currentLang(), "en") == 0 ? 1 : 0; }
+
+static Dir dirToward(int fx, int fy, int tx, int ty)
+{
+    const int dx = tx - fx, dy = ty - fy;
+    return abs(dx) >= abs(dy) ? (dx < 0 ? Dir::LEFT : Dir::RIGHT) : (dy < 0 ? Dir::UP : Dir::DOWN);
+}
+
+// Effects of the script that belong to the world and the speaker.
+class StoryHost : public Otr::Story::Host {
+public:
+    void worldAction(const char *verb, int argc, const int *a) override
+    {
+        Otr::World &w = *s_world;
+        bool ok = true;
+        if (!strcmp(verb, "npc_move") && argc == 3) ok = w.moveNpc(a[0], a[1], a[2]);
+        else if (!strcmp(verb, "npc_remove") && argc == 1) ok = w.removeNpc(a[0]);
+        else if (!strcmp(verb, "open") && argc == 2) ok = w.clearObj(a[0], a[1]);
+        else if (!strcmp(verb, "keys") && argc == 1) {
+            w.addKeys(a[0]);
+            if (a[0] > 0) toast(tr(Str::ADV_KEY), Theme::GOLD);
+        } else ok = false;
+        if (!ok) ESP_LOGW(TAG, "story: world %s (%d args) failed", verb, argc);
+        s_dirty = true;
+        updateStats();
+    }
+    void sound(const char *name) override
+    {
+        for (int i = 0; i < (int)Sound::Sfx::COUNT; i++)
+            if (!strcmp(Sound::sfxName((Sound::Sfx)i), name)) {
+                Audio::play((Sound::Sfx)i);
+                return;
+            }
+        ESP_LOGW(TAG, "story: unknown sound '%s'", name);
+    }
+};
+static StoryHost s_storyHost;
+
+// Items / quests the last step changed, as one toast (shown at the top while talking).
+static void noteToasts()
+{
+    using Otr::Story::NoteKind;
+    if (!s_story || !s_talk.noteCount()) return;
+    const int L = langIdx();
+    char buf[200];
+    size_t len = 0;
+    buf[0] = 0;
+    for (int i = 0; i < s_talk.noteCount() && len + 2 < sizeof(buf); i++) {
+        const Otr::Story::Note &n = s_talk.note(i);
+        const bool item = n.kind == NoteKind::ITEM_GOT || n.kind == NoteKind::ITEM_LOST;
+        const char *name = item ? s_story->items[n.id].name.get(L) : s_story->quests[n.id].name.get(L);
+        if (len) buf[len++] = '\n';
+        const size_t cap = sizeof(buf) - len;
+        int w;
+        switch (n.kind) {
+        case NoteKind::ITEM_GOT:
+            w = n.amount > 1 ? snprintf(buf + len, cap, tr(Str::ADV_ITEM_GOT_N), name, (int)n.amount)
+                             : snprintf(buf + len, cap, tr(Str::ADV_ITEM_GOT), name);
+            break;
+        case NoteKind::ITEM_LOST: w = snprintf(buf + len, cap, tr(Str::ADV_ITEM_LOST), name); break;
+        case NoteKind::QUEST_STARTED: w = snprintf(buf + len, cap, tr(Str::ADV_QUEST_NEW), name); break;
+        default: w = snprintf(buf + len, cap, tr(Str::ADV_QUEST_DONE), name); break;
+        }
+        if (w < 0) break;
+        len += (size_t)w < cap ? (size_t)w : cap - 1;
+    }
+    toast(buf, Theme::GOLD, 3200);
+    Rgb::effectFlash(255, 210, 60, 300);
+}
+
+static bool typing() { return s_twText && s_twPos < s_twLen; }
+
+static void talkSkip()
+{
+    if (!typing()) return;
+    s_twPos = s_twLen;   // Shown (and the answers built) in the next tick
+}
+
+static void choiceClicked(lv_event_t *e)
+{
+    if (!Theme::debounce(s_choiceTapMs)) return;
+    if (typing()) {
+        talkSkip();
+        return;
+    }
+    const int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx >= 0 && !s_talk.enabled(idx)) {   // Locked: the hint is already on the button
+        Audio::play(Sound::Sfx::LOCKED);
+        return;
+    }
+    Audio::play(Sound::Sfx::CLICK);
+    s_pendingChoice = idx;   // Handled in tick(): never delete the button inside its own event
+}
+
+// One answer: text, and for a locked answer the hint below it (greyed out).
+static void addChoice(int slot, int idx, const char *text, const char *hint, bool enabled)
+{
+    lv_obj_t *b = Theme::button(s_talkPanel, "", VIEW_W - 12, CHOICE_H, enabled ? Theme::TEAL : Theme::LINE);
+    lv_obj_set_pos(b, 6, 2 + slot * (CHOICE_H + CHOICE_GAP));
+    lv_obj_t *l = lv_obj_get_child(b, 0);
+    lv_label_set_text(l, text);
+    lv_obj_set_style_text_font(l, (hint || Otr::Story::utf8Len(text) > 26) ? &my_font_14 : &my_font_18, 0);
+    if (hint) {
+        lv_obj_align(l, LV_ALIGN_TOP_LEFT, 12, 1);
+        lv_obj_set_style_text_color(l, Theme::c(Theme::MUTED), 0);
+        lv_obj_t *h = Theme::label(b, hint, &my_font_14, Theme::ACCENT);
+        lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, 12, -1);
+    } else {
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, 12, 0);
+    }
+    if (!enabled) lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
+    lv_obj_add_event_cb(b, choiceClicked, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+}
+
+static void talkShowChoices()
+{
+    lv_obj_clean(s_talkPanel);
+    const int L = langIdx();
+    const int n = s_talk.choiceCount();
+    bool any = false;
+    for (int i = 0; i < n; i++) {
+        const Otr::Story::Choice &c = s_talk.choice(i);
+        const bool en = s_talk.enabled(i);
+        any = any || en;
+        addChoice(i, i, c.text.get(L), en ? nullptr : c.hint.get(L), en);
+    }
+    if (!n) addChoice(0, -1, tr(Str::ADV_TALK_OK), nullptr, true);         // A line without answers
+    else if (!any) addChoice(n, -1, tr(Str::ADV_TALK_BYE), nullptr, true);  // Every answer locked: a way out
+}
+
+// Lays out the box for the current node and starts the typewriter.
+static void talkShowNode()
+{
+    const Otr::Story::Node *nd = s_talk.node();
+    const Otr::Story::Npc *sp = s_talk.speaker();
+    const int L = langIdx();
+    const int32_t inner = TALK_W - 2 * TALK_PAD;
+    int32_t textX = 0, textY = 0;
+    if (sp) {
+        lv_canvas_set_buffer(s_talkPortrait, s_spr->portrait[sp->look % NPC_LOOKS], PORTRAIT_PX, PORTRAIT_PX,
+                             LV_COLOR_FORMAT_RGB565);
+        lv_label_set_text(s_talkName, sp->name.get(L));
+        textX = TALK_TEXT_X;
+        textY = 20;
+    }
+    lv_obj_set_hidden(s_talkPortrait, !sp);
+    lv_obj_set_hidden(s_talkName, !sp);
+    // Narrator: full width, italic feel by colour
+    lv_obj_set_style_text_color(s_talkText, Theme::c(sp ? Theme::TEXT : 0xC9D6E8), 0);
+    lv_obj_set_pos(s_talkText, textX, textY);
+    lv_obj_set_width(s_talkText, inner - textX);
+    s_twText = nd->text.get(L);
+    s_twLen = (int)strlen(s_twText);
+    if (s_twLen > (int)sizeof(s_twBuf) - 1) s_twLen = (int)sizeof(s_twBuf) - 1;
+    // Measure with the whole text, then fix the height so the box does not grow while typing
+    lv_obj_set_height(s_talkText, LV_SIZE_CONTENT);
+    lv_label_set_text(s_talkText, s_twText);
+    lv_obj_update_layout(s_talkText);
+    const int32_t th = lv_obj_get_height(s_talkText);
+    lv_obj_set_height(s_talkText, th);
+    int32_t h = textY + th;
+    const char *ref = nd->ref ? nd->ref : nd->quote;   // Quote file: later (see the plan)
+    if (ref) {
+        char buf[80];
+        snprintf(buf, sizeof(buf), tr(Str::ADV_TALK_READ), ref);
+        lv_label_set_text(s_talkRef, buf);
+        lv_obj_set_pos(s_talkRef, textX, h + 4);
+        h += 4 + 18;
+    }
+    lv_obj_set_hidden(s_talkRef, !ref);
+    if (sp && h < PORTRAIT_PX) h = PORTRAIT_PX;
+    const int32_t boxH = h + 2 * TALK_PAD;
+    lv_obj_set_size(s_talkBox, TALK_W, boxH);
+    lv_obj_set_pos(s_talkBox, 6, VIEW_Y + VIEW_H - 6 - boxH);
+    lv_label_set_text(s_talkText, "");
+    s_twPos = 0;
+    s_twChars = 0;
+    s_twNext = nowMs();
+    lv_obj_clean(s_talkPanel);   // The answers come when the text is out
+}
+
+static void talkBuild()
+{
+    s_talkBox = lv_obj_create(s_scr);
+    lv_obj_remove_style_all(s_talkBox);
+    lv_obj_set_style_bg_color(s_talkBox, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(s_talkBox, 242, 0);
+    lv_obj_set_style_border_color(s_talkBox, Theme::c(Theme::GOLD), 0);
+    lv_obj_set_style_border_width(s_talkBox, 2, 0);
+    lv_obj_set_style_radius(s_talkBox, 12, 0);
+    lv_obj_set_style_pad_all(s_talkBox, TALK_PAD, 0);
+    lv_obj_set_style_shadow_width(s_talkBox, 16, 0);
+    lv_obj_set_style_shadow_opa(s_talkBox, LV_OPA_50, 0);
+    lv_obj_set_scrollable(s_talkBox, false);
+    lv_obj_set_clickable(s_talkBox, true);
+    lv_obj_add_event_cb(s_talkBox, [](lv_event_t *) { talkSkip(); }, LV_EVENT_PRESSED, nullptr);
+    s_talkPortrait = lv_canvas_create(s_talkBox);
+    lv_obj_set_pos(s_talkPortrait, 0, 0);
+    lv_obj_set_clickable(s_talkPortrait, false);
+    s_talkName = Theme::label(s_talkBox, "", &my_font_14, Theme::GOLD);
+    lv_obj_set_pos(s_talkName, TALK_TEXT_X, 0);
+    s_talkText = Theme::label(s_talkBox, "", &my_font_14, Theme::TEXT);
+    lv_label_set_long_mode(s_talkText, LV_LABEL_LONG_MODE_WRAP);
+    s_talkRef = Theme::label(s_talkBox, "", &my_font_14, Theme::TEAL);
+
+    s_talkPanel = lv_obj_create(s_scr);
+    lv_obj_remove_style_all(s_talkPanel);
+    lv_obj_set_size(s_talkPanel, 320, CTRL_H);
+    lv_obj_set_pos(s_talkPanel, 0, CTRL_Y);
+    lv_obj_set_style_bg_color(s_talkPanel, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(s_talkPanel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_side(s_talkPanel, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(s_talkPanel, 1, 0);
+    lv_obj_set_style_border_color(s_talkPanel, Theme::c(Theme::GOLD), 0);
+    lv_obj_set_scrollable(s_talkPanel, false);
+    lv_obj_set_clickable(s_talkPanel, true);
+    lv_obj_add_event_cb(s_talkPanel, [](lv_event_t *) { talkSkip(); }, LV_EVENT_PRESSED, nullptr);
+
+    lv_obj_move_foreground(s_toast);
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + 8);   // Above the box while talking
+}
+
+static void endTalk()
+{
+    s_talk.end();
+    s_talkNum = 0;
+    s_twText = nullptr;
+    s_pendingChoice = -2;
+    if (s_talkBox) lv_obj_delete(s_talkBox);
+    if (s_talkPanel) lv_obj_delete(s_talkPanel);
+    s_talkBox = s_talkPanel = s_talkPortrait = s_talkName = s_talkText = s_talkRef = nullptr;
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + VIEW_H - 64);
+    s_saveWanted = s_playerId != 0;   // Conversations change the game: keep it
+    s_dirty = true;
+    updateStats();
+}
+
+static void startTalk(int num)
+{
+    stopPath();
+    s_joy.cancel();
+    joyShow(false, 0, 0);
+    const Otr::Story::Npc *n = s_story ? s_story->npcByNum(num) : nullptr;
+    if (!n || !s_talk.start(*s_story, s_storyState, n->id, &s_storyHost)) {
+        toast(tr(Str::ADV_TALK_NONE), Theme::MUTED, 1500);
+        return;
+    }
+    s_talkNum = num;
+    talkBuild();
+    talkShowNode();
+    noteToasts();
+    s_dirty = true;
+}
+
+// Typewriter + picked answers (from tick).
+static void talkTick(uint32_t now)
+{
+    if (!talking()) return;
+    if (s_pendingChoice != -2) {
+        const int c = s_pendingChoice;
+        s_pendingChoice = -2;
+        if (c >= 0 && s_talk.choose(c) && s_talk.active()) {
+            talkShowNode();
+            noteToasts();
+        } else {
+            if (c >= 0) noteToasts();
+            endTalk();
+            return;
+        }
+    }
+    if (!s_twText) return;
+    if (s_twPos < s_twLen) {
+        bool blip = false;
+        while (s_twPos < s_twLen && (int32_t)(now - s_twNext) >= 0) {
+            int n = 1;
+            while (s_twPos + n < s_twLen && ((uint8_t)s_twText[s_twPos + n] & 0xC0) == 0x80) n++;
+            const char ch = s_twText[s_twPos];
+            s_twPos += n;
+            s_twNext += ch == '.' || ch == '!' || ch == '?' ? TW_STOP_MS : ch == ',' ? TW_COMMA_MS : TW_CHAR_MS;
+            if (ch != ' ' && s_twChars++ % 3 == 0) blip = true;
+        }
+        if (blip) Audio::play(Sound::Sfx::TALK);
+        memcpy(s_twBuf, s_twText, (size_t)s_twPos);
+        s_twBuf[s_twPos] = 0;
+        lv_label_set_text(s_talkText, s_twBuf);
+        if (s_twPos >= s_twLen) talkShowChoices();
+    } else if (!lv_obj_get_child_count(s_talkPanel)) {   // Skipped: show it all
+        lv_label_set_text(s_talkText, s_twText);
+        talkShowChoices();
+    }
+}
+
 
 // One step. Returns the world events (0 if the previous step is still animating).
 static uint32_t doMove(Dir d)
@@ -1059,7 +1490,7 @@ static uint32_t doMove(Dir d)
             s_rockToY = ty + Otr::dirY(d);
             s_moveMs += 40;   // Pushing is a little slower
         }
-    } else {
+    } else if (!(ev & Otr::EV_TALK)) {
         s_bumpDx = Otr::dirX(d);
         s_bumpDy = Otr::dirY(d);
         s_bumpT0 = now;
@@ -1082,7 +1513,8 @@ static uint32_t doMove(Dir d)
         eventToasts(ev);
     }
     if (ev & (Otr::EV_MINE | Otr::EV_BURNED)) eventToasts(ev & (Otr::EV_CHECKPOINT));
-    if (ev & ~(Otr::EV_MOVED | Otr::EV_BLOCKED)) updateStats();
+    if (ev & ~(Otr::EV_MOVED | Otr::EV_BLOCKED | Otr::EV_TALK)) updateStats();
+    if (ev & Otr::EV_TALK) startTalk(s_world->talkNpc());
     return ev;
 }
 
@@ -1093,6 +1525,10 @@ static void doHit()
     const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
     const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
     const uint32_t ev = s_world->hit();
+    if (ev & Otr::EV_TALK) {   // Facing a person: Slå is Prata
+        startTalk(s_world->talkNpc());
+        return;
+    }
     s_bumpDx = Otr::dirX(s_world->facing());
     s_bumpDy = Otr::dirY(s_world->facing());
     s_bumpT0 = now;
@@ -1133,7 +1569,15 @@ static void finishPath()
 {
     const Otr::PlanResult r = s_path->result;
     const int gx = s_path->goalX, gy = s_path->goalY;
+    const int talkNum = s_walkTalkNum;
     stopPath();
+    int nx, ny;
+    if (talkNum && (r == Otr::PlanResult::OK || r == Otr::PlanResult::SUIT) && s_world->findNpc(talkNum, nx, ny) &&
+        abs(nx - s_world->playerX()) + abs(ny - s_world->playerY()) == 1) {
+        doMove(dirToward(s_world->playerX(), s_world->playerY(), nx, ny));   // Face it and talk
+        s_replanned = false;
+        return;
+    }
     switch (r) {
     case Otr::PlanResult::DANGER: toast(tr(Str::ADV_DANGER), Theme::RED); break;
     case Otr::PlanResult::UNKNOWN: toast(tr(Str::ADV_UNKNOWN), Theme::GOLD); break;
@@ -1150,9 +1594,40 @@ static void finishPath()
     s_replanned = false;
 }
 
+// Tap on a person: walk to the nearest free side of it, then talk (finishPath).
+static void walkToTalk(int num, int nx, int ny)
+{
+    stopPath();
+    s_joy.cancel();
+    const int px = s_world->playerX(), py = s_world->playerY();
+    if (abs(nx - px) + abs(ny - py) == 1) {
+        doMove(dirToward(px, py, nx, ny));   // Next to it: turn (bump) and talk
+        return;
+    }
+    int best = -1, bestLen = 1 << 30;
+    for (int d = 0; d < 4; d++) {
+        const int x = nx + Otr::dirX((Dir)d), y = ny + Otr::dirY((Dir)d);
+        if (!Otr::Planner::targetable(*s_world, x, y)) continue;
+        const Otr::PlanResult r = s_planner->plan(*s_world, x, y, walkMode(), *s_path);
+        if ((r == Otr::PlanResult::OK || r == Otr::PlanResult::SUIT) && s_path->len < bestLen) {
+            best = d;
+            bestLen = s_path->len;
+        }
+    }
+    if (best < 0) {
+        toast(tr(Str::ADV_NO_WAY), Theme::MUTED, 1500);
+        return;
+    }
+    s_replanned = false;
+    walkTo(nx + Otr::dirX((Dir)best), ny + Otr::dirY((Dir)best));
+    if (s_pathPos >= 0) s_walkTalkNum = num;
+}
+
 static void resetWorld(bool showHelp = true)
 {
     if (!s_world->load(Otr::WORLDS[s_worldIdx])) ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
+    if (talking()) endTalk();
+    s_storyState.clear();
     snapPlayer();
     stopPath();
     s_joy.cancel();
@@ -1202,7 +1677,8 @@ static void showGameOver()
 static void tick(lv_timer_t *)
 {
     const uint32_t now = nowMs();
-    if (!s_dialog) {
+    talkTick(now);
+    if (!s_dialog && !talking()) {
         Dir jd;
         if (s_joy.poll(now, !busy(now) && !s_world->gameOver(), jd)) {
             stopPath();
@@ -1246,7 +1722,15 @@ static void tick(lv_timer_t *)
     }
 
     // Autosave when idle: after a checkpoint, and every minute if anything changed
-    const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog;
+    const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog && !talking();
+    // Slå becomes Prata when the hero faces a person
+    const bool faceTalk = s_world->facingNpc() != 0;
+    if (s_hitBtn && faceTalk != s_hitTalk) {
+        s_hitTalk = faceTalk;
+        lv_label_set_text(lv_obj_get_child(s_hitBtn, 0), tr(faceTalk ? Str::ADV_TALK : Str::ADV_HIT));
+        lv_obj_set_style_bg_color(s_hitBtn, Theme::c(faceTalk ? Theme::TEAL : Theme::ACCENT), 0);
+        lv_obj_set_style_border_color(s_hitBtn, Theme::c(faceTalk ? Theme::TEAL : Theme::ACCENT), 0);
+    }
     if (idle && s_playerId) {
         const bool changed = s_world->revision() != s_savedRev || s_world->steps() != s_savedSteps;
         if (s_saveWanted || (changed && now - s_lastSaveMs >= 60000)) saveNow();
@@ -1393,7 +1877,7 @@ static void viewEvent(lv_event_t *e)
         return;
     }
     if (code != LV_EVENT_LONG_PRESSED && code != LV_EVENT_RELEASED) return;
-    if (s_dialog || s_world->gameOver()) return;
+    if (s_dialog || talking() || s_world->gameOver()) return;
     lv_point_t p;
     lv_indev_get_point(lv_indev_active(), &p);
     int32_t camX, camY;
@@ -1415,6 +1899,14 @@ static void viewEvent(lv_event_t *e)
         stopPath();
         doHit();
         return;
+    }
+    // On a person: walk there and talk
+    const int cx = (int)floorf(fx), cy = (int)floorf(fy);
+    if (const int num = s_world->npcAt(cx, cy)) {
+        if (!s_world->fog() || s_world->revealed(cx, cy)) {
+            walkToTalk(num, cx, cy);
+            return;
+        }
     }
     int tx, ty;
     if (!Otr::Planner::pickTarget(*s_world, fx, fy, tx, ty)) {
@@ -1446,6 +1938,13 @@ static void freeAll()
     s_scr = nullptr;
     s_joyKnob = nullptr;
     s_muteBtn = nullptr;
+    s_hitBtn = nullptr;
+    s_hitTalk = false;
+    s_talk.end();   // The dialogue objects went with the screen
+    s_talkBox = s_talkPanel = s_talkPortrait = s_talkName = s_talkText = s_talkRef = nullptr;
+    s_talkNum = s_walkTalkNum = 0;
+    s_twText = nullptr;
+    s_pendingChoice = -2;
     s_joy.cancel();
     s_pathPos = -1;
 }
@@ -1526,7 +2025,7 @@ static void toggleZoom()
 
 static void showMenu()
 {
-    if (s_dialog) return;   // Already open (double tap on the hamburger)
+    if (s_dialog || talking()) return;   // Already open (double tap on the hamburger) / talking
     stopPath();
     s_joy.cancel();
     joyShow(false, 0, 0);
@@ -1665,9 +2164,12 @@ static void buildControls()
     muteIcon();
 
     // Right column: the box on top is the Slå (hit) button
-    lv_obj_t *hit = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
-    lv_obj_set_pos(hit, COL_R_X, 8);
-    lv_obj_add_event_cb(hit, [](lv_event_t *) {
+    // (Prata when facing a person, see tick())
+    s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
+    s_hitTalk = false;
+    lv_obj_set_pos(s_hitBtn, COL_R_X, 8);
+    lv_obj_add_event_cb(s_hitBtn, [](lv_event_t *) {
+        if (!Theme::debounce(s_hitTapMs)) return;
         stopPath();
         doHit();
     }, LV_EVENT_PRESSED, nullptr);
@@ -1750,6 +2252,8 @@ static void buildGame(bool loadFailed)
 static void startGame(bool cont)
 {
     closeDialog();
+    s_story = Otr::WORLDS[s_worldIdx].id == Otr::WORLD_VILLAGE ? &Otr::Story::VILLAGE_STORY : nullptr;
+    s_storyState.clear();
     if (!s_world->load(Otr::WORLDS[s_worldIdx])) {
         ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
         return;
@@ -1758,6 +2262,7 @@ static void startGame(bool cont)
     if (cont && !loadSave()) {
         failed = true;
         s_world->load(Otr::WORLDS[s_worldIdx]);   // restore() leaves it untouched, but be explicit
+        s_storyState.clear();
     }
     stopPath();
     buildGame(failed);
@@ -1833,18 +2338,24 @@ static void buildSetup()
         UiYatzy::showMenu();   // Buffers are freed when this screen is deleted
     }, LV_EVENT_CLICKED, nullptr);
 
-    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES};
-    static const Str DESCS[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST_DESC, Str::ADV_WORLD_MINES_DESC};
+    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES, Str::ADV_WORLD_VILLAGE};
+    static const Str DESCS[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST_DESC, Str::ADV_WORLD_MINES_DESC,
+                                                Str::ADV_WORLD_VILLAGE_DESC};
+    static constexpr int32_t WB_W = (308 - (Otr::WORLD_COUNT - 1) * 4) / Otr::WORLD_COUNT;   // 100 px for 3
     for (int i = 0; i < Otr::WORLD_COUNT; i++) {
-        lv_obj_t *b = Theme::button(scr, tr(NAMES[i]), 152, 74, Theme::LINE);
-        lv_obj_set_pos(b, 6 + i * 156, 52);
-        lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_TOP_MID, 0, 6);
+        lv_obj_t *b = Theme::button(scr, tr(NAMES[i]), WB_W, 82, Theme::LINE);
+        lv_obj_set_pos(b, 6 + i * (WB_W + 4), 48);
+        lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_14, 0);
+        lv_obj_set_style_text_color(lv_obj_get_child(b, 0), Theme::c(Theme::GOLD), 0);
+        lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_TOP_MID, 0, 5);
         lv_obj_t *d = Theme::label(b, tr(DESCS[i]), &my_font_14, Theme::MUTED);
         lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_width(d, 140);
+        lv_obj_set_width(d, WB_W - 8);
         lv_obj_set_style_text_align(d, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(d, LV_ALIGN_BOTTOM_MID, 0, -4);
         lv_obj_add_event_cb(b, [](lv_event_t *e) {
+            static uint32_t s_worldTapMs;
+            if (!Theme::debounce(s_worldTapMs, 250)) return;
             s_worldIdx = (int)(intptr_t)lv_event_get_user_data(e);
             styleWorldButtons();
             fillPlayerList();
@@ -1853,14 +2364,14 @@ static void buildSetup()
     }
     styleWorldButtons();
     lv_obj_t *mode = Theme::button(scr, modeText(), 308, 38, Theme::TEAL);
-    lv_obj_set_pos(mode, 6, 134);
+    lv_obj_set_pos(mode, 6, 138);
     lv_obj_add_event_cb(mode, toggleMode, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *who = Theme::label(scr, tr(Str::ADV_WHO), &my_font_18, Theme::GOLD);
-    lv_obj_set_pos(who, 10, 180);
+    lv_obj_set_pos(who, 10, 184);
     s_playerList = lv_obj_create(scr);
     lv_obj_remove_style_all(s_playerList);
-    lv_obj_set_pos(s_playerList, 6, 206);
-    lv_obj_set_size(s_playerList, 308, 480 - 206 - 4);
+    lv_obj_set_pos(s_playerList, 6, 210);
+    lv_obj_set_size(s_playerList, 308, 480 - 210 - 4);
     lv_obj_set_flex_flow(s_playerList, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s_playerList, 6, 0);
     lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);

@@ -313,6 +313,18 @@
     X(ADV_SAVE) \
     X(ADV_LEAVE) \
     X(ADV_HELP_MINES) \
+    X(ADV_TALK) \
+    X(ADV_TALK_OK) \
+    X(ADV_TALK_BYE) \
+    X(ADV_TALK_NONE) \
+    X(ADV_TALK_READ) \
+    X(ADV_ITEM_GOT) \
+    X(ADV_ITEM_GOT_N) \
+    X(ADV_ITEM_LOST) \
+    X(ADV_QUEST_NEW) \
+    X(ADV_QUEST_DONE) \
+    X(ADV_WORLD_VILLAGE) \
+    X(ADV_WORLD_VILLAGE_DESC) \
     X(WEB_ERR_NUMBER) \
     X(WEB_ERR_TZ) \
     X(WEB_ERR_PIN) \
