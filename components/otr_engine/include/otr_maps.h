@@ -29,8 +29,16 @@ constexpr int VILLAGE_W = 32;
 constexpr int VILLAGE_H = 22;
 extern const char *const VILLAGE[VILLAGE_H];
 
-enum WorldId : uint8_t { WORLD_TEST = 1, WORLD_MINES = 2, WORLD_VILLAGE = 3 };
-constexpr int WORLD_COUNT = 3;
-extern const MapDef WORLDS[WORLD_COUNT];   // [0] Testvärlden, [1] Minfältet, [2] Byn (dialogue demo)
+// Josef (bibeläventyr, 1 Mosebok 37), kapitel 1: two 40x30 maps (camp + road to Dothan).
+constexpr int JOSEPH_W = 40;
+constexpr int JOSEPH_CAMP_H = 30;
+constexpr int JOSEPH_ROAD_H = 30;
+extern const char *const JOSEPH_CAMP_ROWS[JOSEPH_CAMP_H];   // camp is WORLDS[WORLD_JOSEPH-1] (map id 4 == world id)
+extern const char *const JOSEPH_ROAD_ROWS[JOSEPH_ROAD_H];
+extern const MapDef JOSEPH_ROAD_DEF;   // second map of the Josef world; stable map id 5
+
+enum WorldId : uint8_t { WORLD_TEST = 1, WORLD_MINES = 2, WORLD_VILLAGE = 3, WORLD_JOSEPH = 4 };
+constexpr int WORLD_COUNT = 4;
+extern const MapDef WORLDS[WORLD_COUNT];   // [0] Testvärlden, [1] Minfältet, [2] Byn, [3] Josef (1 Mos 37)
 
 }  // namespace Otr

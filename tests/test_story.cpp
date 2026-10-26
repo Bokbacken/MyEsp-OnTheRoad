@@ -319,6 +319,80 @@ void testVillageStory()
     CHECK(st.counters[0] >= 3);
 }
 
+void testJosephStory()
+{
+    const Script &j = JOSEPH_STORY;
+    char err[1024];
+    const int errs = j.validate(err, sizeof(err));
+    if (errs) printf("%s", err);
+    CHECK(errs == 0);
+    CHECK(j.npcCount == 6);
+    CHECK(j.npcByNum(1) && j.npcByNum(2) && j.npcByNum(3));
+    CHECK(j.npcByNum(4) && j.npcByNum(5) && j.npcByNum(6) && !j.npcByNum(7));
+
+    StoryState st;
+    st.clear();
+    RecHost h;
+    Dialog d;
+
+    // ---- Camp: Jakob hands over the ornate robe + the quest -----------------------------------
+    CHECK(d.start(j, st, "jakob", &h));
+    CHECK(d.node()->ref != nullptr);                       // Bible reference shown
+    CHECK(st.items[0] == 1);                               // robe received (give robe)
+    CHECK(st.quests[0] == (uint8_t)Quest::ACTIVE);         // deliver_robe active
+    CHECK(d.choose(2));                                    // say goodbye
+    CHECK(!d.active());
+
+    // ---- Josef: give the robe, hear the dreams -----------------------------------------------
+    CHECK(d.start(j, st, "josef", &h));                    // has:robe variant
+    CHECK(d.enabled(0));
+    CHECK(d.choose(0));                                    // give the robe
+    CHECK(st.items[0] == 0);                               // robe handed over (take robe)
+    CHECK(st.quests[0] == (uint8_t)Quest::DONE);           // deliver_robe done
+    CHECK(strstr(h.log, "snd:quest;") != nullptr);
+    CHECK(d.choose(1));                                    // getrobe -> warn (don't tell brothers)
+    CHECK(d.choose(0));                                    // warn -> END
+    CHECK(!d.active());
+
+    // ---- Ruben blocks the gap, steps aside once Josef is ready --------------------------------
+    CHECK(d.start(j, st, "ruben", &h));                    // josef_ready & !met_ruben
+    CHECK(d.choose(0));                                    // -> narrator: he moves
+    CHECK(d.speaker() == nullptr);
+    CHECK(strstr(h.log, "npc_move/3/3,18,6;") != nullptr); // gap opens to the Dothan exit
+    CHECK(d.choose(0));
+    CHECK(!d.active());
+
+    // ---- Road: Juda's dream riddle (4 answers, first is correct) ------------------------------
+    CHECK(d.start(j, st, "juda", &h));                     // !met_juda
+    CHECK(d.choiceCount() == 4);
+    CHECK(d.node()->ref != nullptr);
+    CHECK(d.choose(0));                                    // "Yours bowed to his" -> right
+    CHECK(d.choose(0));                                    // -> END
+    CHECK(!d.active());
+
+    // ---- One of the brothers: into the empty cistern ------------------------------------------
+    CHECK(d.start(j, st, "brother", &h));                  // dreams_solved & !met_brother
+    CHECK(d.choose(0));                                    // -> narrator: pit
+    CHECK(d.speaker() == nullptr);
+    CHECK(d.choose(0));                                    // -> END
+    CHECK(!d.active());
+
+    // ---- The merchant buys Joseph; the caravan road opens = chapter complete ------------------
+    h.log[0] = 0;                                          // reset the bounded host log for a clean match
+    CHECK(d.start(j, st, "merchant", &h));                 // in_pit & !met_merchant
+    CHECK(d.choose(0));                                    // seal the deal -> narrator
+    CHECK(strstr(h.log, "npc_move/3/6,18,6;") != nullptr); // caravan gap opens (argc=3: num 6 -> 18,6)
+    CHECK(st.quests[1] == (uint8_t)Quest::DONE);           // dotan done
+    CHECK(d.choose(0));                                    // -> END
+    CHECK(!d.active());
+    CHECK(st.counters[0] >= 3);                            // trust grew along the way
+
+    // After the sale, revisiting a person uses the "already done" variant and does not crash.
+    CHECK(d.start(j, st, "merchant", &h));                 // sold variant
+    CHECK(d.choose(0));
+    CHECK(!d.active());
+}
+
 void testUtf8()
 {
     CHECK(utf8Len(nullptr) == 0);
@@ -343,6 +417,7 @@ int main()
     testState();
     testValidate();
     testVillageStory();
+    testJosephStory();
     testUtf8();
     CHECK_DONE();
 }

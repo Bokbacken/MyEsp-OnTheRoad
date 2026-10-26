@@ -324,6 +324,8 @@ extern const Entry LANG_SV[] = {
     {Str::ADV_QUEST_DONE, "Uppdrag klart: %s"},
     {Str::ADV_WORLD_VILLAGE, "Byn"},
     {Str::ADV_WORLD_VILLAGE_DESC, "Prata med folket i byn"},
+    {Str::ADV_WORLD_JOSEPH, "Josef"},
+    {Str::ADV_WORLD_JOSEPH_DESC, "1 Mos 37 - drömmaren"},
 
     {Str::WEB_ERR_NUMBER, "Ogiltigt numeriskt värde"},
     {Str::WEB_ERR_TZ, "Ogiltig tidszon"},
@@ -405,6 +407,9 @@ extern const Entry LANG_SV[] = {
     {Str::ADV_MAP_FAILED, "Kartbytet misslyckades. Försök igen."},
     {Str::ADV_MINE_HELP, "Röj alla säkra rutor. Hämta skydd, 3x3 och 4x4 vid starten. Långtryck = flagga. Joystick går även i dimma."},
     {Str::ADV_TRAVEL_HELP, "Utgången norr om Fårhild leder till Ängen. Där finns en utgång tillbaka."},
+    {Str::ADV_JOSEPH_CAMP, "Josef - Jakobs läger"},
+    {Str::ADV_JOSEPH_ROAD, "Josef - Vägen till Dotan"},
+    {Str::ADV_JOSEPH_DONE, "Kapitel 1 klart! Josef förs till Egypten (1 Mos 37)."},
     {Str::SET_SOUND, "Ljud"},
     {Str::SET_SOUND_ON, "Ljud på"},
     {Str::SET_SFX_VOL, "Effektvolym"},

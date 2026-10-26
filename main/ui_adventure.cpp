@@ -881,8 +881,9 @@ static void updateStats()
         lv_label_set_text_fmt(s_stageLabel,tr(Str::ADV_STAGE),w.mineLevel(),w.safeLeft());
         lv_label_set_text_fmt(s_count[C_SUIT],tr(Str::ADV_SHIELD_SHORT),w.suitCharges());
     } else {
-        lv_label_set_text(s_stageLabel,s_session.worldId()==Otr::WORLD_VILLAGE ?
-            tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP) : "");
+        lv_label_set_text(s_stageLabel,
+            s_session.worldId()==Otr::WORLD_VILLAGE ? tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP) :
+            s_session.worldId()==Otr::WORLD_JOSEPH  ? tr(s_session.mapIndex()?Str::ADV_JOSEPH_ROAD:Str::ADV_JOSEPH_CAMP) : "");
     }
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
@@ -1481,11 +1482,20 @@ static uint32_t doMove(Dir d)
     s_dirty = true;
     playEvents(ev);
     char buf[80];
-    if ((ev & Otr::EV_EXIT) && s_session.worldId()==Otr::WORLD_VILLAGE) {
+    if ((ev & Otr::EV_EXIT) &&
+        (s_session.worldId()==Otr::WORLD_VILLAGE || s_session.worldId()==Otr::WORLD_JOSEPH)) {
         stopPath(); s_joy.cancel();
+        const bool josef = s_session.worldId()==Otr::WORLD_JOSEPH;
+        if(josef && s_session.mapIndex()==1) {
+            // Reaching the caravan road exit (opened only after the sale) completes Josef chapter 1.
+            s_saveWanted=true;
+            toast(tr(Str::ADV_JOSEPH_DONE),Theme::GOLD,6000);
+            return ev;
+        }
         if(s_session.travel(*s_world)) {
             snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted=true;
-            toast(tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP),Theme::GOLD);
+            toast(tr(josef ? (s_session.mapIndex()?Str::ADV_JOSEPH_ROAD:Str::ADV_JOSEPH_CAMP)
+                           : (s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP)),Theme::GOLD);
         } else toast(tr(Str::ADV_MAP_FAILED),Theme::RED);
         return ev;
     }
@@ -1803,8 +1813,10 @@ static bool s_liveValid;
 
 static const char *worldName()
 {
-    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES, Str::ADV_WORLD_VILLAGE};
+    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES,
+                                                Str::ADV_WORLD_VILLAGE, Str::ADV_WORLD_JOSEPH};
     if(s_session.worldId()==Otr::WORLD_VILLAGE) return tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP);
+    if(s_session.worldId()==Otr::WORLD_JOSEPH)  return tr(s_session.mapIndex()?Str::ADV_JOSEPH_ROAD:Str::ADV_JOSEPH_CAMP);
     return s_worldIdx >= 0 && s_worldIdx < Otr::WORLD_COUNT ? tr(NAMES[s_worldIdx]) : "";
 }
 
@@ -2458,7 +2470,8 @@ static void buildGame(bool loadFailed)
 static void startGame(bool cont)
 {
     closeDialog();
-    s_story = Otr::WORLDS[s_worldIdx].id == Otr::WORLD_VILLAGE ? &Otr::Story::VILLAGE_STORY : nullptr;
+    s_story = Otr::WORLDS[s_worldIdx].id == Otr::WORLD_VILLAGE ? &Otr::Story::VILLAGE_STORY :
+              Otr::WORLDS[s_worldIdx].id == Otr::WORLD_JOSEPH  ? &Otr::Story::JOSEPH_STORY : nullptr;
     s_storyState.clear();
     s_bombSize=0; s_resultShown=false;
     if (!s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState)) {
@@ -2583,10 +2596,11 @@ static void buildSetup()
         UiYatzy::showMenu();   // Buffers are freed when this screen is deleted
     }, LV_EVENT_CLICKED, nullptr);
 
-    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES, Str::ADV_WORLD_VILLAGE};
+    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES,
+                                                Str::ADV_WORLD_VILLAGE, Str::ADV_WORLD_JOSEPH};
     static const Str DESCS[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST_DESC, Str::ADV_WORLD_MINES_DESC,
-                                                Str::ADV_WORLD_VILLAGE_DESC};
-    static constexpr int32_t WB_W = (308 - (Otr::WORLD_COUNT - 1) * 4) / Otr::WORLD_COUNT;   // 100 px for 3
+                                                Str::ADV_WORLD_VILLAGE_DESC, Str::ADV_WORLD_JOSEPH_DESC};
+    static constexpr int32_t WB_W = (308 - (Otr::WORLD_COUNT - 1) * 4) / Otr::WORLD_COUNT;   // 74 px for 4
     for (int i = 0; i < Otr::WORLD_COUNT; i++) {
         lv_obj_t *b = Theme::button(scr, tr(NAMES[i]), WB_W, 82, Theme::LINE);
         lv_obj_set_pos(b, 6 + i * (WB_W + 4), 48);

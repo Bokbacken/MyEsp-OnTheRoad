@@ -324,6 +324,8 @@ extern const Entry LANG_EN[] = {
     {Str::ADV_QUEST_DONE, "Quest done: %s"},
     {Str::ADV_WORLD_VILLAGE, "The Village"},
     {Str::ADV_WORLD_VILLAGE_DESC, "Talk to the people in town"},
+    {Str::ADV_WORLD_JOSEPH, "Joseph"},
+    {Str::ADV_WORLD_JOSEPH_DESC, "Genesis 37 - the dreamer"},
 
     {Str::WEB_ERR_NUMBER, "Invalid numeric value"},
     {Str::WEB_ERR_TZ, "Invalid time zone"},
@@ -405,6 +407,9 @@ extern const Entry LANG_EN[] = {
     {Str::ADV_MAP_FAILED, "Map travel failed. Please retry."},
     {Str::ADV_MINE_HELP, "Reveal all safe cells. Collect shield, 3x3 and 4x4 at start. Hold = flag. Joystick also enters fog."},
     {Str::ADV_TRAVEL_HELP, "The exit north of Woolhild leads to the meadow. Its exit takes you back."},
+    {Str::ADV_JOSEPH_CAMP, "Joseph - Jacob's camp"},
+    {Str::ADV_JOSEPH_ROAD, "Joseph - Road to Dothan"},
+    {Str::ADV_JOSEPH_DONE, "Chapter 1 done! Joseph is taken to Egypt (Genesis 37)."},
     {Str::SET_SOUND, "Sound"},
     {Str::SET_SOUND_ON, "Sound on"},
     {Str::SET_SFX_VOL, "Effects volume"},

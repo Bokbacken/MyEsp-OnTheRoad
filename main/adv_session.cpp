@@ -38,6 +38,8 @@ uint32_t saveCrc(const uint8_t *p,size_t n) {
 }
 bool loadMap(int id,int index,int level,Otr::World &w) {
  if(id==Otr::WORLD_VILLAGE && index==1 && !level) return w.load(MEADOW_DEF);
+ // Josef (1 Mos 37): map 0 is the camp (WORLDS[id-1]), map 1 the road to Dothan.
+ if(id==Otr::WORLD_JOSEPH && index==1 && !level) return w.load(Otr::JOSEPH_ROAD_DEF);
  if(index || id<1 || id>Otr::WORLD_COUNT) return false;
  if(id==Otr::WORLD_MINES && level) return w.loadMines(level);
  if(level) return false;
@@ -49,14 +51,23 @@ bool Session::start(int id,Otr::World &w,Otr::Story::StoryState &story) {
  clear(); worldId_=id; story.clear(); return true;
 }
 bool Session::travel(Otr::World &w) {
- if(worldId_!=Otr::WORLD_VILLAGE || !w.exitReached()) return false;
- // Only the declared portal, not an arbitrary exit added by a corrupted save.
- if(map_==0 ? (w.playerX()!=28||w.playerY()!=1) : (w.playerX()!=2||w.playerY()!=3)) return false;
- const int dest=1-map_; auto temp=scratch();
+ if(!w.exitReached()) return false;
+ int dest, sx, sy;
+ // Only a declared portal travels, not an arbitrary exit added by a corrupted save.
+ if(worldId_==Otr::WORLD_VILLAGE) {
+  if(map_==0 ? (w.playerX()!=28||w.playerY()!=1) : (w.playerX()!=2||w.playerY()!=3)) return false;
+  dest=1-map_; sx=dest==1?2:29; sy=dest==1?2:1;
+ } else if(worldId_==Otr::WORLD_JOSEPH) {
+  // Josef is one-way: camp (map 0) -> road to Dothan (map 1). The road's own exit ends the
+  // chapter instead of travelling, so travel() only ever fires from the camp portal X at (20,1).
+  if(map_!=0 || w.playerX()!=20 || w.playerY()!=1) return false;
+  dest=1; sx=20; sy=26;
+ } else return false;
+ auto temp=scratch();
  if(!temp || !loadMap(worldId_,dest,0,*temp)) return false;
  if(!maps_[dest].empty() && !temp->restore(maps_[dest].data(),maps_[dest].size())) return false;
  temp->carryFrom(w);
- if(!temp->spawnAt(dest==1?2:29,dest==1?2:1)) return false;
+ if(!temp->spawnAt(sx,sy)) return false;
  std::vector<uint8_t> old(w.saveSize());
  if(!w.save(old.data(),old.size())) return false;
  maps_[map_]=std::move(old); map_=dest; w=*temp; return true;
@@ -73,7 +84,7 @@ bool Session::restart(Otr::World &w) {
  return w.loadMines(w.mineLevel()?w.mineLevel():1);
 }
 size_t Session::save(const Otr::World &w,const Otr::Story::StoryState &st,uint8_t *out,size_t cap) const {
- if(!out || worldId_<1 || worldId_>3 || map_<0 || map_>1) return 0;
+ if(!out || worldId_<1 || worldId_>Otr::WORLD_COUNT || map_<0 || map_>1) return 0;
  const size_t a=map_==0?w.saveSize():maps_[0].size(), b=map_==1?w.saveSize():maps_[1].size();
  const size_t n=HEADER+a+b+Otr::Story::StoryState::SAVE_BYTES+4;
  if(cap<n || n>SAVE_CAP) return 0;
@@ -103,7 +114,7 @@ bool Session::restore(const uint8_t *d,size_t n,Otr::World &w,Otr::Story::StoryS
     d[9]||d[10]||d[11] || get32(d+n-4)!=saveCrc(d,n-4)) return false;
  const size_t a=get32(d+12),b=get32(d+16),sn=get32(d+20);
  if(a>SAVE_CAP || b>SAVE_CAP || sn!=Otr::Story::StoryState::SAVE_BYTES || HEADER+a+b+sn+4!=n) return false;
- if(worldId_!=Otr::WORLD_VILLAGE && (b||d[6])) return false;
+ if(worldId_!=Otr::WORLD_VILLAGE && worldId_!=Otr::WORLD_JOSEPH && (b||d[6])) return false;
  if(worldId_!=Otr::WORLD_MINES && (d[7]||d[8])) return false;
  if(worldId_==Otr::WORLD_MINES && ((d[7]==0 && d[8]!=0) || (d[7] && (d[8]+1<d[7] || d[8]>d[7])))) return false;
  if(!(d[6]?b:a)) return false;

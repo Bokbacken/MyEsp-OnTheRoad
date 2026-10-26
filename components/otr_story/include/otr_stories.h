@@ -11,5 +11,10 @@ namespace Story {
 // choices, a narrator line, a reference line, world effects (move a person, give a key) and sound.
 extern const Script VILLAGE_STORY;
 
+// "Josef" (world WORLD_JOSEPH), Bible adventure chapter 1 (Genesis 37 / 1 Mosebok 37). Two maps:
+// Jakob's camp (robe puzzle) and the road to Dothan (dream riddle + cistern + sale). Bilingual
+// modern prose with per-node Bible references; see otr_story_joseph.cpp.
+extern const Script JOSEPH_STORY;
+
 }  // namespace Story
 }  // namespace Otr

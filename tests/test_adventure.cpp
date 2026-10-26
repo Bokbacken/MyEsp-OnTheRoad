@@ -1,5 +1,5 @@
 // Host unit tests for the OnTheRoad Engine tile world (components/otr_engine):
-//   g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure
+//   g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp components/otr_engine/otr_maps_joseph.cpp -o tests/test_adventure && ./tests/test_adventure
 #include <cstdio>
 #include <cstring>
 
@@ -971,7 +971,7 @@ static void testPeople()
 static void testVillage()
 {
     for (int y = 0; y < VILLAGE_H; y++) CHECK_EQ((int)strlen(VILLAGE[y]), VILLAGE_W);
-    CHECK_EQ(WORLD_COUNT, 3);
+    CHECK_EQ(WORLD_COUNT, 4);
     CHECK(W.load(WORLDS[2]));
     CHECK_EQ(W.mapId(), WORLD_VILLAGE);
     int x, y;
@@ -985,6 +985,48 @@ static void testVillage()
     CHECK(P.plan(W, 28, 1, WalkMode::PRO, PA) != PlanResult::OK);
     CHECK(W.moveNpc(2, 16, 6));
     CHECK_EQ((int)P.plan(W, 15, 4, WalkMode::PRO, PA), (int)PlanResult::OK);
+}
+
+// ---- v0.16.0: Josef (1 Mos 37), two maps, blocking NPC opens the way to the exit --------------
+static void testJoseph()
+{
+    // Camp map (WORLDS[WORLD_JOSEPH-1]); Ruben (3) blocks the only gap in the tree wall north.
+    CHECK(W.load(WORLDS[WORLD_JOSEPH - 1]));
+    CHECK_EQ(W.mapId(), WORLD_JOSEPH);
+    CHECK_EQ(W.width(), JOSEPH_W);
+    CHECK_EQ(W.height(), JOSEPH_CAMP_H);
+    int x, y;
+    CHECK(W.findNpc(1, x, y));            // Jakob
+    CHECK(W.findNpc(2, x, y));            // Josef
+    int rx, ry;
+    CHECK(W.findNpc(3, rx, ry));          // Ruben, in the gap
+    CHECK(!W.findNpc(4, x, y));           // road-only NPC absent here
+    int ex = -1, ey = -1;
+    for (int yy = 0; yy < W.height(); yy++)
+        for (int xx = 0; xx < W.width(); xx++)
+            if (W.tile(xx, yy) == Tile::EXIT) { ex = xx; ey = yy; }
+    CHECK(ex >= 0);
+    CHECK(!walkTo(ex, ey));              // exit unreachable while Ruben blocks the gap
+    CHECK(W.moveNpc(3, rx, ry + 2));     // Ruben steps aside
+    CHECK(walkTo(ex, ey));              // now the way to Dotan is open
+
+    // Road map (JOSEPH_ROAD_DEF, second map of the same world); merchant (6) blocks the gap.
+    CHECK(W.load(JOSEPH_ROAD_DEF));
+    CHECK_EQ(W.mapId(), 5);
+    CHECK_EQ(W.width(), JOSEPH_W);
+    CHECK_EQ(W.height(), JOSEPH_ROAD_H);
+    CHECK(W.findNpc(4, x, y));            // Juda
+    CHECK(W.findNpc(5, x, y));            // one of the brothers
+    int mx, my;
+    CHECK(W.findNpc(6, mx, my));          // merchant, in the gap
+    ex = ey = -1;
+    for (int yy = 0; yy < W.height(); yy++)
+        for (int xx = 0; xx < W.width(); xx++)
+            if (W.tile(xx, yy) == Tile::EXIT) { ex = xx; ey = yy; }
+    CHECK(ex >= 0);
+    CHECK(!walkTo(ex, ey));              // caravan road closed while the merchant blocks it
+    CHECK(W.moveNpc(6, mx, my + 2));     // merchant steps aside after the sale
+    CHECK(walkTo(ex, ey));              // chapter 1 can be completed
 }
 
 int main()
@@ -1010,6 +1052,7 @@ int main()
     testBridgeRepeated();
     testPeople();
     testVillage();
+    testJoseph();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
