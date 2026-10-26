@@ -1,0 +1,259 @@
+# ============================================================================
+#  example_joseph_hebron.adv
+#  Komplett exempel pa ASCII-aventyrsformatet for MyEsp-OnTheRoad.
+#  Detta ar den VERKLIGA Hebron-kartan (Jakobs lager) ur Josef-kapitlet
+#  (1 Mosebok 37), uttryckt i authoringformatet. Jamfor med kallkoden:
+#    components/otr_engine/otr_maps_joseph.cpp  (JOSEPH_CAMP_ROWS)
+#    components/otr_story/otr_story_joseph.cpp   (jakob, josef, ruben)
+#
+#  Se docs/AUTHORING_ADVENTURES.md for full teckenlegend och regler.
+#  Rader som borjar med '#' ar kommentarer. Tomma rader ignoreras
+#  (utom inuti @map, dar varje rad ar en kartrad).
+# ============================================================================
+
+@meta
+id: joseph_camp
+world: 4                 # WorldId (1..255). Josef = 4 (WORLD_JOSEPH)
+map_id: 4                # Stabilt kart-id for sparfiler (kampen = 4)
+name.sv: Jakobs lager
+name.en: Jacob's camp
+desc.sv: Hebron. Hamta den brokiga manteln hos Jakob och ge den till Josef.
+desc.en: Hebron. Fetch the ornate robe from Jacob and give it to Joseph.
+
+# --- Spelregler (motsvarar struct Otr::Rules, se otr_world.h) ----------------
+@rules
+start_energy: 8          # Energi vid start (och forsta maxvardet)
+energy_cap: 20           # Hur hogt max-energin kan vaxa (hjartan)
+lives: infinite          # "infinite" eller ett tal 1..9
+lava_damage: 3           # Energi per lava-steg utan dräktladdning
+mine_damage: 4           # Energi per mina
+suit_base_steps: 3       # Dräktladdningar vid upplockning ...
+suit_per_extra_max: 1    # ... + sa har manga per permanent extra energienhet
+potion_default: 2        # Energi en trolldryck ger utan eget varde
+heart_default: 1         # Max-energi ett hjarta ger utan eget varde
+fog: false               # true = minsvepar-varld (marken dold tills avtackt)
+
+# --- Kartan (40 bred x 30 hog). Exakt ett 'S' (start) och minst ett 'X' ------
+# Siffror 1..9 = talbara personer (kopplas till @npc via "num").
+# Teckenlegend: se @legend langst ner och AUTHORING_ADVENTURES.md.
+@map
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+T...................X..................T
+T......................................T
+T......................................T
+TTTTTTTTTTTTTTTTTTTT3TTTTTTTTTTTTTTTTTTT
+T......................................T
+T......................................T
+T.......###.................###........T
+T.......#_#.................#_#...+....T
+T.......#_#...T.............#_#........T
+T.........1.............T..............T
+T......................................T
+T.................,~~,.................T
+T.........b.......,~~,.....b...........T
+T.................,,,,.................T
+T....TT..........................T.....T
+T......*............2....b........T....T
+T..............T.......................T
+T......................................T
+T......................................T
+T.......###.................###........T
+T.......#_#.................#_#........T
+T.......#_#.......###.......#_#........T
+T.................#_#..................T
+T.....Q.......b...#_#..................T
+T...........T.................T........T
+T.....S................................T
+T......................................T
+T......................................T
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+
+# ============================================================================
+#  STORY
+#  Deklarera forst alla namn (flaggor, raknare, foremal, uppdrag). Varje namn
+#  som anvands i cond/effects MASTE vara deklarerat (validate() kraver det).
+# ============================================================================
+
+@flags
+met_jakob
+robe_given
+josef_ready
+met_ruben
+
+@counters
+trust
+
+# foremal:  id : namn.sv : namn.en
+@items
+robe : Brokig mantel : Ornate robe
+
+# uppdrag:  id : namn.sv : namn.en
+@quests
+deliver_robe : Manteln till Josef : The robe for Joseph
+dotan : Mot Dotan : To Dothan
+
+# ----------------------------------------------------------------------------
+#  NPC: Jakob (siffra 1 pa kartan)
+# ----------------------------------------------------------------------------
+@npc jakob
+name: Jakob | Jacob
+look: 0                  # sprite-/portrattindex i UI:t
+num: 1                   # matchar siffran '1' i @map
+
+# Flera noder kan dela id: forsta vars villkor stammer anvands. Sa "minns" en
+# person: variant 1 (!met_jakob), variant 2 (uppdrag aktivt), variant 3 (klart),
+# variant 4 (utan villkor = alltid, fallback).
+@node jakob.start
+cond: !met_jakob
+speaker: jakob
+ref: 1 Mos 37:3
+effects: set met_jakob; give robe; quest deliver_robe active
+text.sv: Du maste vara den resande. Jag ar Jakob. Min son Josef ar sjutton och mitt hjartas ogonsten. Jag har sytt en brokig mantel at honom - ta den och ge honom den, ar du snall.
+text.en: You must be the traveller. I am Jacob. My son Joseph is seventeen, the apple of my eye. I made him an ornate robe - take it and give it to him, please.
+choice: Sa klart, var ar Josef? | Of course, where is Joseph? => jakob.where
+choice: Varfor just Josef? | Why Joseph especially? => jakob.why
+choice: Hej da! | Bye! => END
+
+@node jakob.start
+cond: quest:deliver_robe=active
+speaker: jakob
+text.sv: Har du inte gett manteln till Josef an? Han brukar sta nere vid farhagen mitt i lagret.
+text.en: Haven't you given Joseph the robe yet? He's usually down by the sheep pen in the middle of camp.
+choice: Jag gar dit nu. | I'll go now. => END
+choice: Var star han? | Where is he? => jakob.where
+
+@node jakob.start
+cond: robe_given
+speaker: jakob
+text.sv: Tack for att du gav Josef manteln. Se sa fin den ar pa honom! Hans broder... ja, de ser den ocksa.
+text.en: Thank you for giving Joseph the robe. See how fine it looks on him! His brothers... yes, they see it too.
+choice: Vad menar du? | What do you mean? => jakob.why
+choice: Hej da! | Bye! => END
+
+@node jakob.start
+speaker: jakob
+text.sv: Valkommen i mitt lager, resande. Ma du vandra i frid.
+text.en: Welcome to my camp, traveller. May you walk in peace.
+choice: Hej da! | Bye! => END
+
+@node jakob.where
+speaker: jakob
+text.sv: Mitt i lagret, vid farhagen. Ge honom manteln fran mig.
+text.en: In the middle of camp, by the sheep pen. Give him the robe from me.
+choice: Tack, Jakob. | Thanks, Jacob. => END
+
+@node jakob.why
+speaker: jakob
+ref: 1 Mos 37:4
+effects: add trust 1
+text.sv: Josef foddes pa min alderdom. Jag vet att jag skammer bort honom. Hans aldre broder blir avundsjuka - men ett far-hjarta rar man inte over.
+text.en: Joseph was born in my old age. I know I spoil him. His older brothers grow jealous - but a father's heart has a will of its own.
+choice: Jag forstar. | I understand. => END
+
+# ----------------------------------------------------------------------------
+#  NPC: Josef (siffra 2 pa kartan)
+# ----------------------------------------------------------------------------
+@npc josef
+name: Josef | Joseph
+look: 1
+num: 2
+
+@node josef.start
+cond: robe_given
+speaker: josef
+ref: 1 Mos 37:7
+text.sv: Tack for manteln! Jag drommde nagot i natt: vi band karvar pa akern, och min karve reste sig medan era bugade. Konstigt, va?
+text.en: Thanks for the robe! I had a dream last night: we were binding sheaves, and mine stood up while yours bowed down to it. Strange, right?
+choice: Beratta mer. | Tell me more. => josef.dream2
+choice: Hej da! | Bye! => END
+
+# En valbar rad kan ha villkor (??) och effekter (!!). Raden ges bara om
+# villkoret stammer; effekterna tillampas nar man valjer den.
+@node josef.start
+cond: has:robe
+speaker: josef
+text.sv: Ah, en mantel! Ar den till mig? Fran far? Far jag se!
+text.en: Oh, a robe! Is it for me? From Father? Let me see!
+choice: Har, den ar din. | Here, it's yours. => josef.getrobe ?? has:robe !! take robe; set robe_given; set josef_ready; quest deliver_robe done; sound quest
+choice: Hej da! | Bye! => END
+
+@node josef.start
+speaker: josef
+text.sv: Hej! Jag ar Josef. Mina broder vaktar hjorden, men far vill ha mig nara sig. Har du nagot till mig?
+text.en: Hi! I'm Joseph. My brothers tend the flock, but Father likes to keep me close. Do you have something for me?
+choice: Inte riktigt an. | Not quite yet. => END
+
+@node josef.getrobe
+speaker: josef
+ref: 1 Mos 37:7
+effects: add trust 1
+text.sv: Wow, titta pa alla farger! Tack! Nu kan jag beratta: jag drommde att vi band karvar, och min karve stod rak medan era bugade for den.
+text.en: Wow, look at all the colours! Thank you! Now I can tell you: I dreamed we bound sheaves, and mine stood upright while yours bowed to it.
+choice: Beratta mer. | Tell me more. => josef.dream2
+choice: Sag inte det till broderna! | Don't tell your brothers! => josef.warn
+
+@node josef.dream2
+speaker: josef
+ref: 1 Mos 37:9
+text.sv: Jag drommde en gang till: solen, manen och elva stjarnor bugade for mig. Aven far hojde pa ogonbrynen at den.
+text.en: I had another dream: the sun, the moon and eleven stars bowed to me. Even Father raised an eyebrow at that one.
+choice: Vad kan det betyda? | What could it mean? => josef.warn
+choice: Hej da! | Bye! => END
+
+@node josef.warn
+speaker: josef
+ref: 1 Mos 37:13
+text.sv: Du har ratt, jag borde halla drommarna for mig sjalv. Men de kanns sa verkliga! Far vill att jag gar till broderna i Dotan. Prata med Ruben forst.
+text.en: You're right, I should keep the dreams to myself. But they feel so real! Father wants me to go to my brothers in Dothan. Talk to Reuben first.
+choice: Jag pratar med Ruben. | I'll talk to Reuben. => END
+
+# ----------------------------------------------------------------------------
+#  NPC: Ruben (siffra 3) - blockerar gapet i tradraden norrut
+# ----------------------------------------------------------------------------
+@npc ruben
+name: Ruben | Reuben
+look: 2
+num: 3
+
+@node ruben.start
+cond: josef_ready & !met_ruben
+speaker: ruben
+ref: 1 Mos 37:21
+effects: set met_ruben; quest dotan active
+text.sv: Sa far skickar lillebror till oss i Dotan? I den dar manteln? Broderna kommer inte gilla det. Men jag vakar over honom. Kom - jag kliver at sidan, vagen norrut ar din.
+text.en: So Father sends the little one to us in Dothan? In that robe? The brothers won't like it. But I'll watch over him. Come - I'll step aside, the way north is yours.
+choice: Tack, Ruben. | Thanks, Reuben. => ruben.moves
+
+@node ruben.start
+cond: met_ruben
+speaker: ruben
+text.sv: Vagen till Dotan ligger oppen norrut. Ga varsamt - och hall ett oga pa Josef.
+text.en: The road to Dothan lies open to the north. Tread carefully - and keep an eye on Joseph.
+choice: Hej da! | Bye! => END
+
+@node ruben.start
+speaker: ruben
+text.sv: Jag ar Ruben, aldst av broderna. Ge Josef manteln fran far forst - jag slapper ingen norrut forran han ar redo for Dotan.
+text.en: I'm Reuben, the eldest. Give Joseph the robe from Father first - I let no one north until he's ready for Dothan.
+choice: Jag fixar det. | I'll sort it out. => END
+
+# En nod utan "speaker:" ar en berattarnod. Effekten "world npc_move 3 18 6"
+# flyttar person 3 (Ruben) till rutan (18,6) sa gapet oppnas.
+@node ruben.moves
+ref: 1 Mos 37:21
+effects: world npc_move 3 18 6; sound quest
+text.sv: Ruben stiger at sidan. Gapet i tradraden oppnar sig, och stigen mot Dotan stracker sig norrut.
+text.en: Reuben steps aside. The gap in the trees opens, and the path to Dothan stretches north.
+choice: Mot Dotan! | To Dothan! => END
+
+# ============================================================================
+#  @legend - informativ referens (parsas ej; teckentabellen ar inbyggd).
+# ============================================================================
+@legend
+. = gras (gangbar)          , = sand           _ = stengolv        # = vagg
+% = sprucken vagg (2 slag)  T = trad           ~ = vatten          ^ = lava
+o = tryckplatta             = = grind          Q = checkpoint      X = utgang (mal)
+S = start                   1..9 = person      b = buske           * + $ = adelsten
+R r = sten (knuffa)         c C = lada (sla)   k K = nyckel        D = last dorr
+B = bat                     p = trolldryck     h = hjarta          u = skyddsdrakt
+l = extra liv               m = dold mina
