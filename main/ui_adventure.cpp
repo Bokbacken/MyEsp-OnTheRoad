@@ -1,6 +1,7 @@
 // ui_adventure.cpp - OnTheRoad Engine test world (see header).
 #include "ui_adventure.h"
 #include "adv_live.h"
+#include "adv_session.h"
 
 #include <errno.h>
 #include <math.h>
@@ -104,7 +105,7 @@ static uint16_t *s_fb = nullptr;   // Canvas buffer VIEW_W x VIEW_H
 static Otr::Planner *s_planner = nullptr;   // ~90 kB A* work area
 static Otr::Path *s_path = nullptr;
 static uint8_t *s_saveBuf = nullptr;         // Save file image
-static constexpr size_t SAVE_CAP = 32 * 1024;   // >= World::saveSize() for 64 x 64
+static constexpr size_t SAVE_CAP = Adventure::Session::SAVE_CAP;   // >= World::saveSize() for 64 x 64
 
 // Screen objects
 static lv_obj_t *s_scr, *s_canvas, *s_toast, *s_dialog;
@@ -149,6 +150,14 @@ static int32_t s_lastCamX = -1, s_lastCamY = -1;
 static uint32_t s_renderUs, s_renderAccUs, s_renders, s_statT0;
 // Story / dialogue (v0.11.0)
 static const Otr::Story::Script *s_story;     // Script of the current world, nullptr = none
+static Adventure::Session s_session;
+static int s_bombSize=0, s_bombX=-1, s_bombY=-1;
+static bool s_resultShown=false;
+static lv_obj_t *s_stageLabel, *s_bombCancel;
+static uint32_t s_actionTapMs;
+static void bombAction();
+static void cancelBomb();
+static void mineResult();
 static Otr::Story::StoryState s_storyState;   // What the conversations changed (saved as .sts)
 static Otr::Story::Dialog s_talk;
 static int s_talkNum;                         // Person being talked to (map number), 0 = none
@@ -810,6 +819,10 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             const Obj ob = w.obj(tx, ty);
             const int o = ob == Obj::NPC ? npcSprite(tx, ty, now) : objSprite(ob);
             if (o >= 0) blit(o, sx, sy, o != S_DOOR);
+            if(ob==Obj::BOMB3||ob==Obj::BOMB4) {
+                blit(S_CRATE,sx,sy,true);
+                blit(S_NUM1+(ob==Obj::BOMB3?2:3),sx,sy,true);
+            }
         }
     if (rockSliding) {
         const float t = moveProgress(now);
@@ -819,6 +832,19 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
     }
     if (w.sailing()) blit(S_BOAT, ppx - camX, ppy - camY + ts / 8, true);
     blit(S_PL_UP + (int)w.facing(), ppx - camX, ppy - camY - (w.sailing() ? ts / 8 : 0), true);
+    if(s_bombSize && s_bombX>=0) {
+        const auto a=w.bombArea(s_bombSize,s_bombX,s_bombY);
+        for(int y=a.y0;y<=a.y1;y++) for(int x=a.x0;x<=a.x1;x++) {
+            const int sx=x*ts-camX, sy=y*ts-camY;
+            for(int j=1;j<ts-1;j++) for(int edge=0;edge<4;edge++) {
+                int dx=sx+(edge<2?j:(edge==2?1:ts-2));
+                int dy=sy+(edge<2?(edge==0?1:ts-2):j);
+                if(dx>=0&&dx<VIEW_W&&dy>=0&&dy<VIEW_H) s_fb[dy*VIEW_W+dx]=rgb(255,210,40);
+            }
+        }
+        // Existing flag sprite identifies the tapped anchor, independent of clipping.
+        blit(S_FLAG,s_bombX*ts-camX,s_bombY*ts-camY,true);
+    }
     if (s_fxX >= 0 && now - s_fxT0 < FX_MS) blit(S_IMPACT, s_fxX * ts - camX, s_fxY * ts - camY, true);
     s_renderUs = (uint32_t)(esp_timer_get_time() - t0);
 }
@@ -846,6 +872,16 @@ static void updateStats()
     setCount(C_KEYS, w.keys(), Theme::GOLD);
     lv_label_set_text_fmt(s_count[C_GEMS], "%d/%d", w.gems(), w.gemsTotal());
     lv_obj_set_style_text_color(s_count[C_GEMS], Theme::c(w.gems() > 0 ? Theme::TEAL : Theme::MUTED), 0);
+    if (w.mineLevel()) {
+        lv_label_set_text_fmt(s_count[C_LIVES], "%d/12", w.mineLevel());
+        lv_label_set_text_fmt(s_count[C_KEYS], "3x3: %d", w.bombs(3));
+        lv_label_set_text_fmt(s_count[C_GEMS], "4x4: %d", w.bombs(4));
+        lv_label_set_text_fmt(s_stageLabel,tr(Str::ADV_STAGE),w.mineLevel(),w.safeLeft());
+        lv_label_set_text_fmt(s_count[C_SUIT],tr(Str::ADV_SHIELD_SHORT),w.suitCharges());
+    } else {
+        lv_label_set_text(s_stageLabel,s_session.worldId()==Otr::WORLD_VILLAGE ?
+            tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP) : "");
+    }
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     // Energy bar: red fill on a light track (Kent's mock-up); the numbers sit in the bar
@@ -940,17 +976,21 @@ static bool loadSave()
         savePath(p, sizeof(p), s_playerId, s_worldIdx, sd);
         if (!sd && !MyFat::exists(p)) break;
         const size_t n = readFile(p, sd);
-        if (n && s_world->restore(s_saveBuf, n)) {
-            ESP_LOGI(TAG, "loaded %s", p);
-            s_storyState.clear();
-            if (s_story) {   // The story state lives next to the world save
-                savePath(p, sizeof(p), s_playerId, s_worldIdx, sd, "sts");
-                const size_t m = readFile(p, sd);
-                if (!m || !s_storyState.restore(s_saveBuf, m)) {
-                    ESP_LOGW(TAG, "%s: no valid story state (%u B), starting fresh", p, (unsigned)m);
-                    s_storyState.clear();
-                }
+        const bool legacy = n >= 4 && memcmp(s_saveBuf, "OTRS", 4) == 0;
+        Otr::Story::StoryState oldStory{};
+        if (legacy && s_story) {
+            char sp[96];
+            savePath(sp, sizeof(sp), s_playerId, s_worldIdx, sd, "sts");
+            const size_t sn=readFile(sp,sd);
+            if (!sn || !oldStory.restore(s_saveBuf,sn)) {
+                ESP_LOGW(TAG,"legacy story missing/corrupt: %s; not migrating",sp);
+                continue;
             }
+            if(readFile(p,sd)!=n) continue;
+        }
+        if (n && s_session.restore(s_saveBuf, n, *s_world, s_storyState)) {
+            ESP_LOGI(TAG, "loaded %s", p);
+            if (legacy && s_story) s_storyState=oldStory;
             return true;
         }
         ESP_LOGW(TAG, "%s: invalid save (%u B)", p, (unsigned)n);
@@ -994,14 +1034,13 @@ static void markSaved()
 static bool saveNow()
 {
     s_saveWanted = false;
-    if (!s_playerId || s_world->gameOver()) return false;
-    const size_t n = s_world->save(s_saveBuf, SAVE_CAP);
+    if (!s_playerId || (s_world->gameOver() && !s_world->mineLevel())) return false;
+    const size_t n = s_session.save(*s_world, s_storyState, s_saveBuf, SAVE_CAP);
     if (!n) return false;
     char p[96];
     const int64_t t0 = esp_timer_get_time();
     savePath(p, sizeof(p), s_playerId, s_worldIdx, true);
     bool ok = writeSdAtomic(p, s_saveBuf, n);
-    const bool sd = ok;
     if (ok) {
         char old[96];
         savePath(old, sizeof(old), s_playerId, s_worldIdx, false);
@@ -1009,17 +1048,6 @@ static bool saveNow()
     } else if (MyFat::mounted()) {
         savePath(p, sizeof(p), s_playerId, s_worldIdx, false);
         ok = MyFat::writeAtomic(p, nullptr, 0, s_saveBuf, n);
-    }
-    if (ok && s_story) {   // Story state in the same place as the world
-        uint8_t st[Otr::Story::StoryState::SAVE_BYTES];
-        const size_t sn = s_storyState.save(st, sizeof(st));
-        char sp[96];
-        savePath(sp, sizeof(sp), s_playerId, s_worldIdx, sd, "sts");
-        ok = sd ? writeSdAtomic(sp, st, sn) : MyFat::writeAtomic(sp, nullptr, 0, st, sn);
-        if (ok && sd) {
-            savePath(sp, sizeof(sp), s_playerId, s_worldIdx, false, "sts");
-            if (MyFat::mounted() && MyFat::exists(sp)) unlink(sp);
-        }
     }
     ESP_LOGI(TAG, "save %s: %s (%u B, %d ms)", p, ok ? "ok" : "FAILED", (unsigned)n, (int)((esp_timer_get_time() - t0) / 1000));
     if (ok) markSaved();
@@ -1442,7 +1470,7 @@ static void talkTick(uint32_t now)
 static uint32_t doMove(Dir d)
 {
     const uint32_t now = nowMs();
-    if (busy(now) || s_world->gameOver()) return 0;
+    if (s_bombSize || busy(now) || s_world->gameOver()) return 0;
     const int fx = s_world->playerX(), fy = s_world->playerY();
     const int tx = fx + Otr::dirX(d), ty = fy + Otr::dirY(d);
     const bool wasRock = s_world->obj(tx, ty) == Obj::ROCK;
@@ -1451,6 +1479,14 @@ static uint32_t doMove(Dir d)
     s_dirty = true;
     playEvents(ev);
     char buf[80];
+    if ((ev & Otr::EV_EXIT) && s_session.worldId()==Otr::WORLD_VILLAGE) {
+        stopPath(); s_joy.cancel();
+        if(s_session.travel(*s_world)) {
+            snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted=true;
+            toast(tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP),Theme::GOLD);
+        } else toast(tr(Str::ADV_MAP_FAILED),Theme::RED);
+        return ev;
+    }
 
     if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
         snapPlayer();
@@ -1497,7 +1533,10 @@ static uint32_t doMove(Dir d)
         s_bumpT0 = now;
     }
 
-    if (ev & Otr::EV_MINE) {
+    if ((ev & Otr::EV_MINE) && (ev & Otr::EV_SUIT_USED)) {
+        toast(tr(Str::ADV_SHIELD_HIT),Theme::GOLD);
+        Rgb::effectFlash(255,180,20,500);
+    } else if (ev & Otr::EV_MINE) {
         snprintf(buf, sizeof(buf), tr(Str::ADV_MINE), s_world->rules().mineDamage);
         toast(buf, Theme::RED);
         Rgb::effectFlash(255, 120, 20, 600);
@@ -1515,6 +1554,7 @@ static uint32_t doMove(Dir d)
     }
     if (ev & (Otr::EV_MINE | Otr::EV_BURNED)) eventToasts(ev & (Otr::EV_CHECKPOINT));
     if (ev & ~(Otr::EV_MOVED | Otr::EV_BLOCKED | Otr::EV_TALK)) updateStats();
+    if (s_world->mineLevel()) updateStats();
     if (ev & Otr::EV_TALK) startTalk(s_world->talkNpc());
     return ev;
 }
@@ -1522,6 +1562,7 @@ static uint32_t doMove(Dir d)
 static void doHit()
 {
     const uint32_t now = nowMs();
+    if (s_world->mineLevel()) { bombAction(); return; }
     if (busy(now) || s_world->gameOver()) return;
     const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
     const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
@@ -1626,7 +1667,9 @@ static void walkToTalk(int num, int nx, int ny)
 
 static void resetWorld(bool showHelp = true)
 {
-    if (!s_world->load(Otr::WORLDS[s_worldIdx])) ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
+    cancelBomb(); s_resultShown=false;
+    if(s_session.worldId()==Otr::WORLD_MINES) s_session.restart(*s_world);
+    else s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState);
     AdvLive::invalidateMap();
     if (talking()) endTalk();
     s_storyState.clear();
@@ -1637,7 +1680,8 @@ static void resetWorld(bool showHelp = true)
     s_bumpT0 = 0;
     s_dirty = true;
     updateStats();
-    if (showHelp) toast(tr(s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP), Theme::MUTED, 6000);
+    if (showHelp) toast(tr(s_world->mineLevel()?Str::ADV_MINE_HELP:s_story?Str::ADV_TRAVEL_HELP:
+        s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP), Theme::MUTED, 6000);
 }
 
 static lv_obj_t *dialog(const char *text)
@@ -1648,8 +1692,75 @@ static lv_obj_t *dialog(const char *text)
     return s_dialog;
 }
 
+static void cancelBomb()
+{
+    s_bombSize=0; s_bombX=s_bombY=-1; s_dirty=true;
+    if(s_bombCancel) lv_obj_set_hidden(s_bombCancel,true);
+    if(s_hitBtn) lv_label_set_text(lv_obj_get_child(s_hitBtn,0),tr(s_world->mineLevel()?Str::ADV_BOMB:Str::ADV_HIT));
+}
+static void bombAction()
+{
+    if(s_world->gameOver()||s_world->exitReached()||busy(nowMs())) return;
+    stopPath(); s_joy.cancel();
+    if(s_bombSize) {
+        if(s_bombX<0) return;
+        const bool ok=s_world->placeBomb(s_bombSize,s_bombX,s_bombY);
+        if(ok) { Audio::play(Sound::Sfx::MINE); s_saveWanted=true; }
+        else toast(tr(Str::ADV_BOMB_EMPTY),Theme::MUTED);
+        cancelBomb(); updateStats(); return;
+    }
+    auto *mb=dialog(tr(Str::ADV_BOMB_PICK));
+    for(int size=3;size<=4;size++) {
+        char text[32]; snprintf(text,sizeof(text),"%dx%d: %d",size,size,s_world->bombs(size));
+        auto *b=lv_msgbox_add_footer_button(mb,text);
+        lv_obj_set_state(b,LV_STATE_DISABLED,s_world->bombs(size)==0);
+        lv_obj_add_event_cb(b,[](lv_event_t *e) {
+            if(!Theme::debounce(s_actionTapMs)) return;
+            s_bombSize=(int)(intptr_t)lv_event_get_user_data(e); s_bombX=s_bombY=-1;
+            closeDialog(); lv_obj_set_hidden(s_bombCancel,false);
+            lv_label_set_text(lv_obj_get_child(s_hitBtn,0),"OK");
+            toast(tr(Str::ADV_BOMB_PREVIEW),Theme::GOLD,6000);
+        },LV_EVENT_CLICKED,(void*)(intptr_t)size);
+    }
+    auto *cancel=lv_msgbox_add_footer_button(mb,tr(Str::BTN_CANCEL));
+    lv_obj_add_event_cb(cancel,[](lv_event_t*) {
+        if(Theme::debounce(s_actionTapMs)) closeDialog();
+    },LV_EVENT_CLICKED,nullptr);
+    Theme::msgboxFonts(mb);
+}
+static void mineResult()
+{
+    if(s_resultShown) return;
+    s_resultShown=true; stopPath(); s_joy.cancel(); cancelBomb();
+    s_session.recordWin(*s_world); saveNow();
+    const bool won=s_world->exitReached()&&!s_world->gameOver();
+    auto *mb=dialog(tr(!won?Str::ADV_MINE_LOSS:s_world->mineLevel()==12?Str::ADV_CAMPAIGN_WIN:Str::ADV_MINE_WIN));
+    if(won && s_world->mineLevel()<12) {
+        auto *b=lv_msgbox_add_footer_button(mb,tr(Str::ADV_NEXT_STAGE));
+        lv_obj_add_event_cb(b,[](lv_event_t*) {
+            if(!Theme::debounce(s_actionTapMs)) return;
+            closeDialog();
+            if(s_session.next(*s_world)) {
+                s_resultShown=false; snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_dirty=true; saveNow();
+            }
+        },LV_EVENT_CLICKED,nullptr);
+    }
+    auto *retry=lv_msgbox_add_footer_button(mb,tr(Str::ADV_RESTART));
+    lv_obj_add_event_cb(retry,[](lv_event_t*) {
+        if(!Theme::debounce(s_actionTapMs)) return;
+        closeDialog(); resetWorld(); saveNow();
+    },LV_EVENT_CLICKED,nullptr);
+    auto *quit=lv_msgbox_add_footer_button(mb,tr(Str::ADV_LEAVE));
+    lv_obj_add_event_cb(quit,[](lv_event_t*) {
+        if(!Theme::debounce(s_actionTapMs)) return;
+        closeDialog(); UiYatzy::showMenu();
+    },LV_EVENT_CLICKED,nullptr);
+    Theme::msgboxFonts(mb);
+}
+
 static void showGameOver()
 {
+    if(s_world->mineLevel()) { mineResult(); return; }
     lv_obj_t *mb = dialog(tr(Str::ADV_GAME_OVER_Q));
     lv_obj_t *cont = lv_msgbox_add_footer_button(mb, tr(Str::ADV_CONTINUE));
     lv_obj_t *restart = lv_msgbox_add_footer_button(mb, tr(Str::ADV_RESTART));
@@ -1683,7 +1794,7 @@ struct LiveSig {
     uint32_t rev, items;
     bool boat, gates, over, exit;
     const void *node;
-    int talkNum, choices, lang;
+    int talkNum, choices, lang, map, level, b3, b4, bombSize, bombX, bombY;
 };
 static LiveSig s_liveSig;
 static bool s_liveValid;
@@ -1691,6 +1802,7 @@ static bool s_liveValid;
 static const char *worldName()
 {
     static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES, Str::ADV_WORLD_VILLAGE};
+    if(s_session.worldId()==Otr::WORLD_VILLAGE) return tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP);
     return s_worldIdx >= 0 && s_worldIdx < Otr::WORLD_COUNT ? tr(NAMES[s_worldIdx]) : "";
 }
 
@@ -1723,12 +1835,14 @@ static void liveSync(bool force = false)
     g.talkNum = s_talkNum;
     g.choices = s_talk.active() ? s_talk.choiceCount() : 0;
     g.lang = langIdx();
+    g.map=w.mapId(); g.level=w.mineLevel(); g.b3=w.bombs(3); g.b4=w.bombs(4);
+    g.bombSize=s_bombSize; g.bombX=s_bombX; g.bombY=s_bombY;
     if (!force && s_liveValid && memcmp(&g, &s_liveSig, sizeof(g)) == 0) return;
     s_liveSig = g;
     s_liveValid = true;
     const AdvLive::Source src = {&w, worldName(), s_story, &s_storyState, s_talk.active() ? &s_talk : nullptr,
                                  langIdx(), tr(Str::ADV_TALK_READ), tr(Str::ADV_TALK_OK), tr(Str::ADV_TALK_BYE),
-                                 s_talkNum};
+                                 s_talkNum, s_session.worldId(), s_session.completed(), s_bombSize,s_bombX,s_bombY};
     AdvLive::publish(src);
 }
 
@@ -1745,7 +1859,8 @@ static void tick(lv_timer_t *)
 {
     const uint32_t now = nowMs();
     talkTick(now);
-    if (!s_dialog && !talking()) {
+    if(s_world->mineLevel() && (s_world->exitReached()||s_world->gameOver()) && !s_resultShown) mineResult();
+    if (!s_bombSize && !s_dialog && !talking()) {
         Dir jd;
         if (s_joy.poll(now, !busy(now) && !s_world->gameOver(), jd)) {
             stopPath();
@@ -1792,7 +1907,7 @@ static void tick(lv_timer_t *)
     const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog && !talking();
     // Slå becomes Prata when the hero faces a person
     const bool faceTalk = s_world->facingNpc() != 0;
-    if (s_hitBtn && faceTalk != s_hitTalk) {
+    if (s_hitBtn && !s_world->mineLevel() && faceTalk != s_hitTalk) {
         s_hitTalk = faceTalk;
         lv_label_set_text(lv_obj_get_child(s_hitBtn, 0), tr(faceTalk ? Str::ADV_TALK : Str::ADV_HIT));
         lv_obj_set_style_bg_color(s_hitBtn, Theme::c(faceTalk ? Theme::TEAL : Theme::ACCENT), 0);
@@ -1952,7 +2067,7 @@ static void viewEvent(lv_event_t *e)
     currentCamera(camX, camY);
     const float fx = (float)(p.x + camX) / s_ts, fy = (float)(p.y - VIEW_Y + camY) / s_ts;
     if (code == LV_EVENT_LONG_PRESSED) {
-        if (!s_world->fog()) return;
+        if (s_bombSize || !s_world->fog()) return;
         s_longDone = true;
         if (s_world->toggleFlag((int)floorf(fx), (int)floorf(fy))) {
             s_dirty = true;
@@ -1961,6 +2076,11 @@ static void viewEvent(lv_event_t *e)
         return;
     }
     if (s_longDone) return;
+    if(s_bombSize) {
+        int x=(int)floorf(fx),y=(int)floorf(fy);
+        if(s_world->inside(x,y)) { s_bombX=x; s_bombY=y; s_dirty=true; }
+        return;
+    }
     // On the hero (a bit generous): hit
     const float hx = fx - (s_world->playerX() + 0.5f), hy = fy - (s_world->playerY() + 0.5f);
     if (fabsf(hx) < 0.6f && fabsf(hy) < 0.6f) {
@@ -1987,6 +2107,7 @@ static void viewEvent(lv_event_t *e)
 
 static void freeAll()
 {
+    s_session.clear(); s_bombSize=0; s_stageLabel=s_bombCancel=nullptr;
     liveStop();   // Before the world memory goes
     closeDialog();
     if (s_timer) lv_timer_delete(s_timer);
@@ -2219,9 +2340,9 @@ static void buildControls()
         lv_obj_set_size(row, COL_L_W - 8, HUD_PX);
         lv_obj_set_scrollable(row, false);
         lv_obj_set_clickable(row, false);
-        hudIcon(row, rowIcon[r]);
+        if(!s_world->mineLevel()) hudIcon(row, rowIcon[r]);
         s_count[r] = Theme::label(row, "", &my_font_14, Theme::TEXT);
-        lv_obj_align(s_count[r], LV_ALIGN_LEFT_MID, HUD_PX + 6, 0);
+        lv_obj_align(s_count[r], LV_ALIGN_LEFT_MID, s_world->mineLevel()?0:HUD_PX + 6, 0);
     }
     lv_obj_t *menu = Theme::button(pan, LV_SYMBOL_LIST, 36, 40, Theme::ACCENT);
     lv_obj_set_pos(menu, 4, CTRL_H - 48);
@@ -2235,7 +2356,7 @@ static void buildControls()
 
     // Right column: the box on top is the Slå (hit) button
     // (Prata when facing a person, see tick())
-    s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
+    s_hitBtn = Theme::button(pan, tr(s_world->mineLevel()?Str::ADV_BOMB:Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
     s_hitTalk = false;
     lv_obj_set_pos(s_hitBtn, COL_R_X, 8);
     lv_obj_add_event_cb(s_hitBtn, [](lv_event_t *) {
@@ -2268,6 +2389,12 @@ static void buildControls()
     for (int i = 0; i < H_COUNT; i++) s_item[i] = nullptr;
     s_item[H_BOAT] = hudIcon(s_itemBox, H_BOAT);
 
+    s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,36,Theme::LINE);
+    lv_obj_set_pos(s_bombCancel,COL_R_X,106);
+    lv_obj_set_hidden(s_bombCancel,true);
+    lv_obj_add_event_cb(s_bombCancel,[](lv_event_t*) {
+        if(Theme::debounce(s_actionTapMs)) cancelBomb();
+    },LV_EVENT_CLICKED,nullptr);
     buildJoystick(s_scr);
 }
 
@@ -2299,13 +2426,18 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
+    s_stageLabel=Theme::label(s_scr,"",&my_font_14,Theme::TEXT);
+    lv_obj_set_pos(s_stageLabel,4,4);
+    lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
+    lv_obj_set_style_bg_opa(s_stageLabel,210,0);
+    lv_obj_set_clickable(s_stageLabel,false);
     buildControls();
     snapPlayer();
     s_fxX = -1;
     s_bumpT0 = 0;
     s_dirty = true;
     updateStats();
-    toast(tr(loadFailed ? Str::ADV_LOAD_FAIL : s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP),
+    toast(tr(loadFailed ? Str::ADV_LOAD_FAIL : s_world->mineLevel()?Str::ADV_MINE_HELP:s_story?Str::ADV_TRAVEL_HELP:s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP),
           loadFailed ? Theme::RED : Theme::MUTED, 6000);
     markSaved();
     s_lastCamX = s_lastCamY = -1;
@@ -2326,14 +2458,15 @@ static void startGame(bool cont)
     closeDialog();
     s_story = Otr::WORLDS[s_worldIdx].id == Otr::WORLD_VILLAGE ? &Otr::Story::VILLAGE_STORY : nullptr;
     s_storyState.clear();
-    if (!s_world->load(Otr::WORLDS[s_worldIdx])) {
+    s_bombSize=0; s_resultShown=false;
+    if (!s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState)) {
         ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
         return;
     }
     bool failed = false;
     if (cont && !loadSave()) {
         failed = true;
-        s_world->load(Otr::WORLDS[s_worldIdx]);   // restore() leaves it untouched, but be explicit
+        s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState);
         s_storyState.clear();
     }
     stopPath();

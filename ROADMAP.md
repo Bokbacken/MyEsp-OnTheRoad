@@ -4,9 +4,22 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 
 ### Aktuellt fokus – tillbaka till bibeläventyret
 - **Karaoke pausad på Kents begäran:** grunden fungerar mycket väl enligt Kent. Det innebär inte att alla funktioner i v0.13.7 är HW-verifierade; kvarvarande testpunkter står kvar. Inga nya karaokeändringar nu.
-- **Nästa fokus: Josefs resa** enligt [bibeläventyrsplanen](docs/BIBLE_ADVENTURE_PLAN.md). Dialogmotorn, demobyn och live view finns; inget Josef-kapitel är implementerat ännu. Nästa redan planerade steg är **C: flera kartor per värld, sparformat v2 med berättelsestatus/aktuell karta, uppdragslogg och världsspecifik HUD**. Börja konkret med kartövergångar och bakåtkompatibel sparning. Roadmapens v0.15.0 är planeringsmålet; planens äldre v0.13.0-rubriker för C–E är inaktuella, inte färdiga releaser.
-- [ ] **MineSweeper-utbyggnad (Kents idé, TODO):** cirka **10–15 banor med ökande svårighetsgrad**, **skyddsdräkt att hitta** och **bomber som spränger 3×3 eller 4×4 dolda rutor**. Inte implementerat. Exakt banantal/progression, dräktens skydd och hållbarhet, bombtillgång, placering/förankring av sprängytan (särskilt 4×4), kanthantering och samspelet med minor är **oavgjorda**. Motorns befintliga dräktregler beslutar inte dessa nya mekaniker.
+- **Nästa fokus: Josefs resa** enligt [bibeläventyrsplanen](docs/BIBLE_ADVENTURE_PLAN.md). v0.15.0 levererar kartövergångar och v2-sparning som teknisk grund; inget Josef-kapitel eller utbyggd uppdragslogg ingår. Uppdragslogg och generell världsspecifik HUD återstår.
+- [x] **MineSweeper-utbyggnad:** 12 banor, hittbar skyddsdräkt och 3×3/4×4-bomber i v0.15.0; regler och begränsningar nedan. Ej HW-testad.
 - [ ] **Eventspellistor kvar som TODO:** Kent bygger själv listor med låtar och ordning via webbsidan, med TXT/JSON som planerad lagring. Ingen automatisk filsortering; alla får välja låt. Favoriter/senaste är uppskjutna. Ingen implementation under karaokepausen.
+
+### v0.15.0 – Kartövergångar, v2-sparning och MineSweeper 🔧 (ej HW-testad)
+- [x] `Adventure::Session`: Byn ↔ Ängen via befintlig utgång; säker startpunkt bredvid portalen förhindrar omedelbart återhopp. Kartändringar bevaras vid återbesök. Nycklar, båt, skydd, energi/liv och berättelsestatus följer med; ädelstenar/checkpoint är kartlokala.
+- [x] Samlad `OTS2`-sparfil med CRC: aktuell karta, båda kartornas tillstånd, berättelse och kampanjprogression. Gamla `OTRS` v1-filer kan läsas; Byns gamla `.sts` krävs vid migrering så att berättelsestatus inte tappas tyst. Trasiga/okända versioner avvisas utan delvis ändrat tillstånd. SD först, FFat som reserv; gäster sparas inte.
+- [x] Minfältet: **12 fasta, deterministiska banor**, större yta och ökande mintäthet. Alla säkra rutor måste röjas för vinst; flaggor räcker inte. Förlust utan skydd → omstart på samma bana; nästa bana efter vinst. Gamla Minfältet-sparningar kan fortsättas som tidigare; omstart går till kampanjens bana 1.
+- [x] Varje bana har en dräkt som absorberar **en minträff**, en 3×3-bomb och en 4×4-bomb på den synliga säkra startremsan. Nästa bana/omstart återställer banans förråd. Bomber väljs, förhandsvisas på kartan och används först med OK; Avbryt förbrukar inget.
+- [x] 3×3 centreras på tryckt ruta; 4×4 har ankaret i ruta 2,2 (en ruta upp/vänster, två ned/höger). Ytan klipps vid kartkanten. Minor tas bort utan spelarskada, flaggor i området tas bort, minsiffror räknas om; ingen spridning utanför förhandsvisningen. Tom/redan röjd yta förbrukar inget.
+- [x] Kampanj-HUD och nya UI-texter SV/EN. Skrivskyddad live view visar karta, bana, skydd, bomber och förhandsvisning utan att avslöja dolda minor. Nya åtgärdsknappar har dubbeltrycksskydd; zoom-toggle och befintlig diagonalinställning behålls. Tärningsflöden och karaoke/SF2/filhanterare/loggar är orörda.
+- **Avgränsning:** teknisk tvåkartsdemo, inget Josef-manus/grafik, ingen ny uppdragslogg, ingen flerspelarstyrning. Banorna använder ett förutsägbart säkert rutnät (minor bara på jämna x/y) för garanterad framkomlighet; detta är inte slumpmässig klassisk Minesweeper. Svårighetskänsla och touch-layout återstår att prova på enheten.
+- [x] Värdtester: 20 testprogram, **36 961 godkända kontroller, 0 testfel**. `test_adventure`: 984; `test_campaign`: 31 608 (samtliga 12 banor, skydd/förlust, bomber inklusive kanter/avbryt, karttur/retur, v1→v2, CRC/felversioner och live view utan minläckage). `test_advlive`: 83; `test_lang`: 1 865. JavaScript-syntax och `embed_web.py --check` godkända. Endast äventyrssidan ändras bland inbäddade webbsidor.
+- **Byggverifiering:** färdigt ESP-IDF 6.1.0-bygge i `build-v015`, exitkod 0; appens inbäddade version 0.15.0 och kontrollsumma/hash verifierade med esptool. OTA 1 915 280 byte; merged 1 980 816 byte, med identisk app vid offset 0x10000. **0 kompilatorvarningar**, men fulla byggloggen innehåller **5 CMake-varningar** om privata include-sökvägar mellan SDK-komponenterna esp_wifi/wpa_supplicant. Därför inte helt varningsfritt. SDK:s Git-versionsuppslag gav också diagnostik om saknad Git-katalog; bygget slutfördes ändå och rapporterar IDF 6.1.0. Inga SDK- eller karaokeändringar för detta. Två testprogram behövde rättade kompileringskommandon (include-sökväg respektive effektmodul vid länkning); deras separata omkörningar är godkända och ingår i totalsumman ovan.
+- [ ] HW-test: portaler, sparning på SD/FFat, pekning/joystick, bombförhandsvisning och synk med webben.
+- **Partitioner:** oförändrad B1; vanlig OTA från v0.12+.
 
 ## v0.2.0 – grund ✅ (HW-verifierad)
 - Display ST77922 QSPI, touch, LED, bakgrundsbelysning, bootskärm med självtest
@@ -318,8 +331,9 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 ## Planerat – bibliskt äventyr (se docs/BIBLE_ADVENTURE_PLAN.md)
 - [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (HW-testad av Kent)
 - [x] v0.11.1 – Live view för äventyret på webben (`/adventure`, ej HW-testad)
-- [ ] v0.15.0 – flera kartor per värld, sparformat v2 (berättelsestatus), uppdragslogg, HUD-räknare/föremål per värld
-- [ ] v0.15.0 – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
+- [x] v0.15.0 – tvåkartsdemo och sparformat v2 (berättelsestatus + aktuell karta)
+- [ ] Senare – uppdragslogg och generell konfiguration av HUD-räknare/föremål per värld
+- [ ] Senare milstolpe (version ej bestämd) – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
 - [ ] v0.16+ – kapitel 2–6, manus från SD, engelska
 
 ## Planerat – utbrytning av komponenter (se docs/COMPONENTS.md)

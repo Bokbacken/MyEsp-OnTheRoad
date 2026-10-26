@@ -4,7 +4,14 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.13.7 – **song library with folders**: karaoke songs are scanned recursively (up to 2 000, cached
+> **Status:** v0.15.0 – **adventure map travel and MineSweeper campaign**. The Village exit leads to
+> the Meadow and back, preserving map changes and story state. Version 2 saves bundle both maps, inventory,
+> story and campaign progress; legacy v1 saves remain readable. MineSweeper has 12 fixed stages, a findable
+> one-hit shield, and one 3×3 / one 4×4 bomb per stage with preview, confirmation and cancellation.
+> Read-only `/adventure` mirrors the new state. **Not hardware-tested.** Karaoke is unchanged and paused;
+> no Joseph chapter or quest-log expansion is included. Existing B1 partitions: normal OTA from v0.12+.
+>
+> Previous: v0.13.7 – **song library with folders**: karaoke songs are scanned recursively (up to 2 000, cached
 > in `songs.idx`), browsed by folder / search / A–Z on the device and picked from a phone at `/karaoke/songs`. The file
 > manager (`/files`) gets multi-select, bulk delete/move, paging, sorting, new folders and drag-and-drop upload; the
 > diagnostics page shows a live log (SSE) and downloads all logs as a ZIP (`/otr/logs/otr_{0,1,2}.log` on SD). No

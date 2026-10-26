@@ -97,6 +97,8 @@ struct Snapshot {
     int16_t energy, energyMax, lives, livesUsed, keys, gems, gemsTotal, suit;
     uint8_t cpX, cpY;
     uint32_t steps;
+    uint8_t mapId, mineLevel, completed, bomb3, bomb4, lang;
+    int safeLeft, bombSize, bombX, bombY;
     uint8_t npcCount;
     NpcInfo npcs[MAX_NPCS];
     uint8_t itemCount;
@@ -116,6 +118,7 @@ struct Source {
     const char *okText;                         // Shown when a line has no answers ("Okej")
     const char *byeText;                        // Added when every answer is locked ("Gå vidare")
     int talkNum;                                // Person being talked to (map number), 0 = none
+    int worldId = 0, completed = 0, bombSize = 0, bombX = -1, bombY = -1;
 };
 
 // Pure: fills a snapshot from the source (no lock, no version). The map layers are rebuilt only

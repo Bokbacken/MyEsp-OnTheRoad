@@ -703,7 +703,7 @@ static void testSaveLoad()
         switch (k) {
         case 0: again[n / 2] ^= 0x40; ok = W.restore(again, n); break;       // Bit flip (CRC)
         case 1: ok = W.restore(again, n - 1); break;                          // Truncated
-        case 2: again[4] = 2; ok = W.restore(again, n); break;                // Other version
+        case 2: again[4] = 3; ok = W.restore(again, n); break;                // Other version
         case 3: again[0] = 'X'; ok = W.restore(again, n); break;              // Bad magic
         case 4: ok = W.restore(nullptr, n); break;
         }

@@ -75,6 +75,11 @@ void fillState(Snapshot &s, const Source &src)
     s.cpX = (uint8_t)w.checkpointX();
     s.cpY = (uint8_t)w.checkpointY();
     s.steps = (uint32_t)w.steps();
+    s.mapId=w.mapId();
+    if(src.worldId) s.worldId=(uint8_t)src.worldId;
+    s.mineLevel=w.mineLevel(); s.completed=src.completed;
+    s.bomb3=w.bombs(3); s.bomb4=w.bombs(4); s.safeLeft=w.safeLeft(); s.lang=src.lang;
+    s.bombSize=src.bombSize; s.bombX=src.bombX; s.bombY=src.bombY;
 
     // People: map numbers 1..9 that stand somewhere
     s.npcCount = 0;
@@ -245,6 +250,9 @@ size_t toJson(const Snapshot &s, uint32_t clientMapRev, char *buf, size_t cap)
     o.fmt("\"energy\":%d,\"energy_max\":%d,\"lives\":%d,\"lives_used\":%d,\"keys\":%d,\"gems\":%d,"
           "\"gems_total\":%d,\"suit\":%d,",
           s.energy, s.energyMax, s.lives, s.livesUsed, s.keys, s.gems, s.gemsTotal, s.suit);
+    o.fmt("\"map_id\":%u,\"mine_level\":%u,\"completed\":%u,\"bomb3\":%u,\"bomb4\":%u,"
+          "\"safe_left\":%d,\"lang\":%u,\"bomb_preview\":[%d,%d,%d],",
+          s.mapId,s.mineLevel,s.completed,s.bomb3,s.bomb4,s.safeLeft,s.lang,s.bombSize,s.bombX,s.bombY);
     o.put("\"boat\":");
     o.boolean(s.boat);
     o.put(",\"gates_open\":");

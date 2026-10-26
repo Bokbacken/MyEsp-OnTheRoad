@@ -45,6 +45,7 @@ enum class Obj : uint8_t {
     NONE, ROCK, CRATE, KEY, DOOR, BOAT, GEM,
     BUSH, POTION, HEART, SUIT, LIFE, MINE,
     NPC,      // v0.11.0: a person (objAmount = map number 1..9, see otr_story.h); blocks the cell
+    BOMB3, BOMB4, // Campaign consumables, appended to preserve old object ids
     COUNT
 };
 
@@ -123,6 +124,10 @@ struct MapDef {
     int treasureCount;
 };
 
+struct MineLevel { uint8_t w, h, mines; };
+constexpr int MINE_LEVELS = 12;
+extern const MineLevel MINE_LEVEL[MINE_LEVELS];
+struct BombArea { int x0, y0, x1, y1; }; // Inclusive, clipped; anchor is second row/column
 class Planner;
 
 class World {
@@ -193,12 +198,22 @@ public:
     bool clearObj(int x, int y);                 // Opens a door / removes a rock, crate or bush
     void addKeys(int n);
 
+    // Campaign and map travel, no rendering / storage dependencies.
+    bool loadMines(int level);
+    int mineLevel() const { return mineLevel_; } // 0 = legacy/non-campaign world
+    int bombs(int size) const { return size == 3 ? bomb3_ : size == 4 ? bomb4_ : 0; }
+    int safeLeft() const;
+    BombArea bombArea(int size, int x, int y) const;
+    bool placeBomb(int size, int x, int y); // Only confirmation calls this; no mutation on failure
+    bool spawnAt(int x, int y); // Safe, empty, non-portal ground only
+    void carryFrom(const World &from); // Global inventory, not map-local gems/checkpoint
+
     // Save / restore of the complete mutable state. Format (little endian, see otr_world.cpp):
     // header {magic "OTRS", version, map id, w, h, body size} + body + CRC32. load() of the map
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 1;
+    static constexpr uint16_t SAVE_VERSION = 2;
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
@@ -232,6 +247,8 @@ private:
     bool boat_, gateOpen_, gameOver_, exitReached_;
     uint8_t mapId_;
     uint8_t talkNpc_;
+    uint8_t mineLevel_, bomb3_, bomb4_;
+    void checkMineWin();
     uint32_t rev_;
 };
 

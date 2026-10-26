@@ -197,6 +197,7 @@ function object(c, ch) {
       circ(c, 8.5, 10, 4.5, '#e53935'); circ(c, 15.5, 10, 4.5, '#e53935'); poly(c, [4.2, 11.5, 19.8, 11.5, 12, 20], '#e53935');
       if (ch === 'L') { rect(c, 15, 15, 8, 2.5, '#fff'); rect(c, 17.8, 12.2, 2.5, 8, '#fff'); }
       break;
+    case 'O': case 'P': rect(c, 5, 5, 14, 14, '#d18b41'); c.fillStyle='#fff'; c.font='bold 14px system-ui'; c.fillText(ch==='O'?'3':'4',8,17); break;
     case 'K': rect(c, 6, 5, 12, 15, '#ff8f00'); circ(c, 12, 6, 4, '#ffb300'); rect(c, 8, 9, 8, 3, '#4fc3f7'); break;   // suit
     case 'M': circ(c, 12, 13, 7, '#111'); lineC(c, 12, 3, 12, 7, '#111', 2); circ(c, 10, 11, 2, '#666'); break;      // mine (game over)
     case '!': rect(c, 8, 4, 2, 17, '#ddd'); poly(c, [10, 4, 19, 8, 10, 12], '#ff3d3d'); break;                        // flag
@@ -272,6 +273,14 @@ function draw() {
   drawDynamicCells(wctx);
   for (const n of st.npcs) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
   drawPlayer(wctx, ax * CELL, ay * CELL, st.player.dir, st.player.sailing);
+  const [bs,bx,by]=st.bomb_preview||[0,-1,-1];
+  if(bs && bx>=0 && by>=0) {
+    wctx.strokeStyle='#ffd228'; wctx.lineWidth=2;
+    for(let y=Math.max(0,by-1);y<=Math.min(map.h-1,by+bs-2);y++)
+      for(let x=Math.max(0,bx-1);x<=Math.min(map.w-1,bx+bs-2);x++)
+        wctx.strokeRect(x*CELL+1,y*CELL+1,CELL-2,CELL-2);
+    wctx.fillStyle='#fff'; wctx.fillRect(bx*CELL+9,by*CELL+9,6,6);
+  }
 
   // Screen size: whole map fitted, or a follow camera with bigger cells
   const box = $('mapbox'), dpr = window.devicePixelRatio || 1;
@@ -310,6 +319,13 @@ function renderHud(s) {
   h += s.lives < 0 ? chip('❤️', s.lives_used ? '–' + s.lives_used : '∞', 'liv') : chip('❤️', s.lives, 'liv', s.lives === 0);
   h += chip('🔑', s.keys, 'nycklar', !s.keys);
   h += chip('💎', s.gems + '/' + s.gems_total, 'ädelstenar', !s.gems);
+  if(s.mine_level) {
+    const en=s.lang===1;
+    h=chip('🏁',s.mine_level+'/12',en?'Stage':'Bana')+
+      chip('□',s.safe_left,en?'safe cells left':'säkra rutor kvar')+
+      chip('🦺',s.suit,en?'Shield':'Skydd')+chip('3×3',s.bomb3,en?'bombs':'bomber')+
+      chip('4×4',s.bomb4,en?'bombs':'bomber')+chip('✓',s.completed+'/12',en?'completed':'avklarade');
+  }
   $('hud').innerHTML = h;
   let it = '';
   if (s.boat) it += chip('⛵', '', 'Båt');
@@ -319,7 +335,9 @@ function renderHud(s) {
   const b = $('banner');
   b.hidden = !(s.game_over || s.exit);
   b.className = s.exit && !s.game_over ? 'win' : '';
-  b.textContent = s.game_over ? 'Game over' : s.exit ? 'Målet nått! 🏁' : '';
+  b.textContent = s.game_over ? (s.lang===1?'Lost — restart on device':'Förlust — börja om på enheten') :
+    s.exit ? (s.mine_level===12 ? (s.lang===1?'12 stages cleared!':'12 banor röjda!') :
+    s.lang===1?'Goal reached!':'Målet nått! 🏁') : '';
 }
 function renderDialog(d) {
   $('dialog').hidden = !d;

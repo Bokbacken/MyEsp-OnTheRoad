@@ -6,6 +6,14 @@ med Kents beslut om de öppna frågorna (avsnitt 5). v0.11.0 är HW-testad: Byn 
 Bygger vidare på [ENGINE_2D_BRIEF.md](ENGINE_2D_BRIEF.md) (Kroz-inspirerat, vänlig ton) och
 [COMPONENTS.md](COMPONENTS.md) (ny komponent `otr_story`).
 
+### Levererat i v0.15.0 (ej HW-testat)
+Steg C är **delvis implementerat**: `main/adv_session.*` ger Byn ↔ Ängen med bevarade kartändringar,
+säker spawn utanför portalen och samlad v2-sparning av karta, berättelse och inventory. V1-sparningar
+kan migreras; för Byn krävs även en giltig gammal `.sts`. Uppdragslogg och generell HUD-konfiguration
+är **senare arbete**, inte leveranskrav för denna version. Inget Josef-kapitel eller nytt bildmaterial ingår.
+MineSweeper-kampanjen är separat; dess regler och begränsningar står i ROADMAP:s v0.15.0-avsnitt.
+De äldre versionsrubrikerna nedan är historiska planeringsmål, inte leveransstatus.
+
 ## 1. Idé i korthet
 
 Spelaren går omkring i en bibelmiljö, möter personer och väljer att prata med dem. Varje replik ger

@@ -1,6 +1,7 @@
 #include "otr_world.h"
 
 #include <math.h>
+#include <initializer_list>
 #include <stdlib.h>
 #include <string.h>
 
@@ -46,6 +47,8 @@ bool decode(char c, Cell &out)
     case 'h': out = {Tile::GRASS, Obj::HEART}; return true;
     case 'u': out = {Tile::GRASS, Obj::SUIT}; return true;
     case 'l': out = {Tile::GRASS, Obj::LIFE}; return true;
+    case 'a': out = {Tile::GRASS, Obj::BOMB3}; return true;
+    case 'z': out = {Tile::GRASS, Obj::BOMB4}; return true;
     case 'm': out = {Tile::GRASS, Obj::MINE}; return true;
     default:
         if (c >= '1' && c <= '9') { out = {Tile::GRASS, Obj::NPC}; return true; }   // Person (number = digit)
@@ -70,7 +73,7 @@ bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::D
 bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
-           o == Obj::SUIT || o == Obj::LIFE;
+           o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4;
 }
 bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == Tile::CRACKED; }
 
@@ -182,7 +185,7 @@ int World::mineHint(int x, int y) const
 
 bool World::toggleFlag(int x, int y)
 {
-    if (!rules_.fog || !inside(x, y) || revealed(x, y) || (x == px_ && y == py_)) return false;
+    if (gameOver_ || (mineLevel_ && exitReached_) || !rules_.fog || !inside(x, y) || revealed(x, y) || (x == px_ && y == py_)) return false;
     flags_[y][x] ^= F_FLAG;
     rev_++;
     return true;
@@ -312,6 +315,8 @@ uint32_t World::pickup(uint32_t ev)
     if (!isItem(o)) return ev;
     const int amount = val_[py_][px_];
     switch (o) {
+    case Obj::BOMB3: if (bomb3_ < 99) bomb3_++; ev |= EV_TREASURE; break;
+    case Obj::BOMB4: if (bomb4_ < 99) bomb4_++; ev |= EV_TREASURE; break;
     case Obj::KEY: keys_++; ev |= EV_KEY; break;
     case Obj::GEM:
         gems_++;
@@ -356,10 +361,10 @@ uint32_t World::pickup(uint32_t ev)
 
 uint32_t World::move(Dir d)
 {
-    if (gameOver_) return EV_NONE;
+    if (gameOver_ || (mineLevel_ && exitReached_)) return EV_NONE;
     facing_ = d;
     const int tx = px_ + dirX(d), ty = py_ + dirY(d);
-    if (!inside(tx, ty)) return EV_BLOCKED;
+    if (!inside(tx, ty) || (mineLevel_ && flagged(tx, ty))) return EV_BLOCKED;
     uint32_t ev = 0;
 
     switch (obj(tx, ty)) {
@@ -410,7 +415,8 @@ uint32_t World::move(Dir d)
         if (rules_.fog) flags_[py_][px_] = F_REVEALED;
         rev_++;
         ev |= EV_MINE;
-        hurt(rules_.mineDamage, ev);
+        if (mineLevel_ && suit_ > 0) { --suit_; ev |= EV_SUIT_USED; }
+        else hurt(rules_.mineDamage, ev);
         if (ev & EV_DIED) return ev;
     }
     if (rules_.fog) reveal(px_, py_, ev);
@@ -435,7 +441,10 @@ uint32_t World::move(Dir d)
         exitReached_ = true;
         ev |= EV_EXIT;
     }
-    return pickup(ev);
+    ev = pickup(ev);
+    checkMineWin();
+    if (mineLevel_ && exitReached_) ev |= EV_EXIT;
+    return ev;
 }
 
 uint32_t World::hit()
@@ -529,6 +538,86 @@ void World::addKeys(int n)
     rev_++;
 }
 
+// Deterministic, connected safe lattice: mines only at even/even interior cells. Every safe
+// cell is reachable without crossing a mine; start strip and pickups are always safe.
+const MineLevel MINE_LEVEL[MINE_LEVELS] = {
+    {12,12,6}, {14,12,10}, {14,14,15}, {16,14,21}, {18,16,30}, {20,16,38},
+    {22,18,50}, {24,18,62}, {26,20,78}, {28,22,96}, {30,24,116}, {32,26,140}
+};
+bool World::loadMines(int level)
+{
+    if (level < 1 || level > MINE_LEVELS) return false;
+    const MineLevel &c = MINE_LEVEL[level-1];
+    char grid[26][33]; const char *rows[26];
+    for (int y=0;y<c.h;y++) {
+        rows[y]=grid[y];
+        for (int x=0;x<c.w;x++) grid[y][x]=(x==0||y==0||x==c.w-1||y==c.h-1)?'T':'.';
+        grid[y][c.w]=0;
+    }
+    uint16_t candidates[192]; int count=0;
+    for (int y=2;y<c.h-1;y+=2) for(int x=2;x<c.w-1;x+=2) candidates[count++]=y*c.w+x;
+    uint32_t seed=0x4f545200u+(uint32_t)level;
+    for(int i=count-1;i>0;--i) {
+        seed=seed*1664525u+1013904223u;
+        int j=(int)(seed%(uint32_t)(i+1));
+        uint16_t tmp=candidates[i]; candidates[i]=candidates[j]; candidates[j]=tmp;
+    }
+    for(int i=0;i<c.mines;i++) grid[candidates[i]/c.w][candidates[i]%c.w]='m';
+    grid[1][1]='S'; grid[1][2]='u'; grid[1][3]='a'; grid[1][4]='z';
+    const Rules rules={1,1,1,1,1,1,0,1,1,true};
+    if (!load(rows,c.h,rules)) return false;
+    mapId_=2; mineLevel_=(uint8_t)level;
+    // Show supplies on the safe starting strip even when a nearby mine stops flood fill.
+    for(int x=1;x<=4;x++) flags_[1][x]=F_REVEALED;
+    return true;
+}
+int World::safeLeft() const
+{
+    int left=0;
+    if (!mineLevel_) return 0;
+    for(int y=1;y<h_-1;y++) for(int x=1;x<w_-1;x++)
+        if(rawObj(x,y)!=Obj::MINE && !revealed(x,y)) ++left;
+    return left;
+}
+void World::checkMineWin()
+{
+    if (mineLevel_ && !gameOver_ && !safeLeft()) { exitReached_=true; rev_++; }
+}
+BombArea World::bombArea(int size,int x,int y) const
+{
+    if ((size!=3&&size!=4)||!inside(x,y)) return {0,0,-1,-1};
+    const int x0=x-1,y0=y-1,x1=x+size-2,y1=y+size-2;
+    return {x0<0?0:x0,y0<0?0:y0,x1>=w_?w_-1:x1,y1>=h_?h_-1:y1};
+}
+bool World::placeBomb(int size,int x,int y)
+{
+    if (!mineLevel_ || gameOver_ || exitReached_ || bombs(size)==0 || !inside(x,y)) return false;
+    const BombArea a=bombArea(size,x,y);
+    bool useful=false;
+    for(int cy=a.y0;cy<=a.y1;cy++) for(int cx=a.x0;cx<=a.x1;cx++)
+        if (isGround(tile(cx,cy)) && (!revealed(cx,cy)||rawObj(cx,cy)==Obj::MINE)) useful=true;
+    if(!useful) return false;
+    if(size==3) --bomb3_; else --bomb4_;
+    // Remove all mines first; hints are computed from the new board. Flags inside are cleared.
+    // No flood outside the preview, so the actual blast exactly matches the preview.
+    for(int cy=a.y0;cy<=a.y1;cy++) for(int cx=a.x0;cx<=a.x1;cx++) {
+        if (!isGround(tile(cx,cy))) continue;
+        if(rawObj(cx,cy)==Obj::MINE) { obj_[cy][cx]=(uint8_t)Obj::NONE; terrain_[cy][cx]=(uint8_t)Tile::CRATER; }
+        flags_[cy][cx]=F_REVEALED;
+    }
+    ++rev_; checkMineWin(); return true;
+}
+bool World::spawnAt(int x,int y)
+{
+    if(!inside(x,y)||!isGround(tile(x,y))||tile(x,y)==Tile::EXIT||rawObj(x,y)!=Obj::NONE) return false;
+    px_=cpX_=x; py_=cpY_=y; facing_=Dir::DOWN; exitReached_=false; ++rev_; return true;
+}
+void World::carryFrom(const World &w)
+{
+    keys_=w.keys_; boat_=w.boat_; suit_=w.suit_; energy_=w.energy_; maxEnergy_=w.maxEnergy_;
+    livesLeft_=w.livesLeft_; livesUsed_=w.livesUsed_; ++rev_;
+}
+
 // ---- Save / restore -------------------------------------------------------------------------
 // Header (16 B): magic u32, version u16, map id u8, w u8, h u8, reserved u8, body length u32,
 //                reserved u16.
@@ -576,6 +665,7 @@ size_t World::save(uint8_t *buf, size_t cap) const
     o.u32((uint32_t)steps_);
     o.u8(energy_); o.u8(maxEnergy_); o.u8((uint8_t)(int8_t)livesLeft_); o.u16(livesUsed_); o.u16(suit_);
     o.u8((boat_ ? 1 : 0) | (gateOpen_ ? 2 : 0) | (gameOver_ ? 4 : 0) | (exitReached_ ? 8 : 0));
+    o.u8(mineLevel_); o.u8(bomb3_); o.u8(bomb4_);
     o.p = pb + PLAYER_BYTES;
     for (int y = 0; y < h_; y++)
         for (int x = 0; x < w_; x++) {
@@ -590,7 +680,9 @@ bool World::restore(const uint8_t *buf, size_t n)
 {
     if (!buf || !w_ || n != saveSize()) return false;
     Reader r{buf};
-    if (r.u32() != SAVE_MAGIC || r.u16() != SAVE_VERSION || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
+    if (r.u32() != SAVE_MAGIC) return false;
+    const int version = r.u16();
+    if ((version != 1 && version != SAVE_VERSION) || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
         return false;
     r.u8();
     if (r.u32() != n - HEADER_BYTES - 4) return false;
@@ -604,6 +696,9 @@ bool World::restore(const uint8_t *buf, size_t n)
     const uint32_t steps = r.u32();
     const int energy = r.u8(), maxE = r.u8(), lives = r.s8(), livesUsed = r.u16(), suit = r.u16();
     const int bits = r.u8();
+    const int level = version == 2 ? r.u8() : 0;
+    const int b3 = version == 2 ? r.u8() : 0, b4 = version == 2 ? r.u8() : 0;
+    if (level != mineLevel_ || b3 > 99 || b4 > 99 || bits > 15) return false;
     if (!inside(px, py) || !inside(cpx, cpy) || facing > 3 || gems > gemsTotal || gemsTotal != gemsTotal_ ||
         maxE < 1 || maxE > rules_.energyCap || energy > maxE || steps > 0x7FFFFFFF)
         return false;
@@ -617,7 +712,16 @@ bool World::restore(const uint8_t *buf, size_t n)
             return false;
         if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
     }
+    // Saved positions must still be walkable in the saved map, never a wall/solid.
+    for (int pos : {py * w_ + px, cpy * w_ + cpx}) {
+        const uint8_t *c = cells + pos * CELL_BYTES;
+        const Tile t = (Tile)c[0];
+        if (blocksWalk((Obj)c[1]) || !(isGround(t) || t == Tile::LAVA ||
+            (t == Tile::WATER && (bits & 1)) || (t == Tile::GATE && (bits & 2)))) return false;
+    }
+    if (level && ((lives == 0) != bool(bits & 4) || suit > 1 || b3 > 1 || b4 > 1)) return false;
     // Apply
+    bomb3_ = b3; bomb4_ = b4;
     px_ = px; py_ = py; cpX_ = cpx; cpY_ = cpy; facing_ = (Dir)facing;
     keys_ = keys; gems_ = gems; steps_ = (int)steps;
     energy_ = energy; maxEnergy_ = maxE; livesLeft_ = lives; livesUsed_ = livesUsed; suit_ = suit;
