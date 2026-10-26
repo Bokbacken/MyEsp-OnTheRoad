@@ -1735,8 +1735,10 @@ static void mineResult()
     s_session.recordWin(*s_world); saveNow();
     const bool won=s_world->exitReached()&&!s_world->gameOver();
     auto *mb=dialog(tr(!won?Str::ADV_MINE_LOSS:s_world->mineLevel()==12?Str::ADV_CAMPAIGN_WIN:Str::ADV_MINE_WIN));
+    lv_obj_set_width(mb, 420); // Fit three short labels without reducing touch targets.
     if(won && s_world->mineLevel()<12) {
         auto *b=lv_msgbox_add_footer_button(mb,tr(Str::ADV_NEXT_STAGE));
+        lv_obj_set_width(b, 144);
         lv_obj_add_event_cb(b,[](lv_event_t*) {
             if(!Theme::debounce(s_actionTapMs)) return;
             closeDialog();
@@ -1745,16 +1747,19 @@ static void mineResult()
             }
         },LV_EVENT_CLICKED,nullptr);
     }
-    auto *retry=lv_msgbox_add_footer_button(mb,tr(Str::ADV_RESTART));
+    auto *retry=lv_msgbox_add_footer_button(mb,tr(Str::ADV_MINE_RESTART));
+    lv_obj_set_width(retry, 120);
     lv_obj_add_event_cb(retry,[](lv_event_t*) {
         if(!Theme::debounce(s_actionTapMs)) return;
         closeDialog(); resetWorld(); saveNow();
     },LV_EVENT_CLICKED,nullptr);
     auto *quit=lv_msgbox_add_footer_button(mb,tr(Str::ADV_LEAVE));
+    lv_obj_set_width(quit, 100);
     lv_obj_add_event_cb(quit,[](lv_event_t*) {
         if(!Theme::debounce(s_actionTapMs)) return;
         closeDialog(); UiYatzy::showMenu();
     },LV_EVENT_CLICKED,nullptr);
+    lv_obj_set_height(lv_msgbox_get_footer(mb), 70);
     Theme::msgboxFonts(mb);
 }
 

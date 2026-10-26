@@ -4,7 +4,10 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.15.0 – **adventure map travel and MineSweeper campaign**. The Village exit leads to
+> **Status:** v0.15.0.1 – MineSweeper result-dialog labels now fit in larger touch targets (SV/EN).
+> Layout/font metrics tested on the host; **not hardware-tested**. All other v0.15.0 behavior is unchanged.
+>
+> v0.15.0 – **adventure map travel and MineSweeper campaign**. The Village exit leads to
 > the Meadow and back, preserving map changes and story state. Version 2 saves bundle both maps, inventory,
 > story and campaign progress; legacy v1 saves remain readable. MineSweeper has 12 fixed stages, a findable
 > one-hit shield, and one 3×3 / one 4×4 bomb per stage with preview, confirmation and cancellation.

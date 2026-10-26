@@ -8,6 +8,13 @@ Status per 2026-10-25. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] **MineSweeper-utbyggnad:** 12 banor, hittbar skyddsdräkt och 3×3/4×4-bomber i v0.15.0; regler och begränsningar nedan. Ej HW-testad.
 - [ ] **Eventspellistor kvar som TODO:** Kent bygger själv listor med låtar och ordning via webbsidan, med TXT/JSON som planerad lagring. Ingen automatisk filsortering; alla får välja låt. Favoriter/senaste är uppskjutna. Ingen implementation under karaokepausen.
 
+### v0.15.0.1 – Textpassning i Minfältets resultatdialog 🔧 (ej HW-testad)
+- Endast denna dialog: **Nästa / Omstart / Lämna**, **Next / Restart / Leave**. Gemensamma omstartsetiketter på andra skärmar är oförändrade, liksom callbacks och dubbeltrycksskydd.
+- Samma 18-punktsfont; dialogbredd 420 px och knappar 144×50, 120×50 respektive 100×50 px. Inga mindre tryckytor.
+- Riktat test `python3 tests/test_mine_dialog.py`: verklig LVGL 9.6-layout, projektets font och utdragen dialogkod vid 480×320. Alla 14 etikett-/tryckytekontroller godkända (vinst, sista bana, förlust; SV/EN), utan överlapp eller klippning. Svenska textbredder 53/76/64 px ryms i 112/88/68 px. Språktest: 1 869 godkända kontroller. Fullsviten körs inte om för denna avgränsade fix.
+- Firmwarebygg och merge i återanvänd `build-v015` godkända (exit 0). Version 0.15.0.1 och bildens kontrollsumma/hash verifierade. OTA 1 915 408 byte; merged 1 980 944 byte. Inga kompilatorvarningar; samma 5 SDK-CMake-varningar om Wi-Fi-komponenternas privata include-sökvägar samt SDK-diagnostik om saknad Git-katalog kvarstår.
+- Karaoke, spelregler, sparning, live view och övriga skärmar lämnas orörda. B1-partitioner oförändrade; vanlig OTA.
+
 ### v0.15.0 – Kartövergångar, v2-sparning och MineSweeper 🔧 (ej HW-testad)
 - [x] `Adventure::Session`: Byn ↔ Ängen via befintlig utgång; säker startpunkt bredvid portalen förhindrar omedelbart återhopp. Kartändringar bevaras vid återbesök. Nycklar, båt, skydd, energi/liv och berättelsestatus följer med; ädelstenar/checkpoint är kartlokala.
 - [x] Samlad `OTS2`-sparfil med CRC: aktuell karta, båda kartornas tillstånd, berättelse och kampanjprogression. Gamla `OTRS` v1-filer kan läsas; Byns gamla `.sts` krävs vid migrering så att berättelsestatus inte tappas tyst. Trasiga/okända versioner avvisas utan delvis ändrat tillstånd. SD först, FFat som reserv; gäster sparas inte.
