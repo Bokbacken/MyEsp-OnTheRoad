@@ -987,9 +987,15 @@ static void testVillage()
     CHECK_EQ((int)P.plan(W, 15, 4, WalkMode::PRO, PA), (int)PlanResult::OK);
 }
 
-// ---- v0.16.0: Josef (1 Mos 37), two maps, blocking NPC opens the way to the exit --------------
+// ---- v0.16.0/v0.16.1: Josef (1 Mos 37), two maps, blocking NPC opens the way to the exit ------
 static void testJoseph()
 {
+    // v0.16.1: the two maps must be clearly different (they used to feel identical).
+    int sameRows = 0;
+    for (int y = 0; y < JOSEPH_CAMP_H && y < JOSEPH_ROAD_H; y++)
+        if (strcmp(JOSEPH_CAMP_ROWS[y], JOSEPH_ROAD_ROWS[y]) == 0) sameRows++;
+    CHECK(sameRows < JOSEPH_CAMP_H / 2);   // far fewer than half the rows coincide
+
     // Camp map (WORLDS[WORLD_JOSEPH-1]); Ruben (3) blocks the only gap in the tree wall north.
     CHECK(W.load(WORLDS[WORLD_JOSEPH - 1]));
     CHECK_EQ(W.mapId(), WORLD_JOSEPH);
@@ -997,10 +1003,32 @@ static void testJoseph()
     CHECK_EQ(W.height(), JOSEPH_CAMP_H);
     int x, y;
     CHECK(W.findNpc(1, x, y));            // Jakob
-    CHECK(W.findNpc(2, x, y));            // Josef
+    CHECK(W.findNpc(2, x, y));            // Josef, inside the locked tent (house)
+    CHECK(!W.findNpc(4, x, y));           // road-only NPC absent here
+
+    // v0.16.1: Josef sits in a house behind a locked door; the key is hidden far off. Find the
+    // door and the key on the map, confirm the interior is sealed until the key opens the door.
+    int dx = -1, dy = -1, kx = -1, ky = -1;
+    for (int yy = 0; yy < W.height(); yy++)
+        for (int xx = 0; xx < W.width(); xx++) {
+            if (W.obj(xx, yy) == Obj::DOOR) { dx = xx; dy = yy; }
+            if (W.obj(xx, yy) == Obj::KEY) { kx = xx; ky = yy; }
+        }
+    CHECK(dx >= 0);                        // a locked door exists
+    CHECK(kx >= 0);                        // a key exists somewhere else
+    CHECK_EQ(W.keys(), 0);
+    CHECK(!walkTo(dx, dy - 1));            // the floor just inside the door is sealed off
+    CHECK(walkTo(kx, ky));                 // fetch the key from its far corner
+    CHECK_EQ(W.keys(), 1);
+    CHECK(walkTo(dx, dy + 1));             // stand just south of the door
+    CHECK_EQ(W.move(Dir::UP), EV_DOOR);    // the key opens the door
+    CHECK_EQ(W.keys(), 0);
+    CHECK(walkTo(dx, dy - 1));             // now the tent interior (and Josef) is reachable
+
+    // Ruben (3) blocks the only gap in the tree wall; the exit stays closed until he steps aside.
+    CHECK(W.load(WORLDS[WORLD_JOSEPH - 1]));
     int rx, ry;
     CHECK(W.findNpc(3, rx, ry));          // Ruben, in the gap
-    CHECK(!W.findNpc(4, x, y));           // road-only NPC absent here
     int ex = -1, ey = -1;
     for (int yy = 0; yy < W.height(); yy++)
         for (int xx = 0; xx < W.width(); xx++)

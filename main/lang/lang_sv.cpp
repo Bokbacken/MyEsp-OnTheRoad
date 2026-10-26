@@ -274,6 +274,8 @@ extern const Entry LANG_SV[] = {
     {Str::ADV_WORLD_TEST_DESC, "Ädelstenar, nycklar, båt och lava"},
     {Str::ADV_WORLD_MINES_DESC, "Hitta utgången - akta minorna!"},
     {Str::ADV_WHO, "Vem spelar?"},
+    {Str::ADV_PICK_WORLD, "Välj äventyr"},
+    {Str::ADV_PICK_PLAYER, "Välj spelare"},
     {Str::ADV_GUEST, "Gäst (sparas inte)"},
     {Str::ADV_HAS_SAVE, "  - sparat"},
     {Str::ADV_CONTINUE_Q, "Det finns ett sparat spel. Fortsätta där du slutade?"},

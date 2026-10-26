@@ -274,6 +274,8 @@ extern const Entry LANG_EN[] = {
     {Str::ADV_WORLD_TEST_DESC, "Gems, keys, a boat and lava"},
     {Str::ADV_WORLD_MINES_DESC, "Find the exit - mind the mines!"},
     {Str::ADV_WHO, "Who is playing?"},
+    {Str::ADV_PICK_WORLD, "Choose adventure"},
+    {Str::ADV_PICK_PLAYER, "Choose player"},
     {Str::ADV_GUEST, "Guest (not saved)"},
     {Str::ADV_HAS_SAVE, "  - saved"},
     {Str::ADV_CONTINUE_Q, "There is a saved game. Continue where you left off?"},

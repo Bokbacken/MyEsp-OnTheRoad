@@ -2489,20 +2489,11 @@ static void startGame(bool cont)
 }
 
 // ----------------------------------------------------------------------------------------
-// Setup screen: world chooser + player (registry or guest) + continue / new game
+// Setup flow (portrait, 320 wide): step 1 choose adventure -> step 2 choose player -> start.
+// Each step is its own screen of wide stacked buttons so labels never overflow (v0.16.1 fix).
 // ----------------------------------------------------------------------------------------
-static lv_obj_t *s_worldBtn[Otr::WORLD_COUNT];
 static lv_obj_t *s_playerList;
-
-static void styleWorldButtons()
-{
-    for (int i = 0; i < Otr::WORLD_COUNT; i++) {
-        const bool sel = i == s_worldIdx;
-        lv_obj_set_style_border_color(s_worldBtn[i], Theme::c(sel ? Theme::GOLD : Theme::LINE), 0);
-        lv_obj_set_style_border_width(s_worldBtn[i], sel ? 3 : 2, 0);
-        lv_obj_set_style_bg_color(s_worldBtn[i], Theme::c(sel ? 0x2A3F5C : Theme::PANEL_RAISED), 0);
-    }
-}
+static uint32_t s_worldTapMs;
 
 static AdvUi::NameForm s_nameForm;
 static uint32_t s_profileTapMs;
@@ -2582,16 +2573,81 @@ static void fillPlayerList()
     heap_caps_free(db);
 }
 
-static void buildSetup()
+static void buildWorldPick();
+static void buildPlayerPick();
+
+// Step 1 tap: remember the chosen adventure, then advance to the player picker.
+static void worldChosen(lv_event_t *e)
+{
+    if (!Theme::debounce(s_worldTapMs, 250)) return;
+    s_worldIdx = (int)(intptr_t)lv_event_get_user_data(e);
+    buildPlayerPick();
+}
+
+// One wide (296 px) stacked adventure button: bold name on top, wrapped description below, so the
+// text can never overflow the button. The shape (stacked, 296 px wide, labels within the button
+// bounds) is pinned by tests/test_adv_setup.py.
+static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)
+{
+    lv_obj_t *b = Theme::button(list, name, 296, 62, Theme::LINE);
+    lv_obj_t *nm = lv_obj_get_child(b, 0);
+    lv_obj_set_style_text_color(nm, Theme::c(Theme::GOLD), 0);
+    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, 10, 7);
+    lv_obj_t *d = Theme::label(b, desc, &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_width(d, 272);
+    lv_obj_align(d, LV_ALIGN_BOTTOM_LEFT, 10, -7);
+    lv_obj_add_event_cb(b, worldChosen, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+    return b;
+}
+
+// Step 2: choose the player for the chosen adventure (mode toggle + registry list + new player).
+static void buildPlayerPick()
 {
     lv_obj_t *scr = Theme::screen();
     s_activeScr = scr;
     lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
-    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_SETUP_TITLE));
+    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_PLAYER));
     lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
         if (!Theme::debounce(s_profileTapMs)) return;
+        buildWorldPick();   // back to the adventure chooser
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *mode = Theme::button(scr, modeText(), 308, 40, Theme::TEAL);
+    lv_obj_set_pos(mode, 6, 52);
+    lv_obj_add_event_cb(mode, toggleMode, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *who = Theme::label(scr, tr(Str::ADV_WHO), &my_font_18, Theme::GOLD);
+    lv_obj_set_pos(who, 10, 102);
+
+    s_playerList = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_playerList);
+    lv_obj_set_pos(s_playerList, 6, 128);
+    lv_obj_set_size(s_playerList, 308, 288);
+    lv_obj_set_flex_flow(s_playerList, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_playerList, 6, 0);
+    lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);
+
+    auto *add = Theme::button(scr, tr(Str::PICK_NEW), 296, 48, Theme::GREEN);
+    lv_obj_set_pos(add, 12, 424);
+    lv_obj_add_event_cb(add, newPlayer, LV_EVENT_CLICKED, nullptr);
+    fillPlayerList();
+    Theme::loadScreen(scr);
+}
+
+// Step 1: choose the adventure. Wide stacked buttons in a scrollable column.
+static void buildWorldPick()
+{
+    lv_obj_t *scr = Theme::screen();
+    s_activeScr = scr;
+    lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
+    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_WORLD));
+    lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) {
+        if (!Theme::debounce(s_worldTapMs)) return;
         closeDialog();
         UiYatzy::showMenu();   // Buffers are freed when this screen is deleted
     }, LV_EVENT_CLICKED, nullptr);
@@ -2600,44 +2656,14 @@ static void buildSetup()
                                                 Str::ADV_WORLD_VILLAGE, Str::ADV_WORLD_JOSEPH};
     static const Str DESCS[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST_DESC, Str::ADV_WORLD_MINES_DESC,
                                                 Str::ADV_WORLD_VILLAGE_DESC, Str::ADV_WORLD_JOSEPH_DESC};
-    static constexpr int32_t WB_W = (308 - (Otr::WORLD_COUNT - 1) * 4) / Otr::WORLD_COUNT;   // 74 px for 4
-    for (int i = 0; i < Otr::WORLD_COUNT; i++) {
-        lv_obj_t *b = Theme::button(scr, tr(NAMES[i]), WB_W, 82, Theme::LINE);
-        lv_obj_set_pos(b, 6 + i * (WB_W + 4), 48);
-        lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_14, 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(b, 0), Theme::c(Theme::GOLD), 0);
-        lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_TOP_MID, 0, 5);
-        lv_obj_t *d = Theme::label(b, tr(DESCS[i]), &my_font_14, Theme::MUTED);
-        lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_width(d, WB_W - 8);
-        lv_obj_set_style_text_align(d, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, 0, -4);
-        lv_obj_add_event_cb(b, [](lv_event_t *e) {
-            static uint32_t s_worldTapMs;
-            if (!Theme::debounce(s_worldTapMs, 250)) return;
-            s_worldIdx = (int)(intptr_t)lv_event_get_user_data(e);
-            styleWorldButtons();
-            fillPlayerList();
-        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-        s_worldBtn[i] = b;
-    }
-    styleWorldButtons();
-    lv_obj_t *mode = Theme::button(scr, modeText(), 308, 38, Theme::TEAL);
-    lv_obj_set_pos(mode, 6, 138);
-    lv_obj_add_event_cb(mode, toggleMode, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *who = Theme::label(scr, tr(Str::ADV_WHO), &my_font_18, Theme::GOLD);
-    lv_obj_set_pos(who, 10, 184);
-    s_playerList = lv_obj_create(scr);
-    lv_obj_remove_style_all(s_playerList);
-    lv_obj_set_pos(s_playerList, 6, 210);
-    lv_obj_set_size(s_playerList, 308, 210);
-    lv_obj_set_flex_flow(s_playerList, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(s_playerList, 6, 0);
-    lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);
-    auto *add = Theme::button(scr, tr(Str::PICK_NEW), 296, 48, Theme::GREEN);
-    lv_obj_set_pos(add, 12, 426);
-    lv_obj_add_event_cb(add, newPlayer, LV_EVENT_CLICKED, nullptr);
-    fillPlayerList();
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, 6, 50);
+    lv_obj_set_size(list, 308, 424);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 8, 0);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    for (int i = 0; i < Otr::WORLD_COUNT; i++) addWorldRow(list, tr(NAMES[i]), tr(DESCS[i]), i);
     Theme::loadScreen(scr);
 }
 
@@ -2667,7 +2693,7 @@ void show()
              (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)(VIEW_W * VIEW_H * 2),
              (unsigned)sizeof(Otr::World), (unsigned)sizeof(Otr::Planner));
     if (s_worldIdx < 0 || s_worldIdx >= Otr::WORLD_COUNT) s_worldIdx = 0;
-    buildSetup();
+    buildWorldPick();
 }
 
 }  // namespace UiAdventure

@@ -319,6 +319,67 @@ void testVillageStory()
     CHECK(st.counters[0] >= 3);
 }
 
+// v0.16.1 regression guard: the Joseph story Swedish text must use real UTF-8 å/ä/ö, never the
+// transliterated ASCII spellings that slipped into v0.16.0. In correct UTF-8 a multibyte å/ä/ö
+// splits a word into separate ASCII runs, so a telltale token only appears as a whole ASCII run
+// when the word was actually transliterated -> no false positives.
+static bool jIsAsciiLetter(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+static bool jHasTranslitWord(const char *s, const char *word)
+{
+    if (!s) return false;
+    const size_t wl = strlen(word);
+    for (const char *p = s; *p;) {
+        if (!jIsAsciiLetter(*p)) { ++p; continue; }
+        const char *start = p;
+        while (jIsAsciiLetter(*p)) ++p;
+        if ((size_t)(p - start) != wl) continue;
+        bool eq = true;
+        for (size_t i = 0; i < wl; ++i) {
+            char a = start[i];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (a != word[i]) { eq = false; break; }
+        }
+        if (eq) return true;
+    }
+    return false;
+}
+static int jScanTranslit(const char *sv)
+{
+    static const char *const TRANSLIT[] = {
+        "nagon", "nagot", "nagra", "fran", "maste", "varld", "varlden", "aventyr", "aventyret",
+        "dorr", "dorren", "dromm", "dromde", "drommar", "drommen", "farg", "oppna", "oppen",
+        "oppnar", "oppet", "hjarta", "hjartat", "forsta", "forstar", "fardig", "valja", "valjer",
+        "sprak", "vag", "vagen", "bade", "lagret", "lager", "kopman", "kopmannen",
+        "broderna", "sanker", "karvar", "karve", "manen", "stjarnor", "aven", "hogt", "langt",
+        "sjalv", "valkommen", "gora",
+    };
+    int hits = 0;
+    for (const char *w : TRANSLIT)
+        if (jHasTranslitWord(sv, w)) {
+            ++hits;
+            printf("FAIL translit: token '%s' in \"%s\"\n", w, sv);
+        }
+    return hits;
+}
+
+void testJosephTranslit()
+{
+    const Script &j = JOSEPH_STORY;
+    int hits = 0;
+    for (int i = 0; i < j.npcCount; ++i) hits += jScanTranslit(j.npcs[i].name.get(0));
+    for (int i = 0; i < j.itemCount; ++i) hits += jScanTranslit(j.items[i].name.get(0));
+    for (int i = 0; i < j.questCount; ++i) hits += jScanTranslit(j.quests[i].name.get(0));
+    for (int i = 0; i < j.nodeCount; ++i) {
+        const Node &n = j.nodes[i];
+        hits += jScanTranslit(n.text.get(0));
+        for (const Choice &c : n.choices) {
+            hits += jScanTranslit(c.text.get(0));
+            hits += jScanTranslit(c.hint.get(0));
+        }
+    }
+    CHECK(hits == 0);
+}
+
 void testJosephStory()
 {
     const Script &j = JOSEPH_STORY;
@@ -358,7 +419,7 @@ void testJosephStory()
     CHECK(d.start(j, st, "ruben", &h));                    // josef_ready & !met_ruben
     CHECK(d.choose(0));                                    // -> narrator: he moves
     CHECK(d.speaker() == nullptr);
-    CHECK(strstr(h.log, "npc_move/3/3,18,6;") != nullptr); // gap opens to the Dothan exit
+    CHECK(strstr(h.log, "npc_move/3/3,28,6;") != nullptr); // gap opens to the Dothan exit
     CHECK(d.choose(0));
     CHECK(!d.active());
 
@@ -381,7 +442,7 @@ void testJosephStory()
     h.log[0] = 0;                                          // reset the bounded host log for a clean match
     CHECK(d.start(j, st, "merchant", &h));                 // in_pit & !met_merchant
     CHECK(d.choose(0));                                    // seal the deal -> narrator
-    CHECK(strstr(h.log, "npc_move/3/6,18,6;") != nullptr); // caravan gap opens (argc=3: num 6 -> 18,6)
+    CHECK(strstr(h.log, "npc_move/3/6,11,6;") != nullptr); // caravan gap opens (argc=3: num 6 -> 11,6)
     CHECK(st.quests[1] == (uint8_t)Quest::DONE);           // dotan done
     CHECK(d.choose(0));                                    // -> END
     CHECK(!d.active());
@@ -417,6 +478,7 @@ int main()
     testState();
     testValidate();
     testVillageStory();
+    testJosephTranslit();
     testJosephStory();
     testUtf8();
     CHECK_DONE();

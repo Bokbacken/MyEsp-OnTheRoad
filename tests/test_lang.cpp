@@ -36,6 +36,50 @@ static int count(const char *s, char c) {
     return n;
 }
 
+// v0.16.1 regression guard for the "åäö shown as aao" bug. The Swedish UI strings must use real
+// UTF-8 å/ä/ö, never the transliterated ASCII spellings (å->a, ä->a, ö->o) that slipped into some
+// v0.16.0 content. Key insight: in correct UTF-8 a multibyte å/ä/ö splits a word into *separate*
+// ASCII runs ("från" -> "fr","n"), so a telltale token below can only appear as one whole ASCII
+// run when the word was actually transliterated. That is what keeps this free of false positives.
+static bool isAsciiLetter(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+static bool hasTranslitWord(const char *s, const char *word) {
+    const size_t wl = strlen(word);
+    for (const char *p = s; *p;) {
+        if (!isAsciiLetter(*p)) { ++p; continue; }
+        const char *start = p;
+        while (isAsciiLetter(*p)) ++p;
+        if ((size_t)(p - start) != wl) continue;
+        bool eq = true;
+        for (size_t i = 0; i < wl; ++i) {
+            char a = start[i];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (a != word[i]) { eq = false; break; }
+        }
+        if (eq) return true;
+    }
+    return false;
+}
+// Curated, unambiguous transliterations of Swedish words that contain å/ä/ö. Each is validated to
+// produce zero false positives against the corrected tables/story (see test run).
+static const char *const TRANSLIT[] = {
+    "nagon", "nagot", "nagra", "fran", "maste", "varld", "varlden", "varldar", "varlden",
+    "aventyr", "aventyret", "aventyren", "dorr", "dorren", "dromm", "dromde", "drommar",
+    "drommen", "drommaren", "farg", "farger", "oppna", "oppen", "oppnas", "oppnar", "oppet",
+    "hjarta", "hjartat", "forsta", "forstar", "fardig", "fardiga", "valja", "valjer",
+    "sprak", "vag", "vagen", "vagar", "bade", "lagret", "lager",
+    "kopman", "kopmannen", "broder", "broderna", "sanker", "karvar", "karve", "manen",
+    "stjarnor", "aven", "hogt", "langt", "sjalv", "val komna", "valkommen", "far jag se",
+};
+static int scanTranslit(const char *label, const char *sv) {
+    int hits = 0;
+    for (const char *w : TRANSLIT)
+        if (hasTranslitWord(sv, w)) {
+            ++hits;
+            printf("FAIL translit %s: token '%s' in \"%s\"\n", label, w, sv);
+        }
+    return hits;
+}
+
 int main() {
     const int N = (int)Str::COUNT;
     CHECK(N > 150, "Str::COUNT=%d", N);
@@ -67,6 +111,16 @@ int main() {
             CHECK(count(sv, '\n') == count(t, '\n'), "[%s] %s line breaks differ", Lang::code(l), Lang::idName(id));
         }
     }
+    // v0.16.1: no Swedish UI string may use a transliterated spelling of an å/ä/ö word.
+    {
+        int translitHits = 0;
+        for (int i = 0; i < N; ++i) {
+            const char *sv = Lang::lookup(0, (Str)i);
+            if (sv) translitHits += scanTranslit(Lang::idName((Str)i), sv);
+        }
+        CHECK(translitHits == 0, "%d transliterated Swedish tokens found in lang table", translitHits);
+    }
+
     CHECK(Lang::lookup(99, Str::BTN_SAVE) == nullptr, "bad lang index");
     CHECK(Lang::lookup(0, Str::COUNT) == nullptr, "COUNT is not a string");
     CHECK(strcmp(Lang::idName(Str::BTN_SAVE), "BTN_SAVE") == 0, "idName");
