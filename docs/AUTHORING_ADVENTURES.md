@@ -319,12 +319,33 @@ Kartan kontrolleras av `World::load()`: lika langa rader, inom 64x64, exakt ett
 
 ## 11. Status for import/export
 
-Just nu ar `.adv`-formatet **specificerat och dokumenterat**, och det speglar
-motorns verkliga strukturer sa att det ar realistiskt importbart. En
-inbyggd/host-baserad **parser** (som laser `.adv` -> `MapDef` + `Script`) ar
-nasta steg - se `ROADMAP.md`. Fram till dess ar formatet det manniskolasbara
-kallformatet som motsvarar de handskrivna tabellerna i `otr_maps_*.cpp` och
-`otr_story_*.cpp`.
+`.adv`-formatet ar **specificerat, dokumenterat och har en fungerande
+host-parser**. Parsern (`tools/adv_parse.h` / `tools/adv_parse.cpp`) laser en
+`.adv`-fil rakt in i motorns verkliga strukturer (`Otr::MapDef` + rader och
+`Otr::Story::Script`):
+
+```c++
+AdvDoc doc; std::string err;
+if (parseAdvFile("example.adv", doc, err)) {
+    Otr::World w;  w.load(doc.map);          // kartan laddas i motorn
+    char e[1024]; doc.script.validate(e, sizeof e);   // storyn valideras
+}
+```
+
+Ett host-test (`tests/test_adv_parser.cpp`) parsar exempelfilen, laddar kartan
+med `World::load()` och kor `Script::validate()` - det bevisar att formatet
+importeras till den **faktiska** motorn, inte en leksaksmodell. Bygg och kor:
+
+```
+g++ -std=c++17 -Wall -Wextra -Itools -Icomponents/otr_engine/include \
+    -Icomponents/otr_story/include tests/test_adv_parser.cpp tools/adv_parse.cpp \
+    components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp \
+    -o tests/test_adv_parser && ./tests/test_adv_parser
+```
+
+Parsern ar ett **host-verktyg** och ingar inte i firmware-bygget. Nasta steg
+(se `ROADMAP.md`) ar att lasa `.adv` aven pa enheten (fran SD/flash), sa att
+fardiga aventyr kan importeras direkt dar.
 
 ---
 
