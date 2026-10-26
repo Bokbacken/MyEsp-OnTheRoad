@@ -2,6 +2,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <memory>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -34,17 +38,50 @@ struct Lock {
     ~Lock() { xSemaphoreGive(s_lock); }
 };
 
-static bool saveLocked()
-{
-    if (!s_fsOk) return false;
-    Header h = {MAGIC, VERSION, (uint16_t)sizeof(PlayerRec), (uint32_t)sizeof(PlayerDb)};
-    bool ok = MyFat::writeAtomic(s_path, &h, sizeof(h), s_db, sizeof(PlayerDb));
-    if (!ok) ESP_LOGE(TAG, "save failed");
-    return ok;
+static bool s_loaded = false;
+static std::unique_ptr<PlayerDb> copyDb() {
+    return std::unique_ptr<PlayerDb>(new (std::nothrow) PlayerDb);
 }
 
-// Returns 2 for a current file, 1 for a migrated v1 file, 0 if unreadable.
-static int loadFile(const char *path)
+// Do not use the generic remove-before-rename helper for the profile registry.
+// Keep the previous committed file until the replacement is completely written.
+static bool saveLocked(const PlayerDb &db)
+{
+    if (!s_fsOk || !MyFat::mounted()) return false;
+    char tmp[64], backup[64];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", s_path);
+    snprintf(backup, sizeof(backup), "%s.bak", s_path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) { ESP_LOGE(TAG, "profile temp open failed errno=%d", errno); return false; }
+    Header h = {MAGIC, VERSION, (uint16_t)sizeof(PlayerRec), (uint32_t)sizeof(PlayerDb)};
+    bool good = fwrite(&h, 1, sizeof(h), f) == sizeof(h) && fwrite(&db, 1, sizeof(db), f) == sizeof(db);
+    if (fflush(f) != 0) good = false;
+    if (fsync(fileno(f)) != 0) good = false;
+    if (fclose(f) != 0) good = false;
+    if (!good) { ::remove(tmp); ESP_LOGE(TAG, "profile write/flush/close failed"); return false; }
+    struct stat st{};
+    bool hadPrimary = stat(s_path, &st) == 0;
+    if (!hadPrimary && errno != ENOENT) { ::remove(tmp); return false; }
+    if (hadPrimary) {
+        if (::remove(backup) != 0 && errno != ENOENT) { ::remove(tmp); return false; }
+        if (::rename(s_path, backup) != 0) { ::remove(tmp); return false; }
+    }
+    if (::rename(tmp, s_path) != 0) {
+        const int reason = errno;
+        if (hadPrimary && ::rename(backup, s_path) != 0) {
+            s_fsOk = false; // Preserve .bak; further writes must not destroy it.
+            ESP_LOGE(TAG, "profile rollback failed; backup retained, writes blocked");
+        }
+        ::remove(tmp);
+        ESP_LOGE(TAG, "profile commit failed errno=%d", reason);
+        return false;
+    }
+    ESP_LOGI(TAG, "profile commit count=%u", db.count);
+    return true;
+}
+
+// Returns 2/current, 1/v1, 0/unreadable. The active registry is never changed here.
+static int loadFile(const char *path, PlayerDb &out)
 {
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
@@ -52,55 +89,68 @@ static int loadFile(const char *path)
     int res = 0;
     if (fread(&h, 1, sizeof(h), f) == sizeof(h) && h.magic == MAGIC) {
         if (h.version == VERSION && h.recSize == sizeof(PlayerRec) && h.dbSize == sizeof(PlayerDb)) {
-            if (fread(s_db, 1, sizeof(PlayerDb), f) == sizeof(PlayerDb) && s_db->count <= PLAYER_MAX) res = 2;
+            if (fread(&out, 1, sizeof(out), f) == sizeof(out) && out.count <= PLAYER_MAX) res = 2;
         } else if (h.version == 1 && h.recSize == sizeof(PlayerRecV1) && h.dbSize == sizeof(PlayerDbV1)) {
-            PlayerDbV1 *old = (PlayerDbV1 *)heap_caps_malloc(sizeof(PlayerDbV1), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            if (!old) old = (PlayerDbV1 *)malloc(sizeof(PlayerDbV1));
-            if (old && fread(old, 1, sizeof(PlayerDbV1), f) == sizeof(PlayerDbV1) && s_db->loadV1(*old)) res = 1;
-            free(old);
+            auto old = std::unique_ptr<PlayerDbV1>(new (std::nothrow) PlayerDbV1);
+            if (old && fread(old.get(), 1, sizeof(*old), f) == sizeof(*old) && out.loadV1(*old)) res = 1;
         }
     }
-    fclose(f);
-    if (!res) {
-        s_db->clear();
-        return 0;
-    }
-    s_db->sanitize();
+    if (ferror(f)) res = 0;
+    if (fclose(f) != 0) res = 0;
+    if (res) out.sanitize();
     return res;
 }
 
 bool begin()
 {
     if (!s_lock) s_lock = xSemaphoreCreateMutex();
+    if (!s_lock) return false;
     if (!s_db) {
         s_db = (PlayerDb *)heap_caps_malloc(sizeof(PlayerDb), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!s_db) s_db = (PlayerDb *)malloc(sizeof(PlayerDb));
         if (!s_db) return false;
+        s_db->clear();
     }
     Lock l;
-    s_db->clear();
-    s_fsOk = MyFat::mounted();
-    if (!s_fsOk) {
-        ESP_LOGE(TAG, "filesystem not mounted");
+    s_fsOk = false;
+    if (!MyFat::mounted()) {
+        ESP_LOGE(TAG, "filesystem not mounted; registry retained, writes blocked");
         return false;
     }
     MyFat::path(s_path, sizeof(s_path), "/players.bin");
-    // Fallbacks for a power cut during the rename: new temp name, Arduino 0.3.x temp name.
-    char tmpNew[56], tmpOld[48];
+    char backup[64], tmpNew[64], tmpOld[48];
+    snprintf(backup, sizeof(backup), "%s.bak", s_path);
     snprintf(tmpNew, sizeof(tmpNew), "%s.tmp", s_path);
     MyFat::path(tmpOld, sizeof(tmpOld), "/players.tmp");
-    const char *candidates[] = {s_path, tmpNew, tmpOld};
-    for (int i = 0; i < 3; i++) {
-        if (!MyFat::exists(candidates[i])) continue;
-        int v = loadFile(candidates[i]);
-        if (v) {
-            if (v == 1) ESP_LOGI(TAG, "migrated %s from v1 (players get no PIN)", candidates[i]);
-            if (i > 0 || v == 1) saveLocked();
-            break;
+    const char *candidates[] = {s_path, backup, tmpNew, tmpOld};
+    auto loaded = copyDb();
+    if (!loaded) return false;
+    bool readError = false;
+    for (int i = 0; i < 4; ++i) {
+        struct stat st{};
+        if (stat(candidates[i], &st) != 0) {
+            if (errno != ENOENT) { readError = true; ESP_LOGE(TAG, "profile stat slot=%d errno=%d", i, errno); }
+            continue;
         }
-        ESP_LOGW(TAG, "%s unreadable", candidates[i]);
+        int version = loadFile(candidates[i], *loaded);
+        if (version) {
+            if (i == 0 || !s_loaded) *s_db = *loaded;
+            s_loaded = true;
+            // Recovery is visible, but no automatic rewrite of damaged files.
+            s_fsOk = i == 0 && !readError;
+            ESP_LOGI(TAG, "profile load slot=%d version=%d count=%u writable=%d", i, version, s_db->count, s_fsOk);
+            return s_fsOk;
+        }
+        readError = true;
+        ESP_LOGE(TAG, "profile unreadable slot=%d; no overwrite", i);
     }
-    ESP_LOGI(TAG, "%u player(s)", s_db->count);
+    if (readError || s_loaded) {
+        ESP_LOGE(TAG, "profile load failed; registry retained, writes blocked");
+        return false;
+    }
+    // Only a genuinely missing registry on a mounted filesystem is a new empty DB.
+    s_fsOk = s_loaded = true;
+    ESP_LOGI(TAG, "profile registry absent; new empty registry");
     return true;
 }
 
@@ -123,40 +173,34 @@ int count()
     return s_db->count;
 }
 
-int add(const char *name, const char *pin)
-{
-    if (!s_db) return (int)PlayerErr::INVALID;
+// Apply changes to a private candidate; publish only after a successful durable write.
+template<class Mutate> static int change(Mutate mutate) {
+    if (!s_db) return (int)PlayerErr::STORAGE;
     Lock l;
-    int r = s_db->add(name, (uint32_t)MyTime::now(), pin);
-    if (r > 0) saveLocked();
-    return r;
+    if (!s_fsOk || !MyFat::mounted()) return (int)PlayerErr::STORAGE;
+    auto candidate = copyDb();
+    if (!candidate) return (int)PlayerErr::STORAGE;
+    *candidate = *s_db;
+    const int result = mutate(*candidate);
+    if (result < 0) return result;
+    if (!saveLocked(*candidate)) {
+        ESP_LOGE(TAG, "profile mutation not committed; memory retained");
+        return (int)PlayerErr::STORAGE;
+    }
+    *s_db = *candidate;
+    return result;
 }
-
-int rename(uint16_t id, const char *name)
-{
-    if (!s_db) return (int)PlayerErr::NOT_FOUND;
-    Lock l;
-    PlayerErr e = s_db->rename(id, name);
-    if (e == PlayerErr::OK) saveLocked();
-    return (int)e;
+int add(const char *name, const char *pin) {
+    return change([&](PlayerDb &db) { return db.add(name, (uint32_t)MyTime::now(), pin); });
 }
-
-int remove(uint16_t id)
-{
-    if (!s_db) return (int)PlayerErr::NOT_FOUND;
-    Lock l;
-    PlayerErr e = s_db->remove(id);
-    if (e == PlayerErr::OK) saveLocked();
-    return (int)e;
+int rename(uint16_t id, const char *name) {
+    return change([&](PlayerDb &db) { return (int)db.rename(id, name); });
 }
-
-int setPin(uint16_t id, const char *pin)
-{
-    if (!s_db) return (int)PlayerErr::NOT_FOUND;
-    Lock l;
-    PlayerErr e = s_db->setPin(id, pin);
-    if (e == PlayerErr::OK) saveLocked();
-    return (int)e;
+int remove(uint16_t id) {
+    return change([&](PlayerDb &db) { return (int)db.remove(id); });
+}
+int setPin(uint16_t id, const char *pin) {
+    return change([&](PlayerDb &db) { return (int)db.setPin(id, pin); });
 }
 
 bool hasPin(uint16_t id)

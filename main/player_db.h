@@ -17,7 +17,7 @@ constexpr int PLAYER_NAME_CAP = 24;   // Same as YATZY_NAME_CAP
 constexpr int PLAYER_PIN_LEN = 4;
 constexpr int PLAYER_PIN_CAP = PLAYER_PIN_LEN + 1;
 
-enum class PlayerErr : int8_t { OK = 0, INVALID = -1, DUPLICATE = -2, FULL = -3, NOT_FOUND = -4, BAD_PIN = -5 };
+enum class PlayerErr : int8_t { OK = 0, INVALID = -1, DUPLICATE = -2, FULL = -3, NOT_FOUND = -4, BAD_PIN = -5, STORAGE = -6 };
 
 struct PlayerRec {
     uint16_t id;
@@ -279,6 +279,7 @@ inline const char *playerErrText(int e)
     case PlayerErr::FULL: return "Max 200 spelare";
     case PlayerErr::NOT_FOUND: return "Spelaren finns inte";
     case PlayerErr::BAD_PIN: return "PIN måste vara 4 siffror";
+    case PlayerErr::STORAGE: return "Kunde inte spara spelaren";
     default: return "";
     }
 }

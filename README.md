@@ -4,8 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.15.0.1 – MineSweeper result-dialog labels now fit in larger touch targets (SV/EN).
-> Layout/font metrics tested on the host; **not hardware-tested**. All other v0.15.0 behavior is unchanged.
+> **Status:** v0.15.0.2 – portrait (320×480) adventure dialogs, on-device new-player creation,
+> and conservative profile-storage error handling. Host tests and firmware build pass;
+> **independent layout review pending, not hardware-tested**. The reported intermittent profile loss
+> on the user's device is not diagnosed. Automatic FFat formatting is disabled; blank/unreadable
+> storage is left untouched. Karaoke is unchanged.
 >
 > v0.15.0 – **adventure map travel and MineSweeper campaign**. The Village exit leads to
 > the Meadow and back, preserving map changes and story state. Version 2 saves bundle both maps, inventory,

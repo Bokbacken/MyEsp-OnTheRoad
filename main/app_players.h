@@ -1,8 +1,8 @@
 // app_players.h - persistent player registry (player_db.h) on the FFat partition.
 //
 // File /ffat/players.bin = header (magic, version, size) + PlayerDb, written atomically
-// (MyFat::writeAtomic: temp file + rename). Version 2 (v0.5.6) adds a per-player PIN; version-1
-// files (Arduino 0.3.x .. v0.5.5) are migrated on load and rewritten.
+// (checked temp write + backup/rename; failed loads are read-only). Version 2 (v0.5.6) adds a per-player PIN; version-1
+// files (Arduino 0.3.x .. v0.5.5) are decoded on load; rewritten only on a committed change.
 // MyFat must be mounted before begin(). Thread-safe (LVGL task and web server use it).
 #pragma once
 
@@ -13,8 +13,8 @@
 
 namespace Players {
 
-bool begin();                 // Loads the registry. False if the filesystem is missing.
-bool ok();                    // Filesystem available
+bool begin();                 // False on unreadable/recovery-only storage; keeps last good memory.
+bool ok();                    // Registry safely loaded and writable
 void snapshot(PlayerDb &out); // Copy for listing (sort with out.sortedIndices)
 int count();
 // Returns the new id (> 0) or a negative PlayerErr. All changes are saved immediately.

@@ -487,6 +487,7 @@ enum class Str : uint16_t {
     ADV_MINE_LOSS,
     ADV_NEXT_STAGE,
     ADV_MINE_RESTART,
+    PERR_STORAGE,
     ADV_MEADOW,
     ADV_VILLAGE_MAP,
     ADV_MAP_FAILED,

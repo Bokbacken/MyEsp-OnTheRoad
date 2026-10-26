@@ -398,6 +398,7 @@ extern const Entry LANG_EN[] = {
     {Str::ADV_CAMPAIGN_WIN, "All 12 stages cleared!"},
     {Str::ADV_MINE_LOSS, "Mine hit without protection. Retry this stage."},
     {Str::ADV_NEXT_STAGE, "Next"},
+    {Str::PERR_STORAGE, "Could not save. Check storage. Nothing changed."},
     {Str::ADV_MINE_RESTART, "Restart"},
     {Str::ADV_MEADOW, "Village - Meadow"},
     {Str::ADV_VILLAGE_MAP, "Village - Home"},

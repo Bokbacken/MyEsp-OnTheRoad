@@ -1,3 +1,5 @@
+#include "adv_setup_ui.h"
+#include "lang/lang_game.h"
 // ui_adventure.cpp - OnTheRoad Engine test world (see header).
 #include "ui_adventure.h"
 #include "adv_live.h"
@@ -1735,10 +1737,8 @@ static void mineResult()
     s_session.recordWin(*s_world); saveNow();
     const bool won=s_world->exitReached()&&!s_world->gameOver();
     auto *mb=dialog(tr(!won?Str::ADV_MINE_LOSS:s_world->mineLevel()==12?Str::ADV_CAMPAIGN_WIN:Str::ADV_MINE_WIN));
-    lv_obj_set_width(mb, 420); // Fit three short labels without reducing touch targets.
     if(won && s_world->mineLevel()<12) {
         auto *b=lv_msgbox_add_footer_button(mb,tr(Str::ADV_NEXT_STAGE));
-        lv_obj_set_width(b, 144);
         lv_obj_add_event_cb(b,[](lv_event_t*) {
             if(!Theme::debounce(s_actionTapMs)) return;
             closeDialog();
@@ -1748,19 +1748,16 @@ static void mineResult()
         },LV_EVENT_CLICKED,nullptr);
     }
     auto *retry=lv_msgbox_add_footer_button(mb,tr(Str::ADV_MINE_RESTART));
-    lv_obj_set_width(retry, 120);
     lv_obj_add_event_cb(retry,[](lv_event_t*) {
         if(!Theme::debounce(s_actionTapMs)) return;
         closeDialog(); resetWorld(); saveNow();
     },LV_EVENT_CLICKED,nullptr);
     auto *quit=lv_msgbox_add_footer_button(mb,tr(Str::ADV_LEAVE));
-    lv_obj_set_width(quit, 100);
     lv_obj_add_event_cb(quit,[](lv_event_t*) {
         if(!Theme::debounce(s_actionTapMs)) return;
         closeDialog(); UiYatzy::showMenu();
     },LV_EVENT_CLICKED,nullptr);
-    lv_obj_set_height(lv_msgbox_get_footer(mb), 70);
-    Theme::msgboxFonts(mb);
+    AdvUi::resultLayout(mb);
 }
 
 static void showGameOver()
@@ -2494,8 +2491,40 @@ static void styleWorldButtons()
     }
 }
 
+static AdvUi::NameForm s_nameForm;
+static uint32_t s_profileTapMs;
+static void fillPlayerList();
+static void closeNameForm(lv_event_t *) {
+    if (!Theme::debounce(s_profileTapMs)) return;
+    auto *root = s_nameForm.root;
+    s_nameForm.root = nullptr;
+    if (root) lv_obj_delete_async(root);
+}
+static void saveNewPlayer(lv_event_t *) {
+    if (!s_nameForm.root || !Theme::debounce(s_profileTapMs)) return;
+    const int id = Players::add(lv_textarea_get_text(s_nameForm.input));
+    if (id <= 0) {
+        lv_label_set_text(s_nameForm.error, trPlayerErr(id));
+        return;
+    }
+    // Players::add commits storage before returning an ID.
+    s_playerId = static_cast<uint16_t>(id);
+    auto *root = s_nameForm.root;
+    s_nameForm.root = nullptr;
+    lv_obj_delete_async(root);
+    fillPlayerList();
+}
+static void newPlayer(lv_event_t *) {
+    if (!Theme::debounce(s_profileTapMs) || s_nameForm.root) return;
+    AdvUi::nameForm(s_nameForm, s_activeScr, saveNewPlayer, closeNameForm);
+    lv_obj_add_event_cb(s_nameForm.root, [](lv_event_t *e) {
+        if (lv_event_get_current_target(e) == s_nameForm.root) s_nameForm.root = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
+}
+
 static void playerChosen(lv_event_t *e)
 {
+    if (!Theme::debounce(s_profileTapMs)) return;
     s_playerId = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
     if (!hasSave(s_playerId, s_worldIdx)) {
         startGame(false);
@@ -2505,10 +2534,10 @@ static void playerChosen(lv_event_t *e)
     lv_obj_t *cont = lv_msgbox_add_footer_button(mb, tr(Str::ADV_CONTINUE));
     lv_obj_t *fresh = lv_msgbox_add_footer_button(mb, tr(Str::ADV_NEW_GAME));
     lv_obj_t *cancel = lv_msgbox_add_footer_button(mb, tr(Str::BTN_CANCEL));
-    lv_obj_add_event_cb(cont, [](lv_event_t *) { startGame(true); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(fresh, [](lv_event_t *) { startGame(false); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_event_cb(cancel, [](lv_event_t *) { closeDialog(); }, LV_EVENT_CLICKED, nullptr);
-    Theme::msgboxFonts(mb);
+    lv_obj_add_event_cb(cont, [](lv_event_t *) { if (Theme::debounce(s_profileTapMs)) startGame(true); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(fresh, [](lv_event_t *) { if (Theme::debounce(s_profileTapMs)) startGame(false); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(cancel, [](lv_event_t *) { if (Theme::debounce(s_profileTapMs)) closeDialog(); }, LV_EVENT_CLICKED, nullptr);
+    AdvUi::resultLayout(mb);
 }
 
 static void addPlayerRow(const char *name, uint16_t id)
@@ -2516,6 +2545,11 @@ static void addPlayerRow(const char *name, uint16_t id)
     char text[64];
     snprintf(text, sizeof(text), "%s%s", name, hasSave(id, s_worldIdx) ? tr(Str::ADV_HAS_SAVE) : "");
     lv_obj_t *b = Theme::button(s_playerList, text, 296, 42, id ? Theme::TEAL : Theme::LINE);
+    if (id && id == s_playerId) {
+        lv_obj_set_style_border_color(b, Theme::c(Theme::GOLD), 0);
+        lv_obj_set_style_border_width(b, 3, 0);
+        lv_obj_scroll_to_view(b, LV_ANIM_OFF);
+    }
     lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_LEFT_MID, 12, 0);
     lv_obj_add_event_cb(b, playerChosen, LV_EVENT_CLICKED, (void *)(uintptr_t)id);
 }
@@ -2526,7 +2560,7 @@ static void fillPlayerList()
     addPlayerRow(tr(Str::ADV_GUEST), 0);
     PlayerDb *db = (PlayerDb *)heap_caps_malloc(sizeof(PlayerDb), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     uint8_t *idx = db ? (uint8_t *)heap_caps_malloc(PLAYER_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : nullptr;
-    if (db && idx && Players::ok()) {
+    if (db && idx) {
         Players::snapshot(*db);
         const int n = db->sortedIndices(idx);
         for (int i = 0; i < n; i++) addPlayerRow(db->items[idx[i]].name, db->items[idx[i]].id);
@@ -2544,6 +2578,7 @@ static void buildSetup()
     lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
+        if (!Theme::debounce(s_profileTapMs)) return;
         closeDialog();
         UiYatzy::showMenu();   // Buffers are freed when this screen is deleted
     }, LV_EVENT_CLICKED, nullptr);
@@ -2581,10 +2616,13 @@ static void buildSetup()
     s_playerList = lv_obj_create(scr);
     lv_obj_remove_style_all(s_playerList);
     lv_obj_set_pos(s_playerList, 6, 210);
-    lv_obj_set_size(s_playerList, 308, 480 - 210 - 4);
+    lv_obj_set_size(s_playerList, 308, 210);
     lv_obj_set_flex_flow(s_playerList, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s_playerList, 6, 0);
     lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);
+    auto *add = Theme::button(scr, tr(Str::PICK_NEW), 296, 48, Theme::GREEN);
+    lv_obj_set_pos(add, 12, 426);
+    lv_obj_add_event_cb(add, newPlayer, LV_EVENT_CLICKED, nullptr);
     fillPlayerList();
     Theme::loadScreen(scr);
 }

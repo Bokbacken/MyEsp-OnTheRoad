@@ -87,7 +87,7 @@ extern "C" void app_main(void)
     MyLog::begin();
     otr_log_init();   // v0.13.7: 64 KB byte ring + SD rotation, chained after MyLog
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
-    const bool fsOk = MyFat::mount("ffat", "/ffat", true);   // First boot formats (a few seconds)
+    const bool fsOk = MyFat::mount("ffat", "/ffat", false);   // Never erase profiles on a mount failure.
     if (fsOk) MyLog::setEventFile("/ffat/events.log");
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();

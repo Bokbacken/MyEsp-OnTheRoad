@@ -398,6 +398,7 @@ extern const Entry LANG_SV[] = {
     {Str::ADV_CAMPAIGN_WIN, "Alla 12 banor är röjda!"},
     {Str::ADV_MINE_LOSS, "Minträff utan skydd. Försök igen på samma bana."},
     {Str::ADV_NEXT_STAGE, "Nästa"},
+    {Str::PERR_STORAGE, "Kunde inte spara. Kontrollera lagringen. Inget ändrat."},
     {Str::ADV_MINE_RESTART, "Omstart"},
     {Str::ADV_MEADOW, "Byn - Ängen"},
     {Str::ADV_VILLAGE_MAP, "Byn - Hemma"},

@@ -37,6 +37,7 @@ inline const char *trPlayerErr(int e)
     case PlayerErr::DUPLICATE: return tr(Str::PERR_DUPLICATE);
     case PlayerErr::FULL: return tr(Str::PERR_FULL);
     case PlayerErr::NOT_FOUND: return tr(Str::PERR_NOT_FOUND);
+    case PlayerErr::STORAGE: return tr(Str::PERR_STORAGE);
     case PlayerErr::BAD_PIN: return tr(Str::PERR_BAD_PIN);
     default: return "";
     }
