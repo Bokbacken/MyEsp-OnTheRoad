@@ -318,6 +318,8 @@ idf.py -p /dev/ttyACM0 flash monitor
 ```
 
 The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
+CI labels the build artifact `firmware-esp32s3-v<PROJECT_VER>`.
+This build label does not create a Git release tag.
 
 ### Shared components
 
