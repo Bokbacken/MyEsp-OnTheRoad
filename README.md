@@ -284,6 +284,17 @@ microSD (4-bit SDMMC) and audio (ES8311 + amplifier) are used since v0.9.0; see 
 pull-ups go to its supply). These modules have no charging circuit, so a CR1220/LIR1220 coin cell simply
 lasts until it is empty; the boot checklist shows "tid ogiltig (batteri?)" when the time was lost.
 
+### Hardware profiles
+
+The board is selected at build time in `idf.py menuconfig` -> *OnTheRoad hardware profile*
+(`CONFIG_OTR_HW_PROFILE_*`). `main/hw_profile.*` exposes the active profile (name, logical
+display size, touch/audio/SD capabilities). The default is **ES3C35P**, the current 320x480
+board, so existing builds behave as before. `P4_43` (Waveshare ESP32-P4 4.3", 480x800) is only a
+placeholder and is not ported or verified yet. `main/ui_metrics.*` holds shared UI sizes
+(margins, button sizes, card spacing) derived from the live display size; the main menu now uses
+an LVGL flex layout built on them. This is a first step towards more screen profiles - the other
+screens still use fixed 320x480 coordinates.
+
 ## Building
 
 Requires **ESP-IDF 6.1** (`idf.py`). Managed components (LVGL 9.6.0, mdns, cJSON, led_strip) are
