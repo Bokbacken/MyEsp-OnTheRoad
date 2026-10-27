@@ -134,6 +134,27 @@ static void key(lv_obj_t *matrix, int id) {
     lv_buttonmatrix_set_selected_button(matrix, id);
     lv_obj_send_event(matrix, LV_EVENT_VALUE_CHANGED, nullptr); settle();
 }
+static void swipeText(lv_obj_t *area) {
+    auto *input = lv_indev_create();
+    lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+    lv_indev_data_t sample{};
+    lv_indev_set_user_data(input, &sample);
+    lv_indev_set_read_cb(input, [](lv_indev_t *i, lv_indev_data_t *data) {
+        *data = *(lv_indev_data_t *)lv_indev_get_user_data(i);
+    });
+    lv_area_t bounds; lv_obj_get_coords(area, &bounds);
+    sample.point = {bounds.x1 + 8, bounds.y2 - 8};
+    sample.state = LV_INDEV_STATE_PRESSED;
+    lv_indev_read(input);
+    for (int step = 0; step < 5; ++step) {
+        sample.point.y -= 8; lv_tick_inc(20); lv_indev_read(input);
+    }
+    assert(lv_indev_get_scroll_obj(input) == area);
+    sample.state = LV_INDEV_STATE_RELEASED; lv_indev_read(input); settle();
+    assert(lv_obj_get_scroll_y(area) > 0);
+    lv_anim_delete(input, nullptr);
+    lv_indev_delete(input);
+}
 static void checkModals() {
     // Opening from the picker/web-seat flow must also produce a contained modal.
     while (lv_obj_get_child_count(lv_layer_top())) lv_obj_delete(child(lv_layer_top(), 0));
@@ -173,6 +194,7 @@ static void checkModals() {
     lv_label_set_text(s_webText, longText.c_str()); settle();
     auto *area = lv_obj_get_parent(s_webText);
     assert(lv_obj_get_scroll_bottom(area) > 0);
+    swipeText(area);
     lv_obj_scroll_to_y(area, LV_COORD_MAX, LV_ANIM_OFF); settle(); inside(area, s_webPanel);
     remoteTurn = false; updateWebOverlay(); settle();
     assert(lv_obj_has_flag(s_webBlock, LV_OBJ_FLAG_HIDDEN));

@@ -2364,6 +2364,7 @@ static void buildWebOverlay(lv_obj_t *scr)
     const int32_t localH = UiMetrics::buttonH() - UiMetrics::controlSpacing();
     lv_obj_t *textArea = plainBox(s_webPanel, textX, inset, panelW - textX - UiMetrics::marginNormal(),
                                   panelH - localH - 3 * inset - 4);
+    lv_obj_set_clickable(textArea, true);
     lv_obj_set_scrollable(textArea, true);
     lv_obj_set_scroll_dir(textArea, LV_DIR_VER);
     s_webText = Theme::label(textArea, "", &my_font_14);
