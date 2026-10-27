@@ -207,6 +207,8 @@ public:
 
     uint32_t move(Dir d);   // Turns to d, then walks / pushes / opens
     uint32_t hit();         // Hits the facing cell
+    bool canVault() const;  // v0.18.3: owns a pogo stick AND faces a jumpable run -> UI shows "Hoppa"
+    uint32_t vault();       // v0.18.3: manual pogo jump in the facing direction (see canVault())
     void revive();          // After game over ("continue"): one life, full energy, at the checkpoint
 
     bool playerCanEnter(int x, int y) const;     // Terrain + object check (no side effects)
@@ -266,6 +268,7 @@ private:
     // direction d; if a walkable, in-bounds cell lies just beyond the run, returns true with the
     // landing cell in (lx, ly). False = no valid vault (run too wide / landing blocked / OOB).
     bool pogoLand(Dir d, int &lx, int &ly) const;
+    uint32_t landOn(int destX, int destY, uint32_t ev);   // v0.18.3: shared step/vault landing sequence
     void updateGates(uint32_t &ev);
     void set(int x, int y, Tile t) { terrain_[y][x] = (uint8_t)t; rev_++; }
     void set(int x, int y, Obj o) { obj_[y][x] = (uint8_t)o; rev_++; }

@@ -708,16 +708,20 @@ static void testDarkFlashPogo()
         CHECK(!W.lit(1, 1));                          // forward 1, lateral 1: 1 > 0
         CHECK(!W.darkHidden(0, 1));                   // a lit dark cell becomes visible
         CHECK(W.darkHidden(0, 2));                    // an unlit dark cell stays hidden
-        // Level 2: R = 2; the wedge widens with distance.
+        // Level 2: R = 2. A 3-wide first row, then 1 cell straight ahead.
         W.setFlashlight(2);
         CHECK_EQ(W.flashlight(), 2);
-        CHECK(W.lit(0, 2)); CHECK(!W.lit(0, 3));      // forward 1..2, lateral 0
-        CHECK(W.lit(1, 2));                           // forward 2, lateral 1: 1 <= 1
-        CHECK(!W.lit(2, 2));                          // forward 2, lateral 2: 2 > 1
-        // Level 3: R = 3 reaches farther.
+        CHECK(W.lit(0, 1)); CHECK(W.lit(1, 1));       // first row widens to lateral +-1 (left is off-map here)
+        CHECK(!W.lit(2, 1));                          // ... but no wider than 3
+        CHECK(W.lit(0, 2));                           // last row: straight ahead only
+        CHECK(!W.lit(1, 2)); CHECK(!W.lit(0, 3));     // not wide on the last row, not beyond reach
+        // Level 3: R = 3. Two 3-wide rows, then 1 cell straight ahead.
         W.setFlashlight(3);
         CHECK_EQ(W.flashlight(), 3);
-        CHECK(W.lit(0, 3)); CHECK(!W.lit(0, 4));
+        CHECK(W.lit(1, 1)); CHECK(W.lit(1, 2));       // both leading rows are 3 wide
+        CHECK(!W.lit(2, 2));                          // ... but no wider than 3
+        CHECK(W.lit(0, 3)); CHECK(!W.lit(1, 3));      // last row: straight ahead only
+        CHECK(!W.lit(0, 4));                          // beyond reach
         // setFlashlight clamps to 0..3.
         W.setFlashlight(9); CHECK_EQ(W.flashlight(), 3);
         W.setFlashlight(-2); CHECK_EQ(W.flashlight(), 0);
@@ -750,13 +754,17 @@ static void testDarkFlashPogo()
             const char *const rows[] = {c.row};
             CHECK(W.load(rows, 1));
             W.setPogo(c.pogo);
-            const uint32_t ev = W.move(Dir::RIGHT);
+            // v0.18.3: the jump is manual. Walking into the obstacle is blocked but turns the hero to
+            // face it; canVault() then reports a jump is available and vault() performs it.
+            CHECK_EQ(W.move(Dir::RIGHT), (uint32_t)EV_BLOCKED);
+            CHECK(W.canVault());
+            const uint32_t ev = W.vault();
             CHECK(ev & EV_MOVED);
             CHECK_EQ(W.playerX(), c.landX);
         }
     }
 
-    // --- Pogo failure: too wide / landing blocked / out of bounds -> EV_BLOCKED, no move. ---
+    // --- Pogo failure: too wide / landing blocked / out of bounds -> no vault offered, no move. ---
     {
         struct Case { const char *row; int pogo; };
         static const Case bad[] = {
@@ -768,10 +776,21 @@ static void testDarkFlashPogo()
             const char *const rows[] = {c.row};
             CHECK(W.load(rows, 1));
             W.setPogo(c.pogo);
-            const uint32_t ev = W.move(Dir::RIGHT);
-            CHECK_EQ(ev, (uint32_t)EV_BLOCKED);
-            CHECK_EQ(W.playerX(), 0);                 // stayed put
+            CHECK_EQ(W.move(Dir::RIGHT), (uint32_t)EV_BLOCKED);
+            CHECK(!W.canVault());                      // no jump available
+            CHECK_EQ(W.vault(), (uint32_t)EV_BLOCKED); // vault refuses
+            CHECK_EQ(W.playerX(), 0);                  // stayed put
         }
+    }
+
+    // --- No pogo stick: never any vault. ---
+    {
+        const char *const rows[] = {"ST..."};
+        CHECK(W.load(rows, 1));
+        CHECK_EQ(W.move(Dir::RIGHT), (uint32_t)EV_BLOCKED);
+        CHECK(!W.canVault());
+        CHECK_EQ(W.vault(), (uint32_t)EV_NONE);   // no pogo: vault is never offered
+        CHECK_EQ(W.playerX(), 0);
     }
 
     // --- A pushable rock is still pushed, not vaulted, even with a pogo stick. ---

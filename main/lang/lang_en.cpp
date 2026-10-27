@@ -245,6 +245,7 @@ extern const Entry LANG_EN[] = {
     {Str::MENU_SUB_GAME_ADV, "60x60 tiles: walk, push, hit and scroll"},
     {Str::ADV_TITLE, "Test world"},
     {Str::ADV_HIT, "Hit"},
+    {Str::ADV_JUMP, "Jump"},
     {Str::ADV_ZOOM, "Zoom"},
     {Str::ADV_ZOOM_IN, "Zoom in"},
     {Str::ADV_ZOOM_OUT, "Zoom out (see more)"},

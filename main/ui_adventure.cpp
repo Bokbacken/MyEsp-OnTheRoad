@@ -181,8 +181,9 @@ static int s_talkNum;                         // Person being talked to (map num
 static int s_walkTalkNum;                     // Tap on a person: walk there, then talk to it
 static int s_pendingChoice = -2;              // Picked answer, handled in the next tick (-1 = close)
 static lv_obj_t *s_talkBox, *s_talkPortrait, *s_talkName, *s_talkText, *s_talkRef, *s_talkPanel;
-static lv_obj_t *s_hitBtn;                    // Slå / Prata
+static lv_obj_t *s_hitBtn;                    // Slå / Prata / Hoppa
 static bool s_hitTalk;
+static int s_hitMode = -1;                    // v0.18.3: 0 Slå, 1 Prata, 2 Hoppa (force first sync)
 static uint32_t s_hitTapMs, s_choiceTapMs;
 static const char *s_twText;                  // Typewriter: full text, bytes shown, next char time
 static int s_twLen, s_twPos, s_twChars;
@@ -1578,7 +1579,7 @@ static void sdExitAdvance()
 }
 
 // One step. Returns the world events (0 if the previous step is still animating).
-static uint32_t doMove(Dir d)
+static uint32_t doMove(Dir d, bool vault = false)
 {
     const uint32_t now = nowMs();
     if (s_bombSize || busy(now) || s_world->gameOver()) return 0;
@@ -1586,7 +1587,9 @@ static uint32_t doMove(Dir d)
     const int tx = fx + Otr::dirX(d), ty = fy + Otr::dirY(d);
     const bool wasRock = s_world->obj(tx, ty) == Obj::ROCK;
     const Tile targetTile = s_world->tile(tx, ty);
-    const uint32_t ev = s_world->move(d);
+    // v0.18.3: a manual pogo jump lands beyond the obstacle(s); the rest of the handling (animation
+    // glide from the take-off cell, events, toasts) is identical to a normal step.
+    const uint32_t ev = vault ? s_world->vault() : s_world->move(d);
     s_dirty = true;
     playEvents(ev);
     char buf[80];
@@ -1673,6 +1676,7 @@ static void doHit()
     const uint32_t now = nowMs();
     if (s_world->mineLevel()) { bombAction(); return; }
     if (busy(now) || s_world->gameOver()) return;
+    if (s_world->canVault()) { doMove(s_world->facing(), true); return; }   // v0.18.3: "Hoppa" -> pogo jump
     const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
     const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
     const uint32_t ev = s_world->hit();
@@ -2018,13 +2022,17 @@ static void tick(lv_timer_t *)
 
     // Autosave when idle: after a checkpoint, and every minute if anything changed
     const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog && !talking();
-    // Slå becomes Prata when the hero faces a person
+    // Slå becomes Prata when the hero faces a person, or Hoppa when a pogo jump is available (v0.18.3).
     const bool faceTalk = s_world->facingNpc() != 0;
-    if (s_hitBtn && !s_world->mineLevel() && faceTalk != s_hitTalk) {
-        s_hitTalk = faceTalk;
-        lv_label_set_text(lv_obj_get_child(s_hitBtn, 0), tr(faceTalk ? Str::ADV_TALK : Str::ADV_HIT));
-        lv_obj_set_style_bg_color(s_hitBtn, Theme::c(faceTalk ? Theme::TEAL : Theme::ACCENT), 0);
-        lv_obj_set_style_border_color(s_hitBtn, Theme::c(faceTalk ? Theme::TEAL : Theme::ACCENT), 0);
+    const int hitMode = s_world->canVault() ? 2 : faceTalk ? 1 : 0;
+    if (s_hitBtn && !s_world->mineLevel() && hitMode != s_hitMode) {
+        s_hitMode = hitMode;
+        s_hitTalk = (hitMode == 1);
+        lv_label_set_text(lv_obj_get_child(s_hitBtn, 0),
+                          tr(hitMode == 2 ? Str::ADV_JUMP : hitMode == 1 ? Str::ADV_TALK : Str::ADV_HIT));
+        const auto col = hitMode == 1 ? Theme::TEAL : hitMode == 2 ? Theme::GOLD : Theme::ACCENT;
+        lv_obj_set_style_bg_color(s_hitBtn, Theme::c(col), 0);
+        lv_obj_set_style_border_color(s_hitBtn, Theme::c(col), 0);
     }
     if (idle && s_playerId) {
         const bool changed = s_world->revision() != s_savedRev || s_world->steps() != s_savedSteps;
@@ -2248,6 +2256,7 @@ static void freeAll()
     s_muteBtn = nullptr;
     s_hitBtn = nullptr;
     s_hitTalk = false;
+    s_hitMode = -1;
     s_talk.end();   // The dialogue objects went with the screen
     s_talkBox = s_talkPanel = s_talkPortrait = s_talkName = s_talkText = s_talkRef = nullptr;
     s_talkNum = s_walkTalkNum = 0;
@@ -2476,6 +2485,7 @@ static void buildControls()
     // (Prata when facing a person, see tick())
     s_hitBtn = Theme::button(pan, tr(s_world->mineLevel()?Str::ADV_BOMB:Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
     s_hitTalk = false;
+    s_hitMode = -1;
     lv_obj_set_pos(s_hitBtn, COL_R_X, 8);
     lv_obj_add_event_cb(s_hitBtn, [](lv_event_t *) {
         if (!Theme::debounce(s_hitTapMs)) return;

@@ -223,11 +223,12 @@ int World::suitChargesAtPickup() const
     return rules_.suitBaseSteps + rules_.suitPerExtraMax * extra;
 }
 
-// v0.18.0 flashlight cone. Range R = flash_ (L1->1, L2->2, L3->3 cells ahead). For a cell at
+// v0.18.3 flashlight cone. Range R = flash_ (L1->1, L2->2, L3->3 cells ahead). For a cell at
 // (fx, fy) = (x-px, y-py): project onto the facing axis (forward) and the perpendicular (lateral).
-// Lit iff forward in [1..R] and abs(lateral) <= forward/2 (integer floor) -> a ~45deg cone that
-// widens with distance. The player's own cell is handled separately (always visible). Reveals
-// darkness only: this function is never consulted for fog / mines.
+// Lit iff forward in [1..R]; the leading rows (forward < R) are 3 wide (abs(lateral) <= 1) and the
+// last row (forward == R) is a single cell straight ahead (lateral == 0). So L1 = 1 cell; L2 = a
+// 3-wide first row + 1 ahead; L3 = two 3-wide rows + 1 ahead. The player's own cell is handled
+// separately (always visible). Reveals darkness only: this function is never consulted for fog.
 bool World::lit(int x, int y) const
 {
     if (flash_ <= 0 || !inside(x, y)) return false;
@@ -239,7 +240,7 @@ bool World::lit(int x, int y) const
     else { forward = fy * ry; lateral = fx; }
     if (forward < 1 || forward > R) return false;
     const int a = lateral < 0 ? -lateral : lateral;
-    return a <= forward / 2;
+    return forward < R ? a <= 1 : a == 0;
 }
 
 bool World::playerCanEnter(int x, int y) const
@@ -485,13 +486,14 @@ uint32_t World::move(Dir d)
         break;
     }
 
-    int destX = tx, destY = ty;
-    if (!playerCanEnter(tx, ty)) {
-        // v0.18.0 pogo stick: try to vault the blocking obstacle(s) and land beyond.
-        int lx, ly;
-        if (pogo_ > 0 && pogoLand(d, lx, ly)) { destX = lx; destY = ly; }
-        else return ev | EV_BLOCKED;
-    }
+    if (!playerCanEnter(tx, ty)) return ev | EV_BLOCKED;   // v0.18.3: pogo vault is now manual (vault())
+    return landOn(tx, ty, ev);
+}
+
+// v0.18.3: shared landing sequence for a normal step and a manual pogo vault. Moves the player onto
+// (destX, destY), then resolves mines, fog, lava, water, checkpoints, the exit and pickups.
+uint32_t World::landOn(int destX, int destY, uint32_t ev)
+{
     px_ = destX;
     py_ = destY;
     steps_++;
@@ -533,6 +535,24 @@ uint32_t World::move(Dir d)
     checkMineWin();
     if (mineLevel_ && exitReached_) ev |= EV_EXIT;
     return ev;
+}
+
+// v0.18.3: manual pogo vault. The UI swaps the "Slå" action to "Hoppa" while canVault() is true
+// (the player owns a pogo stick and faces a jumpable run of obstacles) and calls vault() on the tap,
+// so the player must first turn to face the obstacle. Jumps in the current facing direction.
+bool World::canVault() const
+{
+    if (gameOver_ || (mineLevel_ && exitReached_) || pogo_ <= 0) return false;
+    int lx, ly;
+    return pogoLand(facing_, lx, ly);
+}
+
+uint32_t World::vault()
+{
+    if (gameOver_ || (mineLevel_ && exitReached_) || pogo_ <= 0) return EV_NONE;
+    int lx, ly;
+    if (!pogoLand(facing_, lx, ly)) return EV_BLOCKED;
+    return landOn(lx, ly, 0);
 }
 
 uint32_t World::hit()

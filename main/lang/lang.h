@@ -246,6 +246,7 @@
     X(MENU_SUB_GAME_ADV) \
     X(ADV_TITLE) \
     X(ADV_HIT) \
+    X(ADV_JUMP) \
     X(ADV_ZOOM) \
     X(ADV_ZOOM_IN) \
     X(ADV_ZOOM_OUT) \

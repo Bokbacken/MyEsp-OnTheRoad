@@ -572,9 +572,9 @@ Konens form och räckvidd:
 
 - Räckvidd framåt `R = nivå` rutor: **nivå 1 → 1**, **nivå 2 → 2**,
   **nivå 3 → 3** rutor framför spelaren.
-- En ruta lyses upp om den ligger `framåt` steg (1..`R`) i blickriktningen och
-  dess sidled-avvikelse är `abs(sidled) ≤ framåt / 2` (en ~45°-kil som vidgas
-  med avståndet).
+- De främre raderna (framåt `1..R-1`) är **3 rutor breda** (`abs(sidled) ≤ 1`);
+  den sista raden (framåt `= R`) är **en ruta rakt fram**. Alltså: nivå 1 = 1 ruta,
+  nivå 2 = en 3-bred rad + 1 rakt fram, nivå 3 = två 3-breda rader + 1 rakt fram.
 - Ficklampan avtäcker **enbart mörker** (`@dark`). Den lyser **inte** upp dimma
   (`fog`) i minvärldar – det är två olika system.
 - Rutan spelaren står på är alltid synlig, oavsett ficklampa.
@@ -603,14 +603,20 @@ Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1�
 2 1 pogo 2
 ```
 
-Så fungerar vaulten vid ett drag mot ett blockerande hinder (sten, låda,
+Hoppet är **manuellt** (fr.o.m. v0.18.3): gå fram mot hindret så att spelaren
+vänder sig mot det. Äger du en hoppstylta och går att hoppa byts handlingsknappen
+**Slå** till **Hoppa** — vid klick hoppar spelaren i blickriktningen. Du måste
+alltså stå vänd åt rätt håll; inget hopp sker automatiskt.
+
+Så fungerar vaulten vid ett hopp mot ett blockerande hinder (sten, låda,
 buske, oknuffbar sten osv.):
 
 - Motorn räknar hur många **blockerande rutor i rad** som ligger i
-  dragriktningen, upp till `nivå` stycken.
+  blickriktningen, upp till `nivå` stycken.
 - Landningsrutan är **första gångbara rutan bortom** hindret. Är den gångbar och
   innanför kartan hoppar spelaren dit i ett svep.
-- Hoppet **misslyckas** (vanligt stopp, `EV_BLOCKED`) om:
+- Knappen **Hoppa** visas bara när hoppet är möjligt; annars står det **Slå** och
+  ett vanligt drag mot hindret stoppas (`EV_BLOCKED`) om:
   - hinderraden är bredare än `nivå` (för många rutor i rad),
   - landningsrutan inte är gångbar (ännu ett hinder, vatten utan båt osv.),
   - landningsrutan hamnar utanför kartan.

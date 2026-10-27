@@ -245,6 +245,7 @@ extern const Entry LANG_SV[] = {
     {Str::MENU_SUB_GAME_ADV, "60x60 rutor: gå, putta, slå och scrolla"},
     {Str::ADV_TITLE, "Testvärld"},
     {Str::ADV_HIT, "Slå"},
+    {Str::ADV_JUMP, "Hoppa"},
     {Str::ADV_ZOOM, "Zoom"},
     {Str::ADV_ZOOM_IN, "Zooma in"},
     {Str::ADV_ZOOM_OUT, "Zooma ut (se mer)"},
