@@ -118,7 +118,7 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
         return false;
     }
 
-    Otr::Rules rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
+    Otr::Rules rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
     std::vector<std::string> rawRows;
 
     enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
@@ -235,6 +235,19 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 else if (k == "potion_default") rules.potionDefault = (uint8_t)n;
                 else if (k == "heart_default") rules.heartDefault = (uint8_t)n;
                 else if (k == "fog") rules.fog = (v == "true" || v == "1");
+                // True minesweeper activator: mine_level 1..12 (HUD / suit / bomb parity with the
+                // built-in campaign). Alias minesweeper: true/yes/1 == mine_level 1. Implies fog.
+                else if (k == "mine_level") {
+                    if (n < 0 || n > Otr::MINE_LEVELS) {
+                        err = "line " + std::to_string(lineNo) + ": mine_level must be 0.." +
+                              std::to_string(Otr::MINE_LEVELS);
+                        return false;
+                    }
+                    rules.mineLevel = (uint8_t)n;
+                    if (rules.mineLevel) rules.fog = true;
+                } else if (k == "minesweeper") {
+                    if (v == "true" || v == "yes" || v == "1") { rules.mineLevel = 1; rules.fog = true; }
+                }
                 // A5: carry/reset policy between levels of the same adventure.
                 else if (k == "carry") splitTokens(v, doc.carry);
                 else if (k == "reset") splitTokens(v, doc.reset);

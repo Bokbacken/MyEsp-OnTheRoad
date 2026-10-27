@@ -180,7 +180,7 @@ void Loaded::reset()
 bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
 {
     out.reset();
-    Otr::Rules rules = {8, 20, (int8_t)Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
+    Otr::Rules rules = {8, 20, (int8_t)Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
 
     Sec sec = NONE;
     long curNpc = -1, curNode = -1;
@@ -298,6 +298,15 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 else if (!strcmp(k, "potion_default")) rules.potionDefault = (uint8_t)n;
                 else if (!strcmp(k, "heart_default")) rules.heartDefault = (uint8_t)n;
                 else if (!strcmp(k, "fog")) rules.fog = (!strcmp(v, "true") || !strcmp(v, "1"));
+                // True minesweeper activator: mine_level 1..12. Alias minesweeper: true/yes/1 == 1.
+                // Implies fog (also forced on in World::load). Must stay in sync with tools/adv_parse.cpp.
+                else if (!strcmp(k, "mine_level")) {
+                    if (n < 0 || n > Otr::MINE_LEVELS) { setErr(err, errCap, lineNo, "mine_level must be 0..12"); return false; }
+                    rules.mineLevel = (uint8_t)n;
+                    if (rules.mineLevel) rules.fog = true;
+                } else if (!strcmp(k, "minesweeper")) {
+                    if (!strcmp(v, "true") || !strcmp(v, "yes") || !strcmp(v, "1")) { rules.mineLevel = 1; rules.fog = true; }
+                }
                 else if (!strcmp(k, "carry")) out.carryMask = maskFromTokens(v);
                 else if (!strcmp(k, "reset")) out.resetMask = maskFromTokens(v);
                 break;

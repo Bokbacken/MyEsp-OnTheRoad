@@ -103,10 +103,13 @@ struct Rules {
     uint8_t potionDefault;    // Energy restored by a potion without an explicit amount
     uint8_t heartDefault;     // Max energy added by a heart without an explicit amount
     bool fog;                 // Minesweeper world: ground hidden until revealed
+    uint8_t mineLevel;        // 0 = ordinary map. 1..12 = true minesweeper (tap-reveal, flag, bomb,
+                              // win when every non-mine cell is revealed). Implies fog (forced on in
+                              // World::load). SD .adv sets this via @rules "mine_level: N".
 };
 
 // v0.7.0 behaviour: lava sends you straight back to the start, nothing else costs energy.
-constexpr Rules CLASSIC_RULES = {8, 20, LIVES_INFINITE, 255, 4, 3, 1, 2, 1, false};
+constexpr Rules CLASSIC_RULES = {8, 20, LIVES_INFINITE, 255, 4, 3, 1, 2, 1, false, 0};
 
 // A hidden item: appears at (x, y) when the cell's covering object / cracked wall is gone.
 struct Treasure {

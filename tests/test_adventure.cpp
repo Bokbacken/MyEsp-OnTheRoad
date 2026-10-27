@@ -338,7 +338,7 @@ static uint8_t SAVEBUF[64 * 1024];
 template <int N>
 static bool loadR(const char *const (&rows)[N], const Rules &r) { return W.load(rows, N, r); }
 
-static constexpr Rules R8 = {8, 20, 2, 3, 4, 3, 1, 2, 1, false};   // Finite lives, lava 3
+static constexpr Rules R8 = {8, 20, 2, 3, 4, 3, 1, 2, 1, false, 0};   // Finite lives, lava 3
 
 static uint32_t follow(const Path &p)
 {
@@ -608,7 +608,7 @@ static void testTreasures()
     CHECK(!W.load(MapDef{9, rowsOk, 5, R8, outside, 1}));
 }
 
-static constexpr Rules RFOG = {8, 20, 3, 3, 4, 3, 1, 2, 1, true};
+static constexpr Rules RFOG = {8, 20, 3, 3, 4, 3, 1, 2, 1, true, 0};
 
 static int countRevealed()
 {

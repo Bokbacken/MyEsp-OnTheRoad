@@ -155,7 +155,8 @@ suit_base_steps: 3       # dräktladdningar vid upplockning ...
 suit_per_extra_max: 1    # ... + per permanent extra energienhet
 potion_default: 2        # energi en trolldryck ger utan eget värde
 heart_default: 1         # max-energi ett hjärta ger utan eget värde
-fog: false               # true = minsvepar-värld (marken dold tills avtäckt)
+mine_level: 0            # 0 = vanlig karta. 1..12 = ÄKTA minsvepare (avsnitt 4b)
+fog: false               # true = marken dold tills avtäckt (tvingas på av mine_level)
 carry: energy, maxenergy, items, lives   # vad som FÖLJER MED till nästa nivå
 reset: suit                              # vad som NOLLSTÄLLS vid nivåbyte
 ```
@@ -182,6 +183,72 @@ Story-föremål, flaggor, räknare och uppdrag matchas **på namn** mellan karto
 så samma `@items`/`@flags`-id i nästa karta behåller sitt värde när `items`
 ingår i `carry`. (Så fungerar Josef: `carry: energy, maxenergy, items, lives`
 och `reset: suit`.)
+
+### 4b. Äkta minsvepare – `mine_level` (nytt)
+
+Normalt är en SD-karta ett vandringsäventyr: du går till `X` för att klara den,
+och `fog: true` döljer bara marken tills du går dit. Vill du i stället ha ett
+**riktigt minsveparläge** – tryck för att avtäcka rutor, flagga minor, spräng
+med bomber och vinn när alla säkra rutor är avtäckta – sätter du:
+
+```
+@rules
+mine_level: 1            # slår på äkta minsvepare, nivå 1..12
+```
+
+eller aliaset (exakt samma sak som `mine_level: 1`):
+
+```
+@rules
+minesweeper: true        # även "yes" / "1" accepteras
+```
+
+**Vad `mine_level` gör:**
+
+- **Tvingar på dimma.** `fog` sätts alltid till `true` när `mine_level > 0`, så
+  du behöver inte ange `fog` själv (gör gärna ändå för tydlighet).
+- **Slår på minsvepar-UI:t:** tryck på en ruta för att **avtäcka** den, tryck
+  och håll (eller flagg-knappen) för att **flagga** en misstänkt mina. HUD:en
+  visar nivå `N/12`, antal minor och flaggor samt BOMB-knappen.
+- **Vinstvillkor byts ut:** du vinner när **varje ruta som inte är en mina** är
+  avtäckt (inte när du når `X`). En avtäckt mina = träff (kostar `mine_damage`
+  energi / ett liv).
+- **Nivåtalet** `N` (1..12) ger HUD-indikatorn och startremsan samma beteende som
+  den inbyggda kampanjen; värden utanför 0..12 ger ett parse-fel.
+
+**Teckenlegend i en minsveparkarta** (samma glyfer som vanligt, avsnitt 5):
+
+| Tecken | Betydelse |
+|:------:|-----------|
+| `m` | mina (dold tills avtäckt/sprängd) |
+| `u` | skyddsdräkt |
+| `a` / `z` | bomb 3×3 / 4×4 (avtäcker/spränger ett område) |
+| `.` | säker mark som ska avtäckas |
+| `S` | start (startremsan runt S avtäcks direkt) |
+
+**Flera banor på rad (kampanj).** Lägg flera `.adv`-filer i samma mapp
+(`01_...`, `02_...`, ...) precis som vilket annat SD-äventyr som helst. När
+spelaren **vinner** en minsveparbana går sessionen vidare till nästa fil i
+ordningen – samma mekanism som att nå en `X`-utgång i ett vanligt äventyr – och
+på sista banan markeras äventyret som klarat. Ge varje fil sitt eget
+`mine_level` (t.ex. stigande 1→12). Förlust (game over) startar om den aktuella
+banan som vanligt.
+
+**Rekommenderade regler** (vänliga och testbara, används av `minkampanj`):
+
+```
+start_energy: 8
+energy_cap: 20
+lives: 3
+mine_damage: 4
+mine_level: N            # N = banans nivå
+fog: true
+carry: energy maxenergy lives suit
+```
+
+Du kan fortfarande ha ett `X` på kartan – det är ofarligt (minsvepar-vinsten
+utlöses först) och håller kartan giltig. Den medföljande kampanjen `minkampanj`
+(12 banor, genererad av `tools/gen_minkampanj.cpp`) är ett komplett exempel.
 
 ---
 

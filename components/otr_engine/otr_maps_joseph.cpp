@@ -95,7 +95,7 @@ const char *const JOSEPH_ROAD_ROWS[30] = {
 
 
 //                                    start cap  lives            lava mine suit +/max potion heart fog
-static constexpr Rules JOSEPH_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
+static constexpr Rules JOSEPH_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
 
 // The camp map is WORLDS[WORLD_JOSEPH-1] (inlined in otr_maps.cpp); its MapDef.id (4) is both the
 // world id (see ui_adventure.cpp, which passes WORLDS[idx].id as the world id) and the camp map's

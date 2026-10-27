@@ -171,6 +171,77 @@ static void testResourcesDemo()
     CHECK(L->script.validate(verr, sizeof(verr)) == 0);
 }
 
+// True minesweeper SD campaign: every minkampanj level must parse, load into the engine with
+// mineLevel()>0 (so the tap/flag/bomb UI and win-on-all-safe-revealed logic arm), and fog forced
+// on. Also checks the mine_level activator, the minesweeper: alias and the out-of-range reject.
+static void testMinesweeper()
+{
+    // All 12 generated campaign levels (both the docs copy and the SD bundle copy).
+    for (int lvl = 1; lvl <= Otr::MINE_LEVELS; lvl++) {
+        char docPath[128], sdPath[128];
+        std::snprintf(docPath, sizeof docPath,
+                      "docs/adventures/generated/minkampanj/%02d_niva%02d.adv", lvl, lvl);
+        std::snprintf(sdPath, sizeof sdPath,
+                      "sdcard_bundle/otr/adventure/minkampanj/%02d_niva%02d.adv", lvl, lvl);
+        for (const char *path : {docPath, sdPath}) {
+            crossCheck(path);
+            auto L = std::make_unique<Adv::Loaded>();
+            char err[128] = {0};
+            if (!Adv::parseFile(path, *L, err, sizeof err)) {
+                std::printf("FAIL parse %s: %s\n", path, err);
+                g_fail++;
+                continue;
+            }
+            Otr::World w;
+            CHECK(w.load(L->map));
+            CHECK(w.mineLevel() == lvl);  // mine_level: N plumbed through to the engine
+        }
+    }
+
+    // mine_level activator: a hand-built map with mine_level sets mineLevel() and forces fog.
+    {
+        const char *m = "@rules\nmine_level: 5\n@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        Otr::World w;
+        CHECK(w.load(L->map));
+        CHECK(w.mineLevel() == 5);
+        CHECK(w.fog());  // mine_level implies fog
+    }
+
+    // minesweeper: true alias == mine_level 1.
+    {
+        const char *m = "@rules\nminesweeper: true\n@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        Otr::World w;
+        CHECK(w.load(L->map));
+        CHECK(w.mineLevel() == 1);
+        CHECK(w.fog());
+    }
+
+    // Out-of-range mine_level (>12) must be rejected by the parser.
+    {
+        const char *bad = "@rules\nmine_level: 13\n@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(!Adv::parse(bad, std::strlen(bad), *L, err, sizeof err));
+    }
+
+    // mine_level: 0 is an ordinary (non-minesweeper) map, fog untouched.
+    {
+        const char *m = "@rules\nmine_level: 0\n@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        Otr::World w;
+        CHECK(w.load(L->map));
+        CHECK(w.mineLevel() == 0);
+    }
+}
+
 static void testHeaderScan()
 {
     Adv::Header h;
@@ -214,6 +285,7 @@ int main()
     testGenerated();
     testSdBundle();
     testResourcesDemo();
+    testMinesweeper();
     testHeaderScan();
     testErrors();
     std::printf("\n%s: %d passed, %d failed\n", g_fail ? "FAIL" : "OK", g_pass, g_fail);

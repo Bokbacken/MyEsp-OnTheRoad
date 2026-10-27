@@ -1483,6 +1483,27 @@ static void talkTick(uint32_t now)
 }
 
 
+// SD adventure reached an exit (walked onto X, or a true-minesweeper win cleared the last safe
+// cell). Advance to the next ordered map (carrying/resetting per the next map's @rules) or finish
+// the adventure on the last map. Same behaviour whether the win came from a move or a bomb.
+static void sdExitAdvance()
+{
+    stopPath(); s_joy.cancel();
+    char err[96];
+    if (s_sd.hasNext()) {
+        if (s_sd.travel(*s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
+            snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted = true;
+            toast(advMapTitle(), Theme::GOLD);
+        } else {
+            ESP_LOGE(TAG, "travel failed: %s", err);
+            toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED);
+        }
+    } else {
+        s_sd.markCompleted(); s_saveWanted = true;
+        toast(tr(Str::ADV_ADVENTURE_DONE), Theme::GOLD, 6000);
+    }
+}
+
 // One step. Returns the world events (0 if the previous step is still animating).
 static uint32_t doMove(Dir d)
 {
@@ -1497,22 +1518,9 @@ static uint32_t doMove(Dir d)
     playEvents(ev);
     char buf[80];
     if ((ev & Otr::EV_EXIT) && s_sd.active()) {
-        // SD adventure: an exit either advances to the next ordered map (carrying/resetting
-        // resources per the next map's @rules) or, on the last map, finishes the adventure.
-        stopPath(); s_joy.cancel();
-        char err[96];
-        if (s_sd.hasNext()) {
-            if (s_sd.travel(*s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
-                snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted = true;
-                toast(advMapTitle(), Theme::GOLD);
-            } else {
-                ESP_LOGE(TAG, "travel failed: %s", err);
-                toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED);
-            }
-        } else {
-            s_sd.markCompleted(); s_saveWanted = true;
-            toast(tr(Str::ADV_ADVENTURE_DONE), Theme::GOLD, 6000);
-        }
+        // SD adventure: an exit (X tile, or a true-minesweeper win returned as EV_EXIT) advances to
+        // the next ordered map or finishes the adventure on the last map.
+        sdExitAdvance();
         return ev;
     }
 
@@ -1883,7 +1891,15 @@ static void tick(lv_timer_t *)
 {
     const uint32_t now = nowMs();
     talkTick(now);
-    if(s_world->mineLevel() && (s_world->exitReached()||s_world->gameOver()) && !s_resultShown) mineResult();
+    if(s_world->mineLevel() && !s_resultShown) {
+        if(s_world->exitReached() && !s_world->gameOver() && s_sd.active()) {
+            // True-minesweeper win on an SD map: advance like an X exit (catches bomb-cleared wins;
+            // move-cleared wins already advanced in doMove). Never run the built-in 1..12 chaining.
+            sdExitAdvance();
+        } else if(s_world->exitReached() || s_world->gameOver()) {
+            mineResult();   // Loss (game over), or the built-in campaign path.
+        }
+    }
     if (!s_bombSize && !s_dialog && !talking()) {
         Dir jd;
         if (s_joy.poll(now, !busy(now) && !s_world->gameOver(), jd)) {

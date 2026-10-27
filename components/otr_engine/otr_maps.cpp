@@ -157,9 +157,9 @@ static const Treasure MINE_TREASURES[] = {
 };
 
 //                                 start cap  lives           lava mine suit +/max potion heart fog
-static constexpr Rules TEST_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
-static constexpr Rules MINE_RULES = {8, 20, 3, 3, 4, 3, 1, 2, 1, true};
-static constexpr Rules VILLAGE_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
+static constexpr Rules TEST_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
+static constexpr Rules MINE_RULES = {8, 20, 3, 3, 4, 3, 1, 2, 1, true, 0};
+static constexpr Rules VILLAGE_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
 
 const MapDef WORLDS[WORLD_COUNT] = {
     {WORLD_TEST, TEST_WORLD, TEST_WORLD_H, TEST_RULES, TEST_TREASURES,
@@ -171,7 +171,7 @@ const MapDef WORLDS[WORLD_COUNT] = {
     // [3] Josef (1 Mos 37), map 1 "Jakobs läger". Inlined (not a cross-TU const ref) so WORLDS[]
     // is constant-initialized - avoids any static-init-order dependency on otr_maps_joseph.cpp.
     {WORLD_JOSEPH, JOSEPH_CAMP_ROWS, JOSEPH_CAMP_H,
-     {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false}, nullptr, 0},
+     {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0}, nullptr, 0},
 };
 
 }  // namespace Otr

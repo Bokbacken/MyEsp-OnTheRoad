@@ -197,7 +197,7 @@ static void testTreasureReveal()
     def.id = 91;
     def.rows = rows;
     def.h = 3;
-    def.rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
+    def.rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
     def.treasures = tr;
     def.treasureCount = 1;
 
@@ -231,7 +231,7 @@ static void testBigMapWalkableBorder()
     def.id = 92;
     def.rows = rows;
     def.h = 80;
-    def.rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
+    def.rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
 
     Otr::World w;
     CHECK(w.load(def));

@@ -80,7 +80,8 @@ bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == T
 bool rulesValid(const Rules &r)
 {
     return r.startEnergy >= 1 && r.energyCap >= r.startEnergy &&
-           (r.lives == LIVES_INFINITE || (r.lives >= 1 && r.lives <= MAX_LIVES));
+           (r.lives == LIVES_INFINITE || (r.lives >= 1 && r.lives <= MAX_LIVES)) &&
+           r.mineLevel <= MINE_LEVELS;
 }
 
 uint32_t crc32(const uint8_t *p, size_t n, uint32_t crc = 0)
@@ -103,6 +104,7 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
     facing_ = Dir::DOWN;
     rules_ = rules;
     if (!rulesValid(rules)) return false;
+    if (rules_.mineLevel) rules_.fog = true;   // True minesweeper always needs fog.
     if (!rows || h <= 0 || h > MAX_H || !rows[0]) return false;
     const size_t w = strlen(rows[0]);
     if (w == 0 || w > (size_t)MAX_W) return false;
@@ -144,6 +146,14 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
             for (int x = 0; x < w_; x++)
                 if (alwaysVisible(tile(x, y))) flags_[y][x] |= F_REVEALED;
         reveal(px_, py_, ev);
+    }
+    mineLevel_ = rules_.mineLevel;   // Data-driven true minesweeper (SD .adv); 0 for ordinary maps.
+    if (mineLevel_) {
+        // Mirror loadMines(): keep the start strip (the start cell plus the three supply cells to its
+        // right) visible even when an adjacent mine stops the flood fill, so S / suit / bombs always
+        // show. Never reveal a mine cell.
+        for (int x = px_; x < px_ + 4 && x < w_; x++)
+            if (isGround(tile(x, py_)) && rawObj(x, py_) != Obj::MINE) flags_[py_][x] |= F_REVEALED;
     }
     rev_ = 1;
     return true;
@@ -564,7 +574,7 @@ bool World::loadMines(int level)
     }
     for(int i=0;i<c.mines;i++) grid[candidates[i]/c.w][candidates[i]%c.w]='m';
     grid[1][1]='S'; grid[1][2]='u'; grid[1][3]='a'; grid[1][4]='z';
-    const Rules rules={1,1,1,1,1,1,0,1,1,true};
+    const Rules rules={1,1,1,1,1,1,0,1,1,true,(uint8_t)level};
     if (!load(rows,c.h,rules)) return false;
     mapId_=2; mineLevel_=(uint8_t)level;
     // Show supplies on the safe starting strip even when a nearby mine stops flood fill.

@@ -40,14 +40,20 @@ static int folderIndex(const Adv::Catalog &c, const char *name)
 
 static void testCatalog(const Adv::Catalog &c)
 {
-    // The bundle ships the 4 built-in adventures plus the resources demo (resdemo).
-    CHECK(c.count == 5, "catalog found 5 adventures (4 built-in + resdemo)");
-    // Alphabetical order: byn, josef, minfaltet, resdemo, testvarlden.
+    // The bundle ships the 4 built-in adventures, the resources demo (resdemo) and the 12-level
+    // minesweeper campaign (minkampanj).
+    CHECK(c.count == 6, "catalog found 6 adventures (4 built-in + resdemo + minkampanj)");
+    // Alphabetical order: byn, josef, minfaltet, minkampanj, resdemo, testvarlden.
     CHECK(folderIndex(c, "byn") == 0, "byn sorts first");
     CHECK(folderIndex(c, "josef") == 1, "josef sorts second");
     CHECK(folderIndex(c, "minfaltet") == 2, "minfaltet sorts third");
-    CHECK(folderIndex(c, "resdemo") == 3, "resdemo sorts fourth");
-    CHECK(folderIndex(c, "testvarlden") == 4, "testvarlden sorts fifth");
+    CHECK(folderIndex(c, "minkampanj") == 3, "minkampanj sorts fourth");
+    CHECK(folderIndex(c, "resdemo") == 4, "resdemo sorts fifth");
+    CHECK(folderIndex(c, "testvarlden") == 5, "testvarlden sorts sixth");
+
+    // minkampanj is the true minesweeper campaign: 12 ordered maps.
+    int mi = folderIndex(c, "minkampanj");
+    CHECK(mi >= 0 && c.items[mi].mapCount == 12, "minkampanj has 12 maps");
 
     int ji = folderIndex(c, "josef");
     CHECK(ji >= 0, "josef in catalog");
@@ -236,6 +242,51 @@ static void testLoadEveryAdventure(const Adv::Catalog &c)
     }
 }
 
+// True minesweeper SD campaign: starting the minkampanj session arms the engine's minesweeper mode
+// (mineLevel()>0) on every map, and the SD travel path (the same one an X-exit / minesweeper WIN
+// drives) advances through all 12 ordered levels, each with its own mine_level.
+static void testMinesweeperSession(const Adv::Catalog &c)
+{
+    int mi = folderIndex(c, "minkampanj");
+    CHECK(mi >= 0, "minkampanj in catalog");
+    if (mi < 0) return;
+
+    auto scratch = std::make_unique<Adv::Loaded>();
+    Otr::World w;
+    Otr::Story::StoryState story;
+    const Otr::Story::Script *script = nullptr;
+    char err[96];
+
+    Adv::SdSession s;
+    bool ok = s.start(ROOT, c.items[mi], *scratch, w, story, script, err, sizeof(err));
+    CHECK(ok, "minkampanj session start");
+    if (!ok) {
+        printf("  start err: %s\n", err);
+        return;
+    }
+    CHECK(s.mapCount() == 12, "minkampanj session has 12 maps");
+
+    // Level 1 on map 0, and the minesweeper engine mode is armed from mine_level.
+    CHECK(w.mineLevel() == 1, "map 0 arms minesweeper level 1");
+    CHECK(w.fog(), "minesweeper map has fog forced on");
+
+    // Travel through the whole campaign (the SD WIN -> advance path), checking the level climbs.
+    int expected = 2;
+    while (s.hasNext()) {
+        bool t = s.travel(*scratch, w, story, script, err, sizeof(err));
+        CHECK(t, "minkampanj travel to next level");
+        if (!t) {
+            printf("  travel err: %s\n", err);
+            break;
+        }
+        CHECK(w.mineLevel() == expected, "next map arms its own minesweeper level");
+        CHECK(w.fog(), "every minesweeper map has fog forced on");
+        expected++;
+    }
+    CHECK(expected == 13, "advanced through all 12 minesweeper levels");
+    CHECK(!s.hasNext(), "no map after level 12");
+}
+
 int main()
 {
     auto cat = std::make_unique<Adv::Catalog>();
@@ -246,6 +297,7 @@ int main()
     testSession(*cat);
     testSaveRoundtrip(*cat);
     testLoadEveryAdventure(*cat);
+    testMinesweeperSession(*cat);
 
     printf("\n%s: %d passed, %d failed\n", g_fail ? "FAILURES" : "OK", g_pass, g_fail);
     return g_fail ? 1 : 0;
