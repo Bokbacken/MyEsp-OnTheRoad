@@ -83,57 +83,91 @@ int main() {
     char dir[]="/tmp/player-ui-XXXXXX"; storageBase=mkdtemp(dir);
     assert(Players::begin());
     s_activeScr=lv_screen_active();
-    lv_area_t screen={0,0,319,479};
     int checked = 0;
-    for (int language=0; language<2; ++language) {
-        Lang::setLang(language == 0 ? "sv" : "en");
-        for (int scenario=0; scenario<4; ++scenario) {
-            bool won = scenario != 2;
-            int level = scenario == 1 ? 12 : 1;
-            int count = won && level < 12 ? 3 : 2;
-            auto *mb=scenario==3?makeResume():makeDialog(won,level);
-            lv_obj_update_layout(mb);
-            dialogTree(mb,screen);
-            auto *footer=lv_msgbox_get_footer(mb);
-            assert(lv_obj_get_child_count(footer)==unsigned(count));
-            printf("portrait 320x480 språk=%d scenario=%d dialog=%dx%d\n",language,scenario,
-                int(lv_obj_get_width(mb)),int(lv_obj_get_height(mb)));
-            for(int i=0;i<count;++i) {
-                auto *button=lv_obj_get_child(footer,i);
-                auto *label=lv_obj_get_child(button,0);
-                if(i) {
-                    auto *prev=lv_obj_get_child(footer,i-1);
-                    assert(lv_obj_get_y(prev)+lv_obj_get_height(prev)<=lv_obj_get_y(button));
+    for (const lv_point_t size : {lv_point_t{320,480}, lv_point_t{480,800}}) {
+        lv_display_set_resolution(display,size.x,size.y);
+        lv_obj_set_size(s_activeScr,size.x,size.y);
+        lv_area_t screen={0,0,size.x-1,size.y-1};
+        for (int language=0; language<2; ++language) {
+            Lang::setLang(language == 0 ? "sv" : "en");
+            for (int scenario=0; scenario<4; ++scenario) {
+                bool won = scenario != 2;
+                int level = scenario == 1 ? 12 : 1;
+                int count = won && level < 12 ? 3 : 2;
+                auto *mb=scenario==3?makeResume():makeDialog(won,level);
+                lv_obj_update_layout(mb);
+                dialogTree(mb,screen);
+                auto *footer=lv_msgbox_get_footer(mb);
+                assert(lv_obj_get_child_count(footer)==unsigned(count));
+                assert(lv_obj_get_width(mb)==(size.x==320?296:444));
+                printf("portrait %dx%d språk=%d scenario=%d dialog=%dx%d\n",size.x,size.y,language,scenario,
+                    int(lv_obj_get_width(mb)),int(lv_obj_get_height(mb)));
+                for(int i=0;i<count;++i) {
+                    auto *button=lv_obj_get_child(footer,i);
+                    auto *label=lv_obj_get_child(button,0);
+                    if(i) {
+                        auto *prev=lv_obj_get_child(footer,i-1);
+                        assert(lv_obj_get_y(prev)+lv_obj_get_height(prev)<=lv_obj_get_y(button));
+                    }
+                    lv_point_t textSize;
+                    lv_text_get_size(&textSize,lv_label_get_text(label),lv_obj_get_style_text_font(label,LV_PART_MAIN),
+                        lv_obj_get_style_text_letter_space(label,LV_PART_MAIN),lv_obj_get_style_text_line_space(label,LV_PART_MAIN),
+                        LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+                    printf("  %s text=%d knapp=%dx%d\n",lv_label_get_text(label),int(textSize.x),
+                        int(lv_obj_get_width(button)),int(lv_obj_get_height(button)));
+                    assert(textSize.x<=lv_obj_get_content_width(button) && textSize.x<=lv_obj_get_width(label));
+                    assert(textSize.y<=lv_obj_get_content_height(button));
+                    assert(lv_obj_get_width(button)>=(size.x==320?144:200) && lv_obj_get_height(button)>=(size.x==320?44:66));
+                    ++checked;
                 }
-                lv_point_t size;
-                lv_text_get_size(&size,lv_label_get_text(label),lv_obj_get_style_text_font(label,LV_PART_MAIN),
-                    lv_obj_get_style_text_letter_space(label,LV_PART_MAIN),lv_obj_get_style_text_line_space(label,LV_PART_MAIN),
-                    LV_COORD_MAX,LV_TEXT_FLAG_NONE);
-                printf("  %s text=%d knapp=%dx%d\n",lv_label_get_text(label),int(size.x),
-                    int(lv_obj_get_width(button)),int(lv_obj_get_height(button)));
-                assert(size.x<=lv_obj_get_content_width(button) && size.x<=lv_obj_get_width(label));
-                assert(size.y<=lv_obj_get_content_height(button));
-                assert(lv_obj_get_width(button)>=144 && lv_obj_get_height(button)>=44);
+                lv_msgbox_close(mb);
+            }
+            AdvUi::NameForm f;
+            AdvUi::nameForm(f,lv_screen_active(),[](lv_event_t*){},[](lv_event_t*){});
+            lv_label_set_text(f.error,tr(Str::PERR_STORAGE));
+            lv_obj_update_layout(f.root);
+            dialogTree(f.root,screen);
+            auto *saveButton=lv_obj_get_child(f.root,3);
+            auto *cancelButton=lv_obj_get_child(f.root,4);
+            inside(saveButton,screen); inside(cancelButton,screen);
+            assert(lv_obj_get_y(saveButton)+lv_obj_get_height(saveButton)<=lv_obj_get_y(f.keyboard));
+            assert(lv_obj_get_y(cancelButton)+lv_obj_get_height(cancelButton)<=lv_obj_get_y(f.keyboard));
+            for(const char *name:{"", "Anna", "ABCDEFGHIJKLMNOPQRSTUVW"}) {
+                lv_textarea_set_text(f.input,name);
+                lv_obj_update_layout(f.root);
+                inside(f.input,screen); inside(f.keyboard,screen);
                 ++checked;
             }
-            lv_msgbox_close(mb);
-        }
-        AdvUi::NameForm f;
-        AdvUi::nameForm(f,lv_screen_active(),[](lv_event_t*){},[](lv_event_t*){});
-        lv_label_set_text(f.error,tr(Str::PERR_STORAGE));
-        lv_obj_update_layout(f.root);
-        // Check every displayed form control and label against the physical portrait screen.
-        dialogTree(f.root,screen);
-        for(const char *name:{"", "Anna", "ABCDEFGHIJKLMNOPQRSTUVW"}) {
-            lv_textarea_set_text(f.input,name);
-            lv_obj_update_layout(f.root);
-            inside(f.input,screen); inside(f.keyboard,screen);
+            assert(lv_obj_get_y(f.keyboard)==AdvUi::scale(240));
+            assert(lv_obj_get_height(f.keyboard)==size.y-AdvUi::scale(240));
+            printf("Namnruta/tangentbord och feltext inom portrait %dx%d språk=%d\n",size.x,size.y,language);
+            lv_obj_delete(f.root);
+
+            std::string longText;
+            for(int i=0;i<140;++i) longText += language==0
+                ? "En lång svensk dialogtext som ska kunna läsas genom att rulla innehållet. "
+                : "A long English dialog message that must remain readable by scrolling its content. ";
+            auto *longDialog=lv_msgbox_create(nullptr);
+            lv_msgbox_add_text(longDialog,longText.c_str());
+            auto *action=lv_msgbox_add_footer_button(longDialog,tr(Str::BTN_CANCEL));
+            AdvUi::dialogLayout(longDialog);
+            lv_obj_update_layout(longDialog);
+            inside(longDialog,screen);
+            auto *footer=lv_msgbox_get_footer(longDialog);
+            inside(footer,screen);
+            lv_area_t footerArea; lv_obj_get_coords(footer,&footerArea);
+            inside(action,footerArea);
+            assert(lv_obj_get_width(longDialog)<=AdvUi::dialogWidth());
+            assert(lv_obj_get_scroll_bottom(lv_msgbox_get_content(longDialog))>0);
+            lv_obj_scroll_to_y(lv_msgbox_get_content(longDialog),LV_COORD_MAX,LV_ANIM_OFF);
+            assert(lv_obj_get_scroll_y(lv_msgbox_get_content(longDialog))>0);
             ++checked;
+            lv_msgbox_close(longDialog);
         }
-        printf("Namnruta/tangentbord och feltext inom portrait 320x480 språk=%d\n",language);
-        lv_obj_delete(f.root);
     }
     // Exercise the actual adventure handlers and Players API, not a duplicated save flow.
+    lv_display_set_resolution(display,320,480);
+    lv_obj_set_size(s_activeScr,320,480);
     auto clickSave=[](){ lv_tick_inc(501); lv_obj_send_event(lv_obj_get_child(s_nameForm.root,3),LV_EVENT_CLICKED,nullptr); };
     lv_tick_inc(501); newPlayer(nullptr);
     clickSave(); assert(s_nameForm.root && s_playerId==0 && Players::count()==0);
@@ -162,6 +196,7 @@ int main() {
 }
 '''.replace("BODY", body).replace("PROFILE", profile).replace("RESUME", resume)
 (WORK / "test.cpp").write_text(code)
+(WORK / "sdkconfig.h").write_text("")
 (WORK / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.22)
 project(mine_dialog_layout LANGUAGES C CXX)
 set(LV_CONF_SKIP ON CACHE BOOL "" FORCE)
@@ -172,8 +207,9 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/components/my_ui/fonts/my_font_18.c" "{ROOT}/components/my_ui/fonts/my_font_14.c"
- "{ROOT}/main/app_players.cpp" "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
-target_include_directories(layout PRIVATE "{ROOT}/tests/player_stubs" "{ROOT}/components/my_ui/include" "{ROOT}/main/lang" "{ROOT}/main")
+ "{ROOT}/main/app_players.cpp" "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"
+ "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp")
+target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/tests/player_stubs" "{ROOT}/components/my_ui/include" "{ROOT}/main/lang" "{ROOT}/main")
 target_link_libraries(layout PRIVATE lvgl m)
 ''')
 subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja", "-DCMAKE_CXX_FLAGS="], check=True)

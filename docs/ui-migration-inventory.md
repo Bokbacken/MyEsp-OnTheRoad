@@ -1,8 +1,8 @@
 # Fas A – UI-inventering och migrationsordning
 
 Inventeringsdatum: **27 oktober 2026**. Avsedd som arbets- och testunderlag inför **28 oktober**.
-Detta är en **källkodsgranskning, inte en genomförd UI-migrering eller hårdvaruverifiering**.
-Endast detta dokument ändras; firmwareversion **0.19.1** bevaras.
+Inventeringen är en källkodsgranskning; Fas B1-status och verifieringsgräns följer nedan.
+Firmwareversion **0.19.1** bevaras.
 
 ## Läs först: beslut inför första P4-testet
 
@@ -260,20 +260,31 @@ säker väg tillbaka gör det.
 | 7 / **P2, hjälpvyer** | Inställningar, Wi-Fi, klocksetter, boot, OTA och temaankare enligt tabellen ovan. **Låg–medel.** | Kan skjutas upp om navigationen är säker i första testet. Uppgradera till P0 för det faktiska testflödet om t.ex. nätval/retur blir oåtkomligt. **Godkänt:** kropp/footer anpassas med befintliga helpers, långa texter/scroll och touch utan regress; inga globala temabyte som oförutsett påverkar alla spel. |
 | 8 / **P2, separat Karaoke-steg** | Karaoke-layout/minnesmätning, eventuell cache-/bufferlivscykel och senare syntharbete. **Hög resursrisk.** K, karaoke-/LVGL-/synthfilerna ovan. | Efter Äventyr och de tre tärningsspelen, enligt befintlig Karaokeplan. **Godkänt:** dokumenterad före/efter-mätning på befintlig S3 och senare P4, korrekt rotation/retur och fortsatt S3-funktion. OOM vid rotation/återgång som påverkar övriga spel lyfts till gemensam P0; full Karaoke-migrering är inte en förutsättning för första speltestet. |
 
-### Två små efterföljande Äventyrs-PR:ar
+### Avgränsade Äventyrs-ändringar
 
-**B1 – säkra layoutändringar utan ändrad inputsemantik:** väljare + vanliga
-msgbox-dialoger först. Behåll den spelbara 320×480-ytan vid samma origin även om
-det lämnar oanvänd yta på P4. **Centrera inte canvasen** och ändra inte JOY_*/VIEW_*
-i denna PR. Utöka befintliga setup/dialog-hosttester med relevanta portraitmått
-och långa texter när LVGL finns. Undvik en ny generell UI-arkitektur.
+**B1 – säkra layoutändringar utan ändrad inputsemantik (genomförd):** väljarramar,
+världs-/spelarrader, ny-profil-formulär och vanliga msgbox-dialoger använder
+`UiMetrics`-mått i `main/adv_setup_ui.h` och `main/ui_adventure.cpp`. 320×480 behåller
+de tidigare marginalerna, ramstorlekarna och knapphöjderna; bredare portraitlayout
+får mer bredd/höjd och radbrytning för långa texter. Dialoginnehåll kan scrollas,
+och listorna behåller vertikal scroll. Hosttesterna utökades för 320×480, 480×800,
+SV/EN, långa texter och scroll till sista världs-/spelarraden.
 
-**B2 – endast evidensstyrd inputanpassning:** om större/centrerad spelviewport
-beslutas, gör canvasorigin/invers transform och plattgeometri atomärt tillsammans
-med deras ritning. Lägg hostfall för översatt origin, kamera, zoom och plattans
-gränser innan fysisk jämförelse. Behåll rörelsetider, zoninställningar, tapp-/hold-/
-diagonalsemantik och handlingarnas eventtyper. Utöka inte spelkänslan eller
-inputtyperna. En större framebuffer kräver separat minnes-/renderbedömning;
+**B2 – villkorad och inte nödvändig för B1:** ingen viewportflytt/-skalning eller
+input-/hitboxjustering krävdes. Spelcanvas, joystick, tick-/modalrouting och
+karttryckskoordinater är därför oförändrade. B2 är medvetet uppskjuten, inte
+implementerad; en framtida viewportändring kräver en separat evidensbaserad ändring
+och gemensam rit-/träffgeometri.
+
+Berättelsesamtalets specialpanel är separat inventerat arbete och ingår inte i B1.
+Ingen större framebuffer, ny långlivad cache, P4-portning eller fysisk P4-kontroll
+ingår. `P4_43` 480×800 är endast hostmått från befintlig overifierad profil.
+
+Om B2 senare blir nödvändigt: gör canvasorigin/invers transform och plattgeometri
+atomärt tillsammans med ritningen. Lägg hostfall för översatt origin, kamera, zoom
+och plattans gränser innan fysisk jämförelse. Behåll rörelsetider, zoninställningar,
+tapp-/hold-/diagonalsemantik och handlingarnas eventtyper. Utöka inte spelkänslan
+eller inputtyperna. En större framebuffer kräver separat minnes-/renderbedömning;
 ingen sådan utökning måste hinnas före första P4-baslinjen.
 
 ## Smoke-testmatris för 28 oktober 2026
@@ -318,7 +329,7 @@ touchprecision, FPS/renderlatens, ljudunderruns och heap/största PSRAM-block kr
 
 ## Kontroller och verifieringsgräns
 
-Faktiskt körda befintliga hosttester i denna Fas A, med binärer utanför repot:
+Faktiskt körda befintliga motortester i Fas A, med binärer utanför repot:
 
 | Test | Resultat | Vad det **inte** verifierar |
 |---|---|---|
@@ -327,11 +338,15 @@ Faktiskt körda befintliga hosttester i denna Fas A, med binärer utanför repot
 | `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_games.cpp` med Pig/Farkle/SCC-motorerna | **137 passed, 0 failed** | Skärmlayout, animation eller fysisk input. |
 
 Kompilerat med befintligt README-upplägg, `g++ -std=c++17 -Wall -Wextra`, till
-`/tmp/ui-inventory-checks/`. Inga produktions- eller testfiler ändras.
-Inga nya layouttester behövs för en dokumentationsändring.
+`/tmp/ui-inventory-checks/`. Dessa var Fas A-motortester och ändrade inte
+produktions- eller testfiler.
 
-**Inte körda:** firmwarebygge (`idf.py` saknas), host-LVGL-layouttester
-(`managed_components/lvgl__lvgl` saknas), fysisk S3/P4-testning och minnes-/FPS-mätning.
+För Fas B1 kontrollerades Python-syntax och patch whitespace. De utökade
+`python3 tests/test_adv_setup.py` och `python3 tests/test_mine_dialog.py` försöktes,
+men båda stoppade vid CMake-konfiguration eftersom
+`managed_components/lvgl__lvgl` saknas i checkouten; inga LVGL-layoutpåståenden görs
+från dessa försök. Firmwarebygge kunde inte köras (`idf.py` saknas).
+Fysisk 320×480-/P4-testning och minnes-/FPS-mätning återstår.
 Befintliga testkällor är stöd för kommande arbete, inte nya godkända testresultat:
 `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_yatzy_layout.py:1–5,519–562`
 extraherar produktionskod till temporär CMake/Ninja-byggnad;
