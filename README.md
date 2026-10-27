@@ -318,6 +318,8 @@ idf.py -p /dev/ttyACM0 flash monitor
 ```
 
 The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
+CI labels the build artifact `firmware-esp32s3-v<PROJECT_VER>`.
+This build label does not create a Git release tag.
 
 ### Shared components
 
@@ -370,8 +372,20 @@ g++ -std=c++17 -Wall -Wextra -O2 -Icomponents/otr_midi/include -Icomponents/otr_
 ```
 
 With the project's LVGL dependency available in `managed_components/lvgl__lvgl`, run
-`python3 tests/test_yatzy_layout.py` for host-side variants/players/picker layout and interaction
+`python3 tests/test_yatzy_layout.py` for host-side variants/players/picker, Yatzy dialogs,
+web-turn overlay and PIN numpad layout and interaction
 checks at 320×480, 480×800 and 800×480 in Swedish and English (CMake/Ninja required, no hardware).
+This includes long/scrollable dialog and overlay text, PIN retry/cancel/confirmation, and picker scrolling.
+
+Manual UI regression checklist (run on 320×480 and a larger portrait/landscape layout, in Swedish and English):
+
+- [ ] Dialogs: guest web-seat info and game-menu quit/continue stay on-screen; buttons work and long text scrolls.
+- [ ] Web overlay: waiting/connected text is readable, local game input stays blocked, and the local-takeover button works when disconnected.
+- [ ] Numpad: open from new-player and web-seat flows; enter four digits, backspace, retry after error, confirm and cancel; check centering and touch targets.
+- [ ] Picker: empty/full/filtered lists, long names, scroll to last row, select/change player, clear search and return without overlaps.
+
+These refinements only change on-device UI layout. Game rules/engines, scores, web commands/protocols,
+network flows, full game-screen layout and P4 hardware support are deliberately unchanged.
 
 ## Flashing and updating
 
