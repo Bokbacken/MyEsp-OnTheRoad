@@ -43,6 +43,8 @@ int32_t buttonWMax() { return sc(300); }
 int32_t cardSpacing() { return sc(4); }
 int32_t cardMinH() { return sc(60); }
 
+int32_t controlSpacing() { return sc(6); }
+int32_t titleH() { return sc(44); }
 int32_t headerH() { return sc(74); }
 int32_t footerH() { return sc(26); }
 
