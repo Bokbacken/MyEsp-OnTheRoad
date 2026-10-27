@@ -6,7 +6,8 @@
 namespace Adventure {
 class Session {
 public:
-    static constexpr size_t SAVE_CAP = 64 * 1024;
+    // v0.17.0: raised from 64K. Two 80x80 maps (~45K each) + story + headers ~= 90K; 128K leaves headroom.
+    static constexpr size_t SAVE_CAP = 128 * 1024;
     bool start(int worldId, Otr::World &w, Otr::Story::StoryState &story);
     bool travel(Otr::World &w); // Triggered only after EV_EXIT; spawn never lies on a portal
     bool next(Otr::World &w);

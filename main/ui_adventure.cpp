@@ -4,6 +4,8 @@
 #include "ui_adventure.h"
 #include "adv_live.h"
 #include "adv_session.h"
+#include "adv_catalog.h"
+#include "adv_sd_session.h"
 
 #include <errno.h>
 #include <math.h>
@@ -139,7 +141,6 @@ static bool s_longDone;                       // Long press used (flag): ignore 
 static int s_pathPos = -1;                    // Tap-to-walk: next step in s_path, -1 = idle
 static bool s_replanned;                      // NEED_BOAT walk already re-planned once
 // Game session
-static int s_worldIdx;                        // Index in Otr::WORLDS
 static uint16_t s_playerId;                   // 0 = guest (never saved)
 static bool s_saveWanted;                     // Save when idle (checkpoint)
 static uint32_t s_lastSaveMs, s_savedRev;
@@ -152,7 +153,14 @@ static int32_t s_lastCamX = -1, s_lastCamY = -1;
 static uint32_t s_renderUs, s_renderAccUs, s_renders, s_statT0;
 // Story / dialogue (v0.11.0)
 static const Otr::Story::Script *s_story;     // Script of the current world, nullptr = none
-static Adventure::Session s_session;
+static Adventure::Session s_session;          // v0.16: built-in sessions (dormant; SD adventures only now)
+// v0.17.0: SD-card adventures. The menu is data-driven from this catalog, built-in WorldId
+// adventures are no longer listed (the engine enum/maps stay for the dormant Session code above).
+static Adv::Catalog *s_cat = nullptr;         // Scanned SD catalog (PSRAM)
+static Adv::Loaded *s_adv = nullptr;          // Current parsed SD map (PSRAM, ~70 kB)
+static Adv::SdSession s_sd;                   // Active SD adventure (folder, map index, carry/reset)
+static int s_advIdx = 0;                      // Chosen catalog entry index
+static constexpr const char *SD_ADV_ROOT = "/sdcard/otr/adventure";
 static int s_bombSize=0, s_bombX=-1, s_bombY=-1;
 static bool s_resultShown=false;
 static lv_obj_t *s_stageLabel, *s_bombCancel;
@@ -175,6 +183,22 @@ static uint32_t s_twNext;
 static char s_twBuf[4 * Otr::Story::MAX_TEXT_CHARS + 4];
 
 static uint32_t nowMs() { return (uint32_t)(esp_timer_get_time() / 1000); }
+
+// Title of the current SD map in the active language (falls back to Swedish, then the folder name).
+static const char *advMapTitle()
+{
+    if (!s_adv) return "";
+    const bool en = strcmp(Lang::currentLang(), "en") == 0;
+    const char *t = en ? s_adv->titleEn : s_adv->titleSv;
+    if (!t || !t[0]) t = s_adv->titleSv;
+    return (t && t[0]) ? t : s_sd.folder();
+}
+
+// Folder name of the catalog entry currently selected in the menu (keys saves per adventure).
+static const char *curFolder()
+{
+    return (s_cat && s_advIdx >= 0 && s_advIdx < s_cat->count) ? s_cat->items[s_advIdx].folder : "";
+}
 
 // ---- Pixel helpers on a 32 x 32 sprite ----------------------------------------------------
 static uint16_t rgb(int r, int g, int b)
@@ -881,9 +905,7 @@ static void updateStats()
         lv_label_set_text_fmt(s_stageLabel,tr(Str::ADV_STAGE),w.mineLevel(),w.safeLeft());
         lv_label_set_text_fmt(s_count[C_SUIT],tr(Str::ADV_SHIELD_SHORT),w.suitCharges());
     } else {
-        lv_label_set_text(s_stageLabel,
-            s_session.worldId()==Otr::WORLD_VILLAGE ? tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP) :
-            s_session.worldId()==Otr::WORLD_JOSEPH  ? tr(s_session.mapIndex()?Str::ADV_JOSEPH_ROAD:Str::ADV_JOSEPH_CAMP) : "");
+        lv_label_set_text(s_stageLabel, advMapTitle());
     }
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
@@ -920,11 +942,13 @@ static constexpr const char *SD_ADV_DIR = "/sdcard/otr/adventure";
 static constexpr const char *SD_SAVE_DIR = "/sdcard/otr/adventure/saves";
 static constexpr const char *SD_MAP_DIR = "/sdcard/otr/adventure/maps";   // Reserved (future maps)
 
-// ext "sav": the world; "sts": the story state of the same game (v0.11.0, worlds with people).
-static void savePath(char *out, size_t cap, uint16_t pid, int worldIdx, bool sd, const char *ext = "sav")
+// v0.17.0: saves are keyed by the adventure FOLDER name (not a WorldId), so each SD adventure keeps
+// its own progress; the josef folder therefore preserves the Joseph line as before. ext "sav": the
+// save image (world + story + header, see Adv::SdSession::save).
+static void savePath(char *out, size_t cap, uint16_t pid, const char *folder, bool sd, const char *ext = "sav")
 {
-    char rel[32];
-    snprintf(rel, sizeof(rel), "/adv_%u_%u.%s", (unsigned)pid, (unsigned)Otr::WORLDS[worldIdx].id, ext);
+    char rel[80];
+    snprintf(rel, sizeof(rel), "/adv_%u_%s.%s", (unsigned)pid, folder, ext);
     if (sd) snprintf(out, cap, "%s%s", SD_SAVE_DIR, rel);
     else MyFat::path(out, cap, rel);
 }
@@ -935,24 +959,24 @@ static bool fileExists(const char *p)
     return stat(p, &st) == 0 && !S_ISDIR(st.st_mode);
 }
 
-// Where the save of (pid, world) is: 1 = SD, 2 = Flash-FAT, 0 = none.
-static int saveWhere(uint16_t pid, int worldIdx)
+// Where the save of (pid, folder) is: 1 = SD, 2 = Flash-FAT, 0 = none.
+static int saveWhere(uint16_t pid, const char *folder)
 {
-    if (!pid) return 0;
-    char p[96];
+    if (!pid || !folder || !folder[0]) return 0;
+    char p[128];
     {
         BoardSd::Guard g;
         if (BoardSd::mounted()) {
-            savePath(p, sizeof(p), pid, worldIdx, true);
+            savePath(p, sizeof(p), pid, folder, true);
             if (fileExists(p)) return 1;
         }
     }
     if (!MyFat::mounted()) return 0;
-    savePath(p, sizeof(p), pid, worldIdx, false);
+    savePath(p, sizeof(p), pid, folder, false);
     return MyFat::exists(p) ? 2 : 0;
 }
 
-static bool hasSave(uint16_t pid, int worldIdx) { return saveWhere(pid, worldIdx) != 0; }
+static bool hasSave(uint16_t pid, const char *folder) { return saveWhere(pid, folder) != 0; }
 
 static size_t readFile(const char *p, bool sd)
 {
@@ -967,36 +991,25 @@ static size_t readFile(const char *p, bool sd)
     return n;
 }
 
-// Restores the current player's save into the (freshly loaded) world. False = world unchanged.
+// Restores the current player's save into the (started) SD adventure. False = world unchanged.
 // A broken card copy falls back to the Flash-FAT copy if there is one.
 static bool loadSave()
 {
-    const int where = saveWhere(s_playerId, s_worldIdx);
+    const char *folder = s_sd.folder();
+    const int where = saveWhere(s_playerId, folder);
     if (!where) return false;
-    char p[96];
+    char p[128];
     for (int place = where; place <= 2; place++) {
         const bool sd = place == 1;
-        savePath(p, sizeof(p), s_playerId, s_worldIdx, sd);
+        savePath(p, sizeof(p), s_playerId, folder, sd);
         if (!sd && !MyFat::exists(p)) break;
         const size_t n = readFile(p, sd);
-        const bool legacy = n >= 4 && memcmp(s_saveBuf, "OTRS", 4) == 0;
-        Otr::Story::StoryState oldStory{};
-        if (legacy && s_story) {
-            char sp[96];
-            savePath(sp, sizeof(sp), s_playerId, s_worldIdx, sd, "sts");
-            const size_t sn=readFile(sp,sd);
-            if (!sn || !oldStory.restore(s_saveBuf,sn)) {
-                ESP_LOGW(TAG,"legacy story missing/corrupt: %s; not migrating",sp);
-                continue;
-            }
-            if(readFile(p,sd)!=n) continue;
-        }
-        if (n && s_session.restore(s_saveBuf, n, *s_world, s_storyState)) {
+        char err[96];
+        if (n && s_sd.restore(s_saveBuf, n, *s_adv, *s_world, s_storyState, s_story, err, sizeof(err))) {
             ESP_LOGI(TAG, "loaded %s", p);
-            if (legacy && s_story) s_storyState=oldStory;
             return true;
         }
-        ESP_LOGW(TAG, "%s: invalid save (%u B)", p, (unsigned)n);
+        ESP_LOGW(TAG, "%s: invalid save (%u B): %s", p, (unsigned)n, err);
     }
     return false;
 }
@@ -1009,7 +1022,7 @@ static bool writeSdAtomic(const char *p, const void *data, size_t n)
     if (!BoardSd::mounted()) return false;
     BoardSd::ensureDir(SD_SAVE_DIR);
     BoardSd::ensureDir(SD_MAP_DIR);
-    char tmp[104];
+    char tmp[160];
     snprintf(tmp, sizeof(tmp), "%s.tmp", p);
     FILE *f = fopen(tmp, "wb");
     if (!f) return false;
@@ -1037,19 +1050,20 @@ static void markSaved()
 static bool saveNow()
 {
     s_saveWanted = false;
-    if (!s_playerId || (s_world->gameOver() && !s_world->mineLevel())) return false;
-    const size_t n = s_session.save(*s_world, s_storyState, s_saveBuf, SAVE_CAP);
+    if (!s_playerId || !s_sd.active() || (s_world->gameOver() && !s_world->mineLevel())) return false;
+    const size_t n = s_sd.save(*s_world, s_storyState, s_saveBuf, SAVE_CAP);
     if (!n) return false;
-    char p[96];
+    const char *folder = s_sd.folder();
+    char p[128];
     const int64_t t0 = esp_timer_get_time();
-    savePath(p, sizeof(p), s_playerId, s_worldIdx, true);
+    savePath(p, sizeof(p), s_playerId, folder, true);
     bool ok = writeSdAtomic(p, s_saveBuf, n);
     if (ok) {
-        char old[96];
-        savePath(old, sizeof(old), s_playerId, s_worldIdx, false);
+        char old[128];
+        savePath(old, sizeof(old), s_playerId, folder, false);
         if (MyFat::mounted() && MyFat::exists(old)) unlink(old);
     } else if (MyFat::mounted()) {
-        savePath(p, sizeof(p), s_playerId, s_worldIdx, false);
+        savePath(p, sizeof(p), s_playerId, folder, false);
         ok = MyFat::writeAtomic(p, nullptr, 0, s_saveBuf, n);
     }
     ESP_LOGI(TAG, "save %s: %s (%u B, %d ms)", p, ok ? "ok" : "FAILED", (unsigned)n, (int)((esp_timer_get_time() - t0) / 1000));
@@ -1482,21 +1496,23 @@ static uint32_t doMove(Dir d)
     s_dirty = true;
     playEvents(ev);
     char buf[80];
-    if ((ev & Otr::EV_EXIT) &&
-        (s_session.worldId()==Otr::WORLD_VILLAGE || s_session.worldId()==Otr::WORLD_JOSEPH)) {
+    if ((ev & Otr::EV_EXIT) && s_sd.active()) {
+        // SD adventure: an exit either advances to the next ordered map (carrying/resetting
+        // resources per the next map's @rules) or, on the last map, finishes the adventure.
         stopPath(); s_joy.cancel();
-        const bool josef = s_session.worldId()==Otr::WORLD_JOSEPH;
-        if(josef && s_session.mapIndex()==1) {
-            // Reaching the caravan road exit (opened only after the sale) completes Josef chapter 1.
-            s_saveWanted=true;
-            toast(tr(Str::ADV_JOSEPH_DONE),Theme::GOLD,6000);
-            return ev;
+        char err[96];
+        if (s_sd.hasNext()) {
+            if (s_sd.travel(*s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
+                snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted = true;
+                toast(advMapTitle(), Theme::GOLD);
+            } else {
+                ESP_LOGE(TAG, "travel failed: %s", err);
+                toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED);
+            }
+        } else {
+            s_sd.markCompleted(); s_saveWanted = true;
+            toast(tr(Str::ADV_ADVENTURE_DONE), Theme::GOLD, 6000);
         }
-        if(s_session.travel(*s_world)) {
-            snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted=true;
-            toast(tr(josef ? (s_session.mapIndex()?Str::ADV_JOSEPH_ROAD:Str::ADV_JOSEPH_CAMP)
-                           : (s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP)),Theme::GOLD);
-        } else toast(tr(Str::ADV_MAP_FAILED),Theme::RED);
         return ev;
     }
 
@@ -1680,8 +1696,9 @@ static void walkToTalk(int num, int nx, int ny)
 static void resetWorld(bool showHelp = true)
 {
     cancelBomb(); s_resultShown=false;
-    if(s_session.worldId()==Otr::WORLD_MINES) s_session.restart(*s_world);
-    else s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState);
+    char err[96];
+    if (!s_sd.restart(*s_adv, *s_world, s_storyState, s_story, err, sizeof err))
+        ESP_LOGE(TAG, "restart failed: %s", err);   // SdSession::restart also clears the story state
     AdvLive::invalidateMap();
     if (talking()) endTalk();
     s_storyState.clear();
@@ -1811,14 +1828,7 @@ struct LiveSig {
 static LiveSig s_liveSig;
 static bool s_liveValid;
 
-static const char *worldName()
-{
-    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES,
-                                                Str::ADV_WORLD_VILLAGE, Str::ADV_WORLD_JOSEPH};
-    if(s_session.worldId()==Otr::WORLD_VILLAGE) return tr(s_session.mapIndex()?Str::ADV_MEADOW:Str::ADV_VILLAGE_MAP);
-    if(s_session.worldId()==Otr::WORLD_JOSEPH)  return tr(s_session.mapIndex()?Str::ADV_JOSEPH_ROAD:Str::ADV_JOSEPH_CAMP);
-    return s_worldIdx >= 0 && s_worldIdx < Otr::WORLD_COUNT ? tr(NAMES[s_worldIdx]) : "";
-}
+static const char *worldName() { return advMapTitle(); }
 
 static void liveSync(bool force = false)
 {
@@ -1856,7 +1866,7 @@ static void liveSync(bool force = false)
     s_liveValid = true;
     const AdvLive::Source src = {&w, worldName(), s_story, &s_storyState, s_talk.active() ? &s_talk : nullptr,
                                  langIdx(), tr(Str::ADV_TALK_READ), tr(Str::ADV_TALK_OK), tr(Str::ADV_TALK_BYE),
-                                 s_talkNum, s_session.worldId(), s_session.completed(), s_bombSize,s_bombX,s_bombY};
+                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY};
     AdvLive::publish(src);
 }
 
@@ -2121,7 +2131,7 @@ static void viewEvent(lv_event_t *e)
 
 static void freeAll()
 {
-    s_session.clear(); s_bombSize=0; s_stageLabel=s_bombCancel=nullptr;
+    s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_bombCancel=nullptr;
     liveStop();   // Before the world memory goes
     closeDialog();
     if (s_timer) lv_timer_delete(s_timer);
@@ -2132,12 +2142,16 @@ static void freeAll()
     heap_caps_free(s_planner);
     heap_caps_free(s_path);
     heap_caps_free(s_saveBuf);
+    heap_caps_free(s_cat);
+    heap_caps_free(s_adv);
     s_fb = nullptr;
     s_spr = nullptr;
     s_world = nullptr;
     s_planner = nullptr;
     s_path = nullptr;
     s_saveBuf = nullptr;
+    s_cat = nullptr;
+    s_adv = nullptr;
     s_activeScr = nullptr;
     s_scr = nullptr;
     s_joyKnob = nullptr;
@@ -2470,18 +2484,22 @@ static void buildGame(bool loadFailed)
 static void startGame(bool cont)
 {
     closeDialog();
-    s_story = Otr::WORLDS[s_worldIdx].id == Otr::WORLD_VILLAGE ? &Otr::Story::VILLAGE_STORY :
-              Otr::WORLDS[s_worldIdx].id == Otr::WORLD_JOSEPH  ? &Otr::Story::JOSEPH_STORY : nullptr;
     s_storyState.clear();
     s_bombSize=0; s_resultShown=false;
-    if (!s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState)) {
-        ESP_LOGE(TAG, "world %d failed to load", s_worldIdx);
+    if (!s_cat || s_advIdx < 0 || s_advIdx >= s_cat->count) { toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED); return; }
+    char err[96];
+    // Load the first map of the chosen SD adventure. s_story is set by the session (the script
+    // built from the map's dialogue, or nullptr when the map has none).
+    if (!s_sd.start(SD_ADV_ROOT, s_cat->items[s_advIdx], *s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
+        ESP_LOGE(TAG, "SD adventure '%s' failed to load: %s", s_cat->items[s_advIdx].folder, err);
+        toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED, 4000);
         return;
     }
     bool failed = false;
     if (cont && !loadSave()) {
+        // Continue was requested but the save could not be restored: start fresh from map 1.
         failed = true;
-        s_session.start(Otr::WORLDS[s_worldIdx].id,*s_world,s_storyState);
+        s_sd.restart(*s_adv, *s_world, s_storyState, s_story, err, sizeof err);
         s_storyState.clear();
     }
     stopPath();
@@ -2530,7 +2548,7 @@ static void playerChosen(lv_event_t *e)
 {
     if (!Theme::debounce(s_profileTapMs)) return;
     s_playerId = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
-    if (!hasSave(s_playerId, s_worldIdx)) {
+    if (!hasSave(s_playerId, curFolder())) {
         startGame(false);
         return;
     }
@@ -2547,7 +2565,7 @@ static void playerChosen(lv_event_t *e)
 static void addPlayerRow(const char *name, uint16_t id)
 {
     char text[64];
-    snprintf(text, sizeof(text), "%s%s", name, hasSave(id, s_worldIdx) ? tr(Str::ADV_HAS_SAVE) : "");
+    snprintf(text, sizeof(text), "%s%s", name, hasSave(id, curFolder()) ? tr(Str::ADV_HAS_SAVE) : "");
     lv_obj_t *b = Theme::button(s_playerList, text, 296, 42, id ? Theme::TEAL : Theme::LINE);
     if (id && id == s_playerId) {
         lv_obj_set_style_border_color(b, Theme::c(Theme::GOLD), 0);
@@ -2580,7 +2598,7 @@ static void buildPlayerPick();
 static void worldChosen(lv_event_t *e)
 {
     if (!Theme::debounce(s_worldTapMs, 250)) return;
-    s_worldIdx = (int)(intptr_t)lv_event_get_user_data(e);
+    s_advIdx = (int)(intptr_t)lv_event_get_user_data(e);
     buildPlayerPick();
 }
 
@@ -2652,10 +2670,22 @@ static void buildWorldPick()
         UiYatzy::showMenu();   // Buffers are freed when this screen is deleted
     }, LV_EVENT_CLICKED, nullptr);
 
-    static const Str NAMES[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST, Str::ADV_WORLD_MINES,
-                                                Str::ADV_WORLD_VILLAGE, Str::ADV_WORLD_JOSEPH};
-    static const Str DESCS[Otr::WORLD_COUNT] = {Str::ADV_WORLD_TEST_DESC, Str::ADV_WORLD_MINES_DESC,
-                                                Str::ADV_WORLD_VILLAGE_DESC, Str::ADV_WORLD_JOSEPH_DESC};
+    // No SD adventures found (missing/empty /otr/adventure, or the SD card is absent): show a
+    // message with the expected path instead of an empty list.
+    if (!s_cat || s_cat->count == 0) {
+        lv_obj_t *msg = Theme::label(scr, tr(Str::ADV_NO_ADVENTURES), &my_font_18, Theme::GOLD);
+        lv_label_set_long_mode(msg, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_width(msg, 296);
+        lv_obj_align(msg, LV_ALIGN_TOP_MID, 0, 90);
+        lv_obj_t *help = Theme::label(scr, tr(Str::ADV_NO_ADVENTURES_HELP), &my_font_14, Theme::MUTED);
+        lv_label_set_long_mode(help, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_width(help, 296);
+        lv_obj_align(help, LV_ALIGN_TOP_MID, 0, 170);
+        Theme::loadScreen(scr);
+        return;
+    }
+
+    const bool en = strcmp(Lang::currentLang(), "en") == 0;
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
     lv_obj_set_pos(list, 6, 50);
@@ -2663,7 +2693,13 @@ static void buildWorldPick()
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 8, 0);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    for (int i = 0; i < Otr::WORLD_COUNT; i++) addWorldRow(list, tr(NAMES[i]), tr(DESCS[i]), i);
+    for (int i = 0; i < s_cat->count; i++) {
+        const Adv::CatalogEntry &e = s_cat->items[i];
+        const char *name = e.headerOk ? (en && e.header.titleEn[0] ? e.header.titleEn : e.header.titleSv) : "";
+        if (!name || !name[0]) name = e.folder;   // header unreadable or untitled: fall back to the folder name
+        const char *desc = e.headerOk ? (en && e.header.descEn[0] ? e.header.descEn : e.header.descSv) : "";
+        addWorldRow(list, name, desc, i);
+    }
     Theme::loadScreen(scr);
 }
 
@@ -2676,7 +2712,9 @@ void show()
     void *pmem = heap_caps_malloc(sizeof(Otr::Planner), MALLOC_CAP_SPIRAM);
     s_path = (Otr::Path *)heap_caps_malloc(sizeof(Otr::Path), MALLOC_CAP_SPIRAM);
     s_saveBuf = (uint8_t *)heap_caps_malloc(SAVE_CAP, MALLOC_CAP_SPIRAM);
-    if (!s_fb || !s_spr || !wmem || !pmem || !s_path || !s_saveBuf) {
+    s_cat = (Adv::Catalog *)heap_caps_malloc(sizeof(Adv::Catalog), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_adv = (Adv::Loaded *)heap_caps_malloc(sizeof(Adv::Loaded), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_fb || !s_spr || !wmem || !pmem || !s_path || !s_saveBuf || !s_cat || !s_adv) {
         ESP_LOGE(TAG, "out of PSRAM");
         heap_caps_free(wmem);
         heap_caps_free(pmem);
@@ -2684,6 +2722,7 @@ void show()
         UiYatzy::showMenu();
         return;
     }
+    s_cat->clear();
     s_world = new (wmem) Otr::World;
     s_planner = new (pmem) Otr::Planner;
     memset(s_path, 0, sizeof(*s_path));
@@ -2692,7 +2731,13 @@ void show()
     ESP_LOGI(TAG, "tile art %d ms (%u B sprites, %u B frame, world %u B, planner %u B)",
              (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)(VIEW_W * VIEW_H * 2),
              (unsigned)sizeof(Otr::World), (unsigned)sizeof(Otr::Planner));
-    if (s_worldIdx < 0 || s_worldIdx >= Otr::WORLD_COUNT) s_worldIdx = 0;
+    // Scan the SD card for adventures (folders of ordered NN_name.adv maps under /otr/adventure).
+    {
+        BoardSd::Guard g;
+        Adv::scanCatalog(SD_ADV_ROOT, *s_cat);
+    }
+    ESP_LOGI(TAG, "SD adventures found: %d", s_cat->count);
+    if (s_advIdx < 0 || s_advIdx >= s_cat->count) s_advIdx = 0;
     buildWorldPick();
 }
 

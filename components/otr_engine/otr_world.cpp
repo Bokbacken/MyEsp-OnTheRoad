@@ -794,7 +794,7 @@ Planner::Cat Planner::category(const World &w, int x, int y, WalkMode mode) cons
     return c;
 }
 
-void Planner::heapPush(uint32_t key)
+void Planner::heapPush(uint64_t key)
 {
     if (heapLen_ >= HEAP) return;   // Cannot happen: <= 4 relaxations per settled cell
     int i = heapLen_++;
@@ -807,10 +807,10 @@ void Planner::heapPush(uint32_t key)
     heap_[i] = key;
 }
 
-uint32_t Planner::heapPop()
+uint64_t Planner::heapPop()
 {
-    const uint32_t top = heap_[0];
-    const uint32_t last = heap_[--heapLen_];
+    const uint64_t top = heap_[0];
+    const uint64_t last = heap_[--heapLen_];
     int i = 0;
     for (;;) {
         int c = 2 * i + 1;
@@ -844,10 +844,10 @@ bool Planner::search(const World &w, int tx, int ty, WalkMode mode, Path &out)
     const int start = w.playerY() * MAX_W + w.playerX(), goal = ty * MAX_W + tx;
     cost_[start] = 0;
     prev_[start] = -1;
-    heapPush((uint32_t)(STEP_COST * (abs(tx - w.playerX()) + abs(ty - w.playerY()))) << 12 | (uint32_t)start);
+    heapPush((uint64_t)(STEP_COST * (abs(tx - w.playerX()) + abs(ty - w.playerY()))) << 16 | (uint64_t)start);
     bool found = false;
     while (heapLen_) {
-        const int cell = (int)(heapPop() & 0xFFF);
+        const int cell = (int)(heapPop() & 0xFFFF);
         if (closed_[cell]) continue;
         closed_[cell] = 1;
         if (cell == goal) {
@@ -872,7 +872,7 @@ bool Planner::search(const World &w, int tx, int ty, WalkMode mode, Path &out)
             cost_[n] = g;
             prev_[n] = (int16_t)cell;
             const uint32_t f = g + (uint32_t)(STEP_COST * (abs(tx - nx) + abs(ty - ny)));
-            if (f < (1u << 20)) heapPush(f << 12 | (uint32_t)n);
+            if (f < (1u << 20)) heapPush((uint64_t)f << 16 | (uint64_t)n);
         }
     }
     if (!found) return false;

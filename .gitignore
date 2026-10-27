@@ -26,3 +26,6 @@ tests/test_sfsynth
 tests/test_audio
 tests/test_fspath
 tests/test_joystick
+tests/test_adv_parser
+tests/test_adv_loader
+tests/test_adv_catalog

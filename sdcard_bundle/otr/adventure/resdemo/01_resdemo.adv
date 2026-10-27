@@ -1,0 +1,94 @@
+# ============================================================================
+#  example_resources_demo.adv
+#  Litet demoäventyr som visar ALLA nyheter i v0.17.0:
+#    @about      - vad SD-menyn visar (titel/beskrivning/författare/omslag)
+#    @treasures  - dold skatt under ett täckande objekt (busken 'b')
+#    @resources  - glyf -> samlingsbart föremål (med tak + bild), återanvänder
+#                  föremålssystemet. 's' = sten, 'w' = vattenkruka.
+#    carry/reset - vad som följer med / nollställs mellan nivåer
+#    gångbar ram - kartans ytterkant är gräs (gångbar); motorn blockerar ändå
+#                  rörelse UTANFÖR kartan (inside()), så ingen mur behövs.
+#  "Ge resurs till person"-mönstret: byggaren (1) vaktar stigen tills du ger
+#  en sten (has:stone -> take stone 1), då flyttar han sig (world npc_move).
+# ============================================================================
+
+@meta
+id: resources_demo
+world: 90                 # eget test-world-id (krockar inte med 1..4)
+map_id: 90
+
+@about
+title.sv: Stenhuggarens stig
+title.en: The stonemason's path
+desc.sv: Plocka stenar, ge en till byggaren och öppna stigen. Visar resurser, skatter och carry/reset.
+desc.en: Gather stones, give one to the builder and open the path. Shows resources, treasures and carry/reset.
+author: MyEsp-OnTheRoad
+cover: cover.png
+
+@rules
+start_energy: 8
+energy_cap: 20
+lives: infinite
+lava_damage: 3
+mine_damage: 4
+suit_base_steps: 3
+suit_per_extra_max: 1
+potion_default: 2
+heart_default: 1
+fog: false
+carry: energy, maxenergy, items, lives   # följer med till nästa nivå
+reset: suit                               # dräktladdning nollas vid nivåbyte
+
+# Kartan: ytterkanten är gräs (gångbar ram). 's' och 'w' är resurs-glyfer.
+@map
+.........X......
+................
+..s....b....w...
+................
+....1...........
+................
+..s.........w...
+................
+......s.........
+................
+.......S........
+................
+
+# Dold skatt: en ädelsten under busken 'b' på (7,2). Avtäcks när busken slås bort.
+@treasures
+7 2 gem 1
+
+# Resurser: glyf : id : namn.sv : namn.en : tak : bild (32x32 PNG i bitmaps/)
+@resources
+s : stone : Sten : Stone : 9 : stone.png
+w : waterjug : Vattenkruka : Water jug : 3 : waterjug.png
+
+@flags
+met_builder
+path_open
+
+@npc builder
+name: Byggaren | The builder
+look: 0
+num: 1
+
+@node builder.start
+cond: !path_open
+speaker: builder
+effects: set met_builder
+text.sv: Jag vaktar stigen. Ge mig en sten, så kliver jag åt sidan.
+text.en: I guard the path. Give me a stone and I'll step aside.
+choice: Här, en sten. | Here, a stone. => builder.open ?? has:stone !! take stone 1 ; set path_open ; world npc_move 1 1 1 ~~ Du behöver en sten ('s'). | You need a stone ('s').
+choice: Jag letar vidare. | I'll keep looking. => END
+
+@node builder.start
+speaker: builder
+text.sv: Tack för stenen! Stigen norrut är fri nu.
+text.en: Thanks for the stone! The path north is open now.
+choice: Hej då! | Bye! => END
+
+@node builder.open
+speaker: builder
+text.sv: Perfekt. Jag flyttar mig - gå vidare mot utgången!
+text.en: Perfect. I'll move aside - head for the exit!
+choice: Tack! | Thanks! => END

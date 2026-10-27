@@ -29,8 +29,8 @@
 
 namespace Otr {
 
-constexpr int MAX_W = 64;
-constexpr int MAX_H = 64;
+constexpr int MAX_W = 80;   // v0.17.0: raised from 64 for larger SD-authored adventures (map cells live in PSRAM)
+constexpr int MAX_H = 80;
 constexpr int CRACK_HITS = 2;
 constexpr int LIVES_INFINITE = -1;
 constexpr int MAX_LIVES = 9;
@@ -198,6 +198,16 @@ public:
     bool clearObj(int x, int y);                 // Opens a door / removes a rock, crate or bush
     void addKeys(int n);
 
+    // v0.17.0: granular setters used by SD adventures to carry selected player resources from the
+    // previous map into a freshly loaded next map (see adv_sd_session). No map/terrain side
+    // effects; values are clamped to valid ranges. maxEnergy is kept >= energy.
+    void setEnergy(int e) { energy_ = e < 0 ? 0 : (e > maxEnergy_ ? maxEnergy_ : e); rev_++; }
+    void setMaxEnergy(int m) { if (m < 1) m = 1; maxEnergy_ = m; if (energy_ > m) energy_ = m; rev_++; }
+    void setSuitCharges(int c) { suit_ = c < 0 ? 0 : c; rev_++; }
+    void setKeys(int k) { keys_ = k < 0 ? 0 : k; rev_++; }
+    void setBoat(bool b) { boat_ = b; rev_++; }
+    void setLives(int left, int used) { livesLeft_ = left; livesUsed_ = used < 0 ? 0 : used; rev_++; }
+
     // Campaign and map travel, no rendering / storage dependencies.
     bool loadMines(int level);
     int mineLevel() const { return mineLevel_; } // 0 = legacy/non-campaign world
@@ -291,8 +301,8 @@ private:
     enum Cat : uint8_t { C_BLOCK, C_FREE, C_LAVA, C_BOAT, C_UNKNOWN, C_DEADLY };
     Cat category(const World &w, int x, int y, WalkMode mode) const;
     bool search(const World &w, int tx, int ty, WalkMode mode, Path &out);
-    void heapPush(uint32_t key);
-    uint32_t heapPop();
+    void heapPush(uint64_t key);   // v0.17.0: 64-bit key packs f<<16 | cell (cell up to 80*80-1 = 6399 > 12-bit)
+    uint64_t heapPop();
 
     static constexpr uint32_t STEP_COST = 4;   // Cost of one ground step (see search())
     static constexpr int N = MAX_W * MAX_H;
@@ -300,7 +310,7 @@ private:
     uint32_t cost_[N];
     int16_t prev_[N];
     uint8_t closed_[N];
-    uint32_t heap_[HEAP];
+    uint64_t heap_[HEAP];
     int heapLen_;
 };
 

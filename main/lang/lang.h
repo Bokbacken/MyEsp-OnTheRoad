@@ -500,6 +500,10 @@ enum class Str : uint16_t {
     ADV_JOSEPH_CAMP,
     ADV_JOSEPH_ROAD,
     ADV_JOSEPH_DONE,
+    ADV_NO_ADVENTURES,       // SD card has no adventures folder / no adventures in it
+    ADV_NO_ADVENTURES_HELP,  // where to put them
+    ADV_ADVENTURE_DONE,      // finished the last map of an SD adventure
+    ADV_SD_LOAD_FAIL,        // an SD adventure failed to load/parse
     COUNT
 };
 

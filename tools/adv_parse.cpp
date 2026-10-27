@@ -53,6 +53,61 @@ bool splitKV(const std::string &line, std::string &key, std::string &val)
     return true;
 }
 
+std::string toLower(std::string s)
+{
+    for (char &c : s)
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return s;
+}
+
+// Splits "a, b c" / "a,b,c" on commas AND spaces into trimmed, lower-cased
+// tokens (for @rules carry/reset lists). Empty tokens are dropped.
+void splitTokens(const std::string &s, std::vector<std::string> &out)
+{
+    std::string cur;
+    for (char c : s) {
+        if (c == ',' || c == ' ' || c == '\t') {
+            if (!cur.empty()) { out.push_back(toLower(cur)); cur.clear(); }
+        } else {
+            cur.push_back(c);
+        }
+    }
+    if (!cur.empty()) out.push_back(toLower(cur));
+}
+
+// Treasure / resource item name -> engine Obj. Only pickable items are allowed.
+// Returns Obj::NONE for an unknown name.
+Otr::Obj objFromName(const std::string &n)
+{
+    const std::string s = toLower(n);
+    if (s == "key") return Otr::Obj::KEY;
+    if (s == "gem") return Otr::Obj::GEM;
+    if (s == "boat") return Otr::Obj::BOAT;
+    if (s == "potion") return Otr::Obj::POTION;
+    if (s == "heart") return Otr::Obj::HEART;
+    if (s == "suit") return Otr::Obj::SUIT;
+    if (s == "life") return Otr::Obj::LIFE;
+    if (s == "bomb3") return Otr::Obj::BOMB3;
+    if (s == "bomb4") return Otr::Obj::BOMB4;
+    return Otr::Obj::NONE;
+}
+
+// True for a glyph the engine's decode() already understands (terrain, object or
+// a person digit) - such glyphs may NOT be reused by @resources.
+bool isBuiltinGlyph(char c)
+{
+    if (c >= '1' && c <= '9') return true;
+    switch (c) {
+    case '.': case 'S': case ',': case '_': case '#': case '%': case 'T': case '~':
+    case '^': case 'o': case '=': case 'Q': case 'X': case 'R': case 'r': case 'c':
+    case 'C': case 'k': case 'K': case 'D': case 'B': case '*': case '+': case '$':
+    case 'b': case 'p': case 'h': case 'u': case 'l': case 'a': case 'z': case 'm':
+        return true;
+    default:
+        return false;
+    }
+}
+
 }  // namespace
 
 bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
@@ -66,7 +121,7 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
     Otr::Rules rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false};
     std::vector<std::string> rawRows;
 
-    enum Sec { NONE, META, RULES, MAP, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
+    enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
     Sec sec = NONE;
 
     // The npc / node currently being filled (indices into doc vectors, -1 = none).
@@ -102,8 +157,11 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 arg = trim(t.substr(sp + 1));
             }
             if (tag == "@meta") sec = META;
+            else if (tag == "@about") sec = ABOUT;
             else if (tag == "@rules") sec = RULES;
             else if (tag == "@map") sec = MAP;
+            else if (tag == "@treasures") sec = TREASURES;
+            else if (tag == "@resources") sec = RESOURCES;
             else if (tag == "@flags") sec = FLAGS;
             else if (tag == "@counters") sec = COUNTERS;
             else if (tag == "@items") sec = ITEMS;
@@ -140,7 +198,26 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 if (k == "id") doc.id = v;
                 else if (k == "world") doc.world = atoi(v.c_str());
                 else if (k == "map_id") doc.mapId = atoi(v.c_str());
-                // name.*/desc.* are human labels (held in lang on-device); ignored here.
+                // Legacy labels: @meta name.*/desc.* feed the menu @about fields
+                // unless an explicit @about section overrides them later.
+                else if (k == "name.sv") { if (doc.titleSv.empty()) doc.titleSv = v; }
+                else if (k == "name.en") { if (doc.titleEn.empty()) doc.titleEn = v; }
+                else if (k == "desc.sv") { if (doc.descSv.empty()) doc.descSv = v; }
+                else if (k == "desc.en") { if (doc.descEn.empty()) doc.descEn = v; }
+                break;
+            }
+            case ABOUT: {
+                // What the SD adventure menu shows (A1). An explicit @about always
+                // wins over the legacy @meta name.*/desc.* fallback.
+                std::string k, v;
+                if (!splitKV(t, k, v)) break;
+                v = stripComment(v);
+                if (k == "title.sv") doc.titleSv = v;
+                else if (k == "title.en") doc.titleEn = v;
+                else if (k == "desc.sv" || k == "description.sv") doc.descSv = v;
+                else if (k == "desc.en" || k == "description.en") doc.descEn = v;
+                else if (k == "author") doc.author = v;
+                else if (k == "cover" || k == "cover.image") doc.cover = v;
                 break;
             }
             case RULES: {
@@ -158,6 +235,9 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 else if (k == "potion_default") rules.potionDefault = (uint8_t)n;
                 else if (k == "heart_default") rules.heartDefault = (uint8_t)n;
                 else if (k == "fog") rules.fog = (v == "true" || v == "1");
+                // A5: carry/reset policy between levels of the same adventure.
+                else if (k == "carry") splitTokens(v, doc.carry);
+                else if (k == "reset") splitTokens(v, doc.reset);
                 break;
             }
             case FLAGS:
@@ -184,6 +264,75 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 nm.name.s[0] = doc.intern(sv);
                 nm.name.s[1] = en.empty() ? nullptr : doc.intern(en);
                 (sec == ITEMS ? doc.items : doc.quests).push_back(nm);
+                break;
+            }
+            case TREASURES: {
+                // "x y item [amount]" - a hidden item placed under a covering
+                // object (or visible if nothing covers the cell).
+                std::vector<std::string> tok;
+                splitTokens(stripComment(t), tok);
+                if (tok.size() < 3) {
+                    err = "line " + std::to_string(lineNo) + ": treasure needs 'x y item [amount]'";
+                    return false;
+                }
+                const Otr::Obj item = objFromName(tok[2]);
+                if (item == Otr::Obj::NONE) {
+                    err = "line " + std::to_string(lineNo) + ": unknown treasure item '" + tok[2] + "'";
+                    return false;
+                }
+                Otr::Treasure tr{};
+                tr.x = (uint8_t)atoi(tok[0].c_str());
+                tr.y = (uint8_t)atoi(tok[1].c_str());
+                tr.item = item;
+                tr.amount = (uint8_t)(tok.size() >= 4 ? atoi(tok[3].c_str()) : 1);
+                doc.treasures.push_back(tr);
+                break;
+            }
+            case RESOURCES: {
+                // "glyph : id : name.sv : name.en : max : image" - binds a free map
+                // glyph to a collectible that reuses the story item system (A4).
+                std::vector<std::string> f;
+                {
+                    std::string cur;
+                    const std::string s = stripComment(t);
+                    for (char c : s) {
+                        if (c == ':') { f.push_back(trim(cur)); cur.clear(); }
+                        else cur.push_back(c);
+                    }
+                    f.push_back(trim(cur));
+                }
+                if (f.size() < 2 || f[0].size() != 1 || f[1].empty()) {
+                    err = "line " + std::to_string(lineNo) +
+                          ": resource needs 'glyph : id : name.sv : name.en : max : image'";
+                    return false;
+                }
+                AdvResource r{};
+                r.glyph = f[0][0];
+                if (isBuiltinGlyph(r.glyph)) {
+                    err = "line " + std::to_string(lineNo) + ": resource glyph '" +
+                          std::string(1, r.glyph) + "' clashes with a built-in terrain/object/person glyph";
+                    return false;
+                }
+                for (const AdvResource &o : doc.resources)
+                    if (o.glyph == r.glyph) {
+                        err = "line " + std::to_string(lineNo) + ": duplicate resource glyph '" +
+                              std::string(1, r.glyph) + "'";
+                        return false;
+                    }
+                r.id = f[1];
+                r.nameSv = f.size() >= 3 ? f[2] : f[1];
+                r.nameEn = f.size() >= 4 ? f[3] : "";
+                r.cap = f.size() >= 5 && !f[4].empty() ? atoi(f[4].c_str()) : 1;
+                if (r.cap < 1) r.cap = 1;
+                if (r.cap > 255) r.cap = 255;
+                r.image = f.size() >= 6 ? f[5] : "";
+                doc.resources.push_back(r);
+                // Reuse the item system: the resource IS a story item.
+                Named nm{};
+                nm.id = doc.intern(r.id);
+                nm.name.s[0] = doc.intern(r.nameSv);
+                nm.name.s[1] = r.nameEn.empty() ? nullptr : doc.intern(r.nameEn);
+                doc.items.push_back(nm);
                 break;
             }
             case NPC: {
@@ -282,14 +431,31 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                   " != " + std::to_string(w);
             return false;
         }
-        doc.mapRows.push_back(doc.intern(rawRows[i]));
+        // Resource glyphs are not understood by the engine's decode(); record each
+        // placement and translate the cell to grass so World::load() accepts the
+        // map. The device overlays and picks up resources from doc.resources.
+        std::string row = rawRows[i];
+        for (size_t x = 0; x < row.size(); x++) {
+            for (const AdvResource &r : doc.resources) {
+                if (row[x] == r.glyph) {
+                    AdvResourcePlacement pl{};
+                    pl.glyph = r.glyph;
+                    pl.x = (uint8_t)x;
+                    pl.y = (uint8_t)i;
+                    doc.resourcePlacements.push_back(pl);
+                    row[x] = '.';
+                    break;
+                }
+            }
+        }
+        doc.mapRows.push_back(doc.intern(row));
     }
     doc.map.id = (uint8_t)doc.mapId;
     doc.map.rows = doc.mapRows.data();
     doc.map.h = (int)doc.mapRows.size();
     doc.map.rules = rules;
-    doc.map.treasures = nullptr;
-    doc.map.treasureCount = 0;
+    doc.map.treasures = doc.treasures.empty() ? nullptr : doc.treasures.data();
+    doc.map.treasureCount = (int)doc.treasures.size();
 
     // --- Build the Script --------------------------------------------------------------------
     doc.script.npcs = doc.npcs.data();
