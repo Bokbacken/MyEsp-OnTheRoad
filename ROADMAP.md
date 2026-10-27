@@ -1,6 +1,9 @@
 # MyEsp-OnTheRoad – Roadmap
 
-Status per 2026-10-27. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat.
+Status per 2026-10-27. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat, ➡️ = flyttat till annat repo.
+
+### Projektets omfattning (beslut 2026-10-27)
+Detta repo bygger **motorn och uppspelaren** – spelmekaniken, `.adv`-laddaren på enheten, rendering, HUD, sparning och SD-läsning. **Själva äventyrsskapandet flyttas till ett separat repo:** äventyrsinnehåll (`.adv`-filer, Josef-kapitlen, MineSweeper-banor, demos), författarverktyg (host-parsern `tools/adv_parse`, sprite-export, exempelfiler) och författardokumentationen. `.adv`-formatspecifikationen är gränssnittet mellan de två repona och underhålls där motorn kräver det. Poster märkta ➡️ nedan hör till innehållsrepot.
 
 ### Aktuellt fokus – tillbaka till bibeläventyret
 - **Karaoke pausad på Kents begäran:** grunden fungerar mycket väl enligt Kent. Det innebär inte att alla funktioner i v0.13.7 är HW-verifierade; kvarvarande testpunkter står kvar. Inga nya karaokeändringar nu.
@@ -8,7 +11,7 @@ Status per 2026-10-27. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - **Senaste äventyrstillskott (v0.18.x):** mörker, ficklampa och hoppstylta för SD-äventyr, delad handlingsknapp och `@treasures`-företräde – se v0.18-avsnittet nedan. Delvis HW-testat av Kent.
 - [x] **MineSweeper-utbyggnad:** 12 banor, hittbar skyddsdräkt och 3×3/4×4-bomber i v0.15.0; regler och begränsningar nedan. Ej HW-testad.
 - [ ] **Eventspellistor kvar som TODO:** Kent bygger själv listor med låtar och ordning via webbsidan, med TXT/JSON som planerad lagring. Ingen automatisk filsortering; alla får välja låt. Favoriter/senaste är uppskjutna. Ingen implementation under karaokepausen.
-- [x] **ASCII-authoringformat (.adv) för att importera/skapa egna äventyr:** format specificerat och dokumenterat i [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md) med ett komplett, verkligt exempel ([docs/adventures/example_joseph_hebron.adv](docs/adventures/example_joseph_hebron.adv) = Hebron-lägret). Formatet speglar motorns riktiga strukturer (`MapDef`/`Rules`, `Script`/`Npc`/`Node`). **Host-parser byggd:** `tools/adv_parse.{h,cpp}` läser `.adv` → `Otr::MapDef` + `Otr::Story::Script`; host-testet `tests/test_adv_parser.cpp` parsar exempelfilen, laddar kartan med `World::load()` och kör `Script::validate()` rent (19 kontroller, inga kompilatorvarningar). Parsern är ett host-verktyg och ingår inte i firmware-bygget. **Nästa steg:** läsa `.adv` även på enheten (SD/flash) för direktimport där.
+- ➡️ **ASCII-authoringformat (.adv) för att importera/skapa egna äventyr** (författarverktyg + exempel flyttas till innehållsrepot; enhetens `.adv`-laddare stannar här): format specificerat och dokumenterat i [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md) med ett komplett, verkligt exempel ([docs/adventures/example_joseph_hebron.adv](docs/adventures/example_joseph_hebron.adv) = Hebron-lägret). Formatet speglar motorns riktiga strukturer (`MapDef`/`Rules`, `Script`/`Npc`/`Node`). **Host-parser byggd:** `tools/adv_parse.{h,cpp}` läser `.adv` → `Otr::MapDef` + `Otr::Story::Script`; host-testet `tests/test_adv_parser.cpp` parsar exempelfilen, laddar kartan med `World::load()` och kör `Script::validate()` rent (19 kontroller, inga kompilatorvarningar). Parsern är ett host-verktyg och ingår inte i firmware-bygget. **Nästa steg:** läsa `.adv` även på enheten (SD/flash) för direktimport där.
 
 ### v0.18.0–v0.18.5 – Mörker, ficklampa och hoppstylta för SD-äventyr ✅ (delvis HW-testad)
 - [x] **Mörker (`@dark`):** rektanglar på kartan döljer sitt innehåll tills de lyses upp; blockerar aldrig rörelse. Max 16 per karta, klipps mot kartkanten.
@@ -372,9 +375,9 @@ Status per 2026-10-27. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 - [x] v0.11.0 – `otr_story` (dialogträd, villkor, effekter, flaggor; hosttestad), personer (`Obj::NPC`), Prata-knapp, dialog-UI med 4 svar, demokarta "Byn" (HW-testad av Kent)
 - [x] v0.11.1 – Live view för äventyret på webben (`/adventure`, ej HW-testad)
 - [x] v0.15.0 – tvåkartsdemo och sparformat v2 (berättelsestatus + aktuell karta)
-- [ ] Senare – uppdragslogg och generell konfiguration av HUD-räknare/föremål per värld
-- [ ] Senare milstolpe (version ej bestämd) – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva
-- [ ] v0.16+ – kapitel 2–6, manus från SD, engelska
+- [ ] Senare – uppdragslogg och generell konfiguration av HUD-räknare/föremål per värld (motorsida – stannar här)
+- ➡️ Senare milstolpe – `tools/story2c.py` (manus → C++ + validering), nya rutor/personer/porträtt, musik, kapitel 1 (Hebron → Dotan) som vertikal skiva (innehåll + verktyg → innehållsrepot)
+- ➡️ kapitel 2–6, manus från SD, engelska (innehåll → innehållsrepot)
 
 ## Planerat – utbrytning av komponenter (se docs/COMPONENTS.md)
 - [ ] `my_audio` (synt/mixer + ES8311), `my_sd` + `my_fsweb` (SD + filbläddrare), `my_touch`-filter, numpad till `my_ui`, `my_i18n`
