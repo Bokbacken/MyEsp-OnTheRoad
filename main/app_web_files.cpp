@@ -12,6 +12,8 @@
 //   v0.13.7: /api/files (paginated list), /api/files/mkdir, /api/files/bulk (DELETE), /api/files/move
 #include "app_web_files.h"
 
+#include "app_players.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -831,6 +833,121 @@ static esp_err_t handleFilesMove(httpd_req_t *r)
     return res;
 }
 
+// ----------------------------------------------------------------------------------------
+// v0.18.6 "Repair internal flash": admin-only, FFat only. Backs up the readable important files
+// to the SD card first (if a card is present), then reformats FFat and restores them. Formatting
+// is allowed even without an SD card (reported in the answer); SD is never made mandatory.
+// ----------------------------------------------------------------------------------------
+namespace {
+
+bool copyFile(const char *from, const char *to)
+{
+    FILE *in = fopen(from, "rb");
+    if (!in) return false;
+    FILE *out = fopen(to, "wb");
+    if (!out) {
+        fclose(in);
+        return false;
+    }
+    char buf[2048];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            ok = false;
+            break;
+        }
+    }
+    ok = (fflush(out) == 0) && ok;
+    fsync(fileno(out));
+    fclose(out);
+    fclose(in);
+    if (!ok) remove(to);
+    return ok;
+}
+
+struct RepairFile {
+    const char *ffat;   // Full path on FFat
+    const char *name;   // Base name (used under the backup dir and when restoring)
+};
+constexpr RepairFile kRepairFiles[] = {
+    {"/ffat/players.bin", "players.bin"},
+    {"/ffat/events.log", "events.log"},
+};
+constexpr const char *kBackupDir = "/sdcard/otr/backup";
+
+}  // namespace
+
+static esp_err_t handleFsRepair(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    // Internal flash only - never the SD card.
+    char root[8] = "ffat";
+    if (q.has("root") && !q.get("root", root, sizeof(root))) root[0] = 0;
+    if (strcmp(root, "ffat") != 0) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    if (!MyFat::mounted()) return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_FS_NOCARD));
+
+    const bool sdMounted = BoardSd::mounted();
+    bool sdBackup = false;
+    cJSON *o = cJSON_CreateObject();
+    cJSON *backed = cJSON_AddArrayToObject(o, "backed");
+
+    // (a) Back up the readable important files to the SD card first (best effort).
+    if (sdMounted) {
+        BoardSd::Guard g;
+        if (BoardSd::ensureDir(kBackupDir)) {
+            for (const RepairFile &f : kRepairFiles) {
+                struct stat st = {};
+                if (stat(f.ffat, &st) != 0) continue;   // Skip a file that is not there
+                char dest[96];
+                snprintf(dest, sizeof(dest), "%s/%s", kBackupDir, f.name);
+                if (copyFile(f.ffat, dest)) {
+                    cJSON_AddItemToArray(backed, cJSON_CreateString(f.name));
+                    sdBackup = true;
+                }
+            }
+        }
+    }
+
+    // (b) Stop writing events to FFat, then reformat it in place.
+    MyLog::setEventFile(nullptr);
+    const bool formatted = MyFat::format();
+
+    // (c) Restore the backed-up files onto the fresh filesystem.
+    bool restored = false;
+    if (formatted && sdBackup) {
+        BoardSd::Guard g;
+        for (const RepairFile &f : kRepairFiles) {
+            char src[96];
+            snprintf(src, sizeof(src), "%s/%s", kBackupDir, f.name);
+            struct stat st = {};
+            if (stat(src, &st) != 0) continue;
+            if (copyFile(src, f.ffat)) restored = true;
+        }
+    }
+
+    // (d) Re-arm the event log and reload the player registry from the fresh filesystem.
+    if (MyFat::mounted()) MyLog::setEventFile("/ffat/events.log");
+    const bool playersReloaded = formatted ? Players::begin() : false;
+
+    MyLog::event("storage", "repair ffat: formatted=%d sdBackup=%d restored=%d players=%d",
+                 formatted, sdBackup, restored, playersReloaded);
+
+    if (!formatted) {
+        cJSON_Delete(o);
+        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_FS_REPAIR));
+    }
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddStringToObject(o, "message", tr(Str::WEB_FS_REPAIR_DONE));
+    cJSON_AddBoolToObject(o, "sd", sdMounted);
+    cJSON_AddBoolToObject(o, "sdBackup", sdBackup);
+    cJSON_AddBoolToObject(o, "formatted", formatted);
+    cJSON_AddBoolToObject(o, "restored", restored);
+    cJSON_AddBoolToObject(o, "playersReloaded", playersReloaded);
+    return MyWeb::sendJson(r, 200, o);
+}
+
 bool registerRoutes()
 {
     bool ok = MyWeb::on("/api/fs/list", HTTP_GET, handleList);
@@ -840,6 +957,7 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/fs/rename", HTTP_POST, handleRename);
     ok &= MyWeb::on("/api/fs/mkdir", HTTP_POST, handleMkdir);
     ok &= MyWeb::on("/api/sd/remount", HTTP_POST, handleRemount);
+    ok &= MyWeb::on("/api/fs/repair", HTTP_POST, handleFsRepair);
     ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
     ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);
     ok &= MyWeb::on("/api/files/bulk", HTTP_DELETE, handleFilesBulkDelete);

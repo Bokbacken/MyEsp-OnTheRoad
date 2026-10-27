@@ -1,5 +1,6 @@
 #include "my_storage.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -7,6 +8,7 @@
 
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "my_log.h"
 #include "nvs_flash.h"
 
 static const char *TAG = "storage";
@@ -135,7 +137,41 @@ namespace MyFat {
 
 static bool s_mounted = false;
 static char s_base[16] = "";
+static char s_label[16] = "";
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
+static int s_corruptEntries = 0;
+static int s_totalEntries = 0;
+
+// Observation-only root scan after a successful mount. Counts entries and those whose 8.3 name
+// contains non-printable bytes (orphaned/ghost records). Never changes anything on the volume.
+static void healthCheck()
+{
+    s_corruptEntries = 0;
+    s_totalEntries = 0;
+    DIR *d = opendir(s_base);
+    if (!d) {
+        ESP_LOGW(TAG, "health check: cannot open %s", s_base);
+        return;
+    }
+    struct dirent *e;
+    while ((e = readdir(d)) != nullptr) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        s_totalEntries++;
+        bool bad = e->d_name[0] == 0;
+        for (const unsigned char *p = (const unsigned char *)e->d_name; *p && !bad; ++p) {
+            if (*p < 0x20 || *p > 0x7E) bad = true;
+        }
+        if (bad) s_corruptEntries++;
+    }
+    closedir(d);
+    ESP_LOGI(TAG, "FAT health %s: %d entries, %d with invalid names, %llu/%llu kB used",
+             s_base, s_totalEntries, s_corruptEntries, usedBytes() >> 10, totalBytes() >> 10);
+    if (s_corruptEntries > 0) {
+        // Make corruption visible in the diagnostics event log instead of leaving it to chance.
+        MyLog::event("storage", "FILESYSTEM_CORRUPT: %d of %d root entries on %s have invalid names",
+                     s_corruptEntries, s_totalEntries, s_base);
+    }
+}
 
 bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
 {
@@ -150,8 +186,27 @@ bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
         return false;
     }
     snprintf(s_base, sizeof(s_base), "%s", base);
+    snprintf(s_label, sizeof(s_label), "%s", label);
     s_mounted = true;
     ESP_LOGI(TAG, "FAT '%s' mounted at %s, %llu/%llu kB used", label, base, usedBytes() >> 10, totalBytes() >> 10);
+    healthCheck();
+    return true;
+}
+
+int corruptEntries() { return s_corruptEntries; }
+int totalEntries() { return s_totalEntries; }
+
+bool format()
+{
+    if (!s_mounted) return false;
+    // Formats in place; FATFS re-mounts after formatting, so s_mounted stays valid.
+    esp_err_t err = esp_vfs_fat_spiflash_format_rw_wl(s_base, s_label);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "FAT format '%s' failed: %s", s_label, esp_err_to_name(err));
+        return false;
+    }
+    ESP_LOGW(TAG, "FAT '%s' reformatted", s_label);
+    healthCheck();
     return true;
 }
 

@@ -65,6 +65,7 @@
     <button type="button" class="secondary" id="pick-btn">&#8679; Ladda upp</button>
     <input type="file" id="file" multiple hidden>
     <label class="check" style="margin:0"><input type="checkbox" id="overwrite"> Skriv över</label>
+    <button type="button" class="danger" id="repair-btn" hidden>&#9873; Reparera intern flash</button>
   </div>
   <div class="crumbs" id="crumbs"></div>
   <div id="nocard" hidden>
@@ -288,6 +289,7 @@ function setRoot(r) {
   root = r; path = '/'; page = 1;
   $('root-sd').classList.toggle('on', r === 'sd');
   $('root-ffat').classList.toggle('on', r === 'ffat');
+  $('repair-btn').hidden = r !== 'ffat';   // Repair is for the internal flash only
   load();
 }
 $('root-sd').onclick = () => setRoot('sd');
@@ -355,6 +357,20 @@ $('mkdir-btn').onclick = () => guarded(async () => {
 $('remount-btn').onclick = () => guarded(async () => {
   const j = await postForm('/api/sd/remount', {});
   toast(j.mounted ? 'SD-kortet monterat' : 'Inget SD-kort hittades', j.mounted);
+  await load();
+});
+$('repair-btn').onclick = () => guarded(async () => {
+  if (root !== 'ffat') return;
+  if (!confirm('Reparera intern flash?\n\nALLT på intern flash raderas och filsystemet formateras om. ' +
+    'Läsbara players.bin och events.log säkerhetskopieras först till SD-kortet (/otr/backup) om ett kort sitter i, ' +
+    'och läggs tillbaka efteråt. Åtgärden går inte att ångra.')) return;
+  const j = await postForm('/api/fs/repair', {});
+  const parts = [];
+  parts.push(j.sdBackup ? 'SD-backup: ' + ((j.backed || []).join(', ') || 'inga filer')
+                        : (j.sd ? 'ingen SD-backup gjordes' : 'inget SD-kort – ingen backup'));
+  if (j.restored) parts.push('filer återställda');
+  if (!j.playersReloaded) parts.push('starta om enheten för att läsa in spelare');
+  toast((j.message || 'Intern flash reparerad') + ' (' + parts.join('; ') + ')', true);
   await load();
 });
 

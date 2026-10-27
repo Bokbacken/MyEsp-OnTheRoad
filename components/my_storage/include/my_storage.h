@@ -68,4 +68,14 @@ bool exists(const char *fullPath);
 // Writes header + body to "<fullPath>.tmp", then renames over fullPath (power-cut safe).
 bool writeAtomic(const char *fullPath, const void *head, size_t headLen, const void *body, size_t bodyLen);
 
+// Root-directory health check results from the last mount() (see mount()). Observation only;
+// nothing is ever changed automatically. corruptEntries() counts root entries with invalid
+// (non-printable) names - a sign of orphaned/ghost directory records.
+int corruptEntries();
+int totalEntries();
+// Reformats the mounted partition in place (erases everything, stays mounted). Caller must
+// handle backup/restore and reload any in-RAM registries. Returns false if not mounted or on
+// a format error. DESTRUCTIVE - gate behind admin authentication.
+bool format();
+
 }  // namespace MyFat

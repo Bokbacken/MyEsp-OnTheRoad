@@ -452,6 +452,8 @@ extern const Entry LANG_SV[] = {
     {Str::WEB_ERR_FS_IO, "Läs- eller skrivfel"},
     {Str::WEB_ERR_FS_FULL, "Lagringen är full"},
     {Str::WEB_ERR_FS_ROOT, "Roten kan inte ändras"},
+    {Str::WEB_ERR_FS_REPAIR, "Reparationen misslyckades"},
+    {Str::WEB_FS_REPAIR_DONE, "Intern flash reparerad"},
     {Str::MENU_KARAOKE, "Karaoke"},
     {Str::MENU_SUB_KARAOKE, "Sjung med: text och musik från SD-kortet"},
     {Str::KARA_FONT_LOADING, "Laddar ljudbank..."},

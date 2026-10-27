@@ -452,6 +452,8 @@ extern const Entry LANG_EN[] = {
     {Str::WEB_ERR_FS_IO, "Read or write error"},
     {Str::WEB_ERR_FS_FULL, "Storage is full"},
     {Str::WEB_ERR_FS_ROOT, "The root cannot be changed"},
+    {Str::WEB_ERR_FS_REPAIR, "Repair failed"},
+    {Str::WEB_FS_REPAIR_DONE, "Internal flash repaired"},
     {Str::MENU_KARAOKE, "Karaoke"},
     {Str::MENU_SUB_KARAOKE, "Sing along: lyrics and music from the SD card"},
     {Str::KARA_FONT_LOADING, "Loading sound bank..."},
