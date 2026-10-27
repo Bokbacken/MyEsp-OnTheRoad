@@ -28,6 +28,7 @@
 #include "ui_numpad.h"
 #include "ui_settings.h"
 #include "my_theme.h"
+#include "ui_metrics.h"
 #include "ui_wifi.h"
 #include "lang_game.h"
 
@@ -104,13 +105,13 @@ static const char *gameTitle()
 }
 
 // Casino-style menu card: accent stripe, title, subtitle, optional check mark.
-static lv_obj_t *menuCard(lv_obj_t *scr, int32_t y, int32_t h, const char *title, const char *sub, uint32_t color,
-                          bool selected)
+// w may be LV_PCT(..) (flex list) or pixels (absolute placement, see menuCard).
+static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *title, const char *sub,
+                            uint32_t color, bool selected)
 {
-    lv_obj_t *b = lv_button_create(scr);
+    lv_obj_t *b = lv_button_create(parent);
     lv_obj_remove_style_all(b);
-    lv_obj_set_size(b, 300, h);
-    lv_obj_set_pos(b, 10, y);
+    lv_obj_set_size(b, w, h);
     lv_obj_set_style_radius(b, 14, 0);
     lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
@@ -130,12 +131,29 @@ static lv_obj_t *menuCard(lv_obj_t *scr, int32_t y, int32_t h, const char *title
     lv_obj_set_pos(t, 28, small ? 9 : 12);
     lv_obj_t *s = Theme::label(b, sub, &my_font_14, Theme::MUTED);
     lv_label_set_long_mode(s, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s, 262);
+    lv_obj_set_width(s, LV_COORD_IS_PCT(w) ? LV_PCT(87) : 262);
     lv_obj_set_pos(s, 28, small ? 36 : 48);
     if (selected) {
         lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
         lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, small ? 8 : 12);
     }
+    return b;
+}
+
+static lv_obj_t *menuCard(lv_obj_t *scr, int32_t y, int32_t h, const char *title, const char *sub, uint32_t color,
+                          bool selected)
+{
+    lv_obj_t *b = menuCardIn(scr, 300, h, title, sub, color, selected);
+    lv_obj_set_pos(b, 10, y);
+    return b;
+}
+
+// Flex-list card: full width of the list, height shared equally (grows, never below the minimum).
+static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color, bool selected)
+{
+    lv_obj_t *b = menuCardIn(list, LV_PCT(100), UiMetrics::cardMinH(), title, sub, color, selected);
+    lv_obj_set_flex_grow(b, 1);
+    lv_obj_set_style_min_height(b, UiMetrics::cardMinH(), 0);
     return b;
 }
 
@@ -168,26 +186,35 @@ void showMenu()
     lv_obj_align(wifi, LV_ALIGN_TOP_RIGHT, -64, 4);
     lv_obj_add_event_cb(wifi, [](lv_event_t *) { UiWifi::showNetworks(); }, LV_EVENT_CLICKED, nullptr);
 
+    const int32_t mN = UiMetrics::marginNormal();
     lv_obj_t *hint = Theme::label(scr, tr(Str::MENU_CHOOSE_GAME), &my_font_14, Theme::MUTED);
     lv_obj_set_pos(hint, 14, 52);
     lv_obj_t *clk = Theme::label(scr, "", &my_font_14, Theme::MUTED);
     lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
     UiClock::attachLabel(clk, true);
 
-    // Four dice games + the adventure engine test world (v0.7.0, separate module)
-    // Card layout: 6 cards of 60 px, 64 px apart (74..454), the version footer below
+    // Menu list: vertical flex column filling the space between header and footer.
+    // Four dice games + the adventure engine test world (v0.7.0) + karaoke (v0.13.0)
+    const int32_t top = UiMetrics::headerH();
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, mN, top);
+    lv_obj_set_size(list, UiMetrics::screenW() - 2 * mN, UiMetrics::screenH() - top - UiMetrics::footerH());
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
+    lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *b = menuCard(scr, 74 + i * 64, 60, tr(GAMES[i].name), tr(GAMES[i].sub), GAMES[i].color,
-                               GAMES[i].type == s_gameType);
+        lv_obj_t *b = menuListCard(list, tr(GAMES[i].name), tr(GAMES[i].sub), GAMES[i].color,
+                                   GAMES[i].type == s_gameType);
         lv_obj_add_event_cb(b, [](lv_event_t *e) {
             s_gameType = GAMES[(int)(intptr_t)lv_event_get_user_data(e)].type;
             showVariants();
         }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
-    lv_obj_t *adv = menuCard(scr, 74 + 4 * 64, 60, tr(Str::GAME_NAME_ADV), tr(Str::MENU_SUB_GAME_ADV), Theme::GREEN, false);
+    lv_obj_t *adv = menuListCard(list, tr(Str::GAME_NAME_ADV), tr(Str::MENU_SUB_GAME_ADV), Theme::GREEN, false);
     lv_obj_add_event_cb(adv, [](lv_event_t *) { UiAdventure::show(); }, LV_EVENT_CLICKED, nullptr);
-    // Karaoke (v0.13.0, separate module)
-    lv_obj_t *kara = menuCard(scr, 74 + 5 * 64, 60, tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE), Theme::GOLD, false);
+    lv_obj_t *kara = menuListCard(list, tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE), Theme::GOLD, false);
     lv_obj_add_event_cb(kara, [](lv_event_t *) {
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
