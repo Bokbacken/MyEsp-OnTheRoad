@@ -458,7 +458,28 @@ Varje rad är `x y id antal`:
   **nivån** (1–3).
 
 Max **48** skatter per karta. Lägg skatten under ett objekt som går att slå bort
-(buske, låda, sprucken vägg) – annars är den aldrig nåbar.
+(buske, låda, sprucken vägg) så avtäcks den när objektet försvinner. Ligger rutan
+fri (eller har bara en plockbar glyf, se nedan) är skatten synlig direkt.
+
+### @treasures har företräde över kartglyfen (nytt i v0.18.5)
+
+Ligger en `@treasures`-rad på **samma koordinat** som en **plockbar glyf** på
+kartan vinner alltid skatten. Det gör att du kan rita en ficklampa `f` eller
+hoppstylta `j` på kartan (som annars ger **nivå 1**) och samtidigt höja den till
+nivå 2–3 med en skatt på samma ruta:
+
+```
+@map
+..j.....
+..S..RRRX
+@treasures
+2 0 pogo 3        # rutan visar j, men spelaren får nivå 3
+```
+
+Detta gäller alla **plockbara** glyfer (ficklampa, hoppstylta, ädelsten, nyckel
+osv.) – glyfen ersätts av skatten. **Täckande objekt** påverkas inte: en skatt
+under buske `b`, låda, sten eller sprucken vägg ligger kvar dold tills du slår
+bort/knuffar objektet, precis som förut.
 
 ---
 
@@ -560,7 +581,9 @@ Lägg in den på kartan med glyfen `f` (**nivå 1**):
 ...S....
 ```
 
-Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1–3):
+Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1–3).
+Du kan lägga skatten på **samma ruta** som glyfen `f` – skatten vinner och sätter
+nivån (se avsnitt 8, *@treasures har företräde*):
 
 ```
 # x  y  flashlight  nivå
@@ -595,7 +618,9 @@ Lägg in den på kartan med glyfen `j` (**nivå 1**):
 ..S..RRR..X.
 ```
 
-Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1–3):
+Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1–3).
+Glyfen `j` och skatten får ligga på **samma ruta** – skatten vinner och sätter
+nivån (se avsnitt 8, *@treasures har företräde*):
 
 ```
 # x  y  pogo  nivå

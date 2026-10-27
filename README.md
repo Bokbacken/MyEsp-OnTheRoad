@@ -4,7 +4,30 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.15.0.2 – portrait (320×480) adventure dialogs, on-device new-player creation,
+> **Status:** v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
+> Adventures now load as `.adv` text files from the SD card (`/otr/adventure`); see
+> [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md). A map can mark **dark areas**
+> (`@dark`) that hide their contents until a **flashlight** (glyph `f`, levels 1–3) lights a cone
+> ahead – reach equals the level (1/2/3 cells), with the leading rows three wide. A **pogo stick**
+> (glyph `j`, levels 1–3) vaults over 1–N blocking cells; jumping is **manual** via a **split
+> action button** whose top third (**Byt/Swap**) cycles the actions available right now – **Slå**
+> (hit), **Prata** (talk) and **Hoppa** (jump) – and whose lower two-thirds performs the chosen one.
+> Both items are permanent and carry across all maps in an adventure. `@treasures` on the same cell
+> as a map pickup glyph takes precedence, so `f`/`j` can be raised to level 2–3. Saves are version 3
+> (legacy v1/v2 load with the new abilities at 0). **Hardware-tested by Kent** (darkness/flashlight/
+> pogo rendering, the flashlight cone, manual jump via the split button, and `@treasures` precedence);
+> other parts are host-tested and build-clean only. Karaoke is unchanged and paused. Existing B1
+> partitions: normal OTA from v0.12+.
+>
+> Previous: v0.17.0 – **adventures moved to the SD card** (`.adv` format) with a catalog
+> (folders = adventures, `NN_` prefix = order, up to 16 maps each), chained maps with carry/reset,
+> an exported 12-stage MineSweeper campaign, and data-driven true minesweeper (`mine_level`).
+> The on-device and host parsers are twins (`main/adv_loader` / `tools/adv_parse`). **Not hardware-tested** at release.
+>
+> Previous: v0.16.1 – **Joseph, chapter 1** (Genesis 37–50): two maps, six characters, bilingual
+> SV/EN dialogue, with UTF-8 (åäö) and map/choice-flow fixes. Hardware-tested by Kent ("the game works").
+>
+> Previous: v0.15.0.2 – portrait (320×480) adventure dialogs, on-device new-player creation,
 > and conservative profile-storage error handling. Host tests and firmware build pass;
 > **independent layout review pending, not hardware-tested**. The reported intermittent profile loss
 > on the user's device is not diagnosed. Automatic FFat formatting is disabled; blank/unreadable
