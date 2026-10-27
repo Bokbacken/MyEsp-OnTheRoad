@@ -399,6 +399,20 @@ static void playerDeleteEvent(lv_event_t *e)
     rebuildPlayerList();
 }
 
+static void layoutDialog(lv_obj_t *m)
+{
+    lv_obj_set_width(m, LV_MIN(UiMetrics::screenW() - 4 * UiMetrics::marginNormal(),
+                              UiMetrics::buttonWMax() - 2 * UiMetrics::marginNormal()));
+    lv_obj_set_height(lv_msgbox_get_header(m), UiMetrics::buttonH());
+    lv_obj_set_height(lv_msgbox_get_title(m), lv_font_get_line_height(&my_font_18));
+    lv_label_set_long_mode(lv_msgbox_get_title(m), LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_height(lv_msgbox_get_footer(m), UiMetrics::buttonH());
+    lv_obj_update_layout(m);
+    const int32_t maxH = UiMetrics::screenH() - 2 * UiMetrics::marginLarge();
+    if (lv_obj_get_height(m) > maxH) lv_obj_set_height(m, maxH);
+    lv_obj_center(m);
+}
+
 // Small info box with one OK button.
 static void infoBox(const char *title, const char *text)
 {
@@ -406,7 +420,6 @@ static void infoBox(const char *title, const char *text)
     lv_obj_set_style_text_font(m, &my_font_18, 0);
     lv_msgbox_add_title(m, title);
     lv_msgbox_add_text(m, text);
-    lv_obj_set_width(m, 280);
     lv_obj_set_style_bg_color(m, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_text_color(m, Theme::c(Theme::TEXT), 0);
     lv_obj_set_style_border_color(m, Theme::c(Theme::ACCENT), 0);
@@ -414,6 +427,7 @@ static void infoBox(const char *title, const char *text)
     lv_obj_center(m);
     lv_obj_t *ok = lv_msgbox_add_footer_button(m, "OK");
     Theme::msgboxFonts(m);
+    layoutDialog(m);
     lv_obj_add_event_cb(ok, [](lv_event_t *e) { lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e)); },
                         LV_EVENT_CLICKED, m);
 }
@@ -752,6 +766,8 @@ static void showPicker(int slot)
     lv_obj_t *t = lv_table_create(body);
     lv_obj_set_size(t, LV_PCT(100), 0);
     lv_obj_set_flex_grow(t, 1);
+    lv_obj_set_scroll_dir(t, LV_DIR_VER);
+    lv_obj_set_scroll_elastic(t, false);
     lv_table_set_column_count(t, 1);
     lv_obj_add_event_cb(t, [](lv_event_t *e) {
         lv_obj_t *table = lv_event_get_target_obj(e);
@@ -2166,7 +2182,6 @@ static void onMenu(lv_event_t *)
     lv_obj_set_style_text_font(m, &my_font_18, 0);
     lv_msgbox_add_title(m, tr(Str::GAME_QUIT_Q));
     lv_msgbox_add_text(m, tr(Str::GAME_QUIT_TEXT));
-    lv_obj_set_width(m, 280);
     lv_obj_set_style_bg_color(m, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_text_color(m, Theme::c(Theme::TEXT), 0);
     lv_obj_set_style_border_color(m, Theme::c(Theme::ACCENT), 0);
@@ -2175,6 +2190,7 @@ static void onMenu(lv_event_t *)
     lv_obj_t *bQuit = lv_msgbox_add_footer_button(m, tr(Str::GAME_QUIT));
     lv_obj_t *bCont = lv_msgbox_add_footer_button(m, tr(Str::BTN_CONTINUE));
     Theme::msgboxFonts(m);
+    layoutDialog(m);
     lv_obj_add_event_cb(bQuit, quitEvent, LV_EVENT_CLICKED, m);
     lv_obj_add_event_cb(bCont, [](lv_event_t *e) { lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e)); },
                         LV_EVENT_CLICKED, m);
@@ -2328,24 +2344,36 @@ static void webTimer(lv_timer_t *t)
 
 static void buildWebOverlay(lv_obj_t *scr)
 {
-    s_webBlock = plainBox(scr, 0, FELT_Y, SCR_W, SCR_H - FELT_Y);
+    const int32_t inset = 2 * UiMetrics::marginSmall();
+    const int32_t panelW = LV_MIN(UiMetrics::screenW() - 2 * inset, 600);
+    const int32_t panelH = 3 * UiMetrics::buttonH() + UiMetrics::marginNormal() + UiMetrics::controlSpacing();
+    s_webBlock = plainBox(scr, 0, FELT_Y, UiMetrics::screenW(), UiMetrics::screenH() - FELT_Y);
     lv_obj_set_clickable(s_webBlock, true);   // Swallows touches (dice, cup, buttons, table)
     lv_obj_set_scroll_chain(s_webBlock, false);
     lv_obj_set_gesture_bubble(s_webBlock, false);
-    s_webPanel = plainBox(scr, 8, SCR_H - 150, SCR_W - 16, 142);
+    s_webPanel = plainBox(scr, (UiMetrics::screenW() - panelW) / 2,
+                         UiMetrics::screenH() - inset - panelH, panelW, panelH);
     lv_obj_set_style_radius(s_webPanel, 14, 0);
     lv_obj_set_style_bg_color(s_webPanel, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_bg_opa(s_webPanel, 235, 0);
     lv_obj_set_style_border_width(s_webPanel, 2, 0);
     lv_obj_set_style_border_color(s_webPanel, Theme::c(Theme::TEAL), 0);
     lv_obj_t *icon = Theme::label(s_webPanel, LV_SYMBOL_WIFI, &my_font_24, Theme::TEAL);
-    lv_obj_set_pos(icon, 10, 10);
-    s_webText = Theme::label(s_webPanel, "", &my_font_14);
-    lv_obj_set_width(s_webText, SCR_W - 16 - 50);
+    lv_obj_set_pos(icon, UiMetrics::marginNormal(), UiMetrics::marginNormal());
+    const int32_t textX = UiMetrics::titleH();
+    const int32_t localH = UiMetrics::buttonH() - UiMetrics::controlSpacing();
+    lv_obj_t *textArea = plainBox(s_webPanel, textX, inset, panelW - textX - UiMetrics::marginNormal(),
+                                  panelH - localH - 3 * inset - 4);
+    lv_obj_set_scrollable(textArea, true);
+    lv_obj_set_scroll_dir(textArea, LV_DIR_VER);
+    s_webText = Theme::label(textArea, "", &my_font_14);
+    lv_obj_set_width(s_webText, LV_PCT(100));
     lv_label_set_long_mode(s_webText, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_pos(s_webText, 44, 8);
-    s_webLocal = Theme::button(s_webPanel, tr(Str::GAME_WEB_LOCAL), 190, 36, Theme::TEAL);
-    lv_obj_align(s_webLocal, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
+    s_webLocal = Theme::button(s_webPanel, tr(Str::GAME_WEB_LOCAL),
+                               LV_MIN(panelW - textX - UiMetrics::marginNormal(),
+                                      UiMetrics::buttonWMax() - 2 * UiMetrics::buttonWMin() - UiMetrics::controlSpacing()),
+                               localH, Theme::TEAL);
+    lv_obj_align(s_webLocal, LV_ALIGN_BOTTOM_RIGHT, -UiMetrics::marginNormal(), -inset);
     lv_obj_add_event_cb(s_webLocal, webLocalEvent, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_hidden(s_webBlock, true);
     lv_obj_set_hidden(s_webPanel, true);
