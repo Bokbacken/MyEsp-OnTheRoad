@@ -20,8 +20,8 @@ addrow = source.split("static lv_obj_t *addWorldRow(lv_obj_t *list, const char *
 addrow = addrow.split("    return b;", 1)[0]
 playerrow = source.split("static void addPlayerRow(const char *name, uint16_t id)\n{", 1)[1]
 playerrow = playerrow.split("\n}\n\nstatic void fillPlayerList", 1)[0]
-assert "AdvUi::rowWidth(list)" in addrow, "addWorldRow must use the responsive row width"
-assert "AdvUi::rowWidth(s_playerList)" in playerrow, "addPlayerRow must use the responsive row width"
+assert "AdvUi::rowWidth()" in addrow, "addWorldRow must use the responsive row width"
+assert "AdvUi::rowWidth()" in playerrow, "addPlayerRow must use the responsive row width"
 
 code = r'''
 #include <cassert>
@@ -92,6 +92,7 @@ int main() {
             lv_obj_set_size(scr, size.x, size.y);
             lv_screen_load(scr);
             auto *list = AdvUi::scrollColumn(scr, 50, 6, 8);
+            assert(AdvUi::rowWidth() == (size.x == 320 ? 296 : 444));
             assert(lv_obj_get_x(list) == AdvUi::scale(6));
             assert(lv_obj_get_y(list) == AdvUi::scale(50));
             assert(lv_obj_get_width(list) == size.x - 2 * AdvUi::scale(6));

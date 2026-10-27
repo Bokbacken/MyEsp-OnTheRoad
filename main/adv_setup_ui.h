@@ -8,8 +8,8 @@
 namespace AdvUi {
 inline int32_t scale(int32_t value) { return value * UiMetrics::marginNormal() / 10; }
 
-inline int32_t rowWidth(lv_obj_t *list) {
-    return lv_obj_get_content_width(list) - 2 * scale(6);
+inline int32_t rowWidth() {
+    return UiMetrics::screenW() - 4 * scale(6);
 }
 
 inline lv_obj_t *scrollColumn(lv_obj_t *parent, int32_t top, int32_t bottom, int32_t rowGap) {

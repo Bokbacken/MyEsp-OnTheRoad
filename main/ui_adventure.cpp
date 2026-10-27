@@ -2748,7 +2748,7 @@ static void addPlayerRow(const char *name, uint16_t id)
 {
     char text[64];
     snprintf(text, sizeof(text), "%s%s", name, hasSave(id, curFolder()) ? tr(Str::ADV_HAS_SAVE) : "");
-    const int width = AdvUi::rowWidth(s_playerList);
+    const int width = AdvUi::rowWidth();
     const int height = AdvUi::scale(42);
     lv_obj_t *b = Theme::button(s_playerList, text, width, height, id ? Theme::TEAL : Theme::LINE);
     auto *label = lv_obj_get_child(b, 0);
@@ -2796,7 +2796,7 @@ static void worldChosen(lv_event_t *e)
 // One wide stacked adventure button: bold name on top, wrapped description below.
 static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)
 {
-    const int width = AdvUi::rowWidth(list);
+    const int width = AdvUi::rowWidth();
     const int rowHeight = AdvUi::scale(62);
     lv_obj_t *b = Theme::button(list, name, width, rowHeight, Theme::LINE);
     lv_obj_t *nm = lv_obj_get_child(b, 0);
