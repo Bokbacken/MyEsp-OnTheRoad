@@ -75,6 +75,21 @@ void splitTokens(const std::string &s, std::vector<std::string> &out)
     if (!cur.empty()) out.push_back(toLower(cur));
 }
 
+// Parses "x0,y0 x1,y1" (exactly 4 integers; commas and/or spaces) into a DarkRect
+// (see @dark). Returns false on the wrong count. Values are clipped to the map
+// bounds later, in World::load().
+bool parseDarkTokens(const std::string &s, Otr::DarkRect &out)
+{
+    std::vector<std::string> tok;
+    splitTokens(s, tok);
+    if (tok.size() != 4) return false;
+    out.x0 = (uint8_t)atoi(tok[0].c_str());
+    out.y0 = (uint8_t)atoi(tok[1].c_str());
+    out.x1 = (uint8_t)atoi(tok[2].c_str());
+    out.y1 = (uint8_t)atoi(tok[3].c_str());
+    return true;
+}
+
 // Treasure / resource item name -> engine Obj. Only pickable items are allowed.
 // Returns Obj::NONE for an unknown name.
 Otr::Obj objFromName(const std::string &n)
@@ -89,6 +104,8 @@ Otr::Obj objFromName(const std::string &n)
     if (s == "life") return Otr::Obj::LIFE;
     if (s == "bomb3") return Otr::Obj::BOMB3;
     if (s == "bomb4") return Otr::Obj::BOMB4;
+    if (s == "flashlight" || s == "flash") return Otr::Obj::FLASH;   // v0.18.0
+    if (s == "pogo" || s == "pogostick") return Otr::Obj::POGO;      // v0.18.0
     return Otr::Obj::NONE;
 }
 
@@ -102,6 +119,7 @@ bool isBuiltinGlyph(char c)
     case '^': case 'o': case '=': case 'Q': case 'X': case 'R': case 'r': case 'c':
     case 'C': case 'k': case 'K': case 'D': case 'B': case '*': case '+': case '$':
     case 'b': case 'p': case 'h': case 'u': case 'l': case 'a': case 'z': case 'm':
+    case 'f': case 'j':   // v0.18.0: flashlight / pogo-stick pickups (level 1)
         return true;
     default:
         return false;
@@ -121,7 +139,7 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
     Otr::Rules rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
     std::vector<std::string> rawRows;
 
-    enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
+    enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
     Sec sec = NONE;
 
     // The npc / node currently being filled (indices into doc vectors, -1 = none).
@@ -162,6 +180,19 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
             else if (tag == "@map") sec = MAP;
             else if (tag == "@treasures") sec = TREASURES;
             else if (tag == "@resources") sec = RESOURCES;
+            else if (tag == "@dark") {
+                // v0.18.0: "@dark x0,y0 x1,y1" (inline rect on the header) and/or one rect per
+                // following body line. Over MAX_DARK rects are silently dropped (clipped later).
+                sec = DARK;
+                if (!arg.empty()) {
+                    Otr::DarkRect dr{};
+                    if (!parseDarkTokens(arg, dr)) {
+                        err = "line " + std::to_string(lineNo) + ": @dark needs 'x0,y0 x1,y1'";
+                        return false;
+                    }
+                    if ((int)doc.darks.size() < Otr::MAX_DARK) doc.darks.push_back(dr);
+                }
+            }
             else if (tag == "@flags") sec = FLAGS;
             else if (tag == "@counters") sec = COUNTERS;
             else if (tag == "@items") sec = ITEMS;
@@ -299,6 +330,17 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 tr.item = item;
                 tr.amount = (uint8_t)(tok.size() >= 4 ? atoi(tok[3].c_str()) : 1);
                 doc.treasures.push_back(tr);
+                break;
+            }
+            case DARK: {
+                // One dark rectangle per body line: "x0,y0 x1,y1". Over MAX_DARK rects are
+                // silently dropped (consistent with the inline @dark form).
+                Otr::DarkRect dr{};
+                if (!parseDarkTokens(stripComment(t), dr)) {
+                    err = "line " + std::to_string(lineNo) + ": @dark rect needs 'x0,y0 x1,y1'";
+                    return false;
+                }
+                if ((int)doc.darks.size() < Otr::MAX_DARK) doc.darks.push_back(dr);
                 break;
             }
             case RESOURCES: {
@@ -469,6 +511,8 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
     doc.map.rules = rules;
     doc.map.treasures = doc.treasures.empty() ? nullptr : doc.treasures.data();
     doc.map.treasureCount = (int)doc.treasures.size();
+    doc.map.darks = doc.darks.empty() ? nullptr : doc.darks.data();   // v0.18.0
+    doc.map.darkCount = (int)doc.darks.size();
 
     // --- Build the Script --------------------------------------------------------------------
     doc.script.npcs = doc.npcs.data();

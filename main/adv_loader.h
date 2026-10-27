@@ -96,6 +96,10 @@ struct Loaded {
     Otr::Treasure treasures[MAX_TREASURES];
     int treasureCount;
 
+    // @dark (v0.18.0): inclusive dark-area rectangles. map.darks points at this array.
+    Otr::DarkRect darks[Otr::MAX_DARK];
+    int darkCount;
+
     // @resources
     Resource resources[MAX_RESOURCES];
     int resourceCount;

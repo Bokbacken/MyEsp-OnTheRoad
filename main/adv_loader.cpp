@@ -113,6 +113,8 @@ Otr::Obj objFromName(const char *name)
     if (!strcmp(s, "life")) return Otr::Obj::LIFE;
     if (!strcmp(s, "bomb3")) return Otr::Obj::BOMB3;
     if (!strcmp(s, "bomb4")) return Otr::Obj::BOMB4;
+    if (!strcmp(s, "flashlight") || !strcmp(s, "flash")) return Otr::Obj::FLASH;   // v0.18.0
+    if (!strcmp(s, "pogo") || !strcmp(s, "pogostick")) return Otr::Obj::POGO;      // v0.18.0
     return Otr::Obj::NONE;
 }
 
@@ -124,13 +126,14 @@ bool isBuiltinGlyph(char c)
     case '^': case 'o': case '=': case 'Q': case 'X': case 'R': case 'r': case 'c':
     case 'C': case 'k': case 'K': case 'D': case 'B': case '*': case '+': case '$':
     case 'b': case 'p': case 'h': case 'u': case 'l': case 'a': case 'z': case 'm':
+    case 'f': case 'j':   // v0.18.0: flashlight / pogo-stick pickups (level 1)
         return true;
     default:
         return false;
     }
 }
 
-enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
+enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
 
 // Maps a "@tag" (without any arg) to a section. Returns false for an unknown tag.
 bool secFromTag(const char *tag, Sec &sec)
@@ -141,6 +144,7 @@ bool secFromTag(const char *tag, Sec &sec)
     else if (!strcmp(tag, "@map")) sec = MAP;
     else if (!strcmp(tag, "@treasures")) sec = TREASURES;
     else if (!strcmp(tag, "@resources")) sec = RESOURCES;
+    else if (!strcmp(tag, "@dark")) sec = DARK;
     else if (!strcmp(tag, "@flags")) sec = FLAGS;
     else if (!strcmp(tag, "@counters")) sec = COUNTERS;
     else if (!strcmp(tag, "@items")) sec = ITEMS;
@@ -158,6 +162,23 @@ void copyStr(char *dst, size_t cap, const char *s)
     size_t i = 0;
     for (; s[i] && i < cap - 1; i++) dst[i] = s[i];
     dst[i] = 0;
+}
+
+// v0.18.0: parses "x0,y0 x1,y1" (exactly 4 integers; commas/spaces/tabs) into a DarkRect.
+// Returns false on the wrong token count. Values are clipped to the map bounds in World::load().
+bool parseDarkTokens(const char *s, Otr::DarkRect &out)
+{
+    char buf[LINE_CAP];
+    copyStr(buf, sizeof(buf), s);
+    char *tok[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+    int nt = 0;
+    for (char *p = strtok(buf, " ,\t"); p && nt < 5; p = strtok(nullptr, " ,\t")) tok[nt++] = p;
+    if (nt != 4) return false;
+    out.x0 = (uint8_t)atoi(tok[0]);
+    out.y0 = (uint8_t)atoi(tok[1]);
+    out.x1 = (uint8_t)atoi(tok[2]);
+    out.y1 = (uint8_t)atoi(tok[3]);
+    return true;
 }
 
 }  // namespace
@@ -237,6 +258,13 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             if (space) { *space = 0; arg = trimIn(space + 1); }
             Sec ns;
             if (!secFromTag(t, ns)) { setErr(err, errCap, lineNo, "unknown section"); return false; }
+            if (ns == DARK && arg && arg[0]) {
+                // v0.18.0: inline rect on the header ("@dark x0,y0 x1,y1"). More rects may follow as
+                // body lines. Over MAX_DARK rects are silently dropped (clipped later in World::load).
+                Otr::DarkRect dr{};
+                if (!parseDarkTokens(arg, dr)) { setErr(err, errCap, lineNo, "@dark needs 'x0,y0 x1,y1'"); return false; }
+                if (out.darkCount < Otr::MAX_DARK) out.darks[out.darkCount++] = dr;
+            }
             if (ns == NPC) {
                 if (out.npcCount >= MAX_NPCS) { setErr(err, errCap, lineNo, "too many npcs"); return false; }
                 Npc &n = out.npcs[out.npcCount];
@@ -367,6 +395,16 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 tr.y = (uint8_t)atoi(tok[1]);
                 tr.item = item;
                 tr.amount = (uint8_t)(nt >= 4 ? atoi(tok[3]) : 1);
+                break;
+            }
+            case DARK: {
+                // One dark rectangle per body line: "x0,y0 x1,y1". Over MAX_DARK rects are silently
+                // dropped (consistent with the inline @dark form).
+                stripCommentIn(t);
+                if (!t[0]) break;
+                Otr::DarkRect dr{};
+                if (!parseDarkTokens(t, dr)) { setErr(err, errCap, lineNo, "@dark rect needs 'x0,y0 x1,y1'"); return false; }
+                if (out.darkCount < Otr::MAX_DARK) out.darks[out.darkCount++] = dr;
                 break;
             }
             case RESOURCES: {
@@ -534,6 +572,8 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     out.map.rules = rules;
     out.map.treasures = out.treasureCount ? out.treasures : nullptr;
     out.map.treasureCount = out.treasureCount;
+    out.map.darks = out.darkCount ? out.darks : nullptr;   // v0.18.0
+    out.map.darkCount = out.darkCount;
 
     // --- Build the Script ---
     out.script.npcs = out.npcs;

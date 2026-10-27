@@ -566,9 +566,9 @@ static void testTreasures()
     static const char *const rowsOk[] = {"########", "#.c.b..#", "#.S.%R.#", "#..D...#", "########"};
     static const Treasure t[] = {{2, 1, Obj::GEM, 0}, {4, 1, Obj::POTION, 3}, {4, 2, Obj::HEART, 2},
                                  {5, 2, Obj::SUIT, 0}, {1, 1, Obj::KEY, 0},  {3, 3, Obj::LIFE, 0}};
-    MapDef bad = {9, rows, 5, R8, t, 6};
+    MapDef bad = {9, rows, 5, R8, t, 6, nullptr, 0};
     CHECK(!W.load(bad));                                      // Ragged rows
-    MapDef def = {9, rowsOk, 5, R8, t, 6};
+    MapDef def = {9, rowsOk, 5, R8, t, 6, nullptr, 0};
     CHECK(W.load(def));
     CHECK_EQ(W.mapId(), 9);
     CHECK_EQ(W.gemsTotal(), 1);                               // Hidden gems count
@@ -601,11 +601,11 @@ static void testTreasures()
     CHECK_EQ((int)W.obj(3, 3), (int)Obj::LIFE);
     // Invalid treasure lists
     static const Treasure dup[] = {{2, 1, Obj::GEM, 0}, {2, 1, Obj::KEY, 0}};
-    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, dup, 2}));
+    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, dup, 2, nullptr, 0}));
     static const Treasure notItem[] = {{2, 1, Obj::ROCK, 0}};
-    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, notItem, 1}));
+    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, notItem, 1, nullptr, 0}));
     static const Treasure outside[] = {{20, 1, Obj::GEM, 0}};
-    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, outside, 1}));
+    CHECK(!W.load(MapDef{9, rowsOk, 5, R8, outside, 1, nullptr, 0}));
 }
 
 static constexpr Rules RFOG = {8, 20, 3, 3, 4, 3, 1, 2, 1, true, 0};
@@ -664,6 +664,179 @@ static void testMinesweeper()
     CHECK(W.revealed(3, 2));
 }
 
+// Zlib CRC32 (matches the one in otr_world.cpp) so the test can forge a valid old (v2) save file.
+static uint32_t testCrc32(const uint8_t *p, size_t n)
+{
+    uint32_t crc = ~0u;
+    while (n--) {
+        crc ^= *p++;
+        for (int k = 0; k < 8; k++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return ~crc;
+}
+
+// v0.18.0: dark areas, the flashlight cone, pogo vaulting, and the v3 save round trip.
+static void testDarkFlashPogo()
+{
+    // --- Darkness visibility: a dark cell is hidden, the player's own cell is always visible. ---
+    {
+        static const char *const rows[] = {"S.....", "......", "......", "......", "......", ".....X"};
+        static const DarkRect darks[] = {{0, 0, 4, 4}};   // covers the player cell (0,0) too
+        MapDef def = {60, rows, 6, R8, nullptr, 0, darks, 1};
+        CHECK(W.load(def));
+        CHECK(W.darkCell(0, 0));                 // flagged dark ...
+        CHECK(!W.darkHidden(0, 0));              // ... but the player's cell is visible
+        CHECK(W.darkCell(3, 3));
+        CHECK(W.darkHidden(3, 3));               // an unlit dark cell is hidden
+        CHECK(!W.darkCell(5, 5));                // outside the rect: not dark
+        CHECK(!W.darkHidden(5, 5));
+    }
+
+    // --- Flashlight cone: shape + reach per level, and it reveals darkness only. ---
+    {
+        static const char *const rows[] = {"S......", ".......", ".......", ".......",
+                                           ".......", ".......", "......X"};
+        static const DarkRect darks[] = {{0, 0, 6, 6}};   // whole map dark
+        MapDef def = {61, rows, 7, R8, nullptr, 0, darks, 1};
+        CHECK(W.load(def));
+        CHECK_EQ((int)W.facing(), (int)Dir::DOWN);   // default facing after load
+        // Level 1: R = 3. Straight ahead up to 3; the wedge widens with distance.
+        W.setFlashlight(1);
+        CHECK_EQ(W.flashlight(), 1);
+        CHECK(W.lit(0, 1)); CHECK(W.lit(0, 3));      // forward 1..3, lateral 0
+        CHECK(!W.lit(0, 4));                          // beyond reach
+        CHECK(W.lit(1, 2));                           // forward 2, lateral 1: 1 <= 1
+        CHECK(!W.lit(2, 2));                          // forward 2, lateral 2: 2 > 1
+        CHECK(!W.lit(1, 1));                          // forward 1, lateral 1: 1 > 0
+        CHECK(!W.darkHidden(0, 1));                   // a lit dark cell becomes visible
+        CHECK(W.darkHidden(0, 4));                    // an unlit dark cell stays hidden
+        // Level 3: R = 5 reaches farther.
+        W.setFlashlight(3);
+        CHECK_EQ(W.flashlight(), 3);
+        CHECK(W.lit(0, 5)); CHECK(!W.lit(0, 6));
+        // setFlashlight clamps to 0..3.
+        W.setFlashlight(9); CHECK_EQ(W.flashlight(), 3);
+        W.setFlashlight(-2); CHECK_EQ(W.flashlight(), 0);
+        CHECK(!W.lit(0, 1));                          // no flashlight: nothing is lit
+    }
+
+    // --- Flashlight reveals darkness only, never fog. ---
+    {
+        // Mine directly below the start: fog reveals only the start cell (it has a mine neighbour).
+        static const char *const rows[] = {"S.", "m.", ".."};
+        CHECK(loadR(rows, RFOG));
+        CHECK(!W.revealed(0, 1));                     // fogged
+        CHECK_EQ((int)W.obj(0, 1), (int)Obj::NONE);   // mine hidden by fog
+        W.setFlashlight(3);
+        CHECK(W.lit(0, 1));                           // the cell IS inside the cone ...
+        CHECK(!W.revealed(0, 1));                     // ... yet fog is untouched
+        CHECK_EQ((int)W.obj(0, 1), (int)Obj::NONE);   // mine still hidden
+    }
+
+    // --- Pogo vault: success for widths 1..level. ---
+    {
+        struct Case { const char *row; int pogo; int landX; };
+        static const Case ok[] = {
+            {"ST...", 3, 2},   // 1 blocking tree
+            {"STT..", 3, 3},   // 2 blocking trees
+            {"STTT.", 3, 4},   // 3 blocking trees
+            {"ST...", 1, 2},   // level 1 clears a single-wide gap
+        };
+        for (const Case &c : ok) {
+            const char *const rows[] = {c.row};
+            CHECK(W.load(rows, 1));
+            W.setPogo(c.pogo);
+            const uint32_t ev = W.move(Dir::RIGHT);
+            CHECK(ev & EV_MOVED);
+            CHECK_EQ(W.playerX(), c.landX);
+        }
+    }
+
+    // --- Pogo failure: too wide / landing blocked / out of bounds -> EV_BLOCKED, no move. ---
+    {
+        struct Case { const char *row; int pogo; };
+        static const Case bad[] = {
+            {"STT..", 1},   // 2 wide, only level 1: out of reach
+            {"STTT#", 3},   // reaches but the landing cell is a wall
+            {"STT", 3},     // vault would land off the map edge
+        };
+        for (const Case &c : bad) {
+            const char *const rows[] = {c.row};
+            CHECK(W.load(rows, 1));
+            W.setPogo(c.pogo);
+            const uint32_t ev = W.move(Dir::RIGHT);
+            CHECK_EQ(ev, (uint32_t)EV_BLOCKED);
+            CHECK_EQ(W.playerX(), 0);                 // stayed put
+        }
+    }
+
+    // --- A pushable rock is still pushed, not vaulted, even with a pogo stick. ---
+    {
+        const char *const rows[] = {"SR..."};
+        CHECK(W.load(rows, 1));
+        W.setPogo(3);
+        const uint32_t ev = W.move(Dir::RIGHT);
+        CHECK(ev & EV_PUSHED);
+        CHECK_EQ(W.playerX(), 1);
+        CHECK_EQ((int)W.obj(2, 0), (int)Obj::ROCK);
+    }
+
+    // --- Glyph pickups f / j grant level 1; treasures set a higher level (amount == level). ---
+    {
+        const char *const rows[] = {"Sf..."};
+        CHECK(W.load(rows, 1));
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);
+        CHECK_EQ(W.flashlight(), 1);
+    }
+    {
+        const char *const rows[] = {"Sj..."};
+        CHECK(W.load(rows, 1));
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);
+        CHECK_EQ(W.pogo(), 1);
+    }
+    {
+        static const char *const rows[] = {"S....", ".....", "....."};
+        static const Treasure t[] = {{2, 0, Obj::FLASH, 3}, {3, 0, Obj::POGO, 2}};
+        MapDef def = {62, rows, 3, R8, t, 2, nullptr, 0};
+        CHECK(W.load(def));
+        CHECK_EQ((int)W.obj(2, 0), (int)Obj::FLASH);
+        CHECK_EQ((int)W.obj(3, 0), (int)Obj::POGO);
+        CHECK(W.move(Dir::RIGHT) & EV_MOVED);
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);      // onto the flashlight (level 3)
+        CHECK_EQ(W.flashlight(), 3);
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);      // onto the pogo stick (level 2)
+        CHECK_EQ(W.pogo(), 2);
+    }
+
+    // --- Save/restore v3 round trip, and a forged v2 save loads with flash = pogo = 0. ---
+    {
+        static const char *const rows[] = {"S....", ".....", "....."};
+        CHECK(W.load(rows, 3));
+        W.setFlashlight(2);
+        W.setPogo(3);
+        const size_t n = W.saveSize();
+        CHECK(W.save(SAVEBUF, sizeof(SAVEBUF)) == n);
+        // v3 round trip keeps the ability levels.
+        CHECK(W.load(rows, 3));
+        CHECK(W.restore(SAVEBUF, n));
+        CHECK_EQ(W.flashlight(), 2);
+        CHECK_EQ(W.pogo(), 3);
+        // Forge an old v2 save: version 2 + zeroed ability bytes (player-block bytes 26,27 ->
+        // absolute 16+26, 16+27), CRC recomputed. It must load with flash = pogo = 0.
+        static uint8_t v2[64 * 1024];
+        memcpy(v2, SAVEBUF, n);
+        v2[4] = 2; v2[5] = 0;              // version u16 at header offset 4
+        v2[16 + 26] = 0; v2[16 + 27] = 0; // clear the v3 ability bytes
+        const uint32_t crc = testCrc32(v2, n - 4);
+        v2[n - 4] = (uint8_t)crc; v2[n - 3] = (uint8_t)(crc >> 8);
+        v2[n - 2] = (uint8_t)(crc >> 16); v2[n - 1] = (uint8_t)(crc >> 24);
+        CHECK(W.load(rows, 3));
+        CHECK(W.restore(v2, n));
+        CHECK_EQ(W.flashlight(), 0);
+        CHECK_EQ(W.pogo(), 0);
+    }
+}
+
 static void testSaveLoad()
 {
     CHECK(W.load(WORLDS[1]));
@@ -703,7 +876,7 @@ static void testSaveLoad()
         switch (k) {
         case 0: again[n / 2] ^= 0x40; ok = W.restore(again, n); break;       // Bit flip (CRC)
         case 1: ok = W.restore(again, n - 1); break;                          // Truncated
-        case 2: again[4] = 3; ok = W.restore(again, n); break;                // Other version
+        case 2: again[4] = 99; ok = W.restore(again, n); break;               // Unknown (future) version
         case 3: again[0] = 'X'; ok = W.restore(again, n); break;              // Bad magic
         case 4: ok = W.restore(nullptr, n); break;
         }
@@ -1074,6 +1247,7 @@ int main()
     testItems();
     testTreasures();
     testMinesweeper();
+    testDarkFlashPogo();
     testSaveLoad();
     testWorlds();
     testPlanProTieBreak();

@@ -19,10 +19,12 @@ uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
 struct PlayerSnap {
     int energy, maxEnergy, suit, keys, livesLeft, livesUsed;
     bool boat;
+    int flash, pogo;   // v0.18.0: permanent abilities (always carried, not gated by the carry mask)
 };
 PlayerSnap snapPlayer(const Otr::World &w)
 {
-    return {w.energy(), w.maxEnergy(), w.suitCharges(), w.keys(), w.livesLeft(), w.livesUsed(), w.hasBoat()};
+    return {w.energy(), w.maxEnergy(), w.suitCharges(), w.keys(), w.livesLeft(), w.livesUsed(),
+            w.hasBoat(), w.flashlight(), w.pogo()};
 }
 
 // Story progress snapshot keyed by NAME, so it survives a different map's script (whose item/flag
@@ -188,6 +190,10 @@ bool SdSession::travel(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &s
     if (keep(CARRY_BOAT)) w.setBoat(old.boat);
     if (keep(CARRY_LIVES)) w.setLives(old.livesLeft, old.livesUsed);
     // GEMS are map-local (each map has its own total), so they are never carried across maps.
+    // v0.18.0: flashlight + pogo are PERMANENT abilities - always re-applied, regardless of the
+    // per-map carry/reset mask. (World::load() zeroed them; restore their levels here.)
+    w.setFlashlight(old.flash);
+    w.setPogo(old.pogo);
 
     // Story items/flags/counters/quests: the raw bitset indices belong to the old script, so start
     // fresh and (when items carry) re-apply the snapshot by name onto the new script.

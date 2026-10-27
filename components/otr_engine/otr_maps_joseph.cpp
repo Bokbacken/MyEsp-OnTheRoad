@@ -101,6 +101,6 @@ static constexpr Rules JOSEPH_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, 
 // world id (see ui_adventure.cpp, which passes WORLDS[idx].id as the world id) and the camp map's
 // stable save id. The road is the second map of the same world, with its own stable save id (5);
 // Adventure::Session loads it on travel after the camp exit is reached.
-const MapDef JOSEPH_ROAD_DEF = {5, JOSEPH_ROAD_ROWS, JOSEPH_ROAD_H, JOSEPH_RULES, nullptr, 0};
+const MapDef JOSEPH_ROAD_DEF = {5, JOSEPH_ROAD_ROWS, JOSEPH_ROAD_H, JOSEPH_RULES, nullptr, 0, nullptr, 0};
 
 }  // namespace Otr

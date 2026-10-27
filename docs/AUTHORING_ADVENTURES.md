@@ -16,7 +16,12 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 > - `@treasures` – dolda skatter under täckande objekt — avsnitt 8
 > - `@resources` – egna samlingsbara föremål (glyf → bild + tak) — avsnitt 9
 > - `carry`/`reset` i `@rules` – vad som följer med mellan nivåer — avsnitt 4
-> - Egna **32×32 PNG-sprites** i `bitmaps/` — avsnitt 10
+> - Egna **32×32 PNG-sprites** i `bitmaps/` — avsnitt 11
+>
+> **Nytt i v0.18.0** (avsnitt 10):
+> - `@dark` – mörka områden som bara lyses upp av ficklampan — avsnitt 10
+> - **Ficklampa** (`f` / `@treasures ... flashlight N`) – lyser upp mörkret i en kon framåt
+> - **Hoppstylta** (`j` / `@treasures ... pogo N`) – studsar automatiskt över hinder
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -84,6 +89,7 @@ Sektionerna, i ordning:
 @about       titel, beskrivning, författare, omslag (det SD-menyn visar)
 @rules       spelregler (energi, liv, lava, dimma) + carry/reset
 @map         själva kartan, ritad med ASCII-tecken
+@dark        mörka områden som ficklampan lyser upp (valfri, v0.18.0)
 @treasures   dolda skatter under täckande objekt (valfri)
 @resources   egna samlingsbara föremål kopplade till glyfer (valfri)
 @flags       deklarera alla flaggor du använder
@@ -311,6 +317,8 @@ exakt som `decode()` i `otr_world.cpp`:
 | `h` | hjärta (höjer max-energi) |
 | `u` | skyddsdräkt (lava) |
 | `l` | extra liv |
+| `f` | ficklampa nivå 1 (lyser upp mörker, se avsnitt 10) |
+| `j` | hoppstylta nivå 1 (studsar över hinder, se avsnitt 10) |
 | `a` / `z` | bomb (3x3 / 4x4, minvärldar) |
 | `m` | dold mina (minvärldar) |
 
@@ -327,6 +335,8 @@ förrän en dialogeffekt flyttar hen åt sidan (`world npc_move ...`).
 > **Lediga glyfer för resurser:** alla tecken som *inte* står i tabellerna ovan
 > (och inte är siffror 1–9) är lediga och kan bindas till egna samlingsbara
 > föremål via `@resources` (avsnitt 9). I demot används `s` och `w`.
+> Obs: `f` (ficklampa) och `j` (hoppstylta) är **inte längre lediga** sedan
+> v0.18.0 – de är inbyggda föremål (se avsnitt 10).
 
 ---
 
@@ -442,8 +452,10 @@ exponerar det nu direkt.
 Varje rad är `x y id antal`:
 - `x` / `y` – rutans koordinater (0-indexerat, `x` = kolumn, `y` = rad).
 - `id` – `gem` för ädelsten, annars ett föremåls-id från `@items` eller en
-  resurs från `@resources`.
-- `antal` – hur många (oftast 1).
+  resurs från `@resources`. Sedan v0.18.0 även `flashlight` (ficklampa) eller
+  `pogo` (hoppstylta) – se avsnitt 10.
+- `antal` – hur många (oftast 1). För `flashlight`/`pogo` är fältet i stället
+  **nivån** (1–3).
 
 Max **48** skatter per karta. Lägg skatten under ett objekt som går att slå bort
 (buske, låda, sprucken vägg) – annars är den aldrig nåbar.
@@ -499,7 +511,120 @@ choice: Jag letar vidare. | I'll keep looking. => END
 
 ---
 
-## 10. Egna sprites – 32×32 PNG (nytt i v0.17.0)
+## 10. Mörker, ficklampa och hoppstylta (nytt i v0.18.0)
+
+v0.18.0 lägger till tre saker som hänger ihop: **mörka områden** på kartan, en
+**ficklampa** som lyser upp dem, och en **hoppstylta** som studsar över hinder.
+Ficklampa och hoppstylta är **permanenta** – de följer med spelaren mellan alla
+kartor i samma äventyr (oberoende av `carry`/`reset` i `@rules`).
+
+### 10a. @dark – mörka områden
+
+`@dark` märker en eller flera **rektanglar** på kartan som mörka. En mörk ruta
+ritas **inte ut** (spelaren ser bara svart) om den inte är upplyst – men mörkret
+**blockerar inte rörelse**. Man kan alltså gå rakt in i mörkret; man ser bara
+inte vad som finns där förrän ficklampan lyser på rutan (eller det är rutan man
+själv står på, som alltid är synlig).
+
+```
+# x0,y0  x1,y1   (två hörn, inklusive båda; rektangeln fylls)
+@dark
+2,2 9,6
+12,8 14,10
+```
+
+Regler för `@dark`:
+
+- Varje rad är **två hörn**: `x0,y0 x1,y1`. Båda hörnen räknas med (inklusivt),
+  och motorn vänder automatiskt om du anger dem i "fel" ordning.
+- Koordinaterna är 0-indexerade (`x` = kolumn, `y` = rad), samma som `@map`.
+- Du får ange **flera** rektanglar (en per rad), max **16** (`MAX_DARK`).
+- Rektanglar **klipps mot kartans kant** – delar utanför kartan ignoreras, och
+  en rektangel som ligger helt utanför kastas bort.
+- Mörkret döljer terräng, föremål, skatter och personer i rutan tills det lyses
+  upp. Det är tänkt för grottor, källare och nattkartor.
+
+Du kan även skriva rektangeln på samma rad som taggen: `@dark 2,2 9,6`.
+
+### 10b. Ficklampa – lyser upp mörkret
+
+Ficklampan lyser upp mörka rutor i en **kon framåt** i den riktning spelaren är
+vänd. Den har tre nivåer (1–3) – ju högre nivå, desto längre når konen.
+
+Lägg in den på kartan med glyfen `f` (**nivå 1**):
+
+```
+@map
+........
+...f....
+...S....
+```
+
+Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1–3):
+
+```
+# x  y  flashlight  nivå
+@treasures
+3 1 flashlight 2
+```
+
+Konens form och räckvidd:
+
+- Räckvidd framåt `R = nivå + 2` rutor: **nivå 1 → 3**, **nivå 2 → 4**,
+  **nivå 3 → 5** rutor framför spelaren.
+- En ruta lyses upp om den ligger `framåt` steg (1..`R`) i blickriktningen och
+  dess sidled-avvikelse är `abs(sidled) ≤ framåt / 2` (en ~45°-kil som vidgas
+  med avståndet).
+- Ficklampan avtäcker **enbart mörker** (`@dark`). Den lyser **inte** upp dimma
+  (`fog`) i minvärldar – det är två olika system.
+- Rutan spelaren står på är alltid synlig, oavsett ficklampa.
+- Plockar man upp en starkare ficklampa höjs nivån (max 3). En lägre nivå
+  sänker den aldrig.
+
+### 10c. Hoppstylta – studsa över hinder
+
+Hoppstyltan låter spelaren **automatiskt hoppa över hinder** när hen går rakt in
+i dem. Tre nivåer (1–3) avgör hur **brett** hinder man klarar.
+
+Lägg in den på kartan med glyfen `j` (**nivå 1**):
+
+```
+@map
+............
+..j.........
+..S..RRR..X.
+```
+
+Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1–3):
+
+```
+# x  y  pogo  nivå
+@treasures
+2 1 pogo 2
+```
+
+Så fungerar vaulten vid ett drag mot ett blockerande hinder (sten, låda,
+buske, oknuffbar sten osv.):
+
+- Motorn räknar hur många **blockerande rutor i rad** som ligger i
+  dragriktningen, upp till `nivå` stycken.
+- Landningsrutan är **första gångbara rutan bortom** hindret. Är den gångbar och
+  innanför kartan hoppar spelaren dit i ett svep.
+- Hoppet **misslyckas** (vanligt stopp, `EV_BLOCKED`) om:
+  - hinderraden är bredare än `nivå` (för många rutor i rad),
+  - landningsrutan inte är gångbar (ännu ett hinder, vatten utan båt osv.),
+  - landningsrutan hamnar utanför kartan.
+- En nivå-2-stylta klarar alltså 1–2 rutor breda hinder, nivå 3 klarar 1–3.
+- Som ficklampan höjer en starkare hoppstylta nivån (max 3) och sänker den
+  aldrig.
+
+> **Carry mellan kartor:** både ficklampa och hoppstylta är permanenta och
+> återställs **alltid** på nästa karta i äventyret, även om `@rules` inte listar
+> dem i `carry`. Spelaren behöver alltså bara plocka upp dem en gång.
+
+---
+
+## 11. Egna sprites – 32×32 PNG (nytt i v0.17.0)
 
 Du kan ge föremål, resurser och omslag egna bilder. Lägg **32×32 PNG med
 alfakanal** i äventyrets `bitmaps/`-mapp (och omslaget direkt i äventyrsmappen,
@@ -523,7 +648,7 @@ om den som mall för dina egna.
 
 ---
 
-## 11. Validering
+## 12. Validering
 
 Motorns `Script::validate()` plus `.adv`-laddaren kontrollerar äventyret och är
 den bästa checklistan när du skrivit klart. Du får fel om:
@@ -543,7 +668,7 @@ ett `S`.
 
 ---
 
-## 12. Import/export-status
+## 13. Import/export-status
 
 `.adv`-formatet **läses nu både på värddator och direkt på enheten.**
 
@@ -580,7 +705,7 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itools -Icomponents/otr_engine/include \
 
 ---
 
-## 13. Kompletta exempel
+## 14. Kompletta exempel
 
 - **Hebron-lägret (Josef, 1 Mos 37):**
   [`docs/adventures/example_joseph_hebron.adv`](adventures/example_joseph_hebron.adv)

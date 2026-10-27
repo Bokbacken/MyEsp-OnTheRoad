@@ -49,6 +49,8 @@ bool decode(char c, Cell &out)
     case 'l': out = {Tile::GRASS, Obj::LIFE}; return true;
     case 'a': out = {Tile::GRASS, Obj::BOMB3}; return true;
     case 'z': out = {Tile::GRASS, Obj::BOMB4}; return true;
+    case 'f': out = {Tile::GRASS, Obj::FLASH}; return true;   // v0.18.0 flashlight (level 1)
+    case 'j': out = {Tile::GRASS, Obj::POGO}; return true;    // v0.18.0 pogo stick (level 1)
     case 'm': out = {Tile::GRASS, Obj::MINE}; return true;
     default:
         if (c >= '1' && c <= '9') { out = {Tile::GRASS, Obj::NPC}; return true; }   // Person (number = digit)
@@ -73,7 +75,8 @@ bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::D
 bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
-           o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4;
+           o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4 ||
+           o == Obj::FLASH || o == Obj::POGO;
 }
 bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == Tile::CRACKED; }
 
@@ -172,6 +175,19 @@ bool World::load(const MapDef &def)
         uint32_t ev = 0;
         uncover(t.x, t.y, ev);   // Nothing covers it: visible from the start
     }
+    // v0.18.0 dark areas: flag every cell inside each @dark rectangle. Coordinates are clipped to
+    // the map bounds; a rectangle that lies fully outside is dropped. Darkness only hides cells
+    // (see darkHidden / lit); it never blocks movement.
+    for (int i = 0; i < def.darkCount && def.darks; i++) {
+        int x0 = def.darks[i].x0, y0 = def.darks[i].y0, x1 = def.darks[i].x1, y1 = def.darks[i].y1;
+        if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+        if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+        if (x0 >= w_ || y0 >= h_) continue;          // fully outside
+        if (x1 >= w_) x1 = w_ - 1;
+        if (y1 >= h_) y1 = h_ - 1;
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++) flags_[y][x] |= F_DARK;
+    }
     rev_ = 1;
     return true;
 }
@@ -207,6 +223,25 @@ int World::suitChargesAtPickup() const
     return rules_.suitBaseSteps + rules_.suitPerExtraMax * extra;
 }
 
+// v0.18.0 flashlight cone. Range R = flash_ + 2 (L1->3, L2->4, L3->5 cells ahead). For a cell at
+// (fx, fy) = (x-px, y-py): project onto the facing axis (forward) and the perpendicular (lateral).
+// Lit iff forward in [1..R] and abs(lateral) <= forward/2 (integer floor) -> a ~45deg cone that
+// widens with distance. The player's own cell is handled separately (always visible). Reveals
+// darkness only: this function is never consulted for fog / mines.
+bool World::lit(int x, int y) const
+{
+    if (flash_ <= 0 || !inside(x, y)) return false;
+    const int R = flash_ + 2;
+    const int rx = dirX(facing_), ry = dirY(facing_);
+    const int fx = x - px_, fy = y - py_;
+    int forward, lateral;
+    if (rx != 0) { forward = fx * rx; lateral = fy; }
+    else { forward = fy * ry; lateral = fx; }
+    if (forward < 1 || forward > R) return false;
+    const int a = lateral < 0 ? -lateral : lateral;
+    return a <= forward / 2;
+}
+
 bool World::playerCanEnter(int x, int y) const
 {
     if (!inside(x, y)) return false;
@@ -224,6 +259,29 @@ bool World::rockCanEnter(int x, int y) const
     const Tile t = tile(x, y);
     if (t == Tile::CHECKPOINT || t == Tile::EXIT) return false;
     return isGround(t) || t == Tile::WATER || t == Tile::LAVA;   // Never onto gates
+}
+
+// v0.18.0 pogo vault. Cells ahead in direction d at distance k are C(k) = player + k*dir (k >= 1);
+// C(1) is the blocking cell that triggered the vault. Count the contiguous run of blocking cells
+// (an out-of-bounds cell counts as blocking), capped at pogo_. Land on the first walkable, in-bounds
+// cell just beyond the run. Returns false if the run is wider than pogo_ (no gap within reach) or
+// the cell beyond is not walkable / out of bounds.
+bool World::pogoLand(Dir d, int &lx, int &ly) const
+{
+    if (pogo_ <= 0) return false;
+    const int dx = dirX(d), dy = dirY(d);
+    int run = 0;
+    for (int k = 1; k <= pogo_; k++) {
+        const int cx = px_ + dx * k, cy = py_ + dy * k;
+        if (inside(cx, cy) && playerCanEnter(cx, cy)) break;   // gap found: run ended at k-1
+        run = k;                                               // blocking (or OOB) cell
+    }
+    if (run == 0) return false;
+    const int landx = px_ + dx * (run + 1), landy = py_ + dy * (run + 1);
+    if (!inside(landx, landy) || !playerCanEnter(landx, landy)) return false;   // too wide / blocked / OOB
+    lx = landx;
+    ly = landy;
+    return true;
 }
 
 void World::updateGates(uint32_t &ev)
@@ -361,6 +419,20 @@ uint32_t World::pickup(uint32_t ev)
         else if (livesLeft_ < MAX_LIVES) livesLeft_++;
         ev |= EV_LIFE;
         break;
+    case Obj::FLASH: {   // v0.18.0: level = amount (0 => 1), clamped 1..3; never lowered.
+        int lvl = amount ? amount : 1;
+        if (lvl > 3) lvl = 3;
+        if (lvl > flash_) flash_ = (uint8_t)lvl;
+        ev |= EV_TREASURE;   // generic pickup feedback (UI shows a flashlight-specific toast)
+        break;
+    }
+    case Obj::POGO: {
+        int lvl = amount ? amount : 1;
+        if (lvl > 3) lvl = 3;
+        if (lvl > pogo_) pogo_ = (uint8_t)lvl;
+        ev |= EV_TREASURE;
+        break;
+    }
     default: break;
     }
     obj_[py_][px_] = (uint8_t)Obj::NONE;
@@ -389,10 +461,10 @@ uint32_t World::move(Dir d)
         return ev | EV_DOOR;
     case Obj::CRATE:
     case Obj::BUSH:
-        return EV_BLOCKED;
+        break;   // v0.18.0: fall through to the pogo gate (a pogo stick may vault it)
     case Obj::ROCK: {
         const int bx = tx + dirX(d), by = ty + dirY(d);
-        if (!rockCanEnter(bx, by)) return EV_BLOCKED;
+        if (!rockCanEnter(bx, by)) break;   // v0.18.0: not pushable -> fall through to the pogo gate
         set(tx, ty, Obj::NONE);
         const Tile under = tile(bx, by);
         if (under == Tile::WATER) {
@@ -413,9 +485,15 @@ uint32_t World::move(Dir d)
         break;
     }
 
-    if (!playerCanEnter(tx, ty)) return ev | EV_BLOCKED;
-    px_ = tx;
-    py_ = ty;
+    int destX = tx, destY = ty;
+    if (!playerCanEnter(tx, ty)) {
+        // v0.18.0 pogo stick: try to vault the blocking obstacle(s) and land beyond.
+        int lx, ly;
+        if (pogo_ > 0 && pogoLand(d, lx, ly)) { destX = lx; destY = ly; }
+        else return ev | EV_BLOCKED;
+    }
+    px_ = destX;
+    py_ = destY;
     steps_++;
     ev |= EV_MOVED;
 
@@ -676,6 +754,7 @@ size_t World::save(uint8_t *buf, size_t cap) const
     o.u8(energy_); o.u8(maxEnergy_); o.u8((uint8_t)(int8_t)livesLeft_); o.u16(livesUsed_); o.u16(suit_);
     o.u8((boat_ ? 1 : 0) | (gateOpen_ ? 2 : 0) | (gameOver_ ? 4 : 0) | (exitReached_ ? 8 : 0));
     o.u8(mineLevel_); o.u8(bomb3_); o.u8(bomb4_);
+    o.u8(flash_); o.u8(pogo_);   // v3 (bytes 26,27): persistent ability levels (0..3)
     o.p = pb + PLAYER_BYTES;
     for (int y = 0; y < h_; y++)
         for (int x = 0; x < w_; x++) {
@@ -692,8 +771,8 @@ bool World::restore(const uint8_t *buf, size_t n)
     Reader r{buf};
     if (r.u32() != SAVE_MAGIC) return false;
     const int version = r.u16();
-    if ((version != 1 && version != SAVE_VERSION) || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
-        return false;
+    if (version < 1 || version > SAVE_VERSION || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
+        return false;   // v3: accept any known version (1..SAVE_VERSION); old saves lack later bytes
     r.u8();
     if (r.u32() != n - HEADER_BYTES - 4) return false;
     r.u16();
@@ -706,9 +785,10 @@ bool World::restore(const uint8_t *buf, size_t n)
     const uint32_t steps = r.u32();
     const int energy = r.u8(), maxE = r.u8(), lives = r.s8(), livesUsed = r.u16(), suit = r.u16();
     const int bits = r.u8();
-    const int level = version == 2 ? r.u8() : 0;
-    const int b3 = version == 2 ? r.u8() : 0, b4 = version == 2 ? r.u8() : 0;
-    if (level != mineLevel_ || b3 > 99 || b4 > 99 || bits > 15) return false;
+    const int level = version >= 2 ? r.u8() : 0;
+    const int b3 = version >= 2 ? r.u8() : 0, b4 = version >= 2 ? r.u8() : 0;
+    const int flash = version >= 3 ? r.u8() : 0, pogo = version >= 3 ? r.u8() : 0;   // v1/v2: default 0
+    if (level != mineLevel_ || b3 > 99 || b4 > 99 || bits > 15 || flash > 3 || pogo > 3) return false;
     if (!inside(px, py) || !inside(cpx, cpy) || facing > 3 || gems > gemsTotal || gemsTotal != gemsTotal_ ||
         maxE < 1 || maxE > rules_.energyCap || energy > maxE || steps > 0x7FFFFFFF)
         return false;
@@ -718,7 +798,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     const uint8_t *cells = r.p;
     for (int i = 0; i < w_ * h_; i++) {
         const uint8_t *c = cells + i * CELL_BYTES;
-        if (c[0] >= (uint8_t)Tile::COUNT || c[1] >= (uint8_t)Obj::COUNT || c[3] >= (uint8_t)Obj::COUNT || c[5] > 3)
+        if (c[0] >= (uint8_t)Tile::COUNT || c[1] >= (uint8_t)Obj::COUNT || c[3] >= (uint8_t)Obj::COUNT || c[5] > 7)
             return false;
         if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
     }
@@ -731,7 +811,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     }
     if (level && ((lives == 0) != bool(bits & 4) || suit > 1 || b3 > 1 || b4 > 1)) return false;
     // Apply
-    bomb3_ = b3; bomb4_ = b4;
+    bomb3_ = b3; bomb4_ = b4; flash_ = (uint8_t)flash; pogo_ = (uint8_t)pogo;
     px_ = px; py_ = py; cpX_ = cpx; cpY_ = cpy; facing_ = (Dir)facing;
     keys_ = keys; gems_ = gems; steps_ = (int)steps;
     energy_ = energy; maxEnergy_ = maxE; livesLeft_ = lives; livesUsed_ = livesUsed; suit_ = suit;

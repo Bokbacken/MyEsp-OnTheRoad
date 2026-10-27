@@ -70,6 +70,7 @@ static void crossCheck(const char *path)
     CHECK(L->script.itemCount == ref.script.itemCount);
     CHECK(L->script.questCount == ref.script.questCount);
     CHECK(L->treasureCount == ref.map.treasureCount);
+    CHECK(L->darkCount == ref.map.darkCount);   // v0.18.0: @dark rects agree across both parsers
     CHECK((int)L->resourceCount == (int)ref.resources.size());
     CHECK((int)L->placementCount == (int)ref.resourcePlacements.size());
 
@@ -90,6 +91,7 @@ static void testGenerated()
         "docs/adventures/generated/byn_01_byn.adv",
         "docs/adventures/generated/josef_01_lager.adv",
         "docs/adventures/generated/josef_02_vag.adv",
+        "docs/adventures/generated/01_darkdemo.adv",   // v0.18.0 dark/flashlight/pogo demo
     };
     for (const char *f : files) crossCheck(f);
 }
@@ -103,6 +105,7 @@ static void testSdBundle()
         "sdcard_bundle/otr/adventure/byn/01_byn.adv",
         "sdcard_bundle/otr/adventure/josef/01_lager.adv",
         "sdcard_bundle/otr/adventure/josef/02_vag.adv",
+        "sdcard_bundle/otr/adventure/darkdemo/01_darkdemo.adv",   // v0.18.0 dark/flashlight/pogo demo
     };
     for (const char *f : files) crossCheck(f);
 }
@@ -280,6 +283,100 @@ static void testErrors()
     CHECK(w.width() == 4 && w.height() == 4);
 }
 
+// v0.18.0: @dark directive, f/j glyphs, and @treasures flashlight/pogo in the firmware loader.
+static void testDarkFlashPogo()
+{
+    // Inline rect on the @dark header + extra rects as body lines; cap and clipping verified later.
+    {
+        const char *m =
+            "@dark 1,1 2,2\n"
+            "3,3 3,3\n"
+            "@map\n"
+            "S.....\n"
+            "......\n"
+            "......\n"
+            "......\n"
+            "......\n"
+            ".....X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        CHECK(L->darkCount == 2);
+        CHECK(L->darks[0].x0 == 1 && L->darks[0].y0 == 1 && L->darks[0].x1 == 2 && L->darks[0].y1 == 2);
+        CHECK(L->darks[1].x0 == 3 && L->darks[1].y0 == 3 && L->darks[1].x1 == 3 && L->darks[1].y1 == 3);
+        Otr::World w;
+        CHECK(w.load(L->map));
+        CHECK(w.darkCell(1, 1) && w.darkCell(2, 2));
+        CHECK(!w.darkCell(0, 0));
+        CHECK(w.darkCell(3, 3));
+    }
+
+    // Out-of-bounds rect is clipped to the map bounds at load time (not dropped if it overlaps).
+    {
+        const char *m = "@dark 2,2 9,9\n@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        CHECK(L->darkCount == 1);
+        Otr::World w;
+        CHECK(w.load(L->map));
+        CHECK(w.darkCell(3, 3));  // clipped corner still dark
+        CHECK(w.darkCell(2, 2));
+    }
+
+    // Malformed @dark (wrong token count) is a hard parse error.
+    {
+        const char *bad = "@dark 1,1 2\n@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(!Adv::parse(bad, std::strlen(bad), *L, err, sizeof err));
+    }
+
+    // More than MAX_DARK rects: the overflow is silently dropped, count caps at MAX_DARK.
+    {
+        std::string m = "@dark\n";
+        for (int i = 0; i < Otr::MAX_DARK + 5; i++) m += "1,1 1,1\n";
+        m += "@map\nS...\n....\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m.c_str(), m.size(), *L, err, sizeof err));
+        CHECK(L->darkCount == Otr::MAX_DARK);
+    }
+
+    // f/j glyphs become flashlight / pogo pickups on the map (level 1).
+    {
+        const char *m = "@map\nS.f.\n.j..\n....\n...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        Otr::World w;
+        CHECK(w.load(L->map));
+        CHECK((int)w.obj(2, 0) == (int)Otr::Obj::FLASH);
+        CHECK((int)w.obj(1, 1) == (int)Otr::Obj::POGO);
+    }
+
+    // @treasures with flashlight/pogo ids: amount == level, round-tripped into the treasure list.
+    {
+        const char *m =
+            "@treasures\n"
+            "1 1 flashlight 2\n"
+            "2 2 pogo 3\n"
+            "@map\n"
+            "S...\n"
+            "....\n"
+            "....\n"
+            "...X\n";
+        auto L = std::make_unique<Adv::Loaded>();
+        char err[128] = {0};
+        CHECK(Adv::parse(m, std::strlen(m), *L, err, sizeof err));
+        CHECK(L->treasureCount == 2);
+        CHECK(L->treasures[0].item == Otr::Obj::FLASH && L->treasures[0].amount == 2);
+        CHECK(L->treasures[1].item == Otr::Obj::POGO && L->treasures[1].amount == 3);
+        Otr::World w;
+        CHECK(w.load(L->map));
+    }
+}
+
 int main()
 {
     testGenerated();
@@ -288,6 +385,7 @@ int main()
     testMinesweeper();
     testHeaderScan();
     testErrors();
+    testDarkFlashPogo();
     std::printf("\n%s: %d passed, %d failed\n", g_fail ? "FAIL" : "OK", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

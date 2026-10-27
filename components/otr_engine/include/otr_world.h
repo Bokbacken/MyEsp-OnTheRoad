@@ -34,6 +34,7 @@ constexpr int MAX_H = 80;
 constexpr int CRACK_HITS = 2;
 constexpr int LIVES_INFINITE = -1;
 constexpr int MAX_LIVES = 9;
+constexpr int MAX_DARK = 16;   // v0.18.0: max @dark rectangles per SD map (see MapDef::darks)
 
 enum class Tile : uint8_t {
     GRASS, SAND, FLOOR, RUBBLE, WALL, CRACKED, TREE, WATER, BRIDGE, LAVA, BASALT, PLATE, GATE,
@@ -46,6 +47,7 @@ enum class Obj : uint8_t {
     BUSH, POTION, HEART, SUIT, LIFE, MINE,
     NPC,      // v0.11.0: a person (objAmount = map number 1..9, see otr_story.h); blocks the cell
     BOMB3, BOMB4, // Campaign consumables, appended to preserve old object ids
+    FLASH, POGO,  // v0.18.0: flashlight + pogo-stick pickups. objAmount = level 1..3 (0 => 1).
     COUNT
 };
 
@@ -118,6 +120,11 @@ struct Treasure {
     uint8_t amount;   // Potion: energy, heart: max units, 0 = Rules default
 };
 
+// v0.18.0: an inclusive rectangle of "dark" cells (see @dark). A dark cell is hidden from the UI
+// unless lit by the flashlight cone or occupied by the player. Darkness hides but never blocks
+// movement. Coordinates are clipped to the map bounds in World::load (invalid rects are dropped).
+struct DarkRect { uint8_t x0, y0, x1, y1; };
+
 struct MapDef {
     uint8_t id;                     // Stable id (save files)
     const char *const *rows;
@@ -125,6 +132,8 @@ struct MapDef {
     Rules rules;
     const Treasure *treasures;
     int treasureCount;
+    const DarkRect *darks;          // v0.18.0: dark-area rectangles (nullptr = none)
+    int darkCount;
 };
 
 struct MineLevel { uint8_t w, h, mines; };
@@ -177,6 +186,20 @@ public:
     int livesUsed() const { return livesUsed_; }
     int suitCharges() const { return suit_; }
     int suitChargesAtPickup() const;              // Formula below, for the current max energy
+    // v0.18.0 abilities (levels 0 = none, 1..3). Persistent and upgradable; never lowered.
+    int flashlight() const { return flash_; }
+    int pogo() const { return pogo_; }
+
+    // v0.18.0 dark areas. darkCell(): the cell is flagged dark (a static map property). lit():
+    // the flashlight cone (facing direction, range flash_+2, ~45deg) reaches the cell - flashlight
+    // reveals DARKNESS ONLY (never fog or mines). darkHidden(): the UI must render the cell as
+    // unseen (dark, not lit, not the player's own cell).
+    bool darkCell(int x, int y) const { return inside(x, y) && (flags_[y][x] & F_DARK); }
+    bool lit(int x, int y) const;
+    bool darkHidden(int x, int y) const
+    {
+        return darkCell(x, y) && !(x == px_ && y == py_) && !lit(x, y);
+    }
     bool gameOver() const { return gameOver_; }
     bool exitReached() const { return exitReached_; }
     int checkpointX() const { return cpX_; }
@@ -210,6 +233,10 @@ public:
     void setKeys(int k) { keys_ = k < 0 ? 0 : k; rev_++; }
     void setBoat(bool b) { boat_ = b; rev_++; }
     void setLives(int left, int used) { livesLeft_ = left; livesUsed_ = used < 0 ? 0 : used; rev_++; }
+    // v0.18.0: flashlight / pogo are PERMANENT abilities, re-applied on every SD map transition
+    // (not gated by the carry mask). Clamped to 0..3. See adv_sd_session.
+    void setFlashlight(int l) { flash_ = (uint8_t)(l < 0 ? 0 : l > 3 ? 3 : l); rev_++; }
+    void setPogo(int l) { pogo_ = (uint8_t)(l < 0 ? 0 : l > 3 ? 3 : l); rev_++; }
 
     // Campaign and map travel, no rendering / storage dependencies.
     bool loadMines(int level);
@@ -226,15 +253,19 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 2;
+    static constexpr uint16_t SAVE_VERSION = 3;   // v3: flashlight + pogo levels in the player block
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
 
 private:
     friend class Planner;
-    enum : uint8_t { F_REVEALED = 1, F_FLAG = 2 };
+    enum : uint8_t { F_REVEALED = 1, F_FLAG = 2, F_DARK = 4 };   // F_DARK: v0.18.0 dark-area cell
     bool rockCanEnter(int x, int y) const;
+    // v0.18.0: pogo vault. On a blocked move, scan up to pogo_ contiguous blocking cells ahead in
+    // direction d; if a walkable, in-bounds cell lies just beyond the run, returns true with the
+    // landing cell in (lx, ly). False = no valid vault (run too wide / landing blocked / OOB).
+    bool pogoLand(Dir d, int &lx, int &ly) const;
     void updateGates(uint32_t &ev);
     void set(int x, int y, Tile t) { terrain_[y][x] = (uint8_t)t; rev_++; }
     void set(int x, int y, Obj o) { obj_[y][x] = (uint8_t)o; rev_++; }
@@ -261,6 +292,7 @@ private:
     uint8_t mapId_;
     uint8_t talkNpc_;
     uint8_t mineLevel_, bomb3_, bomb4_;
+    uint8_t flash_, pogo_;   // v0.18.0: flashlight / pogo ability levels (0..3)
     void checkMineWin();
     uint32_t rev_;
 };

@@ -164,6 +164,10 @@ static constexpr const char *SD_ADV_ROOT = "/sdcard/otr/adventure";
 static int s_bombSize=0, s_bombX=-1, s_bombY=-1;
 static bool s_resultShown=false;
 static lv_obj_t *s_stageLabel, *s_bombCancel;
+// v0.18.0: HUD indicators for the permanent abilities (shown only while owned) and the
+// previous ability levels, used to raise the pickup toast on a level increase (no event bit left).
+static lv_obj_t *s_flashTag, *s_pogoTag;
+static int s_prevFlash, s_prevPogo;
 static uint32_t s_actionTapMs;
 static void bombAction();
 static void cancelBomb();
@@ -909,6 +913,25 @@ static void updateStats()
     }
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
+    // Permanent abilities: show the indicator with its level only while owned.
+    if (s_flashTag) {
+        if (w.flashlight() > 0) {
+            lv_label_set_text_fmt(s_flashTag, tr(Str::ADV_FLASHLIGHT_TAG), w.flashlight());
+            lv_obj_set_hidden(s_flashTag, false);
+        } else {
+            lv_obj_set_hidden(s_flashTag, true);
+        }
+    }
+    if (s_pogoTag) {
+        if (w.pogo() > 0) {
+            lv_label_set_text_fmt(s_pogoTag, tr(Str::ADV_POGO_TAG), w.pogo());
+            lv_obj_set_hidden(s_pogoTag, false);
+        } else {
+            lv_obj_set_hidden(s_pogoTag, true);
+        }
+    }
+    s_prevFlash = w.flashlight();
+    s_prevPogo = w.pogo();
     // Energy bar: red fill on a light track (Kent's mock-up); the numbers sit in the bar
     const int e = w.energy(), m = w.maxEnergy();
     lv_bar_set_range(s_bar, 0, m);
@@ -1129,7 +1152,17 @@ static void eventToasts(uint32_t ev)
     } else if (ev & Otr::EV_CHECKPOINT) {
         toast(tr(Str::ADV_CHECKPOINT), Theme::GREEN);
     } else if (ev & Otr::EV_TREASURE) {
-        toast(tr(Str::ADV_TREASURE), Theme::GOLD);
+        // Flashlight/pogo pickups reuse EV_TREASURE (no event bit left): tell them apart
+        // by the level that just rose compared with the last HUD update.
+        if (w.flashlight() > s_prevFlash) {
+            snprintf(buf, sizeof(buf), tr(Str::ADV_FLASHLIGHT_GOT), w.flashlight());
+            toast(buf, Theme::GOLD);
+        } else if (w.pogo() > s_prevPogo) {
+            snprintf(buf, sizeof(buf), tr(Str::ADV_POGO_GOT), w.pogo());
+            toast(buf, Theme::GOLD);
+        } else {
+            toast(tr(Str::ADV_TREASURE), Theme::GOLD);
+        }
         Rgb::effectFlash(255, 230, 120, 200);
     } else if (ev & Otr::EV_DOOR) {
         toast(tr(Str::ADV_DOOR), Theme::GREEN);
@@ -2148,6 +2181,7 @@ static void viewEvent(lv_event_t *e)
 static void freeAll()
 {
     s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_bombCancel=nullptr;
+    s_flashTag=s_pogoTag=nullptr; s_prevFlash=s_prevPogo=0;
     liveStop();   // Before the world memory goes
     closeDialog();
     if (s_timer) lv_timer_delete(s_timer);
@@ -2432,6 +2466,14 @@ static void buildControls()
     lv_obj_set_clickable(s_itemBox, false);
     for (int i = 0; i < H_COUNT; i++) s_item[i] = nullptr;
     s_item[H_BOAT] = hudIcon(s_itemBox, H_BOAT);
+    // Permanent-ability indicators (flashlight / pogo). Small text tags that wrap under the
+    // carried items; hidden until the ability is owned (updateStats toggles them).
+    s_flashTag = Theme::label(s_itemBox, "", &my_font_14, Theme::GOLD);
+    lv_obj_set_width(s_flashTag, COL_R_W);
+    lv_obj_set_hidden(s_flashTag, true);
+    s_pogoTag = Theme::label(s_itemBox, "", &my_font_14, Theme::TEAL);
+    lv_obj_set_width(s_pogoTag, COL_R_W);
+    lv_obj_set_hidden(s_pogoTag, true);
 
     s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,36,Theme::LINE);
     lv_obj_set_pos(s_bombCancel,COL_R_X,106);

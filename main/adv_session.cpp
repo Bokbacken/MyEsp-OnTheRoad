@@ -11,7 +11,7 @@ const char *const MEADOW[] = {
  "TTTTTTTTTTTT", "T..........T", "T.S......*.T", "T.X........T", "T....b.....T",
  "T..........T", "T......k...T", "T..........T", "T..........T", "TTTTTTTTTTTT"
 };
-const Otr::MapDef MEADOW_DEF={4,MEADOW,10,Otr::CLASSIC_RULES,nullptr,0};
+const Otr::MapDef MEADOW_DEF={4,MEADOW,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0};
 struct DeleteWorld { void operator()(Otr::World *w) const {
 #ifdef ESP_PLATFORM
  heap_caps_free(w);

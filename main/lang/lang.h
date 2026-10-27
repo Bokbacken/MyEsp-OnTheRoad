@@ -504,6 +504,12 @@ enum class Str : uint16_t {
     ADV_NO_ADVENTURES_HELP,  // where to put them
     ADV_ADVENTURE_DONE,      // finished the last map of an SD adventure
     ADV_SD_LOAD_FAIL,        // an SD adventure failed to load/parse
+    ADV_FLASHLIGHT,          // v0.18.0 flashlight pickup name
+    ADV_POGO,                // v0.18.0 pogo-stick pickup name
+    ADV_FLASHLIGHT_TAG,      // v0.18.0 HUD indicator "Ficklampa %d" (level)
+    ADV_POGO_TAG,            // v0.18.0 HUD indicator "Hoppstylta %d" (level)
+    ADV_FLASHLIGHT_GOT,      // v0.18.0 pickup toast (level)
+    ADV_POGO_GOT,            // v0.18.0 pickup toast (level)
     COUNT
 };
 

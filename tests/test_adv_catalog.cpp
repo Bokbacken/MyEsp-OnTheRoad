@@ -40,16 +40,17 @@ static int folderIndex(const Adv::Catalog &c, const char *name)
 
 static void testCatalog(const Adv::Catalog &c)
 {
-    // The bundle ships the 4 built-in adventures, the resources demo (resdemo) and the 12-level
-    // minesweeper campaign (minkampanj).
-    CHECK(c.count == 6, "catalog found 6 adventures (4 built-in + resdemo + minkampanj)");
-    // Alphabetical order: byn, josef, minfaltet, minkampanj, resdemo, testvarlden.
+    // The bundle ships the 4 built-in adventures, the resources demo (resdemo), the 12-level
+    // minesweeper campaign (minkampanj) and the dark/flashlight/pogo demo (darkdemo, v0.18.0).
+    CHECK(c.count == 7, "catalog found 7 adventures (4 built-in + resdemo + minkampanj + darkdemo)");
+    // Alphabetical order: byn, darkdemo, josef, minfaltet, minkampanj, resdemo, testvarlden.
     CHECK(folderIndex(c, "byn") == 0, "byn sorts first");
-    CHECK(folderIndex(c, "josef") == 1, "josef sorts second");
-    CHECK(folderIndex(c, "minfaltet") == 2, "minfaltet sorts third");
-    CHECK(folderIndex(c, "minkampanj") == 3, "minkampanj sorts fourth");
-    CHECK(folderIndex(c, "resdemo") == 4, "resdemo sorts fifth");
-    CHECK(folderIndex(c, "testvarlden") == 5, "testvarlden sorts sixth");
+    CHECK(folderIndex(c, "darkdemo") == 1, "darkdemo sorts second");
+    CHECK(folderIndex(c, "josef") == 2, "josef sorts third");
+    CHECK(folderIndex(c, "minfaltet") == 3, "minfaltet sorts fourth");
+    CHECK(folderIndex(c, "minkampanj") == 4, "minkampanj sorts fifth");
+    CHECK(folderIndex(c, "resdemo") == 5, "resdemo sorts sixth");
+    CHECK(folderIndex(c, "testvarlden") == 6, "testvarlden sorts seventh");
 
     // minkampanj is the true minesweeper campaign: 12 ordered maps.
     int mi = folderIndex(c, "minkampanj");

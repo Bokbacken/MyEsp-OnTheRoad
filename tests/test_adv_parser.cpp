@@ -291,6 +291,97 @@ static void testResourceGlyphClash()
     }
 }
 
+// --- 7. v0.18.0: @dark, flashlight ('f'/@treasures flashlight N), pogo ('j'/pogo N) -----------
+static void testDarkParse()
+{
+    // Multiple @dark rects: one as an inline arg on the header, two as body lines,
+    // one clipped to the map bounds and one fully outside (dropped by World::load).
+    const std::string body =
+        "@meta\nid: darkp\nworld: 90\nmap_id: 90\n"
+        "@map\n"
+        "S.........\n"
+        "..........\n"
+        "..........\n"
+        "..........\n"
+        "........X.\n"
+        "@dark 1,1 3,3\n"
+        "@dark\n"
+        "5,1 7,2\n"
+        "8,3 20,20\n";        // x1,y1 outside -> clipped to 9,4 by World::load
+    writeTmp("/tmp/adv_dark.adv", body);
+    AdvDoc doc;
+    std::string err;
+    CHECK(parseAdvFile("/tmp/adv_dark.adv", doc, err));
+    CHECK(doc.map.darkCount == 3);          // all three rects parsed (clip happens in load)
+    Otr::World w;
+    CHECK(w.load(doc.map));
+    // Rect 1 (1,1)-(3,3): interior is dark.
+    CHECK(w.darkCell(2, 2));
+    CHECK(w.darkCell(1, 1) && w.darkCell(3, 3));
+    CHECK(!w.darkCell(0, 0));                // S cell is outside the rect
+    CHECK(!w.darkCell(4, 1));                // between rects
+    // Rect 2 (5,1)-(7,2).
+    CHECK(w.darkCell(6, 1) && w.darkCell(7, 2));
+    // Rect 3 clipped to the map: (8,3) is in-bounds and dark; (9,4) too; nothing out of range.
+    CHECK(w.darkCell(8, 3));
+    CHECK(w.darkCell(9, 4));
+
+    // 16-rect cap: 20 rects declared, parser keeps at most MAX_DARK.
+    std::string capBody = "@meta\nid: darkcap\nworld: 90\nmap_id: 90\n@map\nS.X\n...\n...\n@dark\n";
+    for (int i = 0; i < 20; i++) capBody += "0,0 1,1\n";
+    writeTmp("/tmp/adv_darkcap.adv", capBody);
+    AdvDoc cap;
+    CHECK(parseAdvFile("/tmp/adv_darkcap.adv", cap, err));
+    CHECK(cap.map.darkCount == Otr::MAX_DARK);
+
+    // A malformed rect (wrong token count) is a parse error.
+    writeTmp("/tmp/adv_darkbad.adv",
+             "@meta\nid: db\nworld: 90\nmap_id: 90\n@map\nS.X\n...\n...\n@dark\n1,2 3\n");
+    AdvDoc bad;
+    CHECK(!parseAdvFile("/tmp/adv_darkbad.adv", bad, err));
+}
+
+static void testFlashlightPogoParse()
+{
+    // Glyphs 'f' and 'j' become engine objects FLASH / POGO (level 1 on pickup).
+    const std::string body =
+        "@meta\nid: fjp\nworld: 90\nmap_id: 90\n"
+        "@map\n"
+        "S.f.j.X\n"
+        ".......\n"
+        ".......\n";
+    writeTmp("/tmp/adv_fj.adv", body);
+    AdvDoc doc;
+    std::string err;
+    CHECK(parseAdvFile("/tmp/adv_fj.adv", doc, err));
+    Otr::World w;
+    CHECK(w.load(doc.map));
+    CHECK(w.obj(2, 0) == Otr::Obj::FLASH);
+    CHECK(w.obj(4, 0) == Otr::Obj::POGO);
+
+    // @treasures ... flashlight N / pogo N: item + amount(=level) round-trip.
+    const std::string tbody =
+        "@meta\nid: fjt\nworld: 90\nmap_id: 90\n"
+        "@map\n"
+        "Sb.c.X\n"
+        "......\n"
+        "......\n"
+        "@treasures\n"
+        "1 0 flashlight 2\n"
+        "3 0 pogo 3\n";
+    writeTmp("/tmp/adv_fjt.adv", tbody);
+    AdvDoc td;
+    CHECK(parseAdvFile("/tmp/adv_fjt.adv", td, err));
+    CHECK(td.map.treasureCount == 2);
+    bool fl = false, pg = false;
+    for (const Otr::Treasure &t : td.treasures) {
+        if (t.item == Otr::Obj::FLASH) fl = (t.amount == 2);
+        if (t.item == Otr::Obj::POGO) pg = (t.amount == 3);
+    }
+    CHECK(fl);
+    CHECK(pg);
+}
+
 int main(int argc, char **argv)
 {
     const std::string path =
@@ -302,6 +393,8 @@ int main(int argc, char **argv)
     testTreasureReveal();
     testBigMapWalkableBorder();
     testResourceGlyphClash();
+    testDarkParse();
+    testFlashlightPogoParse();
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

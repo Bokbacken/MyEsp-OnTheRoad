@@ -1,0 +1,64 @@
+# ============================================================================
+#  01_darkdemo.adv
+#  Litet demoaventyr som visar de tre nyheterna i v0.18.0:
+#    @dark       - ett morkt rum som bara syns nar ficklampan lyser pa det
+#    ficklampa   - glyfen 'f' (niva 1) plockas upp innan rummet och lyser
+#                  upp mork en kon framat (niva via @treasures ... flashlight N)
+#    hoppstylta  - glyfen 'j' (niva 1) i det morka rummet; studsar over
+#                  hinderraden (trad) pa vag mot utgangen
+#  Spelaren startar nere (S), gar upp genom det morka rummet och hoppar sedan
+#  over tradvaggen till utgangen (X) langst upp. Ficklampa och hoppstylta ar
+#  permanenta och foljer med mellan kartor (har bara en karta).
+# ============================================================================
+
+@meta
+id: dark_demo
+world: 91                 # eget test-world-id (krockar inte med 1..4 eller resdemo=90)
+map_id: 91
+
+@about
+title.sv: Morka grottan
+title.en: The dark cave
+desc.sv: Plocka ficklampan, lys upp det morka rummet och studsa over hindren med hoppstyltan. Visar @dark, ficklampa och hoppstylta.
+desc.en: Grab the flashlight, light up the dark room and bounce over the obstacles with the pogo stick. Shows @dark, flashlight and pogo.
+author: MyEsp-OnTheRoad
+
+@rules
+start_energy: 12
+energy_cap: 20
+lives: infinite
+lava_damage: 3
+mine_damage: 4
+suit_base_steps: 3
+suit_per_extra_max: 1
+potion_default: 2
+heart_default: 1
+fog: false
+
+# Kartan: 12x18. Spelaren (S) nere, utgang (X) uppe. Mellan dem ett morkt rum
+# med vaggar (#) och en ingang/utgang (gap i x=5,6). Hoppstyltan 'j' ligger
+# inne i morkret. Ovanfor rummet star en tradvagg (T) som hoppstyltan vaultar.
+@map
+............
+......X.....
+............
+..TTTTT.....
+............
+............
+............
+.####..####.
+.#........#.
+.#....j...#.
+.#........#.
+.#........#.
+.####..####.
+............
+......f.....
+............
+......S.....
+............
+
+# Morkt omrade: hela rummets insida (x=2..9, y=8..11). Doljs tills ficklampan
+# lyser pa rutan (eller det ar rutan spelaren star pa). Blockerar inte rorelse.
+@dark
+2,8 9,11

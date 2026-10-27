@@ -163,15 +163,15 @@ static constexpr Rules VILLAGE_RULES = {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1,
 
 const MapDef WORLDS[WORLD_COUNT] = {
     {WORLD_TEST, TEST_WORLD, TEST_WORLD_H, TEST_RULES, TEST_TREASURES,
-     (int)(sizeof(TEST_TREASURES) / sizeof(TEST_TREASURES[0]))},
+     (int)(sizeof(TEST_TREASURES) / sizeof(TEST_TREASURES[0])), nullptr, 0},
     {WORLD_MINES, MINE_WORLD, MINE_WORLD_H, MINE_RULES, MINE_TREASURES,
-     (int)(sizeof(MINE_TREASURES) / sizeof(MINE_TREASURES[0]))},
+     (int)(sizeof(MINE_TREASURES) / sizeof(MINE_TREASURES[0])), nullptr, 0},
     {WORLD_VILLAGE, VILLAGE, VILLAGE_H, VILLAGE_RULES, VILLAGE_TREASURES,
-     (int)(sizeof(VILLAGE_TREASURES) / sizeof(VILLAGE_TREASURES[0]))},
+     (int)(sizeof(VILLAGE_TREASURES) / sizeof(VILLAGE_TREASURES[0])), nullptr, 0},
     // [3] Josef (1 Mos 37), map 1 "Jakobs läger". Inlined (not a cross-TU const ref) so WORLDS[]
     // is constant-initialized - avoids any static-init-order dependency on otr_maps_joseph.cpp.
     {WORLD_JOSEPH, JOSEPH_CAMP_ROWS, JOSEPH_CAMP_H,
-     {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0}, nullptr, 0},
+     {8, 20, LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0}, nullptr, 0, nullptr, 0},
 };
 
 }  // namespace Otr

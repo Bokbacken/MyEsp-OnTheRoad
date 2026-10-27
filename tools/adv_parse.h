@@ -75,6 +75,9 @@ struct AdvDoc {
     // nothing covers them). map.treasures points at this vector.
     std::vector<Otr::Treasure> treasures;
 
+    // @dark (v0.18.0): inclusive dark-area rectangles. map.darks points at this vector.
+    std::vector<Otr::DarkRect> darks;
+
     // @resources (A4): glyph-bound collectibles and their placements on the map.
     std::vector<AdvResource> resources;
     std::vector<AdvResourcePlacement> resourcePlacements;
