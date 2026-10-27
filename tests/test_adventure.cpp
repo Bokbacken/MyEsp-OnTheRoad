@@ -700,20 +700,24 @@ static void testDarkFlashPogo()
         MapDef def = {61, rows, 7, R8, nullptr, 0, darks, 1};
         CHECK(W.load(def));
         CHECK_EQ((int)W.facing(), (int)Dir::DOWN);   // default facing after load
-        // Level 1: R = 3. Straight ahead up to 3; the wedge widens with distance.
+        // Level 1: R = 1. Just the cell straight ahead.
         W.setFlashlight(1);
         CHECK_EQ(W.flashlight(), 1);
-        CHECK(W.lit(0, 1)); CHECK(W.lit(0, 3));      // forward 1..3, lateral 0
-        CHECK(!W.lit(0, 4));                          // beyond reach
-        CHECK(W.lit(1, 2));                           // forward 2, lateral 1: 1 <= 1
-        CHECK(!W.lit(2, 2));                          // forward 2, lateral 2: 2 > 1
+        CHECK(W.lit(0, 1));                           // forward 1, lateral 0
+        CHECK(!W.lit(0, 2));                          // beyond reach (R = 1)
         CHECK(!W.lit(1, 1));                          // forward 1, lateral 1: 1 > 0
         CHECK(!W.darkHidden(0, 1));                   // a lit dark cell becomes visible
-        CHECK(W.darkHidden(0, 4));                    // an unlit dark cell stays hidden
-        // Level 3: R = 5 reaches farther.
+        CHECK(W.darkHidden(0, 2));                    // an unlit dark cell stays hidden
+        // Level 2: R = 2; the wedge widens with distance.
+        W.setFlashlight(2);
+        CHECK_EQ(W.flashlight(), 2);
+        CHECK(W.lit(0, 2)); CHECK(!W.lit(0, 3));      // forward 1..2, lateral 0
+        CHECK(W.lit(1, 2));                           // forward 2, lateral 1: 1 <= 1
+        CHECK(!W.lit(2, 2));                          // forward 2, lateral 2: 2 > 1
+        // Level 3: R = 3 reaches farther.
         W.setFlashlight(3);
         CHECK_EQ(W.flashlight(), 3);
-        CHECK(W.lit(0, 5)); CHECK(!W.lit(0, 6));
+        CHECK(W.lit(0, 3)); CHECK(!W.lit(0, 4));
         // setFlashlight clamps to 0..3.
         W.setFlashlight(9); CHECK_EQ(W.flashlight(), 3);
         W.setFlashlight(-2); CHECK_EQ(W.flashlight(), 0);

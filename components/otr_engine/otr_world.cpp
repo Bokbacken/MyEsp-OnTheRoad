@@ -223,7 +223,7 @@ int World::suitChargesAtPickup() const
     return rules_.suitBaseSteps + rules_.suitPerExtraMax * extra;
 }
 
-// v0.18.0 flashlight cone. Range R = flash_ + 2 (L1->3, L2->4, L3->5 cells ahead). For a cell at
+// v0.18.0 flashlight cone. Range R = flash_ (L1->1, L2->2, L3->3 cells ahead). For a cell at
 // (fx, fy) = (x-px, y-py): project onto the facing axis (forward) and the perpendicular (lateral).
 // Lit iff forward in [1..R] and abs(lateral) <= forward/2 (integer floor) -> a ~45deg cone that
 // widens with distance. The player's own cell is handled separately (always visible). Reveals
@@ -231,7 +231,7 @@ int World::suitChargesAtPickup() const
 bool World::lit(int x, int y) const
 {
     if (flash_ <= 0 || !inside(x, y)) return false;
-    const int R = flash_ + 2;
+    const int R = flash_;
     const int rx = dirX(facing_), ry = dirY(facing_);
     const int fx = x - px_, fy = y - py_;
     int forward, lateral;

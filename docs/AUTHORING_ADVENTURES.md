@@ -570,8 +570,8 @@ Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1�
 
 Konens form och räckvidd:
 
-- Räckvidd framåt `R = nivå + 2` rutor: **nivå 1 → 3**, **nivå 2 → 4**,
-  **nivå 3 → 5** rutor framför spelaren.
+- Räckvidd framåt `R = nivå` rutor: **nivå 1 → 1**, **nivå 2 → 2**,
+  **nivå 3 → 3** rutor framför spelaren.
 - En ruta lyses upp om den ligger `framåt` steg (1..`R`) i blickriktningen och
   dess sidled-avvikelse är `abs(sidled) ≤ framåt / 2` (en ~45°-kil som vidgas
   med avståndet).
