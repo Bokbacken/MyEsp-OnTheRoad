@@ -2492,7 +2492,12 @@ static void startGame(bool cont)
     // built from the map's dialogue, or nullptr when the map has none).
     if (!s_sd.start(SD_ADV_ROOT, s_cat->items[s_advIdx], *s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
         ESP_LOGE(TAG, "SD adventure '%s' failed to load: %s", s_cat->items[s_advIdx].folder, err);
-        toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED, 4000);
+        // Surface the actual loader error on-screen (not just a generic message) so the cause is
+        // visible without a serial console: "cannot open ...", "out of memory", "engine rejected
+        // <map>", "line N: ...", etc.
+        char msg[192];
+        snprintf(msg, sizeof(msg), "%s\n%s", tr(Str::ADV_SD_LOAD_FAIL), err);
+        toast(msg, Theme::RED, 7000);
         return;
     }
     bool failed = false;

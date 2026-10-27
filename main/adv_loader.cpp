@@ -6,6 +6,10 @@
 #include <cstring>
 #include <initializer_list>
 
+#if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>   // read the .adv into PSRAM, not the (scarce) internal heap
+#endif
+
 namespace Adv {
 
 namespace {
@@ -546,13 +550,19 @@ bool parseFile(const char *path, Loaded &out, char *err, size_t errCap)
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (sz < 0 || (size_t)sz > MAX_FILE) { fclose(f); if (err && errCap) snprintf(err, errCap, "file too large"); return false; }
-    char *buf = (char *)malloc((size_t)sz + 1);
+    char *buf = nullptr;
+#if defined(ESP_PLATFORM)
+    buf = (char *)heap_caps_malloc((size_t)sz + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) buf = (char *)heap_caps_malloc((size_t)sz + 1, MALLOC_CAP_8BIT);   // fallback: internal
+#else
+    buf = (char *)malloc((size_t)sz + 1);
+#endif
     if (!buf) { fclose(f); if (err && errCap) snprintf(err, errCap, "out of memory"); return false; }
     size_t n = fread(buf, 1, (size_t)sz, f);
     fclose(f);
     buf[n] = 0;
     const bool ok = parse(buf, n, out, err, errCap);
-    free(buf);
+    free(buf);   // free() handles heap_caps_malloc pointers on ESP-IDF
     return ok;
 }
 
