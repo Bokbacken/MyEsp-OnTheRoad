@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Yatzy selection/modal layouts and the real numpad with host LVGL (no ESP32/display).
+"""Exercise Yatzy game/selection/modal layouts and the real numpad with host LVGL (no ESP32/display).
 Run: python3 tests/test_yatzy_layout.py [external build directory]
 Requires the project's managed_components/lvgl__lvgl dependency, like test_mine_dialog.py.
 """
@@ -39,6 +39,8 @@ code = r'''
 #include "my_charwheel.h"
 #include "ui_numpad.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "dice_cup.h"
 static std::string storageBase;
 namespace MyFat {
 bool mounted() { return true; }
@@ -83,6 +85,7 @@ namespace MyWifi { const char *ipStr() { return "192.168.123.123"; } }
 namespace GameLive {
 int connections(int) { return connected; }
 void clearCmds() { ++::clearCmds; }
+void publish(const YatzyGame &, bool, bool, bool, uint8_t = 0) {}
 }
 static constexpr int32_t FELT_Y = 48;
 static constexpr uint32_t WEB_TICK_MS = 50;
@@ -252,6 +255,158 @@ static void checkModals() {
     assert(result.ok && strcmp(result.pin, "1234") == 0);
     assert(lv_obj_get_child_count(lv_layer_top()) == 0);
 }
+// Run the real game-screen construction, phase animations, table and action refresh.
+// Hardware/roll execution is stubbed; game state comes from the unchanged engine.
+namespace GameScreenTest {
+static YatzyGame s_game;
+@GAME_STATE@
+@CUP_STATE@
+@ANIMATIONS@
+@PLACEMENT@
+static void setPhase(Phase, bool);
+static void refreshActions();
+static void refreshTable();
+static int rowOfCategory(YatzyCategory c) {
+    for (int r = 0; r < s_rowCount; ++r) if (s_rows[r].kind == ROW_CAT && s_rows[r].cat == c) return r;
+    return -1;
+}
+static void moveDie(int i, bool) {
+    int32_t x, y; targetPos(i, x, y); lv_obj_set_pos(s_dice[i].obj, x, y);
+}
+static void createDie(lv_obj_t *scr, int i) {
+    s_dice[i].obj = lv_image_create(scr);
+    lv_obj_set_size(s_dice[i].obj, s_dieSize, s_dieSize);
+}
+static const void *s_faces;
+static const void *facesFor(int) { return nullptr; }
+static void setFace(DieUi &d, int face) { d.face = face; }
+@CUP_PLACE@
+static void cupKill() { s_cupActive = false; }
+static void hideCup(bool, bool) { s_cupActive = false; lv_obj_set_hidden(s_cupArea, true); }
+static void showCup(bool) { s_cupActive = true; lv_obj_set_hidden(s_cupArea, false); cupPlace(lv_tick_get()); }
+static int throws, writes;
+static uint32_t rollBaseMs() { return 600; }
+static int rnd(int lo, int) { return lo; }
+static void cupSetShaking(bool) {}
+static void cupThrow(const DiceCup::ThrowParams &) { ++throws; }
+static void onRoll(lv_event_t *) { assert(s_game.roll()); }
+static void writeSelected() { ++writes; }
+static void tableDrawEvent(lv_event_t *) {}
+static void tableClickEvent(lv_event_t *) {}
+@CUP_EVENT@
+@CUP_VISUALS@
+@SUGGESTIONS@
+@PHASES@
+@TABLE@
+@ACTIONS@
+@NEW_TURN@
+@SHOW_GAME@
+static void finishAnimations() { settle(); settle(); settle(); }
+static void checkDie(int i, lv_obj_t *zone) {
+    auto *die = s_dice[i].obj;
+    inside(die, lv_screen_active());
+    assert(lv_obj_get_y(die) >= lv_obj_get_y(zone));
+    assert(lv_obj_get_y(die) + s_dieSize <= lv_obj_get_y(zone) + lv_obj_get_height(zone));
+}
+static void check() {
+    s_gameType = GameType::YATZY;
+    for (auto variant : {YatzyVariant::STANDARD, YatzyVariant::MAXI}) {
+        for (auto mode : {YatzyMode::NORMAL, YatzyMode::ORDERED}) {
+          for (bool savedRolls : {false, true}) {
+            for (int players : {1, YATZY_MAX_PLAYERS}) {
+                s_game.reset(variant, mode, savedRolls);
+                s_game.clearPlayers();
+                for (int p = 0; p < players; ++p) assert(s_game.addPlayer("Long player name Åäö"));
+                s_game.start();
+                showGame(); finishAnimations();
+                auto *scr = lv_screen_active();
+                auto *header = lv_obj_get_parent(s_playerLabel);
+                inside(header, scr); inside(s_playerLabel, header); inside(s_roundLabel, header);
+                inside(child(header, -1), header);
+                assert(lv_obj_get_x(s_playerLabel) + lv_obj_get_width(s_playerLabel) <= lv_obj_get_x(s_roundLabel));
+                inside(s_felt, scr); inside(s_nest, scr); inside(s_cupArea, scr);
+                inside(s_cupRim, s_cupArea);
+                assert(lv_obj_get_x(s_cupRim) + CUP_R == cupCenterX());
+                assert(lv_obj_get_y(s_cupArea) + lv_obj_get_y(s_cupRim) + CUP_R == cupCenterY());
+                assert(lv_obj_get_y(s_felt) >= lv_obj_get_height(header));
+                assert(lv_obj_get_y(s_cupArea) >= lv_obj_get_y(s_felt) + lv_obj_get_height(s_felt));
+                assert(lv_obj_get_y(s_webBlock) == s_layout.feltY);
+                assert(cupCenterX() == s_layout.w / 2);
+                if (s_layout.w == 320 && s_layout.h == 480) {
+                    assert(s_layout.feltY == 48 && s_layout.feltRollH == 276);
+                    assert(s_layout.nestY == 244 && s_layout.throwTop == 56 && s_layout.throwH == 182);
+                    assert(s_layout.sugY == 330 && s_layout.sugW == 304);
+                    assert(s_layout.buttonY == 432 && s_layout.buttonH == 44);
+                    assert(s_layout.rollW == 150 && s_layout.chooseX == 162 && s_layout.chooseW == 152);
+                    assert(s_layout.barY == 194 && s_layout.barH == 42 && s_layout.tableY == 240);
+                    assert(s_layout.writeX == 122 && s_layout.writeW == 192);
+                    assert(s_layout.cupY == 326 && cupCenterY() == 403);
+                }
+                // Cup hit testing must use the same screen-space centre as the visuals.
+                auto *input = lv_indev_create();
+                lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+                lv_indev_data_t sample{};
+                sample.point = {cupCenterX(), cupCenterY()};
+                sample.state = LV_INDEV_STATE_PRESSED;
+                lv_indev_set_user_data(input, &sample);
+                lv_indev_set_read_cb(input, [](lv_indev_t *i, lv_indev_data_t *d) {
+                    *d = *(lv_indev_data_t *)lv_indev_get_user_data(i);
+                });
+                int oldThrows = throws;
+                lv_indev_read(input); lv_tick_inc(20);
+                sample.state = LV_INDEV_STATE_RELEASED; lv_indev_read(input);
+                assert(throws == oldThrows + 1);
+                lv_indev_delete(input);
+                onRoll(nullptr);
+                hideCup(true, false);
+                s_sugCount = s_game.getSuggestedCategories(s_sug, SUG_MAX);
+                s_best = s_sug[0].category;
+                refreshSuggestions(true); refreshActions(); finishAnimations();
+                inside(s_sugPanel, scr); inside(s_rollBtn, scr); inside(s_chooseBtn, scr);
+                assert(lv_obj_get_y(s_sugPanel) + lv_obj_get_height(s_sugPanel) <= lv_obj_get_y(s_rollBtn));
+                assert(lv_obj_get_x(s_rollBtn) + lv_obj_get_width(s_rollBtn) <= lv_obj_get_x(s_chooseBtn));
+                for (int k = 0; k < s_sugCount; ++k) {
+                    inside(s_sugChip[k], s_sugPanel);
+                    if (k % 2) assert(lv_obj_get_x(s_sugChip[k-1]) + lv_obj_get_width(s_sugChip[k-1]) <= lv_obj_get_x(s_sugChip[k]));
+                }
+                for (int i = 0; i < s_game.diceCount(); ++i) {
+                    assert(s_game.setHold(i, true)); moveDie(i, false); finishAnimations();
+                    checkDie(i, s_nest);
+                    assert(s_game.setHold(i, false)); moveDie(i, false); finishAnimations();
+                    checkDie(i, s_felt);
+                    s_dice[i].jx = i % 2 ? scatterX() : -scatterX();
+                    s_dice[i].jy = i % 2 ? scatterY() : -scatterY();
+                    moveDie(i, false); finishAnimations(); checkDie(i, s_felt);
+                }
+                click(s_chooseBtn); finishAnimations();
+                assert(s_phase == Phase::RESULT);
+                inside(s_table, scr); inside(s_writeBtn, scr); inside(s_backBtn, scr);
+                assert(lv_obj_get_y(s_felt) + lv_obj_get_height(s_felt) <= lv_obj_get_y(s_writeBtn));
+                assert(lv_obj_get_y(s_writeBtn) + lv_obj_get_height(s_writeBtn) <= lv_obj_get_y(s_table));
+                assert(lv_obj_get_x(s_backBtn) + lv_obj_get_width(s_backBtn) <= lv_obj_get_x(s_writeBtn));
+                assert(lv_obj_get_width(s_table) == s_layout.w);
+                for (int i = 0; i < s_game.diceCount(); ++i) checkDie(i, s_nest);
+                lv_obj_scroll_to(s_table, LV_COORD_MAX, LV_COORD_MAX, LV_ANIM_OFF); finishAnimations();
+                inside(s_table, scr);
+                click(s_backBtn); finishAnimations();
+                assert(s_phase == Phase::ROLL && lv_obj_is_hidden(s_table));
+                hideCup(true, false); refreshSuggestions(false);
+                click(s_sugChip[0]); finishAnimations();
+                assert(s_phase == Phase::RESULT && s_selected == s_sug[0].category);
+                int oldWrites = writes; click(s_writeBtn); assert(writes == oldWrites + 1);
+                assert(s_game.roll() && s_game.roll());
+                refreshActions(); finishAnimations();
+                assert(lv_obj_is_hidden(s_backBtn));
+                assert(lv_obj_get_x(s_writeBtn) == s_layout.gap);
+                assert(lv_obj_get_width(s_writeBtn) == s_layout.w - 2 * s_layout.gap);
+                cupKill();
+            }
+          }
+        }
+    }
+    printf("game layout/interactions OK: %dx%d\n", int(UiMetrics::screenW()), int(UiMetrics::screenH()));
+}
+}
 int main() {
     lv_init();
     auto *display = lv_display_create(320, 480);
@@ -351,6 +506,7 @@ int main() {
             lv_table_set_selected_cell(table, 0, 0); settle();
             assert(s_nameCount == 2 && s_pids[1] == 2);
             checkModals();
+            GameScreenTest::check();
             printf("selection layout/interactions OK: %dx%d language=%d\n", int(size.x), int(size.y), language);
         }
     }
@@ -368,6 +524,19 @@ code = code.replace("@OVERLAY_STATE@", section("static lv_obj_t *s_webBlock", "s
 code = code.replace("@MODALS@", section("static void onMenu(lv_event_t *)\n{", "// --- Web play") +
                     section("static void updateWebOverlay()\n{", "static void webWriteTimer") +
                     section("static void buildWebOverlay(lv_obj_t *scr)\n{", "static void showGame()\n{"))
+code = code.replace("@GAME_STATE@", section("static constexpr int32_t SCR_W", "// Current seat is played"))
+code = code.replace("@CUP_STATE@", section("static constexpr int32_t CUP_D =", "// Pip cells"))
+code = code.replace("@ANIMATIONS@", section("static void zoomExec(", "// --- Dice placement"))
+code = code.replace("@PLACEMENT@", section("static int32_t slotX(", "// Held dice get"))
+code = code.replace("@CUP_EVENT@", section("static void cupEvent(", "static void cupHiddenDone("))
+code = code.replace("@CUP_PLACE@", section("static void cupPlace(", "static void cupTick("))
+code = code.replace("@CUP_VISUALS@", section("static lv_obj_t *cupCircle(", "static void onRoll("))
+code = code.replace("@SUGGESTIONS@", section("static void sugChipEvent(", "// --- Phases"))
+code = code.replace("@PHASES@", section("static void hideWhenDone(", "// --- Writing a score"))
+code = code.replace("@TABLE@", section("static void buildRows()\n{", "static void tableDrawEvent("))
+code = code.replace("@ACTIONS@", section("static void refreshActions()\n{", "static void quitEvent("))
+code = code.replace("@NEW_TURN@", section("static void newTurnUi()", "static void writeSelected()\n{"))
+code = code.replace("@SHOW_GAME@", section("static void showGame()\n{", "// ========================================================================================\n// Results"))
 (WORK / "test.cpp").write_text(code)
 (WORK / "sdkconfig.h").write_text("")
 (WORK / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.22)
@@ -377,12 +546,13 @@ set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
-add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130)
+add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/ui_numpad.cpp" "{ROOT}/main/hw_profile.cpp"
  "{ROOT}/components/my_ui/fonts/my_font_14.c" "{ROOT}/components/my_ui/fonts/my_font_18.c"
  "{ROOT}/components/my_ui/fonts/my_font_24.c" "{ROOT}/main/app_players.cpp"
- "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
+ "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"
+ "{ROOT}/main/game_yatzy.cpp" "{ROOT}/main/dice_cup.cpp")
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/tests/player_stubs"
  "{ROOT}/components/my_ui/include" "{ROOT}/components/my_wifi/include" "{ROOT}/main/lang" "{ROOT}/main")
 target_link_libraries(layout PRIVATE lvgl m)

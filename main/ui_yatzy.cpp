@@ -835,22 +835,58 @@ static void showPicker(int slot)
 // ========================================================================================
 static constexpr int32_t SCR_W = 320, SCR_H = 480;
 static constexpr int32_t FELT_X = 4, FELT_Y = 48, FELT_W = SCR_W - 8;
-static constexpr int32_t FELT_H_ROLL = 276;                       // 48..324
+static constexpr int32_t BTN_Y = 432, BTN_H = 44;                 // Mini-game baseline
 static constexpr int32_t NEST_H_ROLL = 74;
-static constexpr int32_t NEST_Y_ROLL = FELT_Y + FELT_H_ROLL - NEST_H_ROLL - 6;
-static constexpr int32_t THROW_TOP = FELT_Y + 8;
-static constexpr int32_t THROW_H = NEST_Y_ROLL - 6 - THROW_TOP;   // Free throw zone
-static constexpr int32_t FELT_H_RESULT = 142;                     // 48..190
-static constexpr int32_t SUG_X = 8, SUG_Y = 330, SUG_W = SCR_W - 16, SUG_H = 96;
+static constexpr int32_t SUG_H = 96;
 static constexpr lv_opa_t SUG_OPA = 180;
-static constexpr int32_t BTN_Y = 432, BTN_H = 44;                 // Roll-phase buttons
-static constexpr int32_t BAR_Y = 194, BAR_H = 42;                 // Result-phase action bar
-static constexpr int32_t TABLE_Y = 240;                           // Lower half
 static constexpr int32_t CAT_COL_W = 112;
 static constexpr uint32_t MOVE_MS = 260, PHASE_MS = 320, BOUNCE_MS = 160, AUTO_RESULT_MS = 650;
 static constexpr uint32_t ROLL_STAGGER_MS = 45;
 static constexpr int32_t ZOOM_100 = 256, ZOOM_LAND = 272;          // LVGL scale: 256 = 100 %
 static constexpr int SUG_MAX = 5;
+
+// Screen-space geometry shared by widgets, phase animations and dice placement.
+// Dice/cup sizes, physics and gesture thresholds stay at their original values.
+struct GameLayout {
+    int32_t w, h, inset, gap, titleH, feltY, feltW, feltRollH;
+    int32_t nestY, throwTop, throwH, feltResultH, sugX, sugY, sugW;
+    int32_t buttonY, buttonH, rollW, chooseX, chooseW;
+    int32_t barY, barH, backW, writeX, writeW, tableY, cupY;
+};
+static GameLayout s_layout;
+
+static GameLayout gameLayout()
+{
+    GameLayout l{};
+    l.w = UiMetrics::screenW();
+    l.h = UiMetrics::screenH();
+    l.inset = UiMetrics::marginSmall();
+    l.gap = UiMetrics::controlSpacing();
+    l.titleH = UiMetrics::titleH();
+    l.feltY = l.titleH + l.inset;
+    l.feltW = l.w - 2 * l.inset;
+    l.buttonH = UiMetrics::buttonH() + 2;
+    l.buttonY = l.h - l.inset - l.buttonH;
+    l.sugX = 2 * l.inset;
+    l.sugW = l.w - 2 * l.sugX;
+    l.sugY = l.buttonY - l.gap - SUG_H;
+    l.feltRollH = l.sugY - l.gap - l.feltY;
+    l.nestY = l.feltY + l.feltRollH - NEST_H_ROLL - l.gap;
+    l.throwTop = l.feltY + 2 * l.inset;
+    l.throwH = l.nestY - l.gap - l.throwTop;
+    l.feltResultH = 142 + LV_MAX(0, l.h - SCR_H) / 3;
+    l.barY = l.feltY + l.feltResultH + l.inset;
+    l.barH = UiMetrics::buttonH();
+    l.tableY = l.barY + l.barH + l.inset;
+    l.rollW = (l.w - 3 * l.gap) / 2 - 1;
+    l.chooseX = 2 * l.gap + l.rollW;
+    l.chooseW = l.w - l.gap - l.chooseX;
+    l.backW = 110;
+    l.writeX = 2 * l.gap + l.backW;
+    l.writeW = l.w - l.gap - l.writeX;
+    l.cupY = l.feltY + l.feltRollH + l.inset / 2;
+    return l;
+}
 
 enum class Phase : uint8_t { ROLL, RESULT };
 
@@ -958,9 +994,9 @@ static lv_obj_t *plainBox(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int
 // Roll phase with rolls left: the lower part of the screen (where the suggestion card and the
 // buttons sit) becomes a leather dice cup seen from above. The free dice rattle inside it;
 // shake with the finger and swipe up (or tap) to throw. Gesture/physics maths: dice_cup.h.
-static constexpr int32_t CUP_AREA_Y = 326, CUP_AREA_H = SCR_H - CUP_AREA_Y;
 static constexpr int32_t CUP_D = 146, CUP_R = CUP_D / 2;
-static constexpr int32_t CUP_CX = SCR_W / 2, CUP_CY = CUP_AREA_Y + 4 + CUP_R;   // (160, 403)
+static int32_t cupCenterX() { return s_layout.w / 2; }
+static int32_t cupCenterY() { return s_layout.cupY + 4 + CUP_R; }
 static constexpr int32_t CUP_LIP_D = 124, CUP_BOTTOM_D = 102;
 static constexpr float CUP_FOLLOW = 0.35f;        // Cup offset = 35 % of the finger offset ...
 static constexpr float CUP_FOLLOW_MAX = 18.0f;    // ... clamped to +-18 px
@@ -1137,22 +1173,22 @@ static void stopDieAnims(DieUi &d)
 static int32_t slotX(int i)
 {
     int n = s_game.diceCount();
-    return (int32_t)((2 * i + 1) * SCR_W / (2 * n)) - s_dieSize / 2;
+    return (int32_t)((2 * i + 1) * s_layout.w / (2 * n)) - s_dieSize / 2;
 }
 
-static int32_t scatterX() { return (int32_t)LV_MAX(0, (SCR_W / s_game.diceCount() - s_dieSize) / 2 - 1); }
-static int32_t scatterY() { return (int32_t)LV_MAX(0, (THROW_H - s_dieSize) / 2 - 2); }
+static int32_t scatterX() { return (int32_t)LV_MAX(0, (s_layout.w / s_game.diceCount() - s_dieSize) / 2 - 1); }
+static int32_t scatterY() { return (int32_t)LV_MAX(0, (s_layout.throwH - s_dieSize) / 2 - 2); }
 
 static void targetPos(int i, int32_t &x, int32_t &y)
 {
     x = slotX(i);
     if (s_phase == Phase::RESULT) {
-        y = FELT_Y + (FELT_H_RESULT - s_dieSize) / 2;   // Everything in the nest, one row
+        y = s_layout.feltY + (s_layout.feltResultH - s_dieSize) / 2;   // Everything in the nest, one row
     } else if (s_game.held(i)) {
-        y = NEST_Y_ROLL + (NEST_H_ROLL - s_dieSize) / 2;
+        y = s_layout.nestY + (NEST_H_ROLL - s_dieSize) / 2;
     } else {
         x += s_dice[i].jx;
-        y = THROW_TOP + (THROW_H - s_dieSize) / 2 + s_dice[i].jy;
+        y = s_layout.throwTop + (s_layout.throwH - s_dieSize) / 2 + s_dice[i].jy;
     }
 }
 
@@ -1209,8 +1245,8 @@ static void dieEvent(lv_event_t *e)
         d.totX += v.x;
         d.totY += v.y;
         // The die follows the finger inside the felt.
-        int32_t x = LV_CLAMP(0, lv_obj_get_x(d.obj) + v.x, SCR_W - s_dieSize);
-        int32_t y = LV_CLAMP(THROW_TOP, lv_obj_get_y(d.obj) + v.y, NEST_Y_ROLL + NEST_H_ROLL - s_dieSize);
+        int32_t x = LV_CLAMP(0, lv_obj_get_x(d.obj) + v.x, s_layout.w - s_dieSize);
+        int32_t y = LV_CLAMP(s_layout.throwTop, lv_obj_get_y(d.obj) + v.y, s_layout.nestY + NEST_H_ROLL - s_dieSize);
         lv_obj_set_pos(d.obj, x, y);
     } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) && d.dragging) {
         d.dragging = false;
@@ -1219,8 +1255,8 @@ static void dieEvent(lv_event_t *e)
         int32_t centerY = lv_obj_get_y(d.obj) + s_dieSize / 2;
         bool wantHold = held;
         if (tap) wantHold = !held;                                               // Tap toggles
-        else if (!held && (d.totY > 25 || centerY >= NEST_Y_ROLL)) wantHold = true;   // Swipe down
-        else if (held && (d.totY < -25 || centerY < NEST_Y_ROLL)) wantHold = false;   // Swipe up
+        else if (!held && (d.totY > 25 || centerY >= s_layout.nestY)) wantHold = true;   // Swipe down
+        else if (held && (d.totY < -25 || centerY < s_layout.nestY)) wantHold = false;   // Swipe up
         if (wantHold != held) {
             s_game.setHold(i, wantHold);
             if (!wantHold) {   // Back to the throw zone: new random spot, rolled on next Kasta
@@ -1346,7 +1382,7 @@ static void rollFrame(int i, float p)
     const float u = 1.0f - e;
     const float bx = u * u * (float)d.sx + 2.0f * u * e * (float)d.cx + e * e * (float)d.tx;
     const float by = u * u * (float)d.sy + 2.0f * u * e * (float)d.cy + e * e * (float)d.ty - hop * d.hopPx;
-    lv_obj_set_pos(d.obj, LV_CLAMP(0, (int32_t)bx, SCR_W - s_dieSize), LV_CLAMP(0, (int32_t)by, SCR_H - s_dieSize));
+    lv_obj_set_pos(d.obj, LV_CLAMP(0, (int32_t)bx, s_layout.w - s_dieSize), LV_CLAMP(0, (int32_t)by, s_layout.h - s_dieSize));
     const float grow = p * 3.0f > 1.0f ? 1.0f : p * 3.0f;      // Leaves the cup small, full size quickly
     const int32_t base = d.scale0 + (int32_t)((float)(ZOOM_100 - d.scale0) * grow);
     lv_image_set_scale(d.obj, (uint32_t)(base + (int32_t)(hop * 64.0f)));
@@ -1441,8 +1477,8 @@ static void startRoll(const DiceCup::ThrowParams *tp)
         d.lastSeg = -1;
         uint32_t stagger;
         if (tp) {
-            d.sx = cup ? curX : CUP_CX - s_dieSize / 2 + rnd(-30, 30);
-            d.sy = cup ? curY : CUP_CY - s_dieSize / 2;
+            d.sx = cup ? curX : cupCenterX() - s_dieSize / 2 + rnd(-30, 30);
+            d.sy = cup ? curY : cupCenterY() - s_dieSize / 2;
             d.scale0 = cup ? curScale : CUP_DIE_SCALE;
             // Launch direction +-0.25 rad * spread, reach and curve vary a little per die
             const float a = tp->angle + tp->spread * (float)rnd(-100, 100) / 400.0f;
@@ -1458,8 +1494,8 @@ static void startRoll(const DiceCup::ThrowParams *tp)
             d.spin = spinBase - ((spinBase - a0) % 3600 + 3600) % 3600;
             stagger = (uint32_t)((float)(k * ROLL_STAGGER_MS) * (0.5f + tp->spread));
         } else {
-            d.sx = fromLeft ? rnd(0, 24) : SCR_W - s_dieSize - rnd(0, 24);
-            d.sy = THROW_TOP + rnd(0, LV_MAX(0, THROW_H - s_dieSize));
+            d.sx = fromLeft ? rnd(0, 24) : s_layout.w - s_dieSize - rnd(0, 24);
+            d.sy = s_layout.throwTop + rnd(0, LV_MAX(0, s_layout.throwH - s_dieSize));
             d.cx = (d.sx + d.tx) / 2;
             d.cy = (d.sy + d.ty) / 2;
             d.hops = 3;
@@ -1542,13 +1578,13 @@ static void cupAdopt(int i, uint32_t gatherStartMs)
 static void cupPlace(uint32_t now)
 {
     const int32_t ox = (int32_t)s_cupOffX, oy = (int32_t)s_cupOffY;
-    lv_obj_set_pos(s_cupRim, CUP_CX - CUP_R + ox, CUP_CY - CUP_AREA_Y - CUP_R + oy);
+    lv_obj_set_pos(s_cupRim, cupCenterX() - CUP_R + ox, cupCenterY() - s_layout.cupY - CUP_R + oy);
     // Parallax of the inner lip / bottom against the rim reads as a slight tilt towards the finger
     lv_obj_set_pos(s_cupLip, (CUP_D - CUP_LIP_D) / 2 - ox / 6, (CUP_D - CUP_LIP_D) / 2 - oy / 6);
     lv_obj_set_pos(s_cupBottom, (CUP_LIP_D - CUP_BOTTOM_D) / 2 - ox / 3, (CUP_LIP_D - CUP_BOTTOM_D) / 2 - oy / 3);
-    const int32_t areaDy = lv_obj_get_y(s_cupArea) - CUP_AREA_Y;   // Cup sliding in / out
-    const float cx = (float)CUP_CX + s_cupOffX - (float)ox / 2.0f;   // Centre of the felt bottom
-    const float cy = (float)(CUP_CY + areaDy) + s_cupOffY - (float)oy / 2.0f;
+    const int32_t areaDy = lv_obj_get_y(s_cupArea) - s_layout.cupY;   // Cup sliding in / out
+    const float cx = (float)cupCenterX() + s_cupOffX - (float)ox / 2.0f;   // Centre of the felt bottom
+    const float cy = (float)(cupCenterY() + areaDy) + s_cupOffY - (float)oy / 2.0f;
     for (int k = 0; k < s_bodyCount; k++) {
         DieUi &d = s_dice[s_bodyDie[k]];
         const DiceCup::Body &b = s_body[k];
@@ -1587,8 +1623,8 @@ static void cupTick(lv_timer_t *t)
     // The cup follows the finger a little (smoothed); its acceleration throws the dice around
     float tx = 0.0f, ty = 0.0f;
     if (s_cupPressed) {
-        tx = LV_CLAMP(-CUP_FOLLOW_MAX, (s_shake.lastX() - (float)CUP_CX) * CUP_FOLLOW, CUP_FOLLOW_MAX);
-        ty = LV_CLAMP(-CUP_FOLLOW_MAX, (s_shake.lastY() - (float)CUP_CY) * CUP_FOLLOW, CUP_FOLLOW_MAX);
+        tx = LV_CLAMP(-CUP_FOLLOW_MAX, (s_shake.lastX() - (float)cupCenterX()) * CUP_FOLLOW, CUP_FOLLOW_MAX);
+        ty = LV_CLAMP(-CUP_FOLLOW_MAX, (s_shake.lastY() - (float)cupCenterY()) * CUP_FOLLOW, CUP_FOLLOW_MAX);
     }
     const float k = dt * 16.0f > 1.0f ? 1.0f : dt * 16.0f;
     const float nx = s_cupOffX + (tx - s_cupOffX) * k, ny = s_cupOffY + (ty - s_cupOffY) * k;
@@ -1634,7 +1670,7 @@ static void cupEvent(lv_event_t *e)
     const uint32_t now = lv_tick_get();
     if (code == LV_EVENT_PRESSED) {
         if (!s_cupActive || s_rolling) return;
-        const float dx = (float)p.x - ((float)CUP_CX + s_cupOffX), dy = (float)p.y - ((float)CUP_CY + s_cupOffY);
+        const float dx = (float)p.x - ((float)cupCenterX() + s_cupOffX), dy = (float)p.y - ((float)cupCenterY() + s_cupOffY);
         const float rr = (float)(CUP_R + CUP_PRESS_SLACK);
         if (dx * dx + dy * dy > rr * rr) return;   // Next to the cup: ignore
         s_cupPressed = true;
@@ -1647,7 +1683,7 @@ static void cupEvent(lv_event_t *e)
         if (!s_cupPressed) return;
         s_cupPressed = false;
         // No extra sample at release: the velocity is that of the last real movement
-        const DiceCup::ReleaseInfo r = DiceCup::decideRelease(s_shake, s_shake.lastY(), (float)(CUP_CY - CUP_R));
+        const DiceCup::ReleaseInfo r = DiceCup::decideRelease(s_shake, s_shake.lastY(), (float)(cupCenterY() - CUP_R));
         s_shake.end();
         cupSetShaking(false);
         const int dir = rnd(0, 1) ? 1 : -1;
@@ -1691,13 +1727,13 @@ static void showCup(bool animate)
     const bool wasHidden = lv_obj_is_hidden(s_cupArea);
     lv_obj_set_hidden(s_cupArea, false);
     if (animate) {
-        animInt(s_cupArea, yExec, wasHidden ? SCR_H - 40 : lv_obj_get_y(s_cupArea), CUP_AREA_Y, CUP_SHOW_MS);
+        animInt(s_cupArea, yExec, wasHidden ? s_layout.h - 40 : lv_obj_get_y(s_cupArea), s_layout.cupY, CUP_SHOW_MS);
         animInt(s_cupArea, opaExec, wasHidden ? (int32_t)LV_OPA_TRANSP : (int32_t)lv_obj_get_style_opa(s_cupArea, LV_PART_MAIN),
                 LV_OPA_COVER, CUP_SHOW_MS);
     } else {
         lv_anim_delete(s_cupArea, yExec);
         lv_anim_delete(s_cupArea, opaExec);
-        lv_obj_set_y(s_cupArea, CUP_AREA_Y);
+        lv_obj_set_y(s_cupArea, s_layout.cupY);
         lv_obj_set_style_opa(s_cupArea, LV_OPA_COVER, 0);
     }
     s_cupLastMs = now;
@@ -1736,7 +1772,7 @@ static void hideCup(bool moveBack, bool animate)
     s_cupOffX = s_cupOffY = s_cupVx = s_cupVy = 0.0f;
     if (!was) return;
     if (animate) {
-        animInt(s_cupArea, yExec, lv_obj_get_y(s_cupArea), SCR_H - 40, CUP_SHOW_MS, lv_anim_path_ease_in, cupHiddenDone);
+        animInt(s_cupArea, yExec, lv_obj_get_y(s_cupArea), s_layout.h - 40, CUP_SHOW_MS, lv_anim_path_ease_in, cupHiddenDone);
         animInt(s_cupArea, opaExec, lv_obj_get_style_opa(s_cupArea, LV_PART_MAIN), LV_OPA_TRANSP, CUP_SHOW_MS);
     } else {
         lv_anim_delete(s_cupArea, yExec);
@@ -1793,7 +1829,8 @@ static lv_obj_t *cupButton(const char *text, int32_t x, int32_t y, uint32_t colo
 // inner lip and a felt bottom. Plus the roll counter, the first-game hint and small buttons.
 static void buildCup(lv_obj_t *scr)
 {
-    s_cupArea = plainBox(scr, 0, CUP_AREA_Y, SCR_W, CUP_AREA_H);
+    const int32_t areaH = s_layout.h - s_layout.cupY;
+    s_cupArea = plainBox(scr, 0, s_layout.cupY, s_layout.w, areaH);
     lv_obj_set_clickable(s_cupArea, true);
     lv_obj_set_scroll_chain(s_cupArea, false);
     lv_obj_set_gesture_bubble(s_cupArea, false);
@@ -1830,14 +1867,14 @@ static void buildCup(lv_obj_t *scr)
     s_cupHint = Theme::label(s_cupArea, tr(Str::CUP_HINT), &my_font_14, Theme::MUTED);
     lv_obj_set_width(s_cupHint, 80);
     lv_obj_set_pos(s_cupHint, 6, 56);
-    cupButton(trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL), SCR_W - 82, 8, Theme::ACCENT, true, [](lv_event_t *) {
+    cupButton(trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL), s_layout.w - 82, 8, Theme::ACCENT, true, [](lv_event_t *) {
         if (s_cupActive && !s_rolling) cupThrow(DiceCup::defaultThrow(rollBaseMs(), rnd(0, 1) ? 1 : -1));
     });
-    s_cupChoose = cupButton(trp("", Str::GAME_CHOOSE, " " LV_SYMBOL_RIGHT), SCR_W - 82, CUP_AREA_H - 44, Theme::TEAL, false,
+    s_cupChoose = cupButton(trp("", Str::GAME_CHOOSE, " " LV_SYMBOL_RIGHT), s_layout.w - 82, areaH - 44, Theme::TEAL, false,
                             [](lv_event_t *) {
                                 if (!s_rolling && s_game.hasRolled()) setPhase(Phase::RESULT, true);
                             });
-    s_cupHide = cupButton(trp(LV_SYMBOL_DOWN " ", Str::GAME_TIDY), 4, CUP_AREA_H - 44, Theme::MUTED, false, [](lv_event_t *) {
+    s_cupHide = cupButton(trp(LV_SYMBOL_DOWN " ", Str::GAME_TIDY), 4, areaH - 44, Theme::MUTED, false, [](lv_event_t *) {
         if (s_cupActive && !s_rolling) hideCup(true, true);   // Put the cup away to move dice
     });
     lv_obj_set_hidden(s_cupArea, true);
@@ -1888,7 +1925,7 @@ static void refreshSuggestions(bool animateIn)
         lv_obj_set_hidden(s_sugHint, true);
     }
     if (animateIn && s_phase == Phase::ROLL) {   // "Floats" in: slides up and fades in
-        animInt(s_sugPanel, yExec, SUG_Y + 12, SUG_Y, 260);
+        animInt(s_sugPanel, yExec, s_layout.sugY + 12, s_layout.sugY, 260);
         animInt(s_sugPanel, opaExec, LV_OPA_TRANSP, LV_OPA_COVER, 260);
     }
 }
@@ -1913,9 +1950,9 @@ static void setPhase(Phase p, bool animate)
     bool res = p == Phase::RESULT;
     uint32_t ms = animate ? PHASE_MS : 1;
     if (res && s_cupActive) hideCup(false, animate);   // The dice are moved below
-    int32_t feltH = res ? FELT_H_RESULT : FELT_H_ROLL;
-    int32_t nestY = res ? FELT_Y : NEST_Y_ROLL;
-    int32_t nestH = res ? FELT_H_RESULT : NEST_H_ROLL;
+    int32_t feltH = res ? s_layout.feltResultH : s_layout.feltRollH;
+    int32_t nestY = res ? s_layout.feltY : s_layout.nestY;
+    int32_t nestH = res ? s_layout.feltResultH : NEST_H_ROLL;
     animInt(s_felt, hExec, lv_obj_get_height(s_felt), feltH, ms, lv_anim_path_ease_in_out);
     animInt(s_nest, yExec, lv_obj_get_y(s_nest), nestY, ms, lv_anim_path_ease_in_out);
     animInt(s_nest, hExec, lv_obj_get_height(s_nest), nestH, ms, lv_anim_path_ease_in_out);
@@ -1933,7 +1970,7 @@ static void setPhase(Phase p, bool animate)
     setVisible(s_writeBtn, res);
     setVisible(s_backBtn, res && s_game.canRoll());
     lv_obj_set_hidden(s_table, false);
-    animInt(s_table, yExec, lv_obj_get_y(s_table), res ? TABLE_Y : SCR_H, ms, lv_anim_path_ease_out,
+    animInt(s_table, yExec, lv_obj_get_y(s_table), res ? s_layout.tableY : s_layout.h, ms, lv_anim_path_ease_out,
             res ? nullptr : hideWhenDone);
     for (int i = 0; i < s_game.diceCount(); i++) {
         lv_obj_t *o = s_dice[i].obj;
@@ -1971,6 +2008,9 @@ static void newTurnUi()
     char rl[48];
     snprintf(rl, sizeof(rl), tr(Str::GAME_ROUND), s_game.round(), s_game.totalRounds());
     lv_label_set_text(s_roundLabel, rl);
+    lv_obj_update_layout(s_roundLabel);
+    lv_obj_set_width(s_playerLabel, LV_MIN(s_layout.w - 150,
+                                         lv_obj_get_x(s_roundLabel) - 10 - UiMetrics::marginSmall()));
     setPhase(Phase::ROLL, true);
     updateWebOverlay();
     refreshSuggestions(true);
@@ -2143,8 +2183,8 @@ static void refreshActions()
     bool back = s_phase == Phase::RESULT && canRoll;
     setVisible(s_backBtn, back);
     lv_label_set_text_fmt(s_backLabel, trp(LV_SYMBOL_LEFT " ", Str::GAME_BACK_ROLL_N), left);
-    lv_obj_set_x(s_writeBtn, back ? 122 : 6);
-    lv_obj_set_width(s_writeBtn, back ? 192 : SCR_W - 12);
+    lv_obj_set_x(s_writeBtn, back ? s_layout.writeX : s_layout.gap);
+    lv_obj_set_width(s_writeBtn, back ? s_layout.writeW : s_layout.w - 2 * s_layout.gap);
     bool canWrite = !s_rolling && s_selected != YatzyCategory::COUNT && s_game.canScore(s_selected);
     if (canWrite) {
         lv_label_set_text_fmt(s_writeLabel, tr(Str::GAME_WRITE), s_game.potentialScore(s_selected),
@@ -2347,7 +2387,8 @@ static void buildWebOverlay(lv_obj_t *scr)
     const int32_t inset = 2 * UiMetrics::marginSmall();
     const int32_t panelW = LV_MIN(UiMetrics::screenW() - 2 * inset, 600);
     const int32_t panelH = 3 * UiMetrics::buttonH() + UiMetrics::marginNormal() + UiMetrics::controlSpacing();
-    s_webBlock = plainBox(scr, 0, FELT_Y, UiMetrics::screenW(), UiMetrics::screenH() - FELT_Y);
+    const int32_t top = s_gameType == GameType::YATZY ? UiMetrics::titleH() + UiMetrics::marginSmall() : FELT_Y;
+    s_webBlock = plainBox(scr, 0, top, UiMetrics::screenW(), UiMetrics::screenH() - top);
     lv_obj_set_clickable(s_webBlock, true);   // Swallows touches (dice, cup, buttons, table)
     lv_obj_set_scroll_chain(s_webBlock, false);
     lv_obj_set_gesture_bubble(s_webBlock, false);
@@ -2386,6 +2427,7 @@ static void buildWebOverlay(lv_obj_t *scr)
 
 static void showGame()
 {
+    s_layout = gameLayout();
     s_gen++;
     cupKill();
     s_cupArea = nullptr;
@@ -2403,10 +2445,12 @@ static void showGame()
 
     // Header: player, round, menu
     lv_obj_t *h = Theme::header(scr, "");
+    lv_obj_set_height(h, s_layout.titleH);
     lv_obj_clean(h);
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_playerLabel, 170);
+    lv_obj_set_width(s_playerLabel, s_layout.w - 150);
+    lv_obj_set_height(s_playerLabel, lv_font_get_line_height(&my_font_24));
     lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10, 0);
     s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
     lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62, 0);
@@ -2415,7 +2459,7 @@ static void showGame()
     lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
 
     // Felt dice area
-    s_felt = plainBox(scr, FELT_X, FELT_Y, FELT_W, FELT_H_ROLL);
+    s_felt = plainBox(scr, s_layout.inset, s_layout.feltY, s_layout.feltW, s_layout.feltRollH);
     lv_obj_set_style_radius(s_felt, 14, 0);
     lv_obj_set_style_bg_color(s_felt, Theme::c(0x123A3F), 0);
     lv_obj_set_style_bg_grad_color(s_felt, Theme::c(0x0E2730), 0);
@@ -2423,7 +2467,8 @@ static void showGame()
     lv_obj_set_style_bg_opa(s_felt, LV_OPA_COVER, 0);
 
     // Nest: subtle darker, framed strip at the bottom of the felt (no label)
-    s_nest = plainBox(scr, FELT_X + 6, NEST_Y_ROLL, FELT_W - 12, NEST_H_ROLL);
+    s_nest = plainBox(scr, s_layout.inset + s_layout.gap, s_layout.nestY,
+                      s_layout.feltW - 2 * s_layout.gap, NEST_H_ROLL);
     lv_obj_set_style_radius(s_nest, 12, 0);
     lv_obj_set_style_bg_color(s_nest, Theme::c(0x000000), 0);
     lv_obj_set_style_bg_opa(s_nest, LV_OPA_30, 0);
@@ -2432,7 +2477,7 @@ static void showGame()
     lv_obj_set_style_border_opa(s_nest, LV_OPA_70, 0);
 
     // Floating, translucent suggestion card
-    s_sugPanel = plainBox(scr, SUG_X, SUG_Y, SUG_W, SUG_H);
+    s_sugPanel = plainBox(scr, s_layout.sugX, s_layout.sugY, s_layout.sugW, SUG_H);
     lv_obj_set_style_radius(s_sugPanel, 14, 0);
     lv_obj_set_style_bg_color(s_sugPanel, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_bg_opa(s_sugPanel, SUG_OPA, 0);
@@ -2446,11 +2491,12 @@ static void showGame()
     lv_obj_set_pos(sugTitle, 10, 3);
     s_sugHint = Theme::label(s_sugPanel, "", &my_font_14, Theme::MUTED);
     lv_obj_align(s_sugHint, LV_ALIGN_CENTER, 0, 8);
+    const int32_t chipW = (s_layout.sugW - 24) / 2;
     for (int k = 0; k < SUG_MAX; k++) {
         lv_obj_t *chip = lv_button_create(s_sugPanel);
         lv_obj_remove_style_all(chip);
-        lv_obj_set_size(chip, 140, 22);
-        lv_obj_set_pos(chip, 8 + (k % 2) * 148, 22 + (k / 2) * 24);
+        lv_obj_set_size(chip, chipW, 22);
+        lv_obj_set_pos(chip, 8 + (k % 2) * (chipW + 8), 22 + (k / 2) * 24);
         lv_obj_set_style_radius(chip, 8, 0);
         lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(chip, 1, 0);
@@ -2458,7 +2504,7 @@ static void showGame()
         lv_obj_set_ext_click_area(chip, 2);
         s_sugName[k] = Theme::label(chip, "", &my_font_14);
         lv_label_set_long_mode(s_sugName[k], LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(s_sugName[k], 100);
+        lv_obj_set_width(s_sugName[k], chipW - 40);
         lv_obj_align(s_sugName[k], LV_ALIGN_LEFT_MID, 8, 0);
         s_sugScore[k] = Theme::label(chip, "", &my_font_14);
         lv_obj_align(s_sugScore[k], LV_ALIGN_RIGHT_MID, -8, 0);
@@ -2468,26 +2514,27 @@ static void showGame()
     }
 
     // Roll phase buttons
-    s_rollBtn = Theme::button(scr, "", 150, BTN_H, Theme::ACCENT, true);
-    lv_obj_set_pos(s_rollBtn, 6, BTN_Y);
+    s_rollBtn = Theme::button(scr, "", s_layout.rollW, s_layout.buttonH, Theme::ACCENT, true);
+    lv_obj_set_pos(s_rollBtn, s_layout.gap, s_layout.buttonY);
     s_rollLabel = lv_obj_get_child(s_rollBtn, 0);
     lv_obj_add_event_cb(s_rollBtn, onRoll, LV_EVENT_CLICKED, nullptr);
-    s_chooseBtn = Theme::button(scr, trp("", Str::GAME_PICK_BOX_BTN, " " LV_SYMBOL_RIGHT), 152, BTN_H, Theme::TEAL);
-    lv_obj_set_pos(s_chooseBtn, 162, BTN_Y);
+    s_chooseBtn = Theme::button(scr, trp("", Str::GAME_PICK_BOX_BTN, " " LV_SYMBOL_RIGHT),
+                               s_layout.chooseW, s_layout.buttonH, Theme::TEAL);
+    lv_obj_set_pos(s_chooseBtn, s_layout.chooseX, s_layout.buttonY);
     lv_obj_add_event_cb(s_chooseBtn, [](lv_event_t *) {
         if (!s_rolling && s_game.hasRolled()) setPhase(Phase::RESULT, true);
     }, LV_EVENT_CLICKED, nullptr);
 
     // Result phase action bar
-    s_backBtn = Theme::button(scr, "", 110, BAR_H, Theme::MUTED);
-    lv_obj_set_pos(s_backBtn, 6, BAR_Y);
+    s_backBtn = Theme::button(scr, "", s_layout.backW, s_layout.barH, Theme::MUTED);
+    lv_obj_set_pos(s_backBtn, s_layout.gap, s_layout.barY);
     s_backLabel = lv_obj_get_child(s_backBtn, 0);
     lv_obj_set_style_text_font(s_backLabel, &my_font_14, 0);
     lv_obj_add_event_cb(s_backBtn, [](lv_event_t *) {
         if (!s_rolling && s_game.canRoll()) setPhase(Phase::ROLL, true);
     }, LV_EVENT_CLICKED, nullptr);
-    s_writeBtn = Theme::button(scr, "", 192, BAR_H, Theme::ACCENT, true);
-    lv_obj_set_pos(s_writeBtn, 122, BAR_Y);
+    s_writeBtn = Theme::button(scr, "", s_layout.writeW, s_layout.barH, Theme::ACCENT, true);
+    lv_obj_set_pos(s_writeBtn, s_layout.writeX, s_layout.barY);
     s_writeLabel = lv_obj_get_child(s_writeBtn, 0);
     lv_obj_set_style_text_font(s_writeLabel, &my_font_14, 0);
     lv_obj_set_style_text_align(s_writeLabel, LV_TEXT_ALIGN_CENTER, 0);
@@ -2498,11 +2545,11 @@ static void showGame()
     buildRows();
     int players = s_game.playerCount();
     s_table = lv_table_create(scr);
-    lv_obj_set_pos(s_table, 0, SCR_H);
-    lv_obj_set_size(s_table, SCR_W, SCR_H - TABLE_Y);
+    lv_obj_set_pos(s_table, 0, s_layout.h);
+    lv_obj_set_size(s_table, s_layout.w, s_layout.h - s_layout.tableY);
     lv_table_set_column_count(s_table, players + 1);
     lv_table_set_row_count(s_table, s_rowCount);
-    int32_t colW = LV_MAX(52, (SCR_W - CAT_COL_W - 4) / players);
+    int32_t colW = LV_MAX(52, (s_layout.w - CAT_COL_W - 4) / players);
     if (colW > 100) colW = 100;
     lv_table_set_column_width(s_table, 0, CAT_COL_W);
     for (int p = 0; p < players; p++) lv_table_set_column_width(s_table, p + 1, colW);

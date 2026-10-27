@@ -372,10 +372,13 @@ g++ -std=c++17 -Wall -Wextra -O2 -Icomponents/otr_midi/include -Icomponents/otr_
 ```
 
 With the project's LVGL dependency available in `managed_components/lvgl__lvgl`, run
-`python3 tests/test_yatzy_layout.py` for host-side variants/players/picker, Yatzy dialogs,
+`python3 tests/test_yatzy_layout.py` for host-side variants/players/picker, Yatzy game screen/dialogs,
 web-turn overlay and PIN numpad layout and interaction
 checks at 320×480, 480×800 and 800×480 in Swedish and English (CMake/Ninja required, no hardware).
 This includes long/scrollable dialog and overlay text, PIN retry/cancel/confirmation, and picker scrolling.
+Game-screen checks cover roll/result transitions, responsive controls and score-table scrolling,
+long player names, dice placement and cup visual/touch alignment, with one/eight players,
+Yatzy/Maxi, normal/ordered modes and saved rolls. Hardware and roll execution are stubbed.
 
 Manual UI regression checklist (run on 320×480 and a larger portrait/landscape layout, in Swedish and English):
 
@@ -384,8 +387,24 @@ Manual UI regression checklist (run on 320×480 and a larger portrait/landscape 
 - [ ] Numpad: open from new-player and web-seat flows; enter four digits, backspace, retry after error, confirm and cancel; check centering and touch targets.
 - [ ] Picker: empty/full/filtered lists, long names, scroll to last row, select/change player, clear search and return without overlaps.
 
-These refinements only change on-device UI layout. Game rules/engines, scores, web commands/protocols,
-network flows, full game-screen layout and P4 hardware support are deliberately unchanged.
+Game-screen layout (UI step 5, firmware 0.19.1) derives header, felt/nest, suggestions, controls,
+cup placement and score-table bounds from the active display and `ui_metrics`. The 320×480
+baseline geometry is preserved; taller layouts gain playing/table space and wider layouts gain
+control, suggestion and player-column space. Long player names stay on one line clear of round status.
+
+Manual game-screen checklist (hardware verification still required, at 320×480 and a larger
+portrait/landscape layout, in Swedish and English):
+
+- [ ] Yatzy, Maxi, ordered and Midi: start with one/eight players; verify player/round/menu header, including long names and later rounds.
+- [ ] Cup: tap to roll, shake/swipe to throw, tidy/reopen; verify visuals and touch targets align.
+- [ ] Dice: tap/swipe/drag to hold/release; verify free/held dice remain in the correct zones.
+- [ ] Suggestions and controls: choose a suggestion or “choose”, return to rolling, use the last roll, select/write a score; verify unchanged turn flow and no clipped controls.
+- [ ] Result table: scroll vertically/horizontally to the last row/player; verify selection, highlighting and write-button expansion when no rolls remain.
+- [ ] Web turn: verify the overlay blocks all local game input below the header, menu remains available, and local takeover works after disconnect.
+
+These refinements only change on-device UI layout. Game rules/engines, scoring, dice physics and
+gesture thresholds, web commands/protocols, network flows and data formats/compatibility are unchanged.
+Mini-game/result screens, theme redesign and P4 hardware support are outside this step.
 
 ## Flashing and updating
 
