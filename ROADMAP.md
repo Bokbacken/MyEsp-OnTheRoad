@@ -5,9 +5,20 @@ Status per 2026-10-27. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test å
 ### Aktuellt fokus – tillbaka till bibeläventyret
 - **Karaoke pausad på Kents begäran:** grunden fungerar mycket väl enligt Kent. Det innebär inte att alla funktioner i v0.13.7 är HW-verifierade; kvarvarande testpunkter står kvar. Inga nya karaokeändringar nu.
 - **Nästa fokus: Josefs resa** enligt [bibeläventyrsplanen](docs/BIBLE_ADVENTURE_PLAN.md). v0.15.0 levererar kartövergångar och v2-sparning som teknisk grund; inget Josef-kapitel eller utbyggd uppdragslogg ingår. Uppdragslogg och generell världsspecifik HUD återstår.
+- **Senaste äventyrstillskott (v0.18.x):** mörker, ficklampa och hoppstylta för SD-äventyr, delad handlingsknapp och `@treasures`-företräde – se v0.18-avsnittet nedan. Delvis HW-testat av Kent.
 - [x] **MineSweeper-utbyggnad:** 12 banor, hittbar skyddsdräkt och 3×3/4×4-bomber i v0.15.0; regler och begränsningar nedan. Ej HW-testad.
 - [ ] **Eventspellistor kvar som TODO:** Kent bygger själv listor med låtar och ordning via webbsidan, med TXT/JSON som planerad lagring. Ingen automatisk filsortering; alla får välja låt. Favoriter/senaste är uppskjutna. Ingen implementation under karaokepausen.
 - [x] **ASCII-authoringformat (.adv) för att importera/skapa egna äventyr:** format specificerat och dokumenterat i [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md) med ett komplett, verkligt exempel ([docs/adventures/example_joseph_hebron.adv](docs/adventures/example_joseph_hebron.adv) = Hebron-lägret). Formatet speglar motorns riktiga strukturer (`MapDef`/`Rules`, `Script`/`Npc`/`Node`). **Host-parser byggd:** `tools/adv_parse.{h,cpp}` läser `.adv` → `Otr::MapDef` + `Otr::Story::Script`; host-testet `tests/test_adv_parser.cpp` parsar exempelfilen, laddar kartan med `World::load()` och kör `Script::validate()` rent (19 kontroller, inga kompilatorvarningar). Parsern är ett host-verktyg och ingår inte i firmware-bygget. **Nästa steg:** läsa `.adv` även på enheten (SD/flash) för direktimport där.
+
+### v0.18.0–v0.18.5 – Mörker, ficklampa och hoppstylta för SD-äventyr ✅ (delvis HW-testad)
+- [x] **Mörker (`@dark`):** rektanglar på kartan döljer sitt innehåll tills de lyses upp; blockerar aldrig rörelse. Max 16 per karta, klipps mot kartkanten.
+- [x] **Ficklampa (glyf `f`, nivå 1–3):** lyser upp en kon framåt – räckvidd = nivån (1/2/3 rutor), de främre raderna 3 rutor breda. Avslöjar endast mörker (inte dimma). Permanent mellan kartor.
+- [x] **Hoppstylta (glyf `j`, nivå 1–3):** hoppar över 1–N sammanhängande hinder. **Manuellt** hopp (v0.18.3) via **delad handlingsknapp** (v0.18.4): övre tredjedelen **Byt** cyklar möjliga handlingar (Slå/Prata/Hoppa), nedre 2/3 utför vald. Permanent mellan kartor.
+- [x] **Nivån visas som bild + siffra** i HUD (ej text); nya procedurella sprites på enheten (v0.18.1).
+- [x] **`@treasures` har företräde över plockbar kartglyf på samma ruta** (v0.18.5): `f`/`j` kan höjas till nivå 2–3 med en skatt på samma koordinat. Täckande objekt (buske/låda/sten/dörr/mur) döljer fortfarande sin skatt tills de krossas.
+- [x] Sparformat v3 (migrerar v1/v2 utan dataförlust). Dokumenterat i [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md) §8 och §10.
+- [x] Värdtester gröna (test_adventure, test_adv_loader, test_adv_parser, test_adv_catalog), ESP-IDF-bygge exit 0, 0 varningar.
+- **HW-testat av Kent:** mörker/ficklampa/hoppstylta-rendering, ficklampskäglan, manuellt hopp via delad knapp och `@treasures`-företrädet. Övriga delar endast värdtest/bygge.
 
 ### v0.17.0 – SD-kortsäventyr: datadriven meny, spara per mapp, carry/reset 🔧 (ej HW-testad)
 - **Äventyrsmenyn läser nu enbart `/sdcard/otr/adventure/`.** Varje undermapp med ordnade kartfiler `NN_namn.adv` blir ett äventyr; menyn byggs från varje mapps `@about`-header (titel/beskrivning SV/EN, fallback till mappnamnet). Reserverade mappar (`saves`, `maps`) och mappar utan kartfiler hoppas över. Saknas kortet eller mappen visas meddelandet **"Inga äventyr på SD-kortet"** med sökvägen (SV/EN). De inbyggda WorldId-äventyren listas inte längre; motorns enum/kartor finns kvar men är vilande.
