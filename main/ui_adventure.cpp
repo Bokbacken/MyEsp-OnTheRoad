@@ -77,6 +77,7 @@ enum Spr : uint8_t {
     S_PL_UP, S_PL_RIGHT, S_PL_DOWN, S_PL_LEFT, S_IMPACT,
     S_CHECK, S_CHECK_ON, S_EXIT, S_CRATER, S_FOG, S_FLAG, S_BUSH, S_POTION, S_HEART, S_SUIT, S_LIFE,
     S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
+    S_FLASH, S_POGO, S_DARK,                  // v0.18.0: flashlight / pogo pickups + unlit dark cell
     S_NPC0,                                   // v0.11.0: people, NPC_LOOKS looks x 4 directions (Dir order)
     S_NPC_LAST = S_NPC0 + 3 * 4 - 1,
     S_COUNT
@@ -88,10 +89,11 @@ static constexpr int HUD_PX = 20;
 enum HudIcon : uint8_t {
     H_LIFE, H_SUIT, H_KEY, H_GEM,   // Left column: counters
     H_BOAT,                         // Right column: carried items (on/off)
+    H_FLASH, H_POGO,                // v0.18.0 permanent abilities, shown as image + level digit
     H_COUNT
 };
 // Lives use the extra-life heart (green, +) so the counter matches the pickup that raises it.
-static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT};
+static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT, S_FLASH, S_POGO};
 
 static constexpr int NPC_LOOKS = 3;           // Npc::look 0..2 (baker, shepherd, old man)
 static constexpr int PORTRAIT_PX = 48;        // Dialogue portrait: head + shoulders of the sprite, 2x
@@ -166,7 +168,8 @@ static bool s_resultShown=false;
 static lv_obj_t *s_stageLabel, *s_bombCancel;
 // v0.18.0: HUD indicators for the permanent abilities (shown only while owned) and the
 // previous ability levels, used to raise the pickup toast on a level increase (no event bit left).
-static lv_obj_t *s_flashTag, *s_pogoTag;
+static lv_obj_t *s_flashCell, *s_pogoCell;    // v0.18.0: ability image + level digit (icon in s_item[])
+static lv_obj_t *s_flashLvl, *s_pogoLvl;      // level digit beside each ability icon
 static int s_prevFlash, s_prevPogo;
 static uint32_t s_actionTapMs;
 static void bombAction();
@@ -673,6 +676,37 @@ static void makeArt(Sprites *sp)
                 if (GLYPH[d][y] & (0x10 >> x)) rect(s, 11 + x * 2, 9 + y * 2, 12 + x * 2, 10 + y * 2, c);
     }
 
+    // ---- v0.18.0 flashlight / pogo pickups + dark cell -----------------------------------
+    // Flashlight: blue torch pointing up, bright lens and a widening beam cone above it.
+    fillKey(b[S_FLASH]);
+    for (int y = 1; y <= 8; y++) {                       // beam cone, widening upward from the lens
+        const int half = y;
+        rect(b[S_FLASH], 16 - half, 9 - y, 15 + half, 9 - y, rgb(255, 238, 150));
+    }
+    rect(b[S_FLASH], 11, 9, 20, 13, rgb(70, 72, 82));    // reflector head
+    rect(b[S_FLASH], 11, 9, 20, 9, rgb(150, 152, 165));  // head rim highlight
+    disc(b[S_FLASH], 16.f, 10.f, 3.5f, rgb(255, 250, 210));   // lens
+    rect(b[S_FLASH], 13, 13, 18, 28, rgb(40, 120, 180));      // body
+    rect(b[S_FLASH], 13, 13, 13, 28, rgb(100, 180, 230));     // body highlight
+    rect(b[S_FLASH], 13, 20, 18, 21, rgb(20, 60, 90));        // grip band
+    // Pogo stick: red pole, handlebar on top, foot pegs and a coil spring with a tip at the bottom.
+    fillKey(b[S_POGO]);
+    rect(b[S_POGO], 14, 5, 17, 22, rgb(210, 60, 60));    // pole
+    rect(b[S_POGO], 14, 5, 14, 22, rgb(245, 125, 125));  // pole highlight
+    rect(b[S_POGO], 8, 4, 23, 6, rgb(60, 60, 70));       // handlebar
+    disc(b[S_POGO], 8.f, 5.f, 2.f, rgb(40, 40, 50));
+    disc(b[S_POGO], 23.f, 5.f, 2.f, rgb(40, 40, 50));
+    rect(b[S_POGO], 9, 18, 13, 20, rgb(60, 60, 70));     // left foot peg
+    rect(b[S_POGO], 18, 18, 22, 20, rgb(60, 60, 70));    // right foot peg
+    for (int i = 0; i < 4; i++) {                        // coil spring
+        const int yy = 22 + i * 2;
+        line(b[S_POGO], 13, yy, 18, yy + 1, rgb(190, 190, 200), 2);
+        line(b[S_POGO], 18, yy + 1, 13, yy + 2, rgb(190, 190, 200), 2);
+    }
+    rect(b[S_POGO], 14, 30, 17, 31, rgb(40, 40, 50));    // tip
+    // Dark cell: opaque near-black fill used for an unlit cell inside a @dark area.
+    rect(b[S_DARK], 0, 0, 31, 31, rgb(6, 6, 12));
+
     // 16 px copies: 2x2 box filter; a pixel stays transparent when 2+ source pixels are.
     for (int i = 0; i < S_COUNT; i++)
         for (int y = 0; y < SPR / 2; y++)
@@ -758,6 +792,8 @@ static int objSprite(Obj o)
     case Obj::HEART: return S_HEART;
     case Obj::SUIT: return S_SUIT;
     case Obj::LIFE: return S_LIFE;
+    case Obj::FLASH: return S_FLASH;
+    case Obj::POGO: return S_POGO;
     default: return -1;
     }
 }
@@ -840,6 +876,10 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
                 if (w.flagged(tx, ty)) blit(S_FLAG, sx, sy, true);
                 continue;
             }
+            if (w.darkHidden(tx, ty)) {   // v0.18.0: unlit cell in a @dark area stays black until the flashlight hits it
+                blit(S_DARK, sx, sy, false);
+                continue;
+            }
             blit(terrainSprite(tx, ty, frame), sx, sy, false);
             if (fog) {
                 const int n = w.mineHint(tx, ty);
@@ -913,21 +953,21 @@ static void updateStats()
     }
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
-    // Permanent abilities: show the indicator with its level only while owned.
-    if (s_flashTag) {
+    // Permanent abilities: show the item image + its level digit only while owned.
+    if (s_flashCell) {
         if (w.flashlight() > 0) {
-            lv_label_set_text_fmt(s_flashTag, tr(Str::ADV_FLASHLIGHT_TAG), w.flashlight());
-            lv_obj_set_hidden(s_flashTag, false);
+            lv_label_set_text_fmt(s_flashLvl, "%d", w.flashlight());
+            lv_obj_set_hidden(s_flashCell, false);
         } else {
-            lv_obj_set_hidden(s_flashTag, true);
+            lv_obj_set_hidden(s_flashCell, true);
         }
     }
-    if (s_pogoTag) {
+    if (s_pogoCell) {
         if (w.pogo() > 0) {
-            lv_label_set_text_fmt(s_pogoTag, tr(Str::ADV_POGO_TAG), w.pogo());
-            lv_obj_set_hidden(s_pogoTag, false);
+            lv_label_set_text_fmt(s_pogoLvl, "%d", w.pogo());
+            lv_obj_set_hidden(s_pogoCell, false);
         } else {
-            lv_obj_set_hidden(s_pogoTag, true);
+            lv_obj_set_hidden(s_pogoCell, true);
         }
     }
     s_prevFlash = w.flashlight();
@@ -2181,7 +2221,7 @@ static void viewEvent(lv_event_t *e)
 static void freeAll()
 {
     s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_bombCancel=nullptr;
-    s_flashTag=s_pogoTag=nullptr; s_prevFlash=s_prevPogo=0;
+    s_flashCell=s_pogoCell=s_flashLvl=s_pogoLvl=nullptr; s_prevFlash=s_prevPogo=0;
     liveStop();   // Before the world memory goes
     closeDialog();
     if (s_timer) lv_timer_delete(s_timer);
@@ -2466,14 +2506,26 @@ static void buildControls()
     lv_obj_set_clickable(s_itemBox, false);
     for (int i = 0; i < H_COUNT; i++) s_item[i] = nullptr;
     s_item[H_BOAT] = hudIcon(s_itemBox, H_BOAT);
-    // Permanent-ability indicators (flashlight / pogo). Small text tags that wrap under the
-    // carried items; hidden until the ability is owned (updateStats toggles them).
-    s_flashTag = Theme::label(s_itemBox, "", &my_font_14, Theme::GOLD);
-    lv_obj_set_width(s_flashTag, COL_R_W);
-    lv_obj_set_hidden(s_flashTag, true);
-    s_pogoTag = Theme::label(s_itemBox, "", &my_font_14, Theme::TEAL);
-    lv_obj_set_width(s_pogoTag, COL_R_W);
-    lv_obj_set_hidden(s_pogoTag, true);
+    // v0.18.0: permanent abilities shown as the item image + a small level digit (not text).
+    // Each sits in its own tight row (icon then digit) so the digit stays next to its image.
+    auto abilityCell = [&](HudIcon ic, uint32_t col, lv_obj_t *&lvl) -> lv_obj_t * {
+        lv_obj_t *cell = lv_obj_create(s_itemBox);
+        lv_obj_remove_style_all(cell);
+        lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(cell, 2, 0);
+        lv_obj_set_width(cell, LV_SIZE_CONTENT);
+        lv_obj_set_height(cell, HUD_PX + 2);
+        lv_obj_set_scrollable(cell, false);
+        lv_obj_set_clickable(cell, false);
+        s_item[ic] = hudIcon(cell, ic);
+        lvl = Theme::label(cell, "", &my_font_14, col);
+        return cell;
+    };
+    s_flashCell = abilityCell(H_FLASH, Theme::GOLD, s_flashLvl);
+    s_pogoCell  = abilityCell(H_POGO, Theme::TEAL, s_pogoLvl);
+    lv_obj_set_hidden(s_flashCell, true);
+    lv_obj_set_hidden(s_pogoCell, true);
 
     s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,36,Theme::LINE);
     lv_obj_set_pos(s_bombCancel,COL_R_X,106);
