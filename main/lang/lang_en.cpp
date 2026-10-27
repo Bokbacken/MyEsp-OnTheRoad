@@ -246,6 +246,7 @@ extern const Entry LANG_EN[] = {
     {Str::ADV_TITLE, "Test world"},
     {Str::ADV_HIT, "Hit"},
     {Str::ADV_JUMP, "Jump"},
+    {Str::ADV_SWAP, "Swap"},
     {Str::ADV_ZOOM, "Zoom"},
     {Str::ADV_ZOOM_IN, "Zoom in"},
     {Str::ADV_ZOOM_OUT, "Zoom out (see more)"},

@@ -604,9 +604,14 @@ Eller sätt en högre nivå via `@treasures` (antals-fältet blir **nivån**, 1�
 ```
 
 Hoppet är **manuellt** (fr.o.m. v0.18.3): gå fram mot hindret så att spelaren
-vänder sig mot det. Äger du en hoppstylta och går att hoppa byts handlingsknappen
-**Slå** till **Hoppa** — vid klick hoppar spelaren i blickriktningen. Du måste
-alltså stå vänd åt rätt håll; inget hopp sker automatiskt.
+vänder sig mot det. Fr.o.m. **v0.18.4** är handlingsknappen **delad**: översta
+tredjedelen (**Byt**) växlar vald handling mellan de som går just nu — **Slå**,
+**Prata** (när du står vänd mot en person) och **Hoppa** (när du äger en
+hoppstylta och står vänd mot ett hinder du klarar) — och nedre två
+tredjedelarna utför den valda handlingen. Inget byts automatiskt längre: du
+väljer själv, så du kan t.ex. **Slå** i stället för **Prata** om storyn kräver
+det. Faller den valda handlingen bort (du går från hindret/personen) återgår
+knappen till **Slå**.
 
 Så fungerar vaulten vid ett hopp mot ett blockerande hinder (sten, låda,
 buske, oknuffbar sten osv.):

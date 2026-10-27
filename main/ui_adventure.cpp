@@ -181,9 +181,10 @@ static int s_talkNum;                         // Person being talked to (map num
 static int s_walkTalkNum;                     // Tap on a person: walk there, then talk to it
 static int s_pendingChoice = -2;              // Picked answer, handled in the next tick (-1 = close)
 static lv_obj_t *s_talkBox, *s_talkPortrait, *s_talkName, *s_talkText, *s_talkRef, *s_talkPanel;
-static lv_obj_t *s_hitBtn;                    // Slå / Prata / Hoppa
-static bool s_hitTalk;
-static int s_hitMode = -1;                    // v0.18.3: 0 Slå, 1 Prata, 2 Hoppa (force first sync)
+static lv_obj_t *s_hitBtn;                    // Bottom 2/3: runs the selected action
+static lv_obj_t *s_swapBtn;                   // Top 1/3: "Byt" cycles the selected action
+static int s_actSel = -1;                     // v0.18.4: selected action 0 Slå, 1 Prata, 2 Hoppa
+static int s_actShown = -1;                   // Last action rendered on the button (force sync)
 static uint32_t s_hitTapMs, s_choiceTapMs;
 static const char *s_twText;                  // Typewriter: full text, bytes shown, next char time
 static int s_twLen, s_twPos, s_twChars;
@@ -1671,17 +1672,65 @@ static uint32_t doMove(Dir d, bool vault = false)
     return ev;
 }
 
+// v0.18.4: the split action button. The player picks the action with "Byt" (top 1/3)
+// instead of it switching automatically; add new actions here as features arrive.
+enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_N = 3 };
+static bool actAvail(int a)
+{
+    switch (a) {
+        case ACT_HIT:  return true;                    // Slå always works (bumps empty cells too)
+        case ACT_TALK: return s_world->facingNpc() != 0;
+        case ACT_JUMP: return s_world->canVault();
+        default:       return false;
+    }
+}
+// Keep the chosen action if still possible, else fall back to Slå; refresh label/colour and
+// the "Byt" toggle (disabled when only one action is possible).
+static void refreshActBtn()
+{
+    if (!s_hitBtn || s_world->mineLevel()) return;
+    if (!actAvail(s_actSel)) s_actSel = ACT_HIT;
+    int avail = 0;
+    for (int a = 0; a < ACT_N; a++) if (actAvail(a)) avail++;
+    if (s_swapBtn) lv_obj_set_state(s_swapBtn, LV_STATE_DISABLED, avail < 2);
+    if (s_actSel != s_actShown) {
+        s_actShown = s_actSel;
+        lv_label_set_text(lv_obj_get_child(s_hitBtn, 0),
+            tr(s_actSel == ACT_JUMP ? Str::ADV_JUMP : s_actSel == ACT_TALK ? Str::ADV_TALK : Str::ADV_HIT));
+        const auto col = s_actSel == ACT_TALK ? Theme::TEAL : s_actSel == ACT_JUMP ? Theme::GOLD : Theme::ACCENT;
+        lv_obj_set_style_bg_color(s_hitBtn, Theme::c(col), 0);
+        lv_obj_set_style_border_color(s_hitBtn, Theme::c(col), 0);
+    }
+}
+static void doSwap()
+{
+    if (s_world->mineLevel()) return;
+    for (int i = 1; i <= ACT_N; i++) {       // next possible action after the current one
+        const int a = (s_actSel + i) % ACT_N;
+        if (actAvail(a)) { s_actSel = a; break; }
+    }
+    refreshActBtn();
+    s_dirty = true;
+}
+
 static void doHit()
 {
     const uint32_t now = nowMs();
     if (s_world->mineLevel()) { bombAction(); return; }
     if (busy(now) || s_world->gameOver()) return;
-    if (s_world->canVault()) { doMove(s_world->facing(), true); return; }   // v0.18.3: "Hoppa" -> pogo jump
+    if (s_actSel == ACT_JUMP && s_world->canVault()) { doMove(s_world->facing(), true); return; }
+    if (s_actSel == ACT_TALK && s_world->facingNpc()) { startTalk(s_world->facingNpc()); return; }
+    // Slå (also the fallback): swing at the facing cell. People can't be hurt, so a swing at
+    // a person is just a harmless bump — press Byt to pick Prata to talk instead.
     const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
     const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
     const uint32_t ev = s_world->hit();
-    if (ev & Otr::EV_TALK) {   // Facing a person: Slå is Prata
-        startTalk(s_world->talkNpc());
+    if (ev & Otr::EV_TALK) {
+        s_bumpDx = Otr::dirX(s_world->facing());
+        s_bumpDy = Otr::dirY(s_world->facing());
+        s_bumpT0 = now;
+        Audio::play(Sound::Sfx::BUMP);
+        s_dirty = true;
         return;
     }
     s_bumpDx = Otr::dirX(s_world->facing());
@@ -2022,18 +2071,9 @@ static void tick(lv_timer_t *)
 
     // Autosave when idle: after a checkpoint, and every minute if anything changed
     const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog && !talking();
-    // Slå becomes Prata when the hero faces a person, or Hoppa when a pogo jump is available (v0.18.3).
-    const bool faceTalk = s_world->facingNpc() != 0;
-    const int hitMode = s_world->canVault() ? 2 : faceTalk ? 1 : 0;
-    if (s_hitBtn && !s_world->mineLevel() && hitMode != s_hitMode) {
-        s_hitMode = hitMode;
-        s_hitTalk = (hitMode == 1);
-        lv_label_set_text(lv_obj_get_child(s_hitBtn, 0),
-                          tr(hitMode == 2 ? Str::ADV_JUMP : hitMode == 1 ? Str::ADV_TALK : Str::ADV_HIT));
-        const auto col = hitMode == 1 ? Theme::TEAL : hitMode == 2 ? Theme::GOLD : Theme::ACCENT;
-        lv_obj_set_style_bg_color(s_hitBtn, Theme::c(col), 0);
-        lv_obj_set_style_border_color(s_hitBtn, Theme::c(col), 0);
-    }
+    // v0.18.4: keep the player's chosen action, falling back only when it is no longer
+    // possible; "Byt" (top 1/3) lets the player cycle among the possible actions.
+    refreshActBtn();
     if (idle && s_playerId) {
         const bool changed = s_world->revision() != s_savedRev || s_world->steps() != s_savedSteps;
         if (s_saveWanted || (changed && now - s_lastSaveMs >= 60000)) saveNow();
@@ -2255,8 +2295,9 @@ static void freeAll()
     s_joyKnob = nullptr;
     s_muteBtn = nullptr;
     s_hitBtn = nullptr;
-    s_hitTalk = false;
-    s_hitMode = -1;
+    s_swapBtn = nullptr;
+    s_actSel = -1;
+    s_actShown = -1;
     s_talk.end();   // The dialogue objects went with the screen
     s_talkBox = s_talkPanel = s_talkPortrait = s_talkName = s_talkText = s_talkRef = nullptr;
     s_talkNum = s_walkTalkNum = 0;
@@ -2481,12 +2522,27 @@ static void buildControls()
     lv_obj_add_event_cb(s_muteBtn, [](lv_event_t *) { toggleSound(); }, LV_EVENT_CLICKED, nullptr);
     muteIcon();
 
-    // Right column: the box on top is the Slå (hit) button
-    // (Prata when facing a person, see tick())
-    s_hitBtn = Theme::button(pan, tr(s_world->mineLevel()?Str::ADV_BOMB:Str::ADV_HIT), COL_R_W, 56, Theme::ACCENT, true);
-    s_hitTalk = false;
-    s_hitMode = -1;
-    lv_obj_set_pos(s_hitBtn, COL_R_X, 8);
+    // Right column, top box: split action button — "Byt" (top 1/3) picks the action,
+    // the bottom 2/3 runs it (Slå / Prata / Hoppa). In minefield it is the bomb button.
+    if (s_world->mineLevel()) {
+        s_hitBtn = Theme::button(pan, tr(Str::ADV_BOMB), COL_R_W, 56, Theme::ACCENT, true);
+        lv_obj_set_pos(s_hitBtn, COL_R_X, 8);
+        s_swapBtn = nullptr;
+    } else {
+        // Top 1/3: "Byt" cycles the selected action among the ones possible right now.
+        s_swapBtn = Theme::button(pan, tr(Str::ADV_SWAP), COL_R_W, 18, Theme::LINE, true);
+        lv_obj_set_pos(s_swapBtn, COL_R_X, 8);
+        lv_obj_set_style_text_font(lv_obj_get_child(s_swapBtn, 0), &my_font_14, 0);
+        lv_obj_add_event_cb(s_swapBtn, [](lv_event_t *) {
+            if (!Theme::debounce(s_hitTapMs)) return;
+            doSwap();
+        }, LV_EVENT_CLICKED, nullptr);
+        // Bottom 2/3: run the selected action.
+        s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 36, Theme::ACCENT, true);
+        lv_obj_set_pos(s_hitBtn, COL_R_X, 28);
+    }
+    s_actSel = ACT_HIT;
+    s_actShown = -1;
     lv_obj_add_event_cb(s_hitBtn, [](lv_event_t *) {
         if (!Theme::debounce(s_hitTapMs)) return;
         stopPath();

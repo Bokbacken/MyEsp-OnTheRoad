@@ -246,6 +246,7 @@ extern const Entry LANG_SV[] = {
     {Str::ADV_TITLE, "Testvärld"},
     {Str::ADV_HIT, "Slå"},
     {Str::ADV_JUMP, "Hoppa"},
+    {Str::ADV_SWAP, "Byt"},
     {Str::ADV_ZOOM, "Zoom"},
     {Str::ADV_ZOOM_IN, "Zooma in"},
     {Str::ADV_ZOOM_OUT, "Zooma ut (se mer)"},
