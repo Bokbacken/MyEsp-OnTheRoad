@@ -369,6 +369,10 @@ g++ -std=c++17 -Wall -Wextra -Icomponents/otr_midi/include -Itests tests/test_mi
 g++ -std=c++17 -Wall -Wextra -O2 -Icomponents/otr_midi/include -Icomponents/otr_synth/include -Itests tests/test_sfsynth.cpp components/otr_synth/otr_synth.cpp components/otr_midi/*.cpp -o tests/test_sfsynth && ./tests/test_sfsynth font.sf2 song.mid [out.wav]   # SF2 synth render
 ```
 
+With the project's LVGL dependency available in `managed_components/lvgl__lvgl`, run
+`python3 tests/test_yatzy_layout.py` for host-side variants/players/picker layout and interaction
+checks at 320×480, 480×800 and 800×480 in Swedish and English (CMake/Ninja required, no hardware).
+
 ## Flashing and updating
 
 - **To v0.12.0 (partition layout B1) – one time, over USB:** flash `MyEsp_OnTheRoad-v0.12.0-merged.bin` at

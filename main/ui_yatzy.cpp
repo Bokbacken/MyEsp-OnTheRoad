@@ -105,7 +105,7 @@ static const char *gameTitle()
 }
 
 // Casino-style menu card: accent stripe, title, subtitle, optional check mark.
-// w may be LV_PCT(..) (flex list) or pixels (absolute placement, see menuCard).
+// w may be LV_PCT(..) (flex list) or pixels.
 static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *title, const char *sub,
                             uint32_t color, bool selected)
 {
@@ -137,14 +137,6 @@ static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *
         lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
         lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, small ? 8 : 12);
     }
-    return b;
-}
-
-static lv_obj_t *menuCard(lv_obj_t *scr, int32_t y, int32_t h, const char *title, const char *sub, uint32_t color,
-                          bool selected)
-{
-    lv_obj_t *b = menuCardIn(scr, 300, h, title, sub, color, selected);
-    lv_obj_set_pos(b, 10, y);
     return b;
 }
 
@@ -225,14 +217,73 @@ void showMenu()
     Theme::loadScreen(scr);
 }
 
+// Selection screens keep controls outside the scrolling content.
+static lv_obj_t *selectionColumn(lv_obj_t *parent, int32_t height)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, LV_PCT(100), height);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(box, UiMetrics::controlSpacing(), 0);
+    lv_obj_set_scrollable(box, false);
+    return box;
+}
+
+static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail = nullptr)
+{
+    lv_obj_t *header = Theme::header(scr, title);
+    lv_obj_set_height(header, UiMetrics::titleH());
+    lv_obj_set_style_pad_hor(header, UiMetrics::marginNormal(), 0);
+    lv_obj_set_style_pad_column(header, UiMetrics::marginSmall(), 0);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *label = lv_obj_get_child(header, 0);
+    lv_obj_set_width(label, 0);
+    lv_obj_set_height(label, lv_font_get_line_height(&my_font_24));
+    lv_obj_set_flex_grow(label, 1);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+    if (detail) {
+        lv_obj_t *meta = Theme::label(header, detail, &my_font_14, Theme::TEAL);
+        lv_obj_set_style_max_width(meta, LV_PCT(60), 0);
+        lv_obj_set_height(meta, lv_font_get_line_height(&my_font_14));
+        lv_label_set_long_mode(meta, LV_LABEL_LONG_MODE_DOTS);
+    }
+    return header;
+}
+
+static lv_obj_t *selectionBody(lv_obj_t *scr, int32_t top)
+{
+    lv_obj_t *body = selectionColumn(scr, UiMetrics::screenH() - top - UiMetrics::controlSpacing());
+    lv_obj_set_pos(body, UiMetrics::marginNormal(), top);
+    lv_obj_set_width(body, UiMetrics::screenW() - 2 * UiMetrics::marginNormal());
+    return body;
+}
+
+static lv_obj_t *selectionButtonRow(lv_obj_t *parent)
+{
+    lv_obj_t *row = selectionColumn(parent, UiMetrics::buttonH());
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(row, UiMetrics::marginNormal(), 0);
+    return row;
+}
+
 static void showVariants()
 {
     lv_obj_t *scr = Theme::screen();
     int gi = 0;
     while (gi < 3 && GAMES[gi].type != s_gameType) gi++;
-    Theme::header(scr, tr(GAMES[gi].name));
+    selectionHeader(scr, tr(GAMES[gi].name));
     lv_obj_t *hint = Theme::label(scr, tr(Str::MENU_CHOOSE_VARIANT), &my_font_14, Theme::MUTED);
-    lv_obj_set_pos(hint, 14, 52);
+    lv_obj_set_pos(hint, UiMetrics::marginLarge(), UiMetrics::titleH() + 2 * UiMetrics::marginSmall());
+    lv_obj_t *body = selectionBody(scr, UiMetrics::headerH());
+    lv_obj_t *list = selectionColumn(body, 0);
+    lv_obj_set_flex_grow(list, 1);
+    lv_obj_set_scrollable(list, true);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scroll_elastic(list, false);
+    lv_obj_set_style_pad_row(list, s_gameType == GameType::YATZY ? UiMetrics::controlSpacing() : UiMetrics::marginNormal(), 0);
+    const int32_t cardH = UiMetrics::cardMinH() +
+                         (s_gameType == GameType::YATZY ? UiMetrics::marginSmall() : 2 * UiMetrics::marginNormal());
 
     switch (s_gameType) {
     case GameType::YATZY: {
@@ -240,7 +291,7 @@ static void showVariants()
         def = (def >= 0 && def < 4) ? DEFAULT_TO_CHOICE[def] : 0;
         for (int i = 0; i < 5; i++) {
             const VariantChoice &c = CHOICES[i];
-            lv_obj_t *b = menuCard(scr, 74 + i * 70, 64, trVariant(c.v, c.m, c.midi), tr(c.sub), c.color, i == def);
+            lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, trVariant(c.v, c.m, c.midi), tr(c.sub), c.color, i == def);
             lv_obj_add_event_cb(b, [](lv_event_t *e) {
                 const VariantChoice &v = CHOICES[(int)(intptr_t)lv_event_get_user_data(e)];
                 s_variant = v.v;
@@ -253,7 +304,7 @@ static void showVariants()
     }
     case GameType::PIG:
         for (int i = 0; i < 2; i++) {
-            lv_obj_t *b = menuCard(scr, 76 + i * 90, 80, tr(i ? Str::VAR_PIG_2 : Str::VAR_PIG_1),
+            lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(i ? Str::VAR_PIG_2 : Str::VAR_PIG_1),
                                    tr(i ? Str::MENU_SUB_PIG_2 : Str::MENU_SUB_PIG_1), GAMES[1].color, false);
             lv_obj_add_event_cb(b, [](lv_event_t *e) {
                 s_pigVariant = lv_event_get_user_data(e) ? PigVariant::TWO_DICE : PigVariant::ONE_DIE;
@@ -262,19 +313,19 @@ static void showVariants()
         }
         break;
     case GameType::FARKLE: {
-        lv_obj_t *b = menuCard(scr, 76, 80, tr(Str::VAR_FARKLE), tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false);
+        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_FARKLE), tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false);
         lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
         break;
     }
     case GameType::SCC: {
-        lv_obj_t *b = menuCard(scr, 76, 80, tr(Str::VAR_SCC_3), tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false);
+        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_SCC_3), tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false);
         lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
         break;
     }
     }
 
-    lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
-    lv_obj_set_pos(back, 10, 432);
+    lv_obj_t *footer = selectionButtonRow(body);
+    lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), LV_PCT(47), UiMetrics::buttonH(), Theme::MUTED);
     lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(scr);
 }
@@ -405,11 +456,20 @@ static void webToggleEvent(lv_event_t *e)
 static void rebuildPlayerList()
 {
     lv_obj_clean(s_playerList);
+    const int32_t rowH = UiMetrics::buttonH() - 2 * UiMetrics::marginSmall();
+    const int32_t iconW = UiMetrics::buttonWMin() - 2 * UiMetrics::marginSmall();
     for (int i = 0; i < s_nameCount; i++) {
-        lv_obj_t *row = lv_button_create(s_playerList);
+        lv_obj_t *line = selectionButtonRow(s_playerList);
+        lv_obj_set_height(line, rowH);
+        lv_obj_set_style_pad_column(line, UiMetrics::controlSpacing(), 0);
+        lv_obj_t *row = lv_button_create(line);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, 192, 34);
-        lv_obj_set_pos(row, 0, i * 38);
+        lv_obj_set_size(row, 0, rowH);
+        lv_obj_set_flex_grow(row, 1);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_hor(row, UiMetrics::marginSmall(), 0);
+        lv_obj_set_style_pad_column(row, UiMetrics::marginSmall(), 0);
         lv_obj_set_style_radius(row, 8, 0);
         lv_obj_set_style_bg_color(row, Theme::c(Theme::PANEL_RAISED), 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -417,35 +477,36 @@ static void rebuildPlayerList()
         char num[8];
         snprintf(num, sizeof(num), "%d", i + 1);
         lv_obj_t *n = Theme::label(row, num, &my_font_18, Theme::ACCENT);
-        lv_obj_align(n, LV_ALIGN_LEFT_MID, 10, 0);
+        lv_obj_set_width(n, 2 * UiMetrics::marginNormal());
+        lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_t *name = Theme::label(row, s_names[i], &my_font_18);
         lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(name, s_pids[i] ? 150 : 112);
-        lv_obj_align(name, LV_ALIGN_LEFT_MID, 36, 0);
+        lv_obj_set_width(name, 0);
+        lv_obj_set_height(name, lv_font_get_line_height(&my_font_18));
+        lv_obj_set_flex_grow(name, 1);
         if (!s_pids[i]) {   // Guests are not saved in the registry
-            lv_obj_t *tag = Theme::label(row, tr(Str::PL_GUEST_TAG), &my_font_14, Theme::GOLD);
-            lv_obj_align(tag, LV_ALIGN_RIGHT_MID, -6, 0);
+            Theme::label(row, tr(Str::PL_GUEST_TAG), &my_font_14, Theme::GOLD);
         }
         lv_obj_add_event_cb(row, playerRowEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
         // Web toggle: this seat is played from a phone (/play, joined with the player's PIN)
-        lv_obj_t *web = Theme::button(s_playerList, LV_SYMBOL_WIFI, 44, 34, s_web[i] ? Theme::TEAL : Theme::LINE);
-        lv_obj_set_pos(web, 198, i * 38);
+        lv_obj_t *web = Theme::button(line, LV_SYMBOL_WIFI, iconW, rowH, s_web[i] ? Theme::TEAL : Theme::LINE);
         lv_obj_add_event_cb(web, webToggleEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
-        lv_obj_t *del = Theme::button(s_playerList, LV_SYMBOL_CLOSE, 44, 34, Theme::RED);
-        lv_obj_set_pos(del, 248, i * 38);
+        lv_obj_t *del = Theme::button(line, LV_SYMBOL_CLOSE, iconW, rowH, Theme::RED);
         lv_obj_add_event_cb(del, playerDeleteEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
     if (s_nameCount > 0 && s_nameCount < YATZY_MAX_PLAYERS) {
         lv_obj_t *hint = Theme::label(s_playerList, trp(LV_SYMBOL_WIFI " ", Str::PL_WEB_HINT), &my_font_14, Theme::MUTED);
-        lv_obj_set_pos(hint, 200, s_nameCount * 38 + 6);
-        lv_obj_set_width(hint, 92);
+        lv_obj_set_width(hint, 2 * iconW + UiMetrics::controlSpacing());
+        lv_obj_set_style_margin_top(hint, UiMetrics::controlSpacing(), 0);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_WRAP);
     }
     if (s_nameCount == 0) {
         lv_obj_t *empty = Theme::label(s_playerList, tr(Str::PL_ADD_AT_LEAST_ONE), &my_font_14, Theme::MUTED);
-        lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 20);
+        lv_obj_set_width(empty, LV_PCT(100));
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_margin_top(empty, 2 * UiMetrics::marginNormal(), 0);
     }
     if (s_nameCount >= YATZY_MAX_PLAYERS) lv_obj_add_state(s_addBtn, LV_STATE_DISABLED);
     else lv_obj_remove_state(s_addBtn, LV_STATE_DISABLED);
@@ -465,28 +526,30 @@ static void showPlayers()
         s_nameCount = 2;
     }
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, tr(Str::PL_TITLE));
-    lv_obj_t *var = Theme::label(scr, gameTitle(), &my_font_14, Theme::TEAL);
-    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
+    selectionHeader(scr, tr(Str::PL_TITLE), gameTitle());
+    lv_obj_t *body = selectionBody(scr, UiMetrics::titleH() + 2 * UiMetrics::marginSmall());
 
-    lv_obj_t *card = Theme::card(scr, 310, 326);
-    lv_obj_set_pos(card, 5, 52);
+    lv_obj_t *card = Theme::card(body, LV_PCT(100), 0);
+    lv_obj_set_flex_grow(card, 1);
+    lv_obj_set_style_pad_all(card, 2 * UiMetrics::marginSmall(), 0);
     lv_obj_set_scrollable(card, false);
-    s_playerList = lv_obj_create(card);
-    lv_obj_remove_style_all(s_playerList);
-    lv_obj_set_size(s_playerList, 292, 306);
-    lv_obj_set_scrollable(s_playerList, false);
+    s_playerList = selectionColumn(card, LV_PCT(100));
+    lv_obj_set_style_pad_row(s_playerList, UiMetrics::cardSpacing(), 0);
+    lv_obj_set_flex_align(s_playerList, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_START);
+    lv_obj_set_scrollable(s_playerList, true);
+    lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);
+    lv_obj_set_scroll_elastic(s_playerList, false);
 
-    s_addBtn = Theme::button(scr, trp(LV_SYMBOL_PLUS " ", Str::PL_ADD), 300, 42, Theme::TEAL);
-    lv_obj_set_pos(s_addBtn, 10, 384);
+    s_addBtn = Theme::button(body, trp(LV_SYMBOL_PLUS " ", Str::PL_ADD), LV_PCT(100), UiMetrics::buttonH(), Theme::TEAL);
     lv_obj_add_event_cb(s_addBtn, [](lv_event_t *) { showPicker(-1); }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
-    lv_obj_set_pos(back, 10, 432);
+    lv_obj_t *footer = selectionButtonRow(body);
+    lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 0, UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_set_flex_grow(back, 1);
     lv_obj_add_event_cb(back, [](lv_event_t *) { showVariants(); }, LV_EVENT_CLICKED, nullptr);
 
-    s_startBtn = Theme::button(scr, trp("", Str::PL_START, " " LV_SYMBOL_RIGHT), 150, 42, Theme::ACCENT, true);
-    lv_obj_set_pos(s_startBtn, 160, 432);
+    s_startBtn = Theme::button(footer, trp("", Str::PL_START, " " LV_SYMBOL_RIGHT), 0, UiMetrics::buttonH(), Theme::ACCENT, true);
+    lv_obj_set_flex_grow(s_startBtn, 1);
     lv_obj_add_event_cb(s_startBtn, [](lv_event_t *) { startNewGame(); }, LV_EVENT_CLICKED, nullptr);
 
     rebuildPlayerList();
@@ -636,7 +699,8 @@ static void filterEntered(const char *text, bool confirmed, void *)
 
 static void openWheel(const char *label, const char *initial, CharWheel::Callback cb)
 {
-    s_wheel = CharWheel::create(lv_screen_active(), 0, 0, 320, 480, label, initial, PLAYER_NAME_CAP - 1, false, cb, nullptr);
+    s_wheel = CharWheel::create(lv_screen_active(), 0, 0, UiMetrics::screenW(), UiMetrics::screenH(),
+                                label, initial, PLAYER_NAME_CAP - 1, false, cb, nullptr);
 }
 
 static void showPicker(int slot)
@@ -652,20 +716,22 @@ static void showPicker(int slot)
     int total = s_pickDb->sortedIndices(idx);
 
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, tr(slot < 0 ? Str::PICK_CHOOSE : Str::PICK_CHANGE));
     char buf[48];
     snprintf(buf, sizeof(buf), tr(Str::PICK_COUNT), total, PLAYER_MAX);
-    lv_obj_t *cnt = Theme::label(scr, buf, &my_font_14, Theme::MUTED);
-    lv_obj_align(cnt, LV_ALIGN_TOP_RIGHT, -12, 14);
+    lv_obj_t *header = selectionHeader(scr, tr(slot < 0 ? Str::PICK_CHOOSE : Str::PICK_CHANGE), buf);
+    lv_obj_set_style_text_color(lv_obj_get_child(header, 1), Theme::c(Theme::MUTED), 0);
+    lv_obj_t *body = selectionBody(scr, UiMetrics::titleH() + 2 * UiMetrics::marginSmall());
+    lv_obj_set_style_pad_row(body, 2 * UiMetrics::marginSmall(), 0);
+    lv_obj_t *actions = selectionButtonRow(body);
 
-    lv_obj_t *add = Theme::button(scr, trp(LV_SYMBOL_PLUS " ", Str::PICK_NEW), 170, 42, Theme::TEAL, true);
-    lv_obj_set_pos(add, 10, 52);
+    lv_obj_t *add = Theme::button(actions, trp(LV_SYMBOL_PLUS " ", Str::PICK_NEW), 0, UiMetrics::buttonH(), Theme::TEAL, true);
+    lv_obj_set_flex_grow(add, 17);
     lv_obj_add_event_cb(add, [](lv_event_t *) { openWheel(tr(Str::PICK_NEW_SAVED), "", newPlayerEntered); },
                         LV_EVENT_CLICKED, nullptr);
     if (total >= PLAYER_MAX) lv_obj_add_state(add, LV_STATE_DISABLED);
-    lv_obj_t *search = Theme::button(scr, s_pickFilter[0] ? trp(LV_SYMBOL_CLOSE " ", Str::PICK_SEARCH) : tr(Str::PICK_SEARCH_DOTS), 120, 42,
+    lv_obj_t *search = Theme::button(actions, s_pickFilter[0] ? trp(LV_SYMBOL_CLOSE " ", Str::PICK_SEARCH) : tr(Str::PICK_SEARCH_DOTS), 0, UiMetrics::buttonH(),
                                      s_pickFilter[0] ? Theme::GOLD : Theme::LINE);
-    lv_obj_set_pos(search, 190, 52);
+    lv_obj_set_flex_grow(search, 12);
     lv_obj_add_event_cb(search, [](lv_event_t *) {
         if (s_pickFilter[0]) {   // Clear the active filter
             s_pickFilter[0] = 0;
@@ -683,17 +749,20 @@ static void showPicker(int slot)
         s_pickIds[rows++] = r.id;
     }
 
-    lv_obj_t *t = lv_table_create(scr);
-    lv_obj_set_pos(t, 10, 102);
-    lv_obj_set_size(t, 300, 322);
+    lv_obj_t *t = lv_table_create(body);
+    lv_obj_set_size(t, LV_PCT(100), 0);
+    lv_obj_set_flex_grow(t, 1);
     lv_table_set_column_count(t, 1);
-    lv_table_set_column_width(t, 0, 284);
+    lv_obj_add_event_cb(t, [](lv_event_t *e) {
+        lv_obj_t *table = lv_event_get_target_obj(e);
+        lv_table_set_column_width(table, 0, lv_obj_get_content_width(table));
+    }, LV_EVENT_SIZE_CHANGED, nullptr);
     lv_obj_set_style_bg_color(t, Theme::c(Theme::PANEL), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_color(t, Theme::c(Theme::LINE), LV_PART_MAIN);
     lv_obj_set_style_border_width(t, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(t, 12, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(t, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(t, UiMetrics::marginSmall(), LV_PART_MAIN);
     lv_obj_set_style_bg_color(t, Theme::c(Theme::PANEL), LV_PART_ITEMS);
     lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_ITEMS);
     lv_obj_set_style_bg_color(t, Theme::c(Theme::ACCENT_DARK), (lv_style_selector_t)LV_PART_ITEMS | LV_STATE_PRESSED);
@@ -702,8 +771,8 @@ static void showPicker(int slot)
     lv_obj_set_style_border_side(t, LV_BORDER_SIDE_BOTTOM, LV_PART_ITEMS);
     lv_obj_set_style_border_color(t, Theme::c(Theme::LINE), LV_PART_ITEMS);
     lv_obj_set_style_border_width(t, 1, LV_PART_ITEMS);
-    lv_obj_set_style_pad_ver(t, 9, LV_PART_ITEMS);
-    lv_obj_set_style_pad_hor(t, 10, LV_PART_ITEMS);
+    lv_obj_set_style_pad_ver(t, UiMetrics::marginNormal() - 1, LV_PART_ITEMS);
+    lv_obj_set_style_pad_hor(t, UiMetrics::marginNormal(), LV_PART_ITEMS);
     if (rows == 0) {
         lv_table_set_row_count(t, 1);
         s_pickIds[0] = 0;
@@ -721,11 +790,12 @@ static void showPicker(int slot)
         lv_obj_add_event_cb(t, pickTableEvent, LV_EVENT_VALUE_CHANGED, nullptr);
     }
 
-    lv_obj_t *back = Theme::button(scr, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 140, 42, Theme::MUTED);
-    lv_obj_set_pos(back, 10, 432);
+    lv_obj_t *footer = selectionButtonRow(body);
+    lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 0, UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_set_flex_grow(back, 1);
     lv_obj_add_event_cb(back, [](lv_event_t *) { s_pickFilter[0] = 0; showPlayers(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *guest = Theme::button(scr, tr(Str::PICK_GUEST), 160, 42, Theme::GOLD);
-    lv_obj_set_pos(guest, 150, 432);
+    lv_obj_t *guest = Theme::button(footer, tr(Str::PICK_GUEST), 0, UiMetrics::buttonH(), Theme::GOLD);
+    lv_obj_set_flex_grow(guest, 1);
     lv_obj_add_event_cb(guest, [](lv_event_t *) {
         char initial[YATZY_NAME_CAP];
         snprintf(initial, sizeof(initial), tr(Str::PICK_GUEST_NAME_FMT), s_nameCount + 1);
