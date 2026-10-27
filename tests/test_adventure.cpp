@@ -830,6 +830,29 @@ static void testDarkFlashPogo()
         CHECK(W.move(Dir::RIGHT) & EV_TREASURE);      // onto the pogo stick (level 2)
         CHECK_EQ(W.pogo(), 2);
     }
+    // v0.18.5: a @treasures entry on the same cell as a map glyph wins — a bare j (pogo 1) /
+    // f (flashlight 1) must not block the higher level from the treasure list.
+    {
+        static const char *const rows[] = {"Sjf.."};
+        static const Treasure t[] = {{1, 0, Obj::POGO, 3}, {2, 0, Obj::FLASH, 2}};
+        MapDef def = {63, rows, 1, R8, t, 2, nullptr, 0};
+        CHECK(W.load(def));
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);       // onto j, but treasure pogo 3 applies
+        CHECK_EQ(W.pogo(), 3);
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);       // onto f, but treasure flashlight 2 applies
+        CHECK_EQ(W.flashlight(), 2);
+    }
+    // v0.18.5: a treasure replacing a glyph GEM keeps the total gem count correct (glyph gem
+    // undone, treasure gem re-counted — here the treasure is a pogo, so the net is one gem gone).
+    {
+        static const char *const rows[] = {"S*j.."};  // '*' is a gem glyph at (1,0)
+        static const Treasure t[] = {{1, 0, Obj::POGO, 3}};
+        MapDef def = {64, rows, 1, R8, t, 1, nullptr, 0};
+        CHECK(W.load(def));
+        CHECK_EQ(W.gemsTotal(), 0);                    // the only gem was overwritten by the pogo
+        CHECK(W.move(Dir::RIGHT) & EV_TREASURE);
+        CHECK_EQ(W.pogo(), 3);
+    }
 
     // --- Save/restore v3 round trip, and a forged v2 save loads with flash = pogo = 0. ---
     {

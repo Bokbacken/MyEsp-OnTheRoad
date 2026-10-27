@@ -169,6 +169,15 @@ bool World::load(const MapDef &def)
     for (int i = 0; i < def.treasureCount && def.treasures; i++) {
         const Treasure &t = def.treasures[i];
         if (!inside(t.x, t.y) || !isItem(t.item) || hid_[t.y][t.x]) return false;
+        // v0.18.5: @treasures takes precedence over a map-glyph PICKUP on the same cell, so a
+        // higher pogo / flashlight level (or any treasure) wins over the bare glyph (e.g. j, f).
+        // Only item glyphs are cleared — containers (crate, rock, bush, door, cracked wall) still
+        // legitimately hide a treasure until they are broken/pushed/opened, so those are untouched.
+        if (isItem((Obj)obj_[t.y][t.x])) {
+            if (obj_[t.y][t.x] == (uint8_t)Obj::GEM && gemsTotal_ > 0) gemsTotal_--;
+            obj_[t.y][t.x] = (uint8_t)Obj::NONE;
+            val_[t.y][t.x] = 0;
+        }
         hid_[t.y][t.x] = (uint8_t)t.item;
         hidVal_[t.y][t.x] = t.amount;
         if (t.item == Obj::GEM) gemsTotal_++;
