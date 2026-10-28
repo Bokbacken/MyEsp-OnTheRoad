@@ -38,10 +38,20 @@ constexpr int MAX_DARK = 16;   // v0.18.0: max @dark rectangles per SD map (see 
 constexpr int PLATE_GROUPS = 36;
 constexpr uint8_t GROUPED_PLATE_GLYPH = 0x80;
 constexpr uint8_t GROUPED_GATE_GLYPH = GROUPED_PLATE_GLYPH + PLATE_GROUPS;
+constexpr uint8_t GROUPED_LEVER_GLYPH = GROUPED_GATE_GLYPH + PLATE_GROUPS;
+constexpr uint8_t ICE_GLYPH = GROUPED_LEVER_GLYPH + PLATE_GROUPS;
+constexpr uint8_t BELT_UP_GLYPH = ICE_GLYPH + 1;
+constexpr uint8_t COLORED_KEY_GLYPH = BELT_UP_GLYPH + 4;
+constexpr uint8_t COLORED_DOOR_GLYPH = COLORED_KEY_GLYPH + 6;
+constexpr uint8_t LEVER_GLYPH = GROUPED_LEVER_GLYPH;
+constexpr uint8_t BELT_GLYPH = BELT_UP_GLYPH;
+constexpr uint8_t COLOR_KEY_GLYPH = COLORED_KEY_GLYPH;
+constexpr uint8_t COLOR_DOOR_GLYPH = COLORED_DOOR_GLYPH;
 
 enum class Tile : uint8_t {
     GRASS, SAND, FLOOR, RUBBLE, WALL, CRACKED, TREE, WATER, BRIDGE, LAVA, BASALT, PLATE, GATE,
     CHECKPOINT, EXIT, CRATER,
+    LEVER, ICE, BELT_UP, BELT_RIGHT, BELT_DOWN, BELT_LEFT,
     COUNT
 };
 
@@ -51,10 +61,13 @@ enum class Obj : uint8_t {
     NPC,      // v0.11.0: a person (objAmount = map number 1..9, see otr_story.h); blocks the cell
     BOMB3, BOMB4, // Campaign consumables, appended to preserve old object ids
     FLASH, POGO,  // v0.18.0: flashlight + pogo-stick pickups. objAmount = level 1..3 (0 => 1).
+    KEY_RED, KEY_GREEN, KEY_BLUE, KEY_YELLOW, KEY_PURPLE, KEY_CYAN,
+    DOOR_RED, DOOR_GREEN, DOOR_BLUE, DOOR_YELLOW, DOOR_PURPLE, DOOR_CYAN,
     COUNT
 };
 
 enum class Dir : uint8_t { UP, RIGHT, DOWN, LEFT };
+enum class KeyColor : uint8_t { RED, GREEN, BLUE, YELLOW, PURPLE, CYAN, COUNT };
 inline int dirX(Dir d) { return d == Dir::RIGHT ? 1 : d == Dir::LEFT ? -1 : 0; }
 inline int dirY(Dir d) { return d == Dir::DOWN ? 1 : d == Dir::UP ? -1 : 0; }
 
@@ -94,6 +107,7 @@ enum Event : uint32_t {
     EV_REVEALED = 1u << 29,   // Fog cells were revealed
     // v0.11.0
     EV_TALK = 1u << 30,       // Walked into / hit a person: start a conversation (talkNpc())
+    EV_LEVER = 1u << 31,
 };
 
 // Per world / game configuration (data driven, part of MapDef). Plain aggregate.
@@ -127,6 +141,15 @@ struct Treasure {
 // unless lit by the flashlight cone or occupied by the player. Darkness hides but never blocks
 // movement. Coordinates are clipped to the map bounds in World::load (invalid rects are dropped).
 struct DarkRect { uint8_t x0, y0, x1, y1; };
+struct GroupControl { uint8_t group; uint16_t steps; };
+
+// Optional caller-owned output: one manual landing plus at most 128 forced landings.
+// Respawns are not displacements. The trace is never stored in World or saves.
+struct MoveTrace {
+    struct Cell { uint8_t x, y; };
+    Cell cells[129];
+    uint16_t count = 0;
+};
 
 struct MapDef {
     uint8_t id;                     // Stable id (save files)
@@ -137,6 +160,9 @@ struct MapDef {
     int treasureCount;
     const DarkRect *darks;          // v0.18.0: dark-area rectangles (nullptr = none)
     int darkCount;
+    const GroupControl *controls = nullptr;
+    int controlCount = 0;
+    int par = 0;
 };
 
 struct MineLevel { uint8_t w, h, mines; };
@@ -176,6 +202,8 @@ public:
     Dir facing() const { return facing_; }
     bool sailing() const { return tile(px_, py_) == Tile::WATER; }
     int keys() const { return keys_; }
+    int keys(KeyColor color) const;
+    void setKeys(KeyColor color, int count);
     int gems() const { return gems_; }
     int gemsTotal() const { return gemsTotal_; }
     bool hasBoat() const { return boat_; }
@@ -189,6 +217,14 @@ public:
         return inside(x, y) && tile(x, y) == Tile::GATE && gateOpenForGroup(val_[y][x]);
     }
     int steps() const { return steps_; }
+    int par() const { return par_; }   // Static map budget; 0 means no target.
+    bool parMet() const { return par_ > 0 && steps_ <= par_; }
+    bool leverOnAt(int x, int y) const;
+    int timerRemaining(int group) const;
+    bool isTimedGroup(int group) const
+    {
+        return group >= 0 && group < PLATE_GROUPS && controlSteps_[group] != 0;
+    }
     uint32_t revision() const { return rev_; }   // Bumped on every terrain / object / fog change
 
     int energy() const { return energy_; }
@@ -216,10 +252,12 @@ public:
     int checkpointX() const { return cpX_; }
     int checkpointY() const { return cpY_; }
 
-    uint32_t move(Dir d);   // Turns to d, then walks / pushes / opens
+    uint32_t move(Dir d, MoveTrace *trace = nullptr);   // Turns to d, then walks / pushes / opens
     uint32_t hit();         // Hits the facing cell
+    uint32_t activate();    // Explicit action on the facing lever; never a movement step.
+    bool forcedMotion(Dir &direction) const; // Current ice/belt direction, without moving.
     bool canVault() const;  // v0.18.3: owns a pogo stick AND faces a jumpable run -> UI shows "Hoppa"
-    uint32_t vault();       // v0.18.3: manual pogo jump in the facing direction (see canVault())
+    uint32_t vault(MoveTrace *trace = nullptr);       // Manual pogo jump in the facing direction
     void revive();          // After game over ("continue"): one life, full energy, at the checkpoint
 
     bool playerCanEnter(int x, int y) const;     // Terrain + object check (no side effects)
@@ -266,7 +304,7 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 3;   // v3: flashlight + pogo levels in the player block
+    static constexpr uint16_t SAVE_VERSION = 4;   // v4: bounded color/latch/timer extension after cells
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
@@ -279,7 +317,10 @@ private:
     // direction d; if a walkable, in-bounds cell lies just beyond the run, returns true with the
     // landing cell in (lx, ly). False = no valid vault (run too wide / landing blocked / OOB).
     bool pogoLand(Dir d, int &lx, int &ly) const;
-    uint32_t landOn(int destX, int destY, uint32_t ev);   // v0.18.3: shared step/vault landing sequence
+    uint32_t landOn(int destX, int destY, uint32_t ev, MoveTrace *trace);
+    uint32_t resolveForced(uint32_t ev, MoveTrace *trace);
+    void tickTimers(uint32_t &ev);
+    void activatePlate(int x, int y, uint32_t &ev);
     void updateGates(uint32_t &ev);
     void set(int x, int y, Tile t) { terrain_[y][x] = (uint8_t)t; rev_++; }
     void set(int x, int y, Obj o) { obj_[y][x] = (uint8_t)o; rev_++; }
@@ -291,7 +332,7 @@ private:
 
     uint8_t terrain_[MAX_H][MAX_W];
     uint8_t obj_[MAX_H][MAX_W];
-    uint8_t val_[MAX_H][MAX_W];     // Item amount or PLATE/GATE group id (0..35)
+    uint8_t val_[MAX_H][MAX_W];     // Item amount or PLATE/GATE/LEVER group id (0..35)
     uint8_t hid_[MAX_H][MAX_W];     // Hidden treasure item
     uint8_t hidVal_[MAX_H][MAX_W];
     uint8_t flags_[MAX_H][MAX_W];   // F_REVEALED | F_FLAG
@@ -303,6 +344,10 @@ private:
     int keys_, gems_, gemsTotal_, steps_;
     int energy_, maxEnergy_, livesLeft_, livesUsed_, suit_;
     uint64_t gateOpenGroups_;
+    uint64_t leverGroups_;
+    uint16_t controlSteps_[PLATE_GROUPS], timers_[PLATE_GROUPS];
+    uint8_t colorKeys_[(int)KeyColor::COUNT];
+    int par_;
     bool boat_, gameOver_, exitReached_;
     uint8_t mapId_;
     uint8_t talkNpc_;
@@ -342,7 +387,7 @@ public:
     // passable neighbour snaps to that neighbour (nearest first). Otherwise false (obstacle).
     static constexpr float SNAP = 1.f / 3.f;
     static bool pickTarget(const World &w, float fx, float fy, int &tx, int &ty);
-    static bool targetable(const World &w, int x, int y);
+    static bool targetable(const World &w, int x, int y); // Ice/belts excluded until forced-aware planning.
 
     // A* from the player to (tx, ty). Bounded: every cell is settled at most once.
     PlanResult plan(const World &w, int tx, int ty, WalkMode mode, Path &out);

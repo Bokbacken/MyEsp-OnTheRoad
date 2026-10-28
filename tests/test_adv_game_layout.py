@@ -2,8 +2,10 @@
 """Exercise production Adventure root, joystick drawing/input and talk overlays with host LVGL.
 Run: python3 tests/test_adv_game_layout.py [external build directory].
 Requires managed_components/lvgl__lvgl, like the existing setup/dialog layout tests.
+Set ADV_UI_SANITIZE=1 to enable address/undefined sanitizers.
 """
 import pathlib
+import os
 import subprocess
 import sys
 import tempfile
@@ -31,24 +33,34 @@ choice = section("static void addChoice(", "static void talkShowChoices()")
 
 code = r'''
 #include <cassert>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <initializer_list>
+#include <set>
+#include <string>
 #include <vector>
 #include "adv_game_ui.h"
 #include "ui_metrics.h"
 #include "my_theme.h"
 #include "otr_joystick.h"
+#include "otr_world.h"
+#include "lang/lang.h"
 
 namespace Game = AdvUi::Game;
 using Otr::Dir;
 /*GEOMETRY*/
-static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stageLabel;
+/*SPRITES*/
+static Sprites sprites, *s_spr = &sprites;
+/*ART*/
+/*KEY_COLORS*/
+/*COLORED_SPRITE*/
+static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stageLabel, *s_progressLabel, *s_timerLabel;
 static lv_obj_t *s_joyKnob, *s_joyArrow[4];
 static int s_joyLit = -1;
 static Otr::JoyController s_joy;
 static uint16_t *s_fb;
-static constexpr int PORTRAIT_PX = 48;
 static lv_obj_t *s_talkBox, *s_talkPanel, *s_talkPortrait, *s_talkName, *s_talkText, *s_talkRef;
 /*TALK_CONSTANTS*/
 namespace Otr { namespace Story { static int utf8Len(const char *) { return 0; } } }
@@ -66,25 +78,23 @@ static void configureJoy() {
 }
 /*PAD*/
 /*TALK*/
-// Hardware, sprite art and game actions are stubbed; control construction itself is production code.
-enum class Str { ADV_BOMB, ADV_SWAP, ADV_HIT, BTN_CANCEL };
-static const char *tr(Str) { return "Action"; }
-static constexpr int HUD_PX = 20, C_COUNT = 4;
-enum HudIcon { H_LIFE, H_SUIT, H_KEY, H_GEM, H_BOAT, H_FLASH, H_POGO, H_COUNT };
+// Hardware/game actions are stubbed; art, HUD and control construction are production code.
+enum HudCount { C_LIVES, C_SUIT, C_KEYS, C_GEMS, C_COUNT };
 static lv_obj_t *s_count[C_COUNT], *s_muteBtn, *s_hitBtn, *s_swapBtn, *s_bar, *s_barLbl, *s_itemBox;
 static lv_obj_t *s_item[H_COUNT], *s_flashCell, *s_pogoCell, *s_flashLvl, *s_pogoLvl, *s_bombCancel;
 static uint32_t s_menuTapMs, s_hitTapMs, s_actionTapMs;
 static int s_actSel, s_actShown;
 static constexpr int ACT_HIT = 0;
-static struct WorldStub { bool mine; bool mineLevel() const { return mine; } } world, *s_world = &world;
-static void makeHudIcons() {}
-static lv_obj_t *hudIcon(lv_obj_t *parent, HudIcon) {
-    auto *icon = lv_obj_create(parent);
-    lv_obj_remove_style_all(icon);
-    lv_obj_set_size(icon, HUD_PX, HUD_PX);
-    lv_obj_set_clickable(icon, false);
-    return icon;
-}
+static Otr::World world, *s_world = &world;
+/*EXTRA_STATE*/
+static lv_obj_t *s_keyBox, *s_keyIcons[6];
+static int s_bombSize;
+static int s_prevFlash, s_prevPogo;
+static int langIdx() { return !strcmp(Lang::currentLang(), "en"); }
+static const char *advMapTitle() { return "A long map title"; }
+/*HUD*/
+/*EXTRA_TOGGLE*/
+/*HUD_ICONS*/
 static void showMenu() {}
 static void toggleSound() {}
 static void muteIcon() {}
@@ -93,6 +103,132 @@ static void doHit() {}
 static void cancelBomb() {}
 /*CONTROLS*/
 /*GAME*/
+
+static bool hidden(lv_obj_t *obj) { return lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN); }
+static bool contains(Game::Rect outer, Game::Rect inner) {
+    return inner.x>=outer.x && inner.y>=outer.y &&
+           inner.x+inner.w<=outer.x+outer.w && inner.y+inner.h<=outer.y+outer.h;
+}
+static bool separate(Game::Rect a, Game::Rect b) {
+    return a.x+a.w<=b.x || b.x+b.w<=a.x || a.y+a.h<=b.y || b.y+b.h<=a.y;
+}
+static lv_obj_t *hudToggle() {
+    auto *button = Theme::button(s_scr, extraHudText(), 250, 40, Theme::LINE);
+    lv_obj_add_event_cb(button, toggleExtraHud, LV_EVENT_CLICKED, nullptr);
+    return button;
+}
+static void checkHud() {
+    auto *button = hudToggle();
+    assert(!s_extraHud && hidden(s_progressLabel) && hidden(s_timerLabel));
+    assert(!hidden(s_stageLabel) && !strcmp(lv_label_get_text(s_stageLabel), advMapTitle()));
+    assert(!strcmp(lv_label_get_text(lv_obj_get_child(button, 0)),
+                   langIdx() ? "Extra HUD info: OFF" : "Extra HUD-info: AV"));
+    lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr);
+    assert(s_extraHud && !hidden(s_progressLabel) && hidden(s_timerLabel));
+    assert(!strcmp(lv_label_get_text(lv_obj_get_child(button, 0)),
+                   langIdx() ? "Extra HUD info: ON" : "Extra HUD-info: PÅ"));
+    const std::string progress = lv_label_get_text(s_progressLabel);
+    assert(progress == (langIdx() ? "Steps:0  Par:7" : "Steg:0  Par:7"));
+    lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr);
+    assert(!s_extraHud && hidden(s_progressLabel) && hidden(s_timerLabel));
+    const char *map[] = {"S."};
+    Otr::GroupControl group{10, 5};
+    Otr::MapDef timed{90,map,1,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,&group,1,7};
+    assert(world.load(timed)); updateStats();
+    assert(hidden(s_progressLabel) && hidden(s_timerLabel));
+    lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr);
+    assert(!hidden(s_progressLabel) && !hidden(s_timerLabel));
+    assert(!strcmp(lv_label_get_text(s_timerLabel), langIdx() ? "Gate steps: A:0" : "Portsteg: A:0"));
+    // Map travel must not reset the session preference, even when the new map has no timers.
+    Otr::MapDef plain{91,map,1,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,nullptr,0,0};
+    assert(world.load(plain)); updateStats();
+    assert(s_extraHud && !hidden(s_progressLabel) && hidden(s_timerLabel));
+    lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr);
+    assert(hidden(s_progressLabel) && hidden(s_timerLabel));
+    lv_obj_delete(button);
+}
+static void checkKeys() {
+    updateStats();
+    assert(hidden(s_keyBox));
+    for (auto *icon : s_keyIcons) assert(hidden(icon));
+    std::set<std::vector<uint16_t>> images, badges;
+    for (int i=0;i<6;++i) {
+        images.emplace(s_spr->coloredKeys[i], s_spr->coloredKeys[i]+256);
+        std::vector<uint16_t> badge;
+        for (int y=0;y<7;++y) for (int x=11;x<16;++x) badge.push_back(s_spr->coloredKeys[i][y*16+x]);
+        badges.insert(badge);
+        assert(lv_obj_get_child_count(s_keyIcons[i])==0); // No quantity labels/badges.
+    }
+    assert(images.size()==6 && badges.size()==6);
+    for (auto owned : {std::vector<int>{4}, {0,2,5}, {0,1,2,3,4,5}}) {
+        for (int i=0;i<6;++i) world.setKeys(Otr::KeyColor(i),0);
+        for (int i : owned) world.setKeys(Otr::KeyColor(i),42);
+        updateStats(); lv_obj_update_layout(s_scr);
+        assert(!hidden(s_keyBox));
+        auto strip=AdvUi::gameBounds(s_keyBox);
+        assert(lv_obj_get_parent(s_keyBox)==lv_obj_get_parent(s_hitBtn));
+        assert(contains(AdvUi::gameBounds(lv_obj_get_parent(s_hitBtn)),strip));
+        assert(strip.x+strip.w==s_layout.width-s_layout.controlPx(4));
+        assert(lv_obj_get_y(s_keyBox)+strip.h==s_layout.controls.h-s_layout.controlPx(4));
+        assert(strip.w==56 && strip.h==36);
+        for (int i=0;i<6;++i) {
+            const bool has=std::find(owned.begin(),owned.end(),i)!=owned.end();
+            assert(hidden(s_keyIcons[i])!=has);
+            if (!has) continue;
+            auto bounds=AdvUi::gameBounds(s_keyIcons[i]);
+            assert(lv_obj_get_parent(s_keyIcons[i])==s_keyBox);
+            assert(bounds.x==strip.x+(i%3)*20 && bounds.y==strip.y+(i/3)*20);
+            assert(bounds.x+bounds.w<=strip.x+strip.w && bounds.y+bounds.h<=strip.y+strip.h);
+            assert(bounds.w==16 && bounds.h==16);
+            const std::vector<uint16_t> before(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256);
+            world.setKeys(Otr::KeyColor(i),1); updateStats();
+            assert(!hidden(s_keyIcons[i]) && before==
+                   std::vector<uint16_t>(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256));
+        }
+    }
+    // All six keys coexist with every carried item in the control panel's right column.
+    world.setBoat(true); world.setFlashlight(3); world.setPogo(3);
+    updateStats(); lv_obj_update_layout(s_scr);
+    const auto strip=AdvUi::gameBounds(s_keyBox), items=AdvUi::gameBounds(s_itemBox);
+    assert(contains(s_layout.controls,items) && separate(strip,items));
+    assert(separate(items,AdvUi::gameBounds(s_bar)));
+    std::vector<Game::Rect> cells;
+    for (auto *cell : {s_item[H_BOAT],s_flashCell,s_pogoCell}) {
+        assert(!hidden(cell));
+        auto bounds=AdvUi::gameBounds(cell);
+        assert(contains(items,bounds));
+        for (auto other : cells) assert(separate(bounds,other));
+        cells.push_back(bounds);
+    }
+    assert(!strcmp(lv_label_get_text(s_flashLvl),"3") && !strcmp(lv_label_get_text(s_pogoLvl),"3"));
+    for (auto *level : {s_flashLvl,s_pogoLvl}) {
+        assert(lv_obj_get_style_text_font(level,0)==&my_font_14);
+        assert(lv_obj_get_style_bg_opa(level,0)==LV_OPA_COVER);
+        assert(lv_color_eq(lv_obj_get_style_bg_color(level,0),Theme::c(Theme::PANEL)));
+        assert(!lv_color_eq(lv_obj_get_style_text_color(level,0),Theme::c(Theme::PANEL)));
+        assert(lv_obj_get_width(level)>=10 && lv_obj_get_height(level)>=my_font_14.line_height);
+    }
+    for (auto *cell : {s_flashCell,s_pogoCell})
+        for (uint32_t i=0;i<lv_obj_get_child_count(cell);++i)
+            assert(contains(AdvUi::gameBounds(cell),AdvUi::gameBounds(lv_obj_get_child(cell,i))));
+    for (auto *icon : s_keyIcons) assert(!hidden(icon));
+    for (auto *control : {s_itemBox,s_bar,s_hitBtn,s_swapBtn,s_muteBtn})
+        if (control) assert(separate(strip,AdvUi::gameBounds(control)));
+    assert(separate(strip,s_layout.joystick));
+    // Bomb selection temporarily replaces the keys, without moving the cancel control.
+    s_bombSize=3; lv_obj_set_hidden(s_bombCancel,false); updateStats();
+    assert(hidden(s_keyBox));
+    s_bombSize=0; lv_obj_set_hidden(s_bombCancel,true); updateStats();
+    assert(!hidden(s_keyBox));
+    const char *doors[]={"S.."};
+    std::string row=doors[0]; row[1]=row[2]=char(Otr::COLORED_DOOR_GLYPH);
+    const char *map[]={row.c_str()};
+    assert(world.load(map,1,Otr::CLASSIC_RULES)); world.setKeys(Otr::KeyColor::RED,2); updateStats();
+    assert(!hidden(s_keyIcons[0]));
+    world.move(Dir::RIGHT); updateStats(); assert(world.keys(Otr::KeyColor::RED)==1 && !hidden(s_keyIcons[0]));
+    world.move(Dir::RIGHT); world.move(Dir::RIGHT); updateStats();
+    assert(!world.keys(Otr::KeyColor::RED) && hidden(s_keyIcons[0]) && hidden(s_keyBox));
+}
 
 static lv_point_t pointer;
 static lv_indev_state_t state = LV_INDEV_STATE_RELEASED;
@@ -147,6 +283,8 @@ static void checkPad(lv_indev_t *indev) {
 }
 int main() {
     lv_init();
+    makeArt(s_spr);
+    assert(!s_extraHud);
     auto *display = lv_display_create(320, 480);
     static uint8_t pixels[320 * 20 * 2];
     lv_display_set_buffers(display, pixels, nullptr, sizeof(pixels), LV_DISPLAY_RENDER_MODE_PARTIAL);
@@ -157,14 +295,19 @@ int main() {
     lv_indev_set_read_cb(indev, [](lv_indev_t *, lv_indev_data_t *data) { data->point = pointer; data->state = state; });
     for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}, lv_point_t{481, 801}}) {
         lv_display_set_resolution(display, size.x, size.y);
-        for (int visit = 0; visit < 2; ++visit) {
-            world.mine = visit != 0;
+        for (const char *language : {"sv","en"}) for (int visit = 0; visit < 2; ++visit) {
+            assert(Lang::setLang(language));
+            const bool mine = visit != 0;
+            const char *map[]={"S."};
+            auto rules=Otr::CLASSIC_RULES; rules.mineLevel=mine ? 1 : 0;
+            assert(world.load(Otr::MapDef{90,map,1,rules,nullptr,0,nullptr,0,nullptr,0,7}));
             s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH());
             const auto stride = lv_draw_buf_width_to_stride(s_layout.view.w, LV_COLOR_FORMAT_RGB565);
             s_fbStride = stride / sizeof(uint16_t);
             std::vector<uint16_t> frame(Game::frameBytes(stride, s_layout.view.h) / sizeof(uint16_t));
             s_fb = frame.data();
             buildGame(false);
+            updateStats();
             lv_screen_load(s_scr);
             lv_obj_update_layout(s_scr);
             auto root = AdvUi::gameBounds(s_gameRoot), canvas = AdvUi::gameBounds(s_canvas);
@@ -174,6 +317,25 @@ int main() {
             assert(drawBuffer->header.stride == stride && drawBuffer->data == reinterpret_cast<uint8_t *>(s_fb));
             auto stage = AdvUi::gameBounds(s_stageLabel);
             assert(stage.x == 4 && stage.y == 4);
+            assert(stage.w < canvas.w - 8); // The base title is compact, not a full-width HUD bar.
+            assert(hidden(s_progressLabel) && hidden(s_timerLabel));
+            if (!mine) checkHud();
+            checkKeys();
+            lv_label_set_text(s_stageLabel, "A long map title must never cover the steps and par");
+            lv_label_set_text(s_progressLabel, "Steps:2147483647  Par:2147483647");
+            lv_obj_update_layout(s_scr);
+            auto progress = AdvUi::gameBounds(s_progressLabel);
+            assert(progress.x == 4 && progress.y == 24);
+            assert(progress.x + progress.w <= size.x && progress.y + progress.h < canvas.h);
+            assert(lv_obj_get_y(s_stageLabel) + lv_obj_get_height(s_stageLabel) <= progress.y);
+            lv_obj_set_hidden(s_timerLabel, false);
+            lv_label_set_text(s_timerLabel, "Gate steps: 0:65535 A:0 Z:65535");
+            lv_obj_update_layout(s_scr);
+            const auto timer = AdvUi::gameBounds(s_timerLabel);
+            assert(timer.x == 4 && timer.y == 44 && timer.w == size.x - 8);
+            assert(timer.x + timer.w <= size.x && timer.y + timer.h < canvas.h);
+            assert(progress.y + progress.h <= timer.y);
+            assert(lv_label_get_long_mode(s_timerLabel) == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
             assert(lv_obj_get_parent(s_toast) == s_gameRoot);
             assert(lv_obj_get_y(s_toast) == canvas.h - 64);
             assert(lv_obj_get_width(s_toast) == canvas.w - 24);
@@ -187,13 +349,14 @@ int main() {
             lv_obj_get_content_coords(controlPanel, &content);
             const int rightX = s_layout.joystick.x + s_layout.joystick.w;
             assert(action.x == rightX && action.w == size.x - rightX - px(4));
-            assert(action.y == content.y1 + px(world.mine ? 8 : 28));
-            assert(action.h == px(world.mine ? 56 : 36));
+            assert(action.y == content.y1 + px(mine ? 8 : 28));
+            assert(action.h == px(mine ? 56 : 36));
             auto *menu = lv_obj_get_child(controlPanel, 1);
             assert(lv_obj_get_x(menu) == px(4) && lv_obj_get_y(menu) == controlBounds.h - px(48));
             assert(lv_obj_get_width(menu) == px(36) && lv_obj_get_height(menu) == px(40));
             assert(lv_obj_get_x(s_muteBtn) == px(43) && lv_obj_get_height(s_muteBtn) == px(40));
             assert(lv_obj_get_y(s_bar) == px(74) && lv_obj_get_height(s_bar) == px(18));
+            assert(lv_obj_get_parent(s_bombCancel) == controlPanel);
             assert(lv_obj_get_x(s_bombCancel) == rightX && lv_obj_get_y(s_bombCancel) == px(106));
             assert(lv_obj_get_height(s_bombCancel) == px(36));
             assert(!s_swapBtn || lv_obj_get_height(s_swapBtn) == px(18));
@@ -234,7 +397,7 @@ int main() {
             lv_obj_delete(blank);
         }
     }
-    assert(deletions == 6);
+    assert(deletions == 12);
     lv_indev_delete(indev);
     lv_display_delete(display);
     lv_deinit();
@@ -245,6 +408,14 @@ int main() {
 code = code.replace("/*GEOMETRY*/", geometry).replace("/*TALK_CONSTANTS*/", talk_constants)
 code = code.replace("/*JOY*/", joy).replace("/*PAD*/", pad).replace("/*TALK*/", talk)
 code = code.replace("/*CONTROLS*/", controls)
+code = code.replace("/*SPRITES*/", section("enum Spr", "static Sprites *s_spr"))
+code = code.replace("/*ART*/", section("static uint16_t rgb(", "// Renderer").rsplit("// -----", 1)[0])
+code = code.replace("/*KEY_COLORS*/", section("static constexpr uint32_t KEY_COLORS", "static int keyColorId"))
+code = code.replace("/*COLORED_SPRITE*/", section("template<typename Pixel>", "static void coloredObject("))
+code = code.replace("/*HUD_ICONS*/", section("static void makeHudIcons()", "// Bottom control panel"))
+code = code.replace("/*HUD*/", section("static void setCount(", "static void toast("))
+code = code.replace("/*EXTRA_STATE*/", section("static bool s_extraHud", "static lv_obj_t *s_keyBox"))
+code = code.replace("/*EXTRA_TOGGLE*/", section("static const char *extraHudText()", "static void showMenu()"))
 code = code.replace("/*CHOICE*/", choice)
 code = code.replace("/*GAME*/", "static void viewEvent(lv_event_t *) {}\n" + game)
 (WORK / "test.cpp").write_text(code)
@@ -259,11 +430,15 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/components/my_ui/fonts/my_font_18.c" "{ROOT}/components/my_ui/fonts/my_font_14.c"
- "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp")
+ "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp"
+ "{ROOT}/components/otr_engine/otr_world.cpp" "{ROOT}/main/lang/lang.cpp"
+ "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/components/my_ui/include" "{ROOT}/main"
  "{ROOT}/components/otr_engine/include")
 target_link_libraries(layout PRIVATE lvgl m)
 ''')
-subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja", "-DCMAKE_CXX_FLAGS="], check=True)
+flags = "-fsanitize=address,undefined -fno-omit-frame-pointer" if os.environ.get("ADV_UI_SANITIZE") == "1" else ""
+subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja",
+                f"-DCMAKE_CXX_FLAGS={flags}", f"-DCMAKE_C_FLAGS={flags}"], check=True)
 subprocess.run(["cmake", "--build", str(WORK / "build"), "--target", "layout", "-j", "2"], check=True)
 subprocess.run([str(WORK / "build/layout")], check=True)

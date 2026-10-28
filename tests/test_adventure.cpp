@@ -2,6 +2,7 @@
 //   g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp components/otr_engine/otr_maps_joseph.cpp -o tests/test_adventure && ./tests/test_adventure
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 #include "otr_joystick.h"
 #include "otr_maps.h"
@@ -690,7 +691,7 @@ static void testLegacyGroupZeroSave()
     static const char *const rows[] = {"So="};
     const MapDef def = {77, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0};
     CHECK_EQ(World::SAVE_MAGIC, 0x5352544F);
-    CHECK_EQ(World::SAVE_VERSION, 3);
+    CHECK_EQ(World::SAVE_VERSION, 4);
     CHECK(W.load(def));
     CHECK(W.restore(legacy, sizeof(legacy)));
     CHECK(W.gatesOpen());
@@ -896,11 +897,13 @@ static void testDarkFlashPogo()
         memcpy(v2, SAVEBUF, n);
         v2[4] = 2; v2[5] = 0;              // version u16 at header offset 4
         v2[16 + 26] = 0; v2[16 + 27] = 0; // clear the v3 ability bytes
-        const uint32_t crc = testCrc32(v2, n - 4);
-        v2[n - 4] = (uint8_t)crc; v2[n - 3] = (uint8_t)(crc >> 8);
-        v2[n - 2] = (uint8_t)(crc >> 16); v2[n - 1] = (uint8_t)(crc >> 24);
+        const size_t oldN = 16 + 32 + 7 * 5 * 3 + 4;
+        const uint32_t body = (uint32_t)(oldN - 20);
+        for (int i = 0; i < 4; ++i) v2[10 + i] = (uint8_t)(body >> (8 * i));
+        const uint32_t crc = testCrc32(v2, oldN - 4);
+        for (int i = 0; i < 4; ++i) v2[oldN - 4 + i] = (uint8_t)(crc >> (8 * i));
         CHECK(W.load(rows, 3));
-        CHECK(W.restore(v2, n));
+        CHECK(W.restore(v2, oldN));
         CHECK_EQ(W.flashlight(), 0);
         CHECK_EQ(W.pogo(), 0);
     }
@@ -911,7 +914,7 @@ static void testSaveLoad()
     CHECK(W.load(WORLDS[1]));
     CHECK_EQ(W.mapId(), WORLD_MINES);
     const size_t n = W.saveSize();
-    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 4);
+    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 6 + 8 + 2 * PLATE_GROUPS + 4);
     CHECK_EQ((long)W.save(SAVEBUF, n - 1), 0);
     // Play a little: flag, walk, step on a mine
     int fx = -1, fy = -1;
@@ -1299,6 +1302,449 @@ static void testJoseph()
     CHECK(walkTo(ex, ey));              // chapter 1 can be completed
 }
 
+static void fixTestCrc(uint8_t *buf, size_t n)
+{
+    const uint32_t crc = testCrc32(buf, n - 4);
+    for (int i = 0; i < 4; ++i) buf[n - 4 + i] = (uint8_t)(crc >> (8 * i));
+}
+
+static void testS2Keys()
+{
+    CHECK_EQ(LEVER_GLYPH, 200);
+    CHECK_EQ(ICE_GLYPH, 236);
+    CHECK_EQ(BELT_GLYPH, 237);
+    CHECK_EQ(COLOR_KEY_GLYPH, 241);
+    CHECK_EQ(COLOR_DOOR_GLYPH, 247);
+    CHECK_EQ((int)Tile::CRATER, 15);
+    CHECK_EQ((int)Obj::POGO, 17);
+    char row[] = "SkkDD.";
+    const char *rows[] = {row};
+    for (int c = 0; c < (int)KeyColor::COUNT; ++c) {
+        row[1] = (char)(COLORED_KEY_GLYPH + c);
+        row[2] = (char)(COLORED_KEY_GLYPH + (c + 1) % 6);
+        row[3] = (char)(COLORED_DOOR_GLYPH + c);
+        row[4] = (char)(COLORED_DOOR_GLYPH + c);
+        CHECK(W.load(rows, 1));
+        W.setKeys(3);
+        CHECK(W.move(Dir::RIGHT) & EV_KEY);
+        CHECK_EQ(W.keys((KeyColor)c), 1);
+        CHECK(W.move(Dir::RIGHT) & EV_KEY);
+        CHECK(W.move(Dir::RIGHT) & EV_DOOR);
+        CHECK_EQ(W.playerX(), 2);
+        CHECK_EQ(W.steps(), 2);
+        CHECK_EQ(W.keys(), 3);
+        CHECK_EQ(W.keys((KeyColor)c), 0);
+        CHECK(W.move(Dir::RIGHT) & EV_MOVED);
+        CHECK_EQ(W.move(Dir::RIGHT), EV_BLOCKED | EV_NEED_KEY);
+        CHECK_EQ(W.keys((KeyColor)((c + 1) % 6)), 1);
+        W.setKeys((KeyColor)c, -20);
+        CHECK_EQ(W.keys((KeyColor)c), 0);
+        W.setKeys((KeyColor)c, 900);
+        CHECK_EQ(W.keys((KeyColor)c), 255);
+        CHECK(W.move(Dir::RIGHT) & EV_DOOR);
+        CHECK_EQ(W.keys((KeyColor)c), 254);
+        W.setKeys((KeyColor)((c + 1) % 6), 255);
+        W.move(Dir::LEFT);
+        // A treasure is also a valid source of colored keys and obeys the cap.
+        Treasure key{1, 0, (Obj)((int)Obj::KEY_RED + c), 0};
+        MapDef def{12, rows, 1, CLASSIC_RULES, &key, 1, nullptr, 0};
+        CHECK(W.load(def));
+        W.setKeys((KeyColor)c, 255);
+        CHECK(W.move(Dir::RIGHT) & EV_KEY);
+        CHECK_EQ(W.keys((KeyColor)c), 255);
+    }
+    W.setKeys((KeyColor)255, 7);
+    CHECK_EQ(W.keys((KeyColor)255), 0);
+    const char *legacy[] = {"SkD"};
+    CHECK(W.load(legacy, 1));
+    W.setKeys(KeyColor::RED, 7);
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.move(Dir::RIGHT), EV_DOOR);
+    CHECK_EQ(W.keys(KeyColor::RED), 7);
+}
+
+static void testS2Controls()
+{
+    char row[] = "..=.";
+    row[0] = row[1] = (char)(GROUPED_LEVER_GLYPH + 35);
+    row[2] = (char)(GROUPED_GATE_GLYPH + 35);
+    const char *rows[] = {"S...", row};
+    MapDef def{90, rows, 2, CLASSIC_RULES, nullptr, 0, nullptr, 0, nullptr, 0, 3};
+    CHECK(W.load(def));
+    CHECK_EQ(W.activate(), EV_LEVER | EV_GATE_OPEN);
+    CHECK(W.leverOnAt(0, 1)); CHECK(W.leverOnAt(1, 1));
+    CHECK(!W.leverOnAt(99, 0));
+    CHECK_EQ(W.move(Dir::DOWN), EV_BLOCKED); // Facing a lever does not enter or toggle it.
+    CHECK_EQ(W.steps(), 0);
+    CHECK(!W.playerCanEnter(0, 1));
+    CHECK(!Planner::targetable(W, 0, 1));
+    CHECK_EQ(W.steps(), 0);
+    CHECK_EQ(W.par(), 3); CHECK(W.parMet());
+    W.move(Dir::RIGHT);
+    W.move(Dir::RIGHT);
+    W.move(Dir::DOWN);
+    CHECK_EQ(W.steps(), 3); CHECK(W.parMet());
+    W.move(Dir::RIGHT); W.move(Dir::LEFT);     // Face the second lever from the gate.
+    CHECK_EQ(W.activate(), EV_LEVER | EV_GATE_CLOSE);
+    CHECK(!W.leverOnAt(0, 1)); CHECK(!W.leverOnAt(1, 1));
+    CHECK(!W.parMet());
+    CHECK(!W.playerCanEnter(2, 1));
+    CHECK(W.move(Dir::UP) & EV_MOVED);
+
+    GroupControl control{4, 2};
+    char top[] = ".=.#";
+    top[0] = (char)(GROUPED_LEVER_GLYPH + 4);
+    top[1] = (char)(GROUPED_GATE_GLYPH + 4);
+    const char *vertical[] = {"S...", top};
+    MapDef timed{91, vertical, 2, CLASSIC_RULES, nullptr, 0, nullptr, 0, &control, 1, 2};
+    CHECK(W.load(timed));
+    CHECK(W.isTimedGroup(4)); CHECK(!W.isTimedGroup(0));
+    CHECK(!W.isTimedGroup(-1)); CHECK(!W.isTimedGroup(36));
+    CHECK_EQ(W.activate(), EV_LEVER | EV_GATE_OPEN);
+    CHECK_EQ(W.timerRemaining(4), 2);
+    CHECK_EQ(W.activate(), EV_LEVER);
+    CHECK_EQ(W.timerRemaining(4), 2);
+    CHECK_EQ(W.move(Dir::UP), EV_BLOCKED);
+    CHECK_EQ(W.timerRemaining(4), 2);
+    W.hit();
+    CHECK_EQ(W.timerRemaining(4), 2);
+    W.move(Dir::RIGHT);
+    CHECK_EQ(W.timerRemaining(4), 1);
+    CHECK(W.move(Dir::DOWN) & EV_GATE_CLOSE); // Last open step can enter the gate.
+    CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.playerY(), 1);
+    CHECK_EQ(W.timerRemaining(4), 0);
+    CHECK(W.isTimedGroup(4));
+    CHECK(!W.playerCanEnter(1, 1));
+    const size_t n = W.save(SAVEBUF, sizeof(SAVEBUF));
+    CHECK(W.load(timed)); CHECK(W.restore(SAVEBUF, n));
+    CHECK_EQ(W.playerX(), 1);
+    CHECK(W.move(Dir::UP) & EV_MOVED);         // Closed gate occupant can leave.
+    CHECK_EQ(W.move(Dir::DOWN), EV_BLOCKED);
+    CHECK_EQ(W.timerRemaining(-1), 0); CHECK_EQ(W.timerRemaining(36), 0);
+
+    char plateRow[] = "So=..";
+    plateRow[1] = (char)(GROUPED_PLATE_GLYPH + 4);
+    plateRow[2] = (char)(GROUPED_GATE_GLYPH + 4);
+    const char *plateRows[] = {plateRow};
+    timed.rows = plateRows; timed.h = 1;
+    CHECK(W.load(timed));
+    CHECK(W.move(Dir::RIGHT) & EV_GATE_OPEN);
+    CHECK_EQ(W.timerRemaining(4), 2);          // Triggering step is not charged.
+    W.move(Dir::UP); W.hit(); W.activate();
+    CHECK_EQ(W.timerRemaining(4), 2);          // No displacement, no retrigger or tick.
+    W.move(Dir::LEFT);
+    CHECK_EQ(W.timerRemaining(4), 1);
+    const uint32_t rearm = W.move(Dir::RIGHT);
+    CHECK(rearm & EV_GATE_CLOSE); CHECK(rearm & EV_GATE_OPEN);
+    CHECK_EQ(W.timerRemaining(4), 2);
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT);
+    CHECK_EQ(W.timerRemaining(4), 0);
+    CHECK(!W.gateOpenAt(2, 0));
+
+    char rockRow[] = "SRo=.";
+    rockRow[2] = (char)(GROUPED_PLATE_GLYPH + 4);
+    rockRow[3] = (char)(GROUPED_GATE_GLYPH + 4);
+    const char *rockRows[] = {rockRow, "....."};
+    timed.rows = rockRows; timed.h = 2;
+    CHECK(W.load(timed));
+    CHECK(W.move(Dir::RIGHT) & EV_GATE_OPEN);
+    CHECK_EQ(W.timerRemaining(4), 2);
+    W.move(Dir::DOWN); W.move(Dir::RIGHT);
+    CHECK_EQ(W.timerRemaining(4), 0);          // Rock still on plate must not rearm.
+    CHECK(!W.gateOpenForGroup(4));
+
+    char leverRow[] = {'.', (char)(GROUPED_LEVER_GLYPH + 4), '.', 0};
+    const char *rearmRows[] = {"...", ".SD", leverRow};
+    timed.rows = rearmRows; timed.h = 3; control.steps = 3;
+    CHECK(W.load(timed));
+    CHECK(W.activate() & EV_GATE_OPEN);
+    W.move(Dir::UP); W.move(Dir::DOWN);
+    CHECK_EQ(W.timerRemaining(4), 1);
+    CHECK_EQ(W.activate(), EV_LEVER);
+    CHECK_EQ(W.timerRemaining(4), 3);          // Explicit lever action rearms, it never toggles off.
+    W.setKeys(1);
+    CHECK_EQ(W.move(Dir::RIGHT), EV_DOOR);
+    CHECK_EQ(W.timerRemaining(4), 3);          // Unlocking is not displacement.
+    control.steps = 65535;
+    CHECK(W.load(timed));
+    CHECK(W.activate() & EV_LEVER);
+    CHECK_EQ(W.timerRemaining(4), 65535);
+    W.move(Dir::UP);
+    CHECK_EQ(W.timerRemaining(4), 65534);
+
+    GroupControl invalid{36, 1};
+    timed.controls = &invalid;
+    CHECK(!W.load(timed));
+    GroupControl duplicates[] = {{4, 1}, {4, 2}};
+    timed.controls = duplicates; timed.controlCount = 2;
+    CHECK(!W.load(timed));
+    timed.controls = nullptr;
+    CHECK(!W.load(timed));
+
+    char solidLeverRow[] = {'S', 'R', (char)LEVER_GLYPH, '.', 0};
+    const char *solidLeverRows[] = {solidLeverRow};
+    CHECK(W.load(solidLeverRows, 1));
+    CHECK_EQ(W.move(Dir::RIGHT), EV_BLOCKED);
+    CHECK_EQ(W.rawObj(1, 0), Obj::ROCK);
+    CHECK_EQ(W.steps(), 0);
+    solidLeverRow[1] = (char)ICE_GLYPH;
+    CHECK(W.load(solidLeverRows, 1));
+    CHECK_EQ(W.move(Dir::RIGHT), EV_MOVED | EV_BLOCKED);
+    CHECK_EQ(W.playerX(), 1);
+    CHECK_EQ(W.steps(), 1);                   // Forced movement also cannot enter a lever.
+
+    // Group ids share val_ with object amounts: reject overlays before uncover can replace
+    // a valid group with an item amount such as 255.
+    for (uint8_t glyph : {GROUPED_PLATE_GLYPH, GROUPED_GATE_GLYPH, LEVER_GLYPH}) {
+        char overlayRow[] = {'S', (char)(glyph + 35), '.', '1', 0};
+        const char *overlayRows[] = {overlayRow};
+        Treasure treasure{1, 0, Obj::POTION, 255};
+        MapDef overlay{96, overlayRows, 1, CLASSIC_RULES, &treasure, 1, nullptr, 0};
+        CHECK(!W.load(overlay));
+        overlay.treasures = nullptr; overlay.treasureCount = 0;
+        CHECK(W.load(overlay));
+        CHECK(!W.moveNpc(1, 1, 0));
+        CHECK_EQ(W.objAmount(1, 0), 35);
+        treasure.item = Obj::KEY_CYAN; treasure.amount = 0;
+        overlay.treasures = &treasure; overlay.treasureCount = 1;
+        CHECK(!W.load(overlay));
+    }
+}
+
+static void testS2Forced()
+{
+    static_assert(sizeof(MoveTrace) <= 512, "Movement trace must stay caller-owned and small");
+    MoveTrace trace;
+    char row[] = "S....X";
+    row[1] = row[2] = (char)ICE_GLYPH;
+    row[3] = (char)(BELT_UP_GLYPH + (int)Dir::RIGHT);
+    const char *rows[] = {row};
+    MapDef def{92, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0, nullptr, 0, 4};
+    CHECK(W.load(def));
+    const uint32_t firstEvents = W.move(Dir::RIGHT, &trace);
+    CHECK(firstEvents & EV_MOVED);
+    CHECK_EQ(trace.count, 4);
+    for (int i = 0; i < trace.count; ++i) {
+        CHECK_EQ(trace.cells[i].x, i + 1); CHECK_EQ(trace.cells[i].y, 0);
+    }
+    const size_t tracedSize = W.save(SAVEBUF, sizeof SAVEBUF);
+    CHECK(W.load(def));
+    CHECK_EQ(W.move(Dir::RIGHT), firstEvents);
+    static uint8_t plainSave[sizeof SAVEBUF];
+    CHECK_EQ(W.save(plainSave, sizeof plainSave), tracedSize);
+    CHECK(!memcmp(SAVEBUF, plainSave, tracedSize)); // Trace cannot change rules, events or saves.
+    CHECK_EQ(W.playerX(), 4); CHECK_EQ(W.steps(), 4); CHECK(W.parMet());
+    CHECK_EQ(W.move(Dir::RIGHT), EV_MOVED | EV_EXIT);
+    CHECK_EQ(W.steps(), 5); CHECK(!W.parMet());
+    Dir direction;
+    CHECK(!W.forcedMotion(direction));
+
+    // Forced movement never pushes, unlocks, hits, or initiates a conversation.
+    for (char blocker : {'R', 'D', 'C', 'b', '1', '#'}) {
+        char blocked[] = {'S', (char)ICE_GLYPH, blocker, 0};
+        const char *b[] = {blocked};
+        CHECK(W.load(b, 1));
+        W.setKeys(5); W.setPogo(3);
+        const uint32_t ev = W.move(Dir::RIGHT);
+        CHECK_EQ(ev, EV_MOVED | EV_BLOCKED);
+        CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.steps(), 1);
+        CHECK_EQ(W.keys(), 5); CHECK_EQ(W.talkNpc(), 0);
+    }
+    char edge[] = {'S', (char)ICE_GLYPH, 0};
+    const char *edges[] = {edge};
+    CHECK(W.load(edges, 1));
+    CHECK_EQ(W.move(Dir::RIGHT), EV_MOVED | EV_BLOCKED);
+    CHECK(W.forcedMotion(direction)); CHECK_EQ(direction, Dir::RIGHT);
+    CHECK_EQ(P.plan(W, 0, 0, WalkMode::PRO, PA), PlanResult::OK);
+    CHECK(W.move(Dir::LEFT) & EV_MOVED);       // A stopped ice occupant can leave normally.
+
+    char beltTop[] = {'S', (char)(BELT_UP_GLYPH + 2), 0};
+    char beltBottom[] = {(char)(BELT_UP_GLYPH), (char)(BELT_UP_GLYPH + 3), 0};
+    const char *turns[] = {beltTop, beltBottom};
+    CHECK(W.load(turns, 2));
+    W.move(Dir::RIGHT, &trace);              // Down, left, up; stops on ordinary start.
+    CHECK_EQ(trace.count, 4);
+    const int route[][2] = {{1,0},{1,1},{0,1},{0,0}};
+    for (int i = 0; i < 4; ++i) {
+        CHECK_EQ(trace.cells[i].x, route[i][0]); CHECK_EQ(trace.cells[i].y, route[i][1]);
+    }
+    CHECK_EQ(W.playerX(), 0); CHECK_EQ(W.playerY(), 0); CHECK_EQ(W.steps(), 4);
+    char loopTop[] = {'S', (char)(BELT_UP_GLYPH + 1), (char)(BELT_UP_GLYPH + 2), 0};
+    char loopBottom[] = {'.', (char)BELT_UP_GLYPH, (char)(BELT_UP_GLYPH + 3), 0};
+    const char *loops[] = {loopTop, loopBottom};
+    CHECK(W.load(loops, 2));
+    W.move(Dir::RIGHT, &trace);
+    CHECK_EQ(trace.count, 129);
+    CHECK_EQ(trace.cells[128].x, W.playerX()); CHECK_EQ(trace.cells[128].y, W.playerY());
+    CHECK_EQ(W.steps(), 129);                // One manual + at most 128 forced displacements.
+    CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.playerY(), 0);
+
+    // A mine's modal event stops the chain, including a non-lethal explosion.
+    char mineRow[] = {'S', (char)ICE_GLYPH, 'm', '.', 0};
+    const char *mines[] = {mineRow};
+    CHECK(W.load(mines, 1, R8));
+    uint32_t ev = W.move(Dir::RIGHT);
+    CHECK(ev & EV_MINE); CHECK_EQ(W.playerX(), 2); CHECK_EQ(W.steps(), 2);
+    CHECK(!(ev & EV_DIED));
+    char lavaRow[] = {'S', (char)ICE_GLYPH, '^', (char)(BELT_UP_GLYPH + 1), '.', 0};
+    const char *lava[] = {lavaRow};
+    CHECK(W.load(lava, 1, R8));
+    const int energy = W.energy();
+    ev = W.move(Dir::RIGHT);
+    CHECK(ev & EV_BURNED); CHECK(!(ev & EV_DIED));
+    CHECK_EQ(W.playerX(), 2); CHECK_EQ(W.steps(), 2);
+    CHECK_EQ(W.energy(), energy - R8.lavaDamage);
+
+    // Death must not continue from the respawn/checkpoint position.
+    char deathRow[] = {'S', '.', '.', '.', '.', '.', '.', 'Q', (char)ICE_GLYPH, '^', '.', 0};
+    for (int c = 0; c < 6; ++c) deathRow[c + 1] = (char)(COLOR_DOOR_GLYPH + c);
+    const char *deaths[] = {deathRow};
+    CHECK(W.load(deaths, 1));
+    for (int c = 0; c < 6; ++c) W.setKeys((KeyColor)c, 11 + c * 7);
+    for (int c = 0; c < 6; ++c) {
+        CHECK_EQ(W.move(Dir::RIGHT), EV_DOOR);
+        CHECK(W.move(Dir::RIGHT) & EV_MOVED);
+    }
+    CHECK(W.move(Dir::RIGHT) & EV_CHECKPOINT);
+    ev = W.move(Dir::RIGHT, &trace);
+    CHECK(ev & EV_DIED);
+    CHECK_EQ(trace.count, 2);
+    CHECK_EQ(trace.cells[0].x, 8); CHECK_EQ(trace.cells[1].x, 9); // No respawn in the route.
+    CHECK_EQ(W.playerX(), 7); CHECK_EQ(W.checkpointX(), 7);
+    CHECK_EQ(W.steps(), 9);
+    for (int c = 0; c < 6; ++c) {
+        CHECK_EQ(W.keys((KeyColor)c), 10 + c * 7);
+        CHECK_EQ(W.rawObj(c + 1, 0), Obj::NONE);
+    }
+
+    // Manual vault uses the same forced resolver, and is one displacement itself.
+    char vaultRow[] = {'S', '#', (char)ICE_GLYPH, (char)(BELT_UP_GLYPH + 1), 'X', '.', 0};
+    const char *vaults[] = {vaultRow};
+    CHECK(W.load(vaults, 1));
+    W.setPogo(1);
+    CHECK_EQ(W.move(Dir::RIGHT), EV_BLOCKED);
+    ev = W.vault(&trace);
+    CHECK(ev & EV_EXIT); CHECK_EQ(W.playerX(), 4); CHECK_EQ(W.steps(), 3);
+    CHECK_EQ(trace.count, 3);
+    CHECK_EQ(trace.cells[0].x, 2); CHECK_EQ(trace.cells[1].x, 3); CHECK_EQ(trace.cells[2].x, 4);
+    CHECK(W.vault(&trace) == EV_BLOCKED); CHECK_EQ(trace.count, 0);
+
+    // Rocks stay put on forced terrain.
+    char rockRow[] = {'S', 'R', (char)ICE_GLYPH, '.', 0};
+    const char *rocks[] = {rockRow};
+    CHECK(W.load(rocks, 1));
+    CHECK(W.move(Dir::RIGHT) & EV_PUSHED);
+    CHECK_EQ(W.rawObj(2, 0), Obj::ROCK);
+    CHECK_EQ(W.steps(), 1);
+
+    char planRow[] = {'S', (char)ICE_GLYPH, '.', 0};
+    const char *plans[] = {planRow, "..."};
+    CHECK(W.load(plans, 2));
+    CHECK(!Planner::targetable(W, 1, 0));
+    CHECK_EQ(P.plan(W, 1, 0, WalkMode::PRO, PA), PlanResult::INVALID);
+    CHECK_EQ(P.plan(W, 2, 0, WalkMode::PRO, PA), PlanResult::OK);
+    CHECK_EQ(PA.len, 4);                      // Safe detour, never expand forced terrain.
+    const char *noDetour[] = {planRow};
+    CHECK(W.load(noDetour, 1));
+    CHECK_EQ(P.plan(W, 2, 0, WalkMode::PRO, PA), PlanResult::UNREACHABLE);
+
+    // Each forced displacement ticks existing timers before a landing plate can rearm.
+    char timerTop[] = "S.....";
+    char timerBottom[] = { (char)(GROUPED_LEVER_GLYPH + 3), '.',
+                          (char)ICE_GLYPH, (char)ICE_GLYPH, '.', '.', 0};
+    const char *timerRows[] = {timerTop, timerBottom};
+    GroupControl control{3, 5};
+    MapDef timed{93, timerRows, 2, CLASSIC_RULES, nullptr, 0, nullptr, 0, &control, 1, 0};
+    CHECK(W.load(timed));
+    CHECK(W.activate() & EV_LEVER);
+    W.move(Dir::RIGHT); W.move(Dir::DOWN);
+    W.move(Dir::RIGHT);                       // Three more displacements through ice to x4.
+    CHECK_EQ(W.steps(), 5); CHECK_EQ(W.timerRemaining(3), 0);
+    CHECK(!W.parMet());
+
+    char deathLever[] = {(char)(GROUPED_LEVER_GLYPH + 3), '.', '.', '.', 0};
+    const char *timedDeath[] = {"S.Q^", deathLever};
+    timed.rows = timedDeath; control.steps = 8;
+    CHECK(W.load(timed));
+    CHECK(W.activate() & EV_LEVER);
+    W.move(Dir::RIGHT); W.move(Dir::RIGHT);
+    CHECK(W.move(Dir::RIGHT) & EV_DIED);
+    CHECK_EQ(W.playerX(), 2); CHECK_EQ(W.checkpointX(), 2);
+    CHECK_EQ(W.timerRemaining(3), 5);          // Respawn is not a displacement or a timer reset.
+}
+
+static void testS2Save()
+{
+    char top[] = {'S', '.', (char)(GROUPED_LEVER_GLYPH + 35), '.', 0};
+    GroupControl control{4, 9};
+    char timedBottom[] = {(char)(GROUPED_LEVER_GLYPH + 4), '.', '.', '.', 0};
+    const char *timedRows[] = {top, timedBottom, "...."};
+    MapDef def{94, timedRows, 3, CLASSIC_RULES, nullptr, 0, nullptr, 0, &control, 1, 20};
+    CHECK(W.load(def));
+    CHECK(W.activate() & EV_LEVER);
+    W.move(Dir::RIGHT);
+    CHECK(W.activate() & EV_LEVER);           // Toggle group 35 while timed group 4 is active.
+    for (int c = 0; c < 6; ++c) W.setKeys((KeyColor)c, c * 40 + 1);
+    W.setFlashlight(2); W.setPogo(3); W.setKeys(17);
+    const size_t n = W.save(SAVEBUF, sizeof(SAVEBUF));
+    CHECK(n > 0);
+    CHECK(W.load(def)); CHECK(W.restore(SAVEBUF, n));
+    CHECK(W.leverOnAt(2, 0)); CHECK_EQ(W.timerRemaining(4), 8);
+    CHECK_EQ(W.par(), 20); CHECK_EQ(W.steps(), 1);
+    CHECK_EQ(W.keys(), 17); CHECK_EQ(W.flashlight(), 2); CHECK_EQ(W.pogo(), 3);
+    for (int c = 0; c < 6; ++c) CHECK_EQ(W.keys((KeyColor)c), c * 40 + 1);
+    static uint8_t bad[64 * 1024], unchanged[64 * 1024];
+    const size_t extension = 16 + 32 + 7 * 4 * 3;
+    for (int fault = 0; fault < 6; ++fault) {
+        memcpy(bad, SAVEBUF, n);
+        switch (fault) {
+        case 0: bad[extension + 6 + 7] = 0x80; break; // Latch outside the 36-bit namespace.
+        case 1: bad[extension + 14 + 2 * 4] = 10; break; // Beyond configured duration.
+        case 2: bad[extension + 14] = 1; break; // Timer in an unconfigured group.
+        case 3: bad[48] = (uint8_t)Tile::COUNT; break;
+        case 4: bad[49] = (uint8_t)Obj::COUNT; break;
+        case 5: bad[48 + 7 * 4 + 2] = 36; break; // Invalid lever group.
+        }
+        fixTestCrc(bad, n);
+        CHECK(!W.restore(bad, n));
+        CHECK_EQ(W.save(unchanged, sizeof(unchanged)), n);
+        CHECK(memcmp(unchanged, SAVEBUF, n) == 0); // Restore is atomic even after a valid CRC.
+    }
+
+    // Generate actual legacy layouts from their fields, not by relabeling a v4 image.
+    const char *legacyRows[] = {"S..."};
+    for (int version = 1; version <= 3; ++version) {
+        uint8_t old[16 + 32 + 7 * 4 + 4] = {};
+        old[0] = 'O'; old[1] = 'T'; old[2] = 'R'; old[3] = 'S';
+        old[4] = (uint8_t)version; old[6] = 95; old[7] = 4; old[8] = 1;
+        old[10] = 32 + 7 * 4;
+        uint8_t *player = old + 16;
+        player[0] = 1; player[4] = (uint8_t)Dir::RIGHT;
+        player[5] = 7; player[11] = 3;       // Legacy keys and steps.
+        player[15] = player[16] = 8; player[17] = 255;
+        if (version >= 2) { player[24] = 2; player[25] = 3; }
+        if (version >= 3) { player[26] = 2; player[27] = 3; }
+        // Reserved bytes were not part of gameplay state and must not become S2 state.
+        player[28] = player[29] = player[30] = player[31] = 255;
+        fixTestCrc(old, sizeof(old));          // All four cells are GRASS/NONE (seven zero bytes).
+        MapDef legacy{95, legacyRows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0};
+        CHECK(W.load(legacy));
+        W.setKeys(KeyColor::RED, 255);
+        CHECK(W.restore(old, sizeof(old)));
+        CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.steps(), 3); CHECK_EQ(W.keys(), 7);
+        CHECK_EQ(W.flashlight(), version >= 3 ? 2 : 0);
+        CHECK_EQ(W.pogo(), version >= 3 ? 3 : 0);
+        CHECK_EQ(W.bombs(3), version >= 2 ? 2 : 0);
+        CHECK_EQ(W.bombs(4), version >= 2 ? 3 : 0);
+        for (int c = 0; c < 6; ++c) CHECK_EQ(W.keys((KeyColor)c), 0);
+        for (int group = 0; group < PLATE_GROUPS; ++group) {
+            CHECK_EQ(W.timerRemaining(group), 0);
+            CHECK(!W.gateOpenForGroup(group));
+        }
+        CHECK_EQ(W.par(), 0);
+    }
+}
+
 int main()
 {
     testLoad();
@@ -1325,6 +1771,10 @@ int main()
     testPeople();
     testVillage();
     testJoseph();
+    testS2Keys();
+    testS2Controls();
+    testS2Forced();
+    testS2Save();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

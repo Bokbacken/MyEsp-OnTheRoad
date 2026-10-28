@@ -1,0 +1,62 @@
+@meta
+id: s2_demo
+world: 96
+map_id: 96
+
+@about
+title.sv: Verkstadens provbana
+title.en: Workshop training circuit
+desc.sv: Prova spak, tidsgrind, is, fyra pilriktningar och sex nyckelfärger. Par: 56 steg.
+desc.en: Try a lever, timed gate, ice, four belt directions and six key colors. Par: 56 steps.
+author: MyEsp-OnTheRoad
+
+@rules
+lives: infinite
+par: 56
+
+@legend
+! = lever 1
+I = gate 1
+: = plate 2
+] = gate 2
+i = ice
+{ = belt up
+> = belt right
+v = belt down
+< = belt left
+q = key red
+H = door red
+g = key green
+J = door green
+t = key blue
+L = door blue
+y = key yellow
+N = door yellow
+s = key purple
+O = door purple
+e = key cyan
+V = door cyan
+
+@timedgate 2: 36
+
+@map
+#####################
+#1!##################
+#S..I.:..].iii..>.v##
+#############g#..#.##
+#############J#.{.<##
+##..L.t.J.g.H.q.#####
+##.##################
+##..y.N.s.O.e.V...X##
+#####################
+
+@npc guide
+name: Handledaren | The instructor
+look: 0
+num: 1
+
+@node guide.start
+speaker: guide
+text.sv: Välj Spak med Byt; tryck nedanför. Plattan: 36 steg. Med röd nyckel: gå ett steg vänster, prova upp mot grön sidodörr. Fel färg behålls. Gå igen efter upplåsning.
+text.en: Choose Lever with Swap; tap below. Plate: 36 steps. With the red key: step left, try up at the green side door. Wrong colors stay. Move again after unlocking.
+choice: Jag provar! | Let me try! => END

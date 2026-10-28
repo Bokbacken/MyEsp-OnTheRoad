@@ -65,18 +65,24 @@ bool isGround(Tile t)
     case Tile::GRASS: case Tile::SAND: case Tile::FLOOR: case Tile::RUBBLE:
     case Tile::BRIDGE: case Tile::BASALT: case Tile::PLATE: case Tile::CHECKPOINT:
     case Tile::EXIT: case Tile::CRATER:
+    case Tile::ICE: case Tile::BELT_UP: case Tile::BELT_RIGHT:
+    case Tile::BELT_DOWN: case Tile::BELT_LEFT:
         return true;
     default:
         return false;
     }
 }
 
-bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH || o == Obj::NPC; }
+bool coloredKey(Obj o) { return o >= Obj::KEY_RED && o <= Obj::KEY_CYAN; }
+bool coloredDoor(Obj o) { return o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN; }
+bool forcedTile(Tile t) { return t >= Tile::ICE && t <= Tile::BELT_LEFT; }
+bool groupedTile(Tile t) { return t == Tile::PLATE || t == Tile::GATE || t == Tile::LEVER; }
+bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH || o == Obj::NPC || coloredDoor(o); }
 bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
            o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4 ||
-           o == Obj::FLASH || o == Obj::POGO;
+           o == Obj::FLASH || o == Obj::POGO || coloredKey(o);
 }
 bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == Tile::CRACKED; }
 
@@ -123,6 +129,17 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
             } else if (glyph >= GROUPED_GATE_GLYPH && glyph < GROUPED_GATE_GLYPH + PLATE_GROUPS) {
                 c = {Tile::GATE, Obj::NONE};
                 val_[y][x] = glyph - GROUPED_GATE_GLYPH;
+            } else if (glyph >= GROUPED_LEVER_GLYPH && glyph < GROUPED_LEVER_GLYPH + PLATE_GROUPS) {
+                c = {Tile::LEVER, Obj::NONE};
+                val_[y][x] = glyph - GROUPED_LEVER_GLYPH;
+            } else if (glyph == ICE_GLYPH) {
+                c = {Tile::ICE, Obj::NONE};
+            } else if (glyph >= BELT_UP_GLYPH && glyph < BELT_UP_GLYPH + 4) {
+                c = {(Tile)((int)Tile::BELT_UP + glyph - BELT_UP_GLYPH), Obj::NONE};
+            } else if (glyph >= COLORED_KEY_GLYPH && glyph < COLORED_KEY_GLYPH + 6) {
+                c = {Tile::FLOOR, (Obj)((int)Obj::KEY_RED + glyph - COLORED_KEY_GLYPH)};
+            } else if (glyph >= COLORED_DOOR_GLYPH && glyph < COLORED_DOOR_GLYPH + 6) {
+                c = {Tile::FLOOR, (Obj)((int)Obj::DOOR_RED + glyph - COLORED_DOOR_GLYPH)};
             } else if (!decode(rows[y][x], c)) {
                 return false;
             }
@@ -174,9 +191,22 @@ bool World::load(const MapDef &def)
 {
     if (!load(def.rows, def.h, def.rules)) return false;
     mapId_ = def.id;
+    if (def.controlCount < 0 || def.controlCount > PLATE_GROUPS ||
+        (def.controlCount && !def.controls) || def.par < 0) return false;
+    bool configured[PLATE_GROUPS] = {};
+    for (int i = 0; i < def.controlCount; ++i) {
+        const GroupControl &control = def.controls[i];
+        if (control.group >= PLATE_GROUPS || configured[control.group]) return false;
+        configured[control.group] = true;
+        controlSteps_[control.group] = control.steps;
+    }
+    par_ = def.par;
+    uint32_t gateEvents = 0;
+    updateGates(gateEvents);
     for (int i = 0; i < def.treasureCount && def.treasures; i++) {
         const Treasure &t = def.treasures[i];
-        if (!inside(t.x, t.y) || !isItem(t.item) || hid_[t.y][t.x]) return false;
+        if (!inside(t.x, t.y) || !isItem(t.item) || hid_[t.y][t.x] || groupedTile(tile(t.x, t.y)))
+            return false; // Group ids and item amounts share val_; they cannot occupy the same cell.
         // v0.18.5: @treasures takes precedence over a map-glyph PICKUP on the same cell, so a
         // higher pogo / flashlight level (or any treasure) wins over the bare glyph (e.g. j, f).
         // Only item glyphs are cleared — containers (crate, rock, bush, door, cracked wall) still
@@ -210,6 +240,64 @@ bool World::load(const MapDef &def)
 }
 
 // ---- Queries --------------------------------------------------------------------------------
+
+int World::keys(KeyColor color) const
+{
+    const int c = (int)color;
+    return c < (int)KeyColor::COUNT ? colorKeys_[c] : 0;
+}
+
+void World::setKeys(KeyColor color, int count)
+{
+    const int c = (int)color;
+    if (c >= (int)KeyColor::COUNT) return;
+    colorKeys_[c] = (uint8_t)(count < 0 ? 0 : count > 255 ? 255 : count);
+    ++rev_;
+}
+
+int World::timerRemaining(int group) const
+{
+    return group >= 0 && group < PLATE_GROUPS ? timers_[group] : 0;
+}
+
+bool World::leverOnAt(int x, int y) const
+{
+    return inside(x, y) && tile(x, y) == Tile::LEVER && gateOpenForGroup(val_[y][x]);
+}
+
+uint32_t World::activate()
+{
+    if (gameOver_ || (mineLevel_ && exitReached_)) return EV_NONE;
+    const int x = px_ + dirX(facing_), y = py_ + dirY(facing_);
+    if (!inside(x, y) || tile(x, y) != Tile::LEVER) return EV_NONE;
+    const int group = val_[y][x];
+    if (group >= PLATE_GROUPS) return EV_NONE;
+    if (controlSteps_[group]) timers_[group] = controlSteps_[group];
+    else leverGroups_ ^= uint64_t(1) << group;
+    uint32_t ev = EV_LEVER;
+    ++rev_;
+    updateGates(ev);
+    return ev;
+}
+
+void World::tickTimers(uint32_t &ev)
+{
+    for (int group = 0; group < PLATE_GROUPS; ++group)
+        if (timers_[group]) { --timers_[group]; ++rev_; }
+    updateGates(ev);
+}
+
+void World::activatePlate(int x, int y, uint32_t &ev)
+{
+    if (tile(x, y) != Tile::PLATE) return;
+    const int group = val_[y][x];
+    if (group >= PLATE_GROUPS) return;
+    if (controlSteps_[group]) {
+        timers_[group] = controlSteps_[group];
+        ++rev_;
+        updateGates(ev);
+    }
+}
 
 Obj World::obj(int x, int y) const
 {
@@ -311,12 +399,16 @@ void World::updateGates(uint32_t &ev)
         for (int x = 0; x < w_; x++)
             if (terrain_[y][x] == (uint8_t)Tile::PLATE) {
                 const int group = val_[y][x];
+                if (group >= PLATE_GROUPS) continue;
                 hasPlate[group] = true;
                 if (obj_[y][x] != (uint8_t)Obj::ROCK) allCovered[group] = false;
             }
-    uint64_t openGroups = 0;
+    uint64_t openGroups = leverGroups_;
     for (int group = 0; group < PLATE_GROUPS; group++)
-        if (hasPlate[group] && allCovered[group]) openGroups |= uint64_t(1) << group;
+        if (controlSteps_[group]) {
+            if (timers_[group]) openGroups |= uint64_t(1) << group;
+            else openGroups &= ~(uint64_t(1) << group);
+        } else if (hasPlate[group] && allCovered[group]) openGroups |= uint64_t(1) << group;
     if (openGroups != gateOpenGroups_) {
         const uint64_t opened = openGroups & ~gateOpenGroups_;
         const uint64_t closed = gateOpenGroups_ & ~openGroups;
@@ -409,6 +501,11 @@ uint32_t World::pickup(uint32_t ev)
     const Obj o = obj(px_, py_);
     if (!isItem(o)) return ev;
     const int amount = val_[py_][px_];
+    if (coloredKey(o)) {
+        const int c = (int)o - (int)Obj::KEY_RED;
+        if (colorKeys_[c] < 255) ++colorKeys_[c];
+        ev |= EV_KEY;
+    }
     switch (o) {
     case Obj::BOMB3: if (bomb3_ < 99) bomb3_++; ev |= EV_TREASURE; break;
     case Obj::BOMB4: if (bomb4_ < 99) bomb4_++; ev |= EV_TREASURE; break;
@@ -468,13 +565,24 @@ uint32_t World::pickup(uint32_t ev)
     return ev;
 }
 
-uint32_t World::move(Dir d)
+uint32_t World::move(Dir d, MoveTrace *trace)
 {
+    if (trace) trace->count = 0;
     if (gameOver_ || (mineLevel_ && exitReached_)) return EV_NONE;
     facing_ = d;
     const int tx = px_ + dirX(d), ty = py_ + dirY(d);
     if (!inside(tx, ty) || (mineLevel_ && flagged(tx, ty))) return EV_BLOCKED;
     uint32_t ev = 0;
+    const Obj target = obj(tx, ty);
+    if (coloredDoor(target)) {
+        const int c = (int)target - (int)Obj::DOOR_RED;
+        if (!colorKeys_[c]) return EV_BLOCKED | EV_NEED_KEY;
+        --colorKeys_[c];
+        set(tx, ty, Obj::NONE);
+        uncover(tx, ty, ev);
+        return ev | EV_DOOR;
+    }
+    int plateX = -1, plateY = -1;
 
     switch (obj(tx, ty)) {
     case Obj::NPC:
@@ -502,6 +610,7 @@ uint32_t World::move(Dir d)
             ev |= EV_SIZZLE;
         } else {
             set(bx, by, Obj::ROCK);
+            plateX = bx; plateY = by;
         }
         ev |= EV_PUSHED;
         uncover(tx, ty, ev);   // Something under the rock's old place?
@@ -513,17 +622,23 @@ uint32_t World::move(Dir d)
     }
 
     if (!playerCanEnter(tx, ty)) return ev | EV_BLOCKED;   // v0.18.3: pogo vault is now manual (vault())
-    return landOn(tx, ty, ev);
+    ev = landOn(tx, ty, ev, trace);
+    if (plateX >= 0) activatePlate(plateX, plateY, ev);
+    return resolveForced(ev, trace);
 }
 
 // v0.18.3: shared landing sequence for a normal step and a manual pogo vault. Moves the player onto
 // (destX, destY), then resolves mines, fog, lava, water, checkpoints, the exit and pickups.
-uint32_t World::landOn(int destX, int destY, uint32_t ev)
+uint32_t World::landOn(int destX, int destY, uint32_t ev, MoveTrace *trace)
 {
+    if (trace && trace->count < 129)
+        trace->cells[trace->count++] = {(uint8_t)destX, (uint8_t)destY};
+    tickTimers(ev);
     px_ = destX;
     py_ = destY;
     steps_++;
     ev |= EV_MOVED;
+    activatePlate(px_, py_, ev);
 
     if (rawObj(px_, py_) == Obj::MINE) {   // Boom: the mine is gone, a crater remains
         obj_[py_][px_] = (uint8_t)Obj::NONE;
@@ -573,12 +688,40 @@ bool World::canVault() const
     return pogoLand(facing_, lx, ly);
 }
 
-uint32_t World::vault()
+uint32_t World::vault(MoveTrace *trace)
 {
+    if (trace) trace->count = 0;
     if (gameOver_ || (mineLevel_ && exitReached_) || pogo_ <= 0) return EV_NONE;
     int lx, ly;
     if (!pogoLand(facing_, lx, ly)) return EV_BLOCKED;
-    return landOn(lx, ly, 0);
+    return resolveForced(landOn(lx, ly, 0, trace), trace);
+}
+
+bool World::forcedMotion(Dir &direction) const
+{
+    const Tile t = tile(px_, py_);
+    if (t == Tile::ICE) { direction = facing_; return true; }
+    if (t >= Tile::BELT_UP && t <= Tile::BELT_LEFT) {
+        direction = (Dir)((int)t - (int)Tile::BELT_UP);
+        return true;
+    }
+    return false;
+}
+
+uint32_t World::resolveForced(uint32_t ev, MoveTrace *trace)
+{
+    for (int n = 0; n < 128 && !(ev & (EV_DIED | EV_EXIT | EV_MINE | EV_BURNED)); ++n) {
+        Dir d;
+        if (!forcedMotion(d)) break;
+        const int x = px_ + dirX(d), y = py_ + dirY(d);
+        if (!playerCanEnter(x, y) || (mineLevel_ && flagged(x, y))) {
+            ev |= EV_BLOCKED;
+            break;
+        }
+        facing_ = d;
+        ev = landOn(x, y, ev, trace);
+    }
+    return ev;
 }
 
 uint32_t World::hit()
@@ -597,7 +740,7 @@ uint32_t World::hit()
         uncover(tx, ty, ev);
         return ev | EV_HIT | EV_BROKE;
     }
-    if (o == Obj::ROCK || o == Obj::DOOR) return EV_HIT;
+    if (o == Obj::ROCK || o == Obj::DOOR || coloredDoor(o)) return EV_HIT;
     const Tile t = tile(tx, ty);
     if (t == Tile::CRACKED) {
         if (++dmg_[ty][tx] >= CRACK_HITS) {
@@ -632,7 +775,8 @@ bool World::moveNpc(int num, int x, int y)
     int ox, oy;
     if (!findNpc(num, ox, oy)) return false;
     if (ox == x && oy == y) return true;
-    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || (x == px_ && y == py_) || !isGround(tile(x, y))) return false;
+    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || (x == px_ && y == py_) ||
+        !isGround(tile(x, y)) || groupedTile(tile(x, y))) return false;
     obj_[oy][ox] = (uint8_t)Obj::NONE;
     val_[oy][ox] = 0;
     obj_[y][x] = (uint8_t)Obj::NPC;
@@ -658,7 +802,7 @@ bool World::removeNpc(int num)
 bool World::clearObj(int x, int y)
 {
     const Obj o = rawObj(x, y);
-    if (o != Obj::DOOR && o != Obj::ROCK && o != Obj::CRATE && o != Obj::BUSH) return false;
+    if (o != Obj::DOOR && !coloredDoor(o) && o != Obj::ROCK && o != Obj::CRATE && o != Obj::BUSH) return false;
     set(x, y, Obj::NONE);
     uint32_t ev = 0;
     uncover(x, y, ev);
@@ -749,6 +893,7 @@ bool World::spawnAt(int x,int y)
 void World::carryFrom(const World &w)
 {
     keys_=w.keys_; boat_=w.boat_; suit_=w.suit_; energy_=w.energy_; maxEnergy_=w.maxEnergy_;
+    memcpy(colorKeys_, w.colorKeys_, sizeof(colorKeys_));
     livesLeft_=w.livesLeft_; livesUsed_=w.livesUsed_; ++rev_;
 }
 
@@ -756,10 +901,13 @@ void World::carryFrom(const World &w)
 // Header (16 B): magic u32, version u16, map id u8, w u8, h u8, reserved u8, body length u32,
 //                reserved u16.
 // Body: player block (PLAYER_BYTES) + per cell 7 bytes (terrain, obj, val, hid, hidVal, flags,
-//       dmg) for w * h cells, row major. Trailer: CRC32 of header + body.
+//       dmg) for w * h cells, row major. v4 appends 6 color counts, a u64 group latch,
+//       and 36 u16 remaining timers. The old player block's reserved tail is unchanged.
+//       Trailer: CRC32 of header + body.
 
 namespace {
 constexpr size_t HEADER_BYTES = 16, PLAYER_BYTES = 32, CELL_BYTES = 7;
+constexpr size_t S2_BYTES = (size_t)KeyColor::COUNT + 8 + 2 * PLATE_GROUPS;
 
 struct Writer {
     uint8_t *p;
@@ -776,7 +924,7 @@ struct Reader {
 };
 }  // namespace
 
-size_t World::saveSize() const { return HEADER_BYTES + PLAYER_BYTES + CELL_BYTES * (size_t)(w_ * h_) + 4; }
+size_t World::saveSize() const { return HEADER_BYTES + PLAYER_BYTES + CELL_BYTES * (size_t)(w_ * h_) + S2_BYTES + 4; }
 
 size_t World::save(uint8_t *buf, size_t cap) const
 {
@@ -807,18 +955,22 @@ size_t World::save(uint8_t *buf, size_t cap) const
             o.u8(terrain_[y][x]); o.u8(obj_[y][x]); o.u8(val_[y][x]); o.u8(hid_[y][x]);
             o.u8(hidVal_[y][x]); o.u8(flags_[y][x]); o.u8(dmg_[y][x]);
         }
+    for (uint8_t count : colorKeys_) o.u8(count);
+    o.u32((uint32_t)leverGroups_); o.u32((uint32_t)(leverGroups_ >> 32));
+    for (uint16_t timer : timers_) o.u16(timer);
     o.u32(crc32(buf, n - 4));
     return n;
 }
 
 bool World::restore(const uint8_t *buf, size_t n)
 {
-    if (!buf || !w_ || n != saveSize()) return false;
+    if (!buf || !w_ || n < HEADER_BYTES + PLAYER_BYTES + 4) return false;
     Reader r{buf};
     if (r.u32() != SAVE_MAGIC) return false;
     const int version = r.u16();
     if (version < 1 || version > SAVE_VERSION || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
-        return false;   // v3: accept any known version (1..SAVE_VERSION); old saves lack later bytes
+        return false;
+    if (n != saveSize() - (version < 4 ? S2_BYTES : 0)) return false;
     r.u8();
     if (r.u32() != n - HEADER_BYTES - 4) return false;
     r.u16();
@@ -842,31 +994,55 @@ bool World::restore(const uint8_t *buf, size_t n)
     if (!(bits & 4) && energy < 1) return false;
     r.p = pb + PLAYER_BYTES;
     const uint8_t *cells = r.p;
+    uint8_t colors[(int)KeyColor::COUNT] = {};
+    uint16_t timers[PLATE_GROUPS] = {};
+    uint64_t latches = 0;
+    if (version >= 4) {
+        Reader ext{cells + size_t(w_) * size_t(h_) * CELL_BYTES};
+        for (uint8_t &color : colors) color = (uint8_t)ext.u8();
+        latches = ext.u32();
+        latches |= uint64_t(ext.u32()) << 32;
+        if (latches >> PLATE_GROUPS) return false;
+        for (int group = 0; group < PLATE_GROUPS; ++group) {
+            timers[group] = (uint16_t)ext.u16();
+            if (timers[group] > controlSteps_[group] ||
+                (controlSteps_[group] && (latches & (uint64_t(1) << group)))) return false;
+        }
+    }
     bool hasPlate[PLATE_GROUPS] = {};
+    uint64_t hasLever = 0;
     bool allCovered[PLATE_GROUPS];
     for (int group = 0; group < PLATE_GROUPS; group++) allCovered[group] = true;
     for (int i = 0; i < w_ * h_; i++) {
         const uint8_t *c = cells + i * CELL_BYTES;
         if (c[0] >= (uint8_t)Tile::COUNT || c[1] >= (uint8_t)Obj::COUNT || c[3] >= (uint8_t)Obj::COUNT || c[5] > 7)
             return false;
+        if (version < 4 && (c[0] > (uint8_t)Tile::CRATER || c[1] > (uint8_t)Obj::POGO ||
+                            c[3] > (uint8_t)Obj::POGO)) return false;
         if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
-        if ((c[0] == (uint8_t)Tile::PLATE || c[0] == (uint8_t)Tile::GATE) && c[2] >= PLATE_GROUPS)
+        if ((c[0] == (uint8_t)Tile::PLATE || c[0] == (uint8_t)Tile::GATE ||
+             c[0] == (uint8_t)Tile::LEVER) && c[2] >= PLATE_GROUPS)
             return false;
+        if (c[0] == (uint8_t)Tile::LEVER) hasLever |= uint64_t(1) << c[2];
         if (c[0] == (uint8_t)Tile::PLATE) {
             hasPlate[c[2]] = true;
             if (c[1] != (uint8_t)Obj::ROCK) allCovered[c[2]] = false;
         }
     }
-    uint64_t savedOpenGroups = 0;
+    if (latches & ~hasLever) return false;
+    uint64_t savedOpenGroups = latches;
     for (int group = 0; group < PLATE_GROUPS; group++)
-        if (hasPlate[group] && allCovered[group]) savedOpenGroups |= uint64_t(1) << group;
+        if (controlSteps_[group]) {
+            if (timers[group]) savedOpenGroups |= uint64_t(1) << group;
+        } else if (hasPlate[group] && allCovered[group]) savedOpenGroups |= uint64_t(1) << group;
     // Saved positions must still be walkable in the saved map, never a wall/solid.
     for (int pos : {py * w_ + px, cpy * w_ + cpx}) {
         const uint8_t *c = cells + pos * CELL_BYTES;
         const Tile t = (Tile)c[0];
         if (blocksWalk((Obj)c[1]) || !(isGround(t) || t == Tile::LAVA ||
             (t == Tile::WATER && (bits & 1)) ||
-            (t == Tile::GATE && (savedOpenGroups & (uint64_t(1) << c[2]))))) return false;
+            (t == Tile::GATE && (pos == py * w_ + px ||
+                               (savedOpenGroups & (uint64_t(1) << c[2])))))) return false;
     }
     if (level && ((lives == 0) != bool(bits & 4) || suit > 1 || b3 > 1 || b4 > 1)) return false;
     // Apply
@@ -875,6 +1051,9 @@ bool World::restore(const uint8_t *buf, size_t n)
     keys_ = keys; gems_ = gems; steps_ = (int)steps;
     energy_ = energy; maxEnergy_ = maxE; livesLeft_ = lives; livesUsed_ = livesUsed; suit_ = suit;
     boat_ = bits & 1; gameOver_ = (bits & 4) != 0; exitReached_ = (bits & 8) != 0;
+    memcpy(colorKeys_, colors, sizeof(colors));
+    memcpy(timers_, timers, sizeof(timers));
+    leverGroups_ = latches;
     for (int y = 0; y < h_; y++)
         for (int x = 0; x < w_; x++) {
             const uint8_t *c = cells + (y * w_ + x) * CELL_BYTES;
@@ -894,6 +1073,7 @@ bool Planner::targetable(const World &w, int x, int y)
 {
     if (!w.inside(x, y) || w.flagged(x, y) || blocksWalk(w.obj(x, y))) return false;
     const Tile t = w.tile(x, y);
+    if (forcedTile(t)) return false;
     if (t == Tile::GATE) return w.gateOpenAt(x, y);
     return isGround(t) || t == Tile::LAVA || t == Tile::WATER;
 }
@@ -929,6 +1109,7 @@ Planner::Cat Planner::category(const World &w, int x, int y, WalkMode mode) cons
 {
     if (!w.inside(x, y) || w.flagged(x, y) || blocksWalk(w.obj(x, y))) return C_BLOCK;
     const Tile t = w.tile(x, y);
+    if (forcedTile(t)) return C_BLOCK;
     Cat c;
     if (isGround(t)) c = C_FREE;
     else if (t == Tile::LAVA) c = C_LAVA;

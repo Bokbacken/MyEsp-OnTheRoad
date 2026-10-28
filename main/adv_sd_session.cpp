@@ -20,11 +20,15 @@ struct PlayerSnap {
     int energy, maxEnergy, suit, keys, livesLeft, livesUsed;
     bool boat;
     int flash, pogo;   // v0.18.0: permanent abilities (always carried, not gated by the carry mask)
+    int colorKeys[(int)Otr::KeyColor::COUNT];
 };
 PlayerSnap snapPlayer(const Otr::World &w)
 {
-    return {w.energy(), w.maxEnergy(), w.suitCharges(), w.keys(), w.livesLeft(), w.livesUsed(),
-            w.hasBoat(), w.flashlight(), w.pogo()};
+    PlayerSnap snap = {w.energy(), w.maxEnergy(), w.suitCharges(), w.keys(), w.livesLeft(), w.livesUsed(),
+                       w.hasBoat(), w.flashlight(), w.pogo(), {}};
+    for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+        snap.colorKeys[i] = w.keys((Otr::KeyColor)i);
+    return snap;
 }
 
 // Story progress snapshot keyed by NAME, so it survives a different map's script (whose item/flag
@@ -186,7 +190,11 @@ bool SdSession::travel(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &s
     if (keep(CARRY_MAXENERGY)) w.setMaxEnergy(old.maxEnergy);
     if (keep(CARRY_ENERGY)) w.setEnergy(old.energy);
     if (keep(CARRY_SUIT)) w.setSuitCharges(old.suit);
-    if (keep(CARRY_KEYS)) w.setKeys(old.keys);
+    if (keep(CARRY_KEYS)) {
+        w.setKeys(old.keys);
+        for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+            w.setKeys((Otr::KeyColor)i, old.colorKeys[i]);
+    }
     if (keep(CARRY_BOAT)) w.setBoat(old.boat);
     if (keep(CARRY_LIVES)) w.setLives(old.livesLeft, old.livesUsed);
     // GEMS are map-local (each map has its own total), so they are never carried across maps.
@@ -260,6 +268,7 @@ bool SdSession::restore(const uint8_t *data, size_t n, Loaded &scratch, Otr::Wor
         return false;
     }
     story = tmp;
+    completed_ = w.exitReached() && !hasNext();
     return true;
 }
 

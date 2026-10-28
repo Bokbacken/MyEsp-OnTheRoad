@@ -1,12 +1,12 @@
 // adv_loader.h - Firmware-safe on-device parser for the ASCII adventure format (.adv).
 //
-// This is the device-side twin of the host reference parser (tools/adv_parse.*). It reads the
-// SAME grammar (see docs/AUTHORING_ADVENTURES.md) into the engine's real structures - an
+// This is the device-side twin of the host reference parser (tools/adv_parse.*), extended with
+// S2 lever/timer, motion, colored-key and par syntax (not yet in the reference parser). It builds an
 // Otr::MapDef (+ rows) and an Otr::Story::Script - but uses ONLY fixed, bounded storage: no
 // std::string / std::vector / std::deque / std::ifstream, no dynamic allocation inside the
 // parser. Everything lives in the caller-owned Adv::Loaded object, which is large (~70 kB) and
 // MUST be allocated in PSRAM on the ESP32-S3 (heap_caps_malloc). On the host it compiles as plain
-// C++ for unit testing, so both parsers stay in sync.
+// C++ for unit testing, including legacy parity checks against the reference parser.
 //
 // Usage (device):
 //   auto *L = (Adv::Loaded*)heap_caps_malloc(sizeof(Adv::Loaded), MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
@@ -99,6 +99,10 @@ struct Loaded {
     // @dark (v0.18.0): inclusive dark-area rectangles. map.darks points at this array.
     Otr::DarkRect darks[Otr::MAX_DARK];
     int darkCount;
+
+    // Lever/timed gate configuration; map.controls points into this fixed backing.
+    Otr::GroupControl controls[Otr::PLATE_GROUPS];
+    int controlCount;
 
     // @resources
     Resource resources[MAX_RESOURCES];

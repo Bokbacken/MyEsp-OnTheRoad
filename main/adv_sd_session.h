@@ -32,8 +32,9 @@ public:
     bool restart(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
                  const Otr::Story::Script *&outScript, char *err, size_t errCap);
 
-    // Advances to the next map after an exit, carrying/resetting resources per the NEXT map's
-    // @rules. Returns false (with err) if there is no next map or it fails to load. Call hasNext()
+    // Advances to the next map after an exit, carrying/resetting resources per the LEAVING map's
+    // @rules. "keys" covers legacy and all six colored key counters; reset wins over carry.
+    // Returns false (with err) if there is no next map or it fails to load. Call hasNext()
     // first to tell "adventure complete" from "load error".
     bool travel(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
                 const Otr::Story::Script *&outScript, char *err, size_t errCap);
