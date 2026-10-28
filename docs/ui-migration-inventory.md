@@ -1,8 +1,137 @@
 # Fas A – UI-inventering och migrationsordning
 
 Inventeringsdatum: **27 oktober 2026**. Avsedd som arbets- och testunderlag inför **28 oktober**.
-Inventeringen är en källkodsgranskning; Fas B1-status och verifieringsgräns följer nedan.
-Firmwareversion **0.19.1** bevaras.
+Inventeringen är en källkodsgranskning; aktuell Fas B2-status och verifieringsgräns följer nedan.
+Firmwareversion **0.19.2** efter uttrycklig begäran i B2-review.
+
+## Fas B2 – genomfört 28 oktober 2026
+
+Detta avsnitt ersätter Fas A:s dåvarande koordinatfynd och villkorade B2-beslut,
+samt B2:s första beslut om centrerad 320×480-enhet/oförändrad framebuffer.
+I review begärdes uttryckligen en canvas som använder hela ytan ovanför styrplattan.
+Senaste förtydligandet ersätter den fasta 160-px-panelen: panelens höjd ska vara
+**skärmbredd × 0,5**, med proportionella kontroller och canvas i återstående yta.
+Tabellerna längre ned är den historiska inventeringen, inte en beskrivning av
+alla nuvarande mått. B1:s responsiva väljare och vanliga dialoger behålls.
+
+### Placeringsbeslut och transform
+
+- **Full skärmbredd och all höjd ovanför kontrollpanelen används av canvasen.**
+  `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/adv_game_geometry.h`
+  är gemensam källa för canvas-, kontroll- och styrplatterektanglar samt
+  styrplattans mitt/radier. Kontrollpanelens höjd är **bredd/2**, avrundad nedåt
+  för udda pixelbredder. Styrplattan är kvadratisk med panelens höjd som sida,
+  horisontellt centrerad; sidokolumnerna får resterande bredd.
+  Canvasorigin är **(0,0)**: **320×320 på 320×480**, **480×560 på 480×800**
+  och **481×561 på 481×801**. Panelen är **320×160**, **480×240** respektive
+  **481×240**. Inget ledigt utrymme lämnas ovanför panelen.
+  Grafiken sträcks inte: tilezoom är fortfarande 16/32 px, större vy visar fler tiles.
+  480×800 är **logiskt hosttestmått från profilen**, inte fysiskt verifierad P4.
+- `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/adv_game_ui.h`
+  skapar en transparent, oskrollbar förälder i den beräknade skärmstorleken.
+  Layouten fångas från live `UiMetrics::screenW/H` före PSRAM-allokeringen i `show`
+  och används oförändrad av allokering, canvas och kontroller under besöket.
+  `buildGame`, `buildControls` och `talkBuild` i
+  `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/ui_adventure.cpp`
+  placerar canvas, HUD/handlingar/bombavbryt, styrplatta, toast, stage och
+  samtalsbox/svarspanel under samma förälder. Kontrollknapparnas och bombavbrytets
+  storlekar/positioner, energibar, HUD-radplacering och svarsknapparnas höjd/avstånd
+  skalas från 320-px-baslinjen med `Layout::controlPx`. Fonter och HUD-spritebuffertar
+  behålls i befintliga pixelstorlekar, utan nya skalade bildkopior.
+  Toast/samtal använder canvasens nya bredd
+  och nederkant; svarspanelen täcker hela kontrollpanelen. Baslinjens mått,
+  z-ordning och klickbara täckytor är bevarade.
+- **Karttryck:** `viewEvent` läser canvasens faktiska LVGL-bounds.
+  `worldPoint` avvisar punkter utanför den halvöppna canvasrektangeln och beräknar
+  `(touch − canvasorigin + kamerapixlar) / tilepixelstorlek`.
+  Befintlig 16/32-zoom, flyttalskoordinater i tile-enheter, spelarens ±0,6-träffradie,
+  NPC-/A*-val, flagg-long-press och bombpreview behålls.
+  Tryck på yta utanför själva världskartan avvisas också; en större canvas kan
+  visa mer yta än en liten karta. Kameran klipps till `0..max(0, världpx−vypx)`,
+  aldrig negativt. Utanför kartan ritas motorns befintliga vägg-/fogfallback.
+- **Styrplatta:** `joyEvent` använder samma geometri som ring/knopp och drar bort
+  den faktiska plattans origin samt lokal mitt. Hela kvadratiska rektangeln fångar
+  input; hörn och drag utanför ringen fortsätter räknas som yttre zon.
+  `joyGeometry` skalar ring/stopzon/knopp och mitt från samma plattstorlek för
+  både ritning och `otr_joystick`-konfiguration. På 320×480 behålls radierna
+  **74/23/20**, på 480×800 blir de **111/34/30** (heltalspixlar).
+  Sparade zonantal/tider, tapp/hold/drag/släpp/PRESS_LOST och diagonalläge ändras
+  inte; det är den geometriska ytan som växer. Ingen LVGL-fokusstyrning införs.
+- Vanliga B1-msgboxar (meny, game over, bombval/resultat) ligger **avsiktligt kvar
+  på LVGL:s top-layer**, centrerade på hela displayen med helskärmsbackdrop.
+  De har inte reparentats till spelroten. Samtalets täckande svarspanel följer
+  däremot styrplattan och den fullbreda kontrollpanelen.
+  Befintliga modal-/game-over-/bombpreview-spärrar i `tick/viewEvent` bevaras.
+- **Ändrad bildminnesbudget enligt review:** fortfarande **en RGB565-framebuffer**,
+  men storleken är nu LVGL:s `lv_draw_buf_width_to_stride(bredd, RGB565) × höjd`.
+  Allokering, canvas, spriteblitter och bombpreview använder samma stride,
+  inklusive eventuell radpadding vid udda bredd. Multiplikationen kontrolleras
+  mot LVGL-buffertens 32-bitars storleksgräns.
+  **320×320 = 204 800 byte** på baslinjen; **480×560 = 537 600 byte** på 480×800
+  utan extra stridepadding: **332 800 byte mer**. Inga skalade spritekopior, andra
+  framebuffers eller cache tillkommer; övriga PSRAM-allokeringar är oförändrade.
+  Om den större allokeringen misslyckas frigörs resurser genom befintlig felväg
+  och huvudmenyn visas, inte en felstor canvas. Minnesmarginal/FPS måste mätas.
+  `s_activeScr/screenDeleted/freeAll`, fade, timers/callbacks och webb-liveägarskap
+  är oförändrade; föräldern raderas med sin skärm.
+
+### Körda kontroller och begränsningar
+
+| Kontroll | Resultat i B2-miljön |
+|---|---|
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_adv_game.cpp` | **12 858 passed, 0 failed**, även med AddressSanitizer/UndefinedBehaviorSanitizer: produktionslayout med bredd/2-panel, proportionell styrplatta, rektangulär/udda viewport, kameragränser för små/exakt passande/större kartor, hörn/kanter, 16/32-zoom, avvisad touch utanför canvas, styrplattans mitt/radier/zongränser/translation och befintlig `otr_joystick`. Den riktiga spriteblittern testas vid alla kanter, med/utan transparens och radpadding; buffertguards/padding lämnas orörda. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_joystick.cpp` | **62 passed, 0 failed**. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_story.cpp` | **229 passed, 0 failed**. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_advlive.cpp` | **83 passed, 0 failed**. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_adv_game_layout.py` | **Godkänt** med redan låst LVGL 9.6.0 hämtad från officiella GitHub-arkivet till temporär katalog. Extraherar verklig spelkonstruktion, **hela `buildControls`**, styrplattans rit-/eventkod och `talkBuild`: bredd/2-panel, canvasmått och stride/datapekare, meny/mute/handling/bombavbryt/energibar i både vanligt/minläge, proportionell ring/knopp mot faktisk träffyta, modal svarspanel/toast och upprepade in-/utgångar på **320×480, 480×800 och 481×801**. Hårdvara, världsåtgärder, HUD-spriteinnehåll och kartcallback är stubbade; karttransform och blitter testas i C++ ovan. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_yatzy_layout.py` | **Godkänt** med LVGL 9.6.0. Testets PSRAM-stub loggar förväntade misslyckade tärningsspriteallokeringar; testprocessen avslutas med 0. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_adv_setup.py` | **Ej godkänt**: assertion på `lv_obj_get_x(list) == AdvUi::scale(6)`. Samma fel reproducerat med produktionskod från föregående commit **08fffa5**, byte-identisk genererad testkod; inte en regression av canvasändringen. Lämnat oförändrat. |
+| `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_mine_dialog.py` | **Ej godkänt**: namnrute-/tangentbordskontroll utanför skärmen (`y=11304`) på 320×480. Samma fel reproducerat med **08fffa5**, byte-identisk genererad testkod; lämnat oförändrat som separat befintligt problem. |
+| Python-syntax och `git diff --check` | Godkända. |
+| Firmware | `idf.py build` försökt men **ESP-IDF/`idf.py` saknas** lokalt. Tidigare B2-commit a8ef718 har grönt firmware-CI, men verifierar inte denna större canvas. Aktuell uppföljningscommit måste byggas i CI efter godkännande; inget lokalt firmwarebygge påstås. |
+
+Kör geometritestet utan LVGL (binären utanför repot):
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Werror \
+  -I/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main \
+  -I/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests \
+  -I/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/components/otr_engine/include \
+  /home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/tests/test_adv_game.cpp \
+  -o /tmp/test_adv_game && /tmp/test_adv_game
+```
+
+Ingen extra rå-touchrotation införs. Layouten beräknas vid inträde från
+aktuell logisk portraitstorlek, inklusive återinträde efter Karaoke. Ingen
+landscapevariant, krympning för mindre skärmar eller live-omlayout under pågående
+spel utlovas. Mindre ytor behåller minsta 320×480-layout utan krympning.
+Befintliga begränsningar för lång berättelsetext/många svar kvarstår trots större
+textbredd; ingen berättelse-UI-omdesign ingår.
+
+### Manuell acceptans – återstår, inte utförd av agenten
+
+Utför varje rad på **320×480 och större portrait** efter verifierad display/touch,
+med giltiga SD-äventyr och relevanta NPC-/fog-/bombkartor:
+
+- [ ] Kartans hörn/kanter, kamerarörelse och 32↔16-zoom: synlig cell är träffad cell;
+  även nya höger-/bottenytan på större canvas. Canvas fyller all yta ovanför
+  bredd/2-panelen. Kontrollernas proportioner och rit-/träffytor stämmer även när
+  plattan växer; prova stop-/fartzonernas övergångar med sparade tider.
+  Drag/släpp utanför canvas eller kartan väljer inget världsmål.
+  Prova liten karta vid 16-zoom så kameran inte blir negativ eller hoppar.
+- [ ] Tryck NPC, egen figur och A*-mål; long-press flagga med efterföljande släpp;
+  bombpreview väljer rätt cell utan att börja gå.
+- [ ] Styrplatta: mitt/STOP avbryter väg, fyra riktningar, alla fartzoner/gränser,
+  hörn, tapp, håll, drag, släpp inom/utanför, PRESS_LOST och båda diagonallägen
+  med samma sparade tider; ring/knopp/input stämmer utan spöksteg.
+- [ ] Meny/avbryt/kryss/omstart, samtal/skip/låsta och aktiva svar, game over och
+  bombval/preview/avbryt/OK: ingen genomklickning eller rörelse bakom modal.
+- [ ] Upprepade in-/utgångar (minst tre), fade, återspel och webb-live:
+  ingen stale timer, canvas, top-layer eller ändrat resursägarskap.
+- [ ] Systemrotation 0/180° och återkomst från Karaoke (båda karaFlip samt ljud-av
+  Ja/Nej): portrait, layout och touch återställda utan dubbel rotation.
+- [ ] Mät fysisk spelkänsla, fingeråtkomst/touchprecision, minne och FPS separat.
+  **Fysisk P4-verifiering återstår**; hostmåttet 480×800 bevisar ingen panelportning.
 
 ## Läs först: beslut inför första P4-testet
 

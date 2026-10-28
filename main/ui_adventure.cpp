@@ -1,4 +1,5 @@
 #include "adv_setup_ui.h"
+#include "adv_game_ui.h"
 #include "lang/lang_game.h"
 // ui_adventure.cpp - OnTheRoad Engine test world (see header).
 #include "ui_adventure.h"
@@ -42,27 +43,19 @@ static const char *TAG = "adv";
 using Otr::Dir;
 using Otr::Obj;
 using Otr::Tile;
+namespace Game = AdvUi::Game;
 
 // ----------------------------------------------------------------------------------------
 // Layout
 // ----------------------------------------------------------------------------------------
-// v0.10.0: no top status bar. The viewport starts at y = 0 and the whole bottom strip
-// (160 px) is the control panel: status + menu (left) | joystick (centre) | Slå, energy,
-// gems, suit (right).
-static constexpr int32_t VIEW_Y = 0, VIEW_W = 320, VIEW_H = 320;
-static constexpr int32_t CTRL_Y = VIEW_Y + VIEW_H;               // 320
-static constexpr int32_t CTRL_H = 480 - CTRL_Y;                  // 160
+// No top status bar. The control strip height is half the display width.
+// Capture the layout before allocation; it stays paired with that framebuffer until screen deletion.
+static Game::Layout s_layout = Game::layout(320, 480);
+static size_t s_fbStride;                                        // RGB565 pixels, including LVGL padding
 static constexpr uint32_t TICK_MS = 15;
 static constexpr uint32_t WALK_MS_32 = 150, WALK_MS_16 = 115, BUMP_MS = 110, FX_MS = 220;
 static constexpr uint32_t WALK_MS_MIN = 55;                      // Fastest walk animation (joystick)
 static constexpr uint32_t WALK_MS_MAX = 260;                     // Slowest (stretched to the joystick pace)
-// Control panel columns
-static constexpr int32_t COL_L_W = 80;                           // Left: counters + menu/mute
-static constexpr int32_t COL_R_X = 240, COL_R_W = 320 - COL_R_X - 4;   // Right: 76 px
-// Joystick (centre column): pad centre (relative to the touch area), outer radius, stop zone, knob
-static constexpr int32_t JOY_AREA_X = COL_L_W, JOY_AREA_W = COL_R_X - COL_L_W, JOY_AREA_H = CTRL_H;
-static constexpr int32_t JOY_CX = JOY_AREA_W / 2, JOY_CY = JOY_AREA_H / 2, JOY_R = 74;
-static constexpr int32_t JOY_STOP_R = JOY_R * 17 / 53, JOY_KNOB_R = JOY_R * 15 / 53;   // Same proportions as v0.9.0
 static constexpr uint32_t TOAST_MS = 2200, ANIM_FRAME_MS = 420;
 static constexpr int SPR = 32;                                   // Art is drawn at 32 px
 static constexpr uint16_t KEY = 0xF81F;                          // Transparent (magenta)
@@ -106,7 +99,7 @@ struct Sprites {
 
 static Sprites *s_spr = nullptr;
 static Otr::World *s_world = nullptr;
-static uint16_t *s_fb = nullptr;   // Canvas buffer VIEW_W x VIEW_H
+static uint16_t *s_fb = nullptr;   // Canvas buffer sized to s_layout.view, with s_fbStride
 
 static Otr::Planner *s_planner = nullptr;   // ~90 kB A* work area
 static Otr::Path *s_path = nullptr;
@@ -114,7 +107,7 @@ static uint8_t *s_saveBuf = nullptr;         // Save file image
 static constexpr size_t SAVE_CAP = Adventure::Session::SAVE_CAP;   // >= World::saveSize() for 64 x 64
 
 // Screen objects
-static lv_obj_t *s_scr, *s_canvas, *s_toast, *s_dialog;
+static lv_obj_t *s_scr, *s_gameRoot, *s_canvas, *s_toast, *s_dialog;
 static lv_obj_t *s_activeScr;                // Screen that owns the PSRAM buffers (freed on its delete)
 static lv_obj_t *s_bar, *s_barLbl, *s_muteBtn;
 // HUD left column: one counter label per row (lives, suit, keys, gems)
@@ -739,21 +732,7 @@ static const uint16_t *spr(int id) { return s_ts == 32 ? s_spr->big[id] : s_spr-
 // Copies a ts x ts sprite to the frame buffer at (sx, sy), clipped to the viewport.
 static void blit(int id, int sx, int sy, bool keyed)
 {
-    const int ts = s_ts;
-    int x0 = sx < 0 ? -sx : 0, y0 = sy < 0 ? -sy : 0;
-    int x1 = sx + ts > VIEW_W ? VIEW_W - sx : ts, y1 = sy + ts > VIEW_H ? VIEW_H - sy : ts;
-    if (x0 >= x1 || y0 >= y1) return;
-    const uint16_t *src = spr(id);
-    for (int y = y0; y < y1; y++) {
-        const uint16_t *s = src + y * ts + x0;
-        uint16_t *d = s_fb + (sy + y) * VIEW_W + sx + x0;
-        if (!keyed) {
-            memcpy(d, s, (size_t)(x1 - x0) * 2);
-        } else {
-            for (int x = x0; x < x1; x++, s++, d++)
-                if (*s != KEY) *d = *s;
-        }
-    }
+    Game::blitSprite(s_fb, s_layout.view.w, s_layout.view.h, s_fbStride, spr(id), s_ts, sx, sy, keyed, KEY);
 }
 
 static int terrainSprite(int x, int y, int frame)
@@ -842,11 +821,11 @@ static void playerPixel(uint32_t now, int &x, int &y)
 static void camera(int ppx, int ppy, int32_t &cx, int32_t &cy)
 {
     const int ww = s_world->width() * s_ts, wh = s_world->height() * s_ts;
-    cx = ppx + s_ts / 2 - VIEW_W / 2;
-    cy = ppy + s_ts / 2 - VIEW_H / 2;
-    if (s_talkPanel) cy += VIEW_H / 4;   // Talking: hero in the upper half, above the dialogue box
-    cx = cx < 0 ? 0 : cx > ww - VIEW_W ? ww - VIEW_W : cx;
-    cy = cy < 0 ? 0 : cy > wh - VIEW_H ? wh - VIEW_H : cy;
+    cx = ppx + s_ts / 2 - s_layout.view.w / 2;
+    cy = ppy + s_ts / 2 - s_layout.view.h / 2;
+    if (s_talkPanel) cy += s_layout.view.h / 4;   // Talking: hero in the upper half, above the dialogue box
+    cx = Game::cameraOffset(cx, ww, s_layout.view.w);
+    cy = Game::cameraOffset(cy, wh, s_layout.view.h);
 }
 
 static void currentCamera(int32_t &camX, int32_t &camY)
@@ -863,7 +842,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
     const int ts = s_ts;
     const bool fog = w.fog(), over = w.gameOver();
     const int tx0 = camX / ts, ty0 = camY / ts;
-    const int tx1 = (camX + VIEW_W - 1) / ts, ty1 = (camY + VIEW_H - 1) / ts;
+    const int tx1 = (camX + s_layout.view.w - 1) / ts, ty1 = (camY + s_layout.view.h - 1) / ts;
     const bool rockSliding = s_rockAnim && moveProgress(now) < 1.f;
     for (int ty = ty0; ty <= ty1; ty++)
         for (int tx = tx0; tx <= tx1; tx++) {
@@ -911,7 +890,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             for(int j=1;j<ts-1;j++) for(int edge=0;edge<4;edge++) {
                 int dx=sx+(edge<2?j:(edge==2?1:ts-2));
                 int dy=sy+(edge<2?(edge==0?1:ts-2):j);
-                if(dx>=0&&dx<VIEW_W&&dy>=0&&dy<VIEW_H) s_fb[dy*VIEW_W+dx]=rgb(255,210,40);
+                if(dx>=0&&dx<s_layout.view.w&&dy>=0&&dy<s_layout.view.h) s_fb[size_t(dy)*s_fbStride+dx]=rgb(255,210,40);
             }
         }
         // Existing flag sprite identifies the tapped anchor, independent of clipping.
@@ -1259,7 +1238,7 @@ static void playEvents(uint32_t ev)
 // Dialogue (v0.11.0): box over the lower part of the map (portrait, name, typewriter text,
 // reference line) and up to 4 answer buttons (36 px) in place of the control panel.
 // ----------------------------------------------------------------------------------------
-static constexpr int32_t TALK_W = VIEW_W - 12, TALK_PAD = 10, TALK_TEXT_X = PORTRAIT_PX + 10;
+static constexpr int32_t TALK_PAD = 10, TALK_TEXT_X = PORTRAIT_PX + 10;
 static constexpr int32_t CHOICE_H = 36, CHOICE_GAP = 4;
 static constexpr uint32_t TW_CHAR_MS = 22, TW_COMMA_MS = 90, TW_STOP_MS = 180;
 
@@ -1362,8 +1341,10 @@ static void choiceClicked(lv_event_t *e)
 // One answer: text, and for a locked answer the hint below it (greyed out).
 static void addChoice(int slot, int idx, const char *text, const char *hint, bool enabled)
 {
-    lv_obj_t *b = Theme::button(s_talkPanel, "", VIEW_W - 12, CHOICE_H, enabled ? Theme::TEAL : Theme::LINE);
-    lv_obj_set_pos(b, 6, 2 + slot * (CHOICE_H + CHOICE_GAP));
+    const int32_t inset = s_layout.controlPx(6);
+    lv_obj_t *b = Theme::button(s_talkPanel, "", s_layout.view.w - 2 * inset,
+                              s_layout.controlPx(CHOICE_H), enabled ? Theme::TEAL : Theme::LINE);
+    lv_obj_set_pos(b, inset, s_layout.controlPx(2 + slot * (CHOICE_H + CHOICE_GAP)));
     lv_obj_t *l = lv_obj_get_child(b, 0);
     lv_label_set_text(l, text);
     lv_obj_set_style_text_font(l, (hint || Otr::Story::utf8Len(text) > 26) ? &my_font_14 : &my_font_18, 0);
@@ -1401,7 +1382,8 @@ static void talkShowNode()
     const Otr::Story::Node *nd = s_talk.node();
     const Otr::Story::Npc *sp = s_talk.speaker();
     const int L = langIdx();
-    const int32_t inner = TALK_W - 2 * TALK_PAD;
+    const int32_t talkW = s_layout.view.w - 12;
+    const int32_t inner = talkW - 2 * TALK_PAD;
     int32_t textX = 0, textY = 0;
     if (sp) {
         lv_canvas_set_buffer(s_talkPortrait, s_spr->portrait[sp->look % NPC_LOOKS], PORTRAIT_PX, PORTRAIT_PX,
@@ -1437,8 +1419,8 @@ static void talkShowNode()
     lv_obj_set_hidden(s_talkRef, !ref);
     if (sp && h < PORTRAIT_PX) h = PORTRAIT_PX;
     const int32_t boxH = h + 2 * TALK_PAD;
-    lv_obj_set_size(s_talkBox, TALK_W, boxH);
-    lv_obj_set_pos(s_talkBox, 6, VIEW_Y + VIEW_H - 6 - boxH);
+    lv_obj_set_size(s_talkBox, talkW, boxH);
+    lv_obj_set_pos(s_talkBox, 6, s_layout.view.h - 6 - boxH);
     lv_label_set_text(s_talkText, "");
     s_twPos = 0;
     s_twChars = 0;
@@ -1448,7 +1430,7 @@ static void talkShowNode()
 
 static void talkBuild()
 {
-    s_talkBox = lv_obj_create(s_scr);
+    s_talkBox = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(s_talkBox);
     lv_obj_set_style_bg_color(s_talkBox, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(s_talkBox, 242, 0);
@@ -1470,10 +1452,10 @@ static void talkBuild()
     lv_label_set_long_mode(s_talkText, LV_LABEL_LONG_MODE_WRAP);
     s_talkRef = Theme::label(s_talkBox, "", &my_font_14, Theme::TEAL);
 
-    s_talkPanel = lv_obj_create(s_scr);
+    s_talkPanel = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(s_talkPanel);
-    lv_obj_set_size(s_talkPanel, 320, CTRL_H);
-    lv_obj_set_pos(s_talkPanel, 0, CTRL_Y);
+    lv_obj_set_size(s_talkPanel, s_layout.controls.w, s_layout.controls.h);
+    lv_obj_set_pos(s_talkPanel, 0, s_layout.controls.y);
     lv_obj_set_style_bg_color(s_talkPanel, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(s_talkPanel, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(s_talkPanel, LV_BORDER_SIDE_TOP, 0);
@@ -1484,7 +1466,7 @@ static void talkBuild()
     lv_obj_add_event_cb(s_talkPanel, [](lv_event_t *) { talkSkip(); }, LV_EVENT_PRESSED, nullptr);
 
     lv_obj_move_foreground(s_toast);
-    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + 8);   // Above the box while talking
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, s_layout.view.y + 8);   // Above the box while talking
 }
 
 static void endTalk()
@@ -1496,7 +1478,7 @@ static void endTalk()
     if (s_talkBox) lv_obj_delete(s_talkBox);
     if (s_talkPanel) lv_obj_delete(s_talkPanel);
     s_talkBox = s_talkPanel = s_talkPortrait = s_talkName = s_talkText = s_talkRef = nullptr;
-    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + VIEW_H - 64);
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, s_layout.view.y + s_layout.view.h - 64);
     s_saveWanted = s_playerId != 0;   // Conversations change the game: keep it
     s_dirty = true;
     updateStats();
@@ -2102,15 +2084,16 @@ static void tick(lv_timer_t *)
 static void joyShow(bool down, int dx, int dy)
 {
     if (!s_joyKnob) return;
+    const auto j = Game::joyGeometry(s_layout.joystick);
     int lit = -1;
     if (down) {
         const float d = sqrtf((float)(dx * dx + dy * dy));
-        const float lim = (float)(JOY_R - JOY_KNOB_R / 2);
+        const float lim = (float)(j.radius - j.knobRadius / 2);
         if (d > lim) {
             dx = (int)((float)dx * lim / d);
             dy = (int)((float)dy * lim / d);
         }
-        lv_obj_set_pos(s_joyKnob, JOY_CX + dx - JOY_KNOB_R, JOY_CY + dy - JOY_KNOB_R);
+        lv_obj_set_pos(s_joyKnob, j.cx + dx - j.knobRadius, j.cy + dy - j.knobRadius);
         const Otr::JoySample js = s_joy.sample();
         if (js.moving) lit = (int)js.dir;
     }
@@ -2131,9 +2114,8 @@ static void joyEvent(lv_event_t *e)
     lv_obj_t *area = (lv_obj_t *)lv_event_get_current_target(e);
     lv_point_t pt;
     lv_indev_get_point(lv_indev_active(), &pt);
-    lv_area_t a;
-    lv_obj_get_coords(area, &a);
-    const int dx = pt.x - (a.x1 + JOY_CX), dy = pt.y - (a.y1 + JOY_CY);
+    const auto delta = Game::joyDelta(AdvUi::gameBounds(area), {pt.x, pt.y});
+    const int dx = delta.x, dy = delta.y;
     const uint32_t now = nowMs();
     if (code == LV_EVENT_PRESSED) {
         stopPath();   // Any touch on the joystick also stops tap-to-walk (the old STOP button)
@@ -2157,7 +2139,8 @@ static void configureJoy()
     jc.fastMs = c.joyFastMs;
     jc.holdMs = c.joyHoldMs;
     jc.diag = c.joyDiag;
-    s_joy.configure(jc, JOY_R, JOY_STOP_R);
+    const auto j = Game::joyGeometry(s_layout.joystick);
+    s_joy.configure(jc, j.radius, j.stopRadius);
 }
 
 static lv_obj_t *circle(lv_obj_t *parent, int32_t cx, int32_t cy, int32_t r, uint32_t bg, lv_opa_t opa, uint32_t border)
@@ -2180,34 +2163,35 @@ static lv_obj_t *circle(lv_obj_t *parent, int32_t cx, int32_t cy, int32_t r, uin
 // outer zone); the drawing is a ring with four arrows, a red stop zone and the finger knob.
 static void buildJoystick(lv_obj_t *scr)
 {
+    const auto j = Game::joyGeometry(s_layout.joystick);
     lv_obj_t *area = lv_obj_create(scr);
     lv_obj_remove_style_all(area);
-    lv_obj_set_size(area, JOY_AREA_W, JOY_AREA_H);
-    lv_obj_set_pos(area, JOY_AREA_X, CTRL_Y);
+    lv_obj_set_size(area, s_layout.joystick.w, s_layout.joystick.h);
+    lv_obj_set_pos(area, s_layout.joystick.x, s_layout.joystick.y);
     lv_obj_set_clickable(area, true);
     lv_obj_set_scrollable(area, false);
     lv_obj_set_gesture_bubble(area, false);
     lv_obj_add_event_cb(area, joyEvent, LV_EVENT_ALL, nullptr);
 
-    circle(area, JOY_CX, JOY_CY, JOY_R, Theme::PANEL_RAISED, LV_OPA_COVER, Theme::LINE);
+    circle(area, j.cx, j.cy, j.radius, Theme::PANEL_RAISED, LV_OPA_COVER, Theme::LINE);
     // Speed zone guide ring halfway out (subtle)
-    lv_obj_t *mid = circle(area, JOY_CX, JOY_CY, (JOY_R + JOY_STOP_R) / 2 + 4, Theme::PANEL, LV_OPA_COVER, Theme::LINE);
+    lv_obj_t *mid = circle(area, j.cx, j.cy, (j.radius + j.stopRadius) / 2 + s_layout.controlPx(4), Theme::PANEL, LV_OPA_COVER, Theme::LINE);
     lv_obj_set_style_border_width(mid, 1, 0);
     lv_obj_set_style_border_opa(mid, LV_OPA_50, 0);
-    circle(area, JOY_CX, JOY_CY, JOY_STOP_R, 0x5A2328, LV_OPA_COVER, Theme::RED);
+    circle(area, j.cx, j.cy, j.stopRadius, 0x5A2328, LV_OPA_COVER, Theme::RED);
 
     static const char *const SYM[4] = {LV_SYMBOL_UP, LV_SYMBOL_RIGHT, LV_SYMBOL_DOWN, LV_SYMBOL_LEFT};
     for (int i = 0; i < 4; i++) {
         lv_obj_t *l = Theme::label(area, SYM[i], &my_font_18, Theme::MUTED);
-        const int off = JOY_R - 14;
+        const int off = j.radius - s_layout.controlPx(14);
         const int ax = Otr::dirX((Dir)i) * off, ay = Otr::dirY((Dir)i) * off;
         lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, 0);
         lv_obj_update_layout(l);
-        lv_obj_set_pos(l, JOY_CX + ax - lv_obj_get_width(l) / 2, JOY_CY + ay - lv_obj_get_height(l) / 2);
+        lv_obj_set_pos(l, j.cx + ax - lv_obj_get_width(l) / 2, j.cy + ay - lv_obj_get_height(l) / 2);
         lv_obj_set_clickable(l, false);
         s_joyArrow[i] = l;
     }
-    s_joyKnob = circle(area, JOY_CX, JOY_CY, JOY_KNOB_R, Theme::ACCENT, LV_OPA_80, Theme::TEXT);
+    s_joyKnob = circle(area, j.cx, j.cy, j.knobRadius, Theme::ACCENT, LV_OPA_80, Theme::TEXT);
     lv_obj_set_hidden(s_joyKnob, true);
     s_joyLit = -1;
     configureJoy();
@@ -2227,7 +2211,9 @@ static void viewEvent(lv_event_t *e)
     lv_indev_get_point(lv_indev_active(), &p);
     int32_t camX, camY;
     currentCamera(camX, camY);
-    const float fx = (float)(p.x + camX) / s_ts, fy = (float)(p.y - VIEW_Y + camY) / s_ts;
+    float fx, fy;
+    if (!Game::worldPoint(AdvUi::gameBounds(s_canvas), {p.x, p.y}, camX, camY, s_ts, fx, fy)) return;
+    if (!s_world->inside((int)floorf(fx), (int)floorf(fy))) return;
     if (code == LV_EVENT_LONG_PRESSED) {
         if (s_bombSize || !s_world->fog()) return;
         s_longDone = true;
@@ -2284,6 +2270,7 @@ static void freeAll()
     heap_caps_free(s_cat);
     heap_caps_free(s_adv);
     s_fb = nullptr;
+    s_fbStride = 0;
     s_spr = nullptr;
     s_world = nullptr;
     s_planner = nullptr;
@@ -2293,6 +2280,7 @@ static void freeAll()
     s_adv = nullptr;
     s_activeScr = nullptr;
     s_scr = nullptr;
+    s_gameRoot = nullptr;
     s_joyKnob = nullptr;
     s_muteBtn = nullptr;
     s_hitBtn = nullptr;
@@ -2481,10 +2469,15 @@ static lv_obj_t *hudIcon(lv_obj_t *parent, HudIcon i)
 //   right  Slå box, red energy bar, icons of carried items (boat, later knife/sword ...; 2 rows)
 static void buildControls()
 {
-    lv_obj_t *pan = lv_obj_create(s_scr);
+    const auto px = [](int32_t baseline) { return s_layout.controlPx(baseline); };
+    const int32_t CTRL_H = s_layout.controls.h;
+    const int32_t COL_L_W = s_layout.joystick.x;
+    const int32_t COL_R_X = s_layout.joystick.x + s_layout.joystick.w;
+    const int32_t COL_R_W = s_layout.controls.w - COL_R_X - px(4);
+    lv_obj_t *pan = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(pan);
-    lv_obj_set_size(pan, 320, CTRL_H);
-    lv_obj_set_pos(pan, 0, CTRL_Y);
+    lv_obj_set_size(pan, s_layout.controls.w, CTRL_H);
+    lv_obj_set_pos(pan, 0, s_layout.controls.y);
     lv_obj_set_style_bg_color(pan, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(pan, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(pan, LV_BORDER_SIDE_TOP, 0);
@@ -2496,51 +2489,51 @@ static void buildControls()
     // Left column: icon + count per row, top-aligned (a 5th row still fits above the buttons)
     lv_obj_t *info = lv_obj_create(pan);
     lv_obj_remove_style_all(info);
-    lv_obj_set_pos(info, 6, 6);
-    lv_obj_set_size(info, COL_L_W - 8, CTRL_H - 54);
+    lv_obj_set_pos(info, px(6), px(6));
+    lv_obj_set_size(info, COL_L_W - px(8), CTRL_H - px(54));
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(info, 2, 0);
+    lv_obj_set_style_pad_row(info, px(2), 0);
     lv_obj_set_scrollable(info, false);
     lv_obj_set_clickable(info, false);
     static constexpr HudIcon rowIcon[C_COUNT] = {H_LIFE, H_SUIT, H_KEY, H_GEM};
     for (int r = 0; r < C_COUNT; r++) {
         lv_obj_t *row = lv_obj_create(info);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, COL_L_W - 8, HUD_PX);
+        lv_obj_set_size(row, COL_L_W - px(8), px(HUD_PX));
         lv_obj_set_scrollable(row, false);
         lv_obj_set_clickable(row, false);
         if(!s_world->mineLevel()) hudIcon(row, rowIcon[r]);
         s_count[r] = Theme::label(row, "", &my_font_14, Theme::TEXT);
         lv_obj_align(s_count[r], LV_ALIGN_LEFT_MID, s_world->mineLevel()?0:HUD_PX + 6, 0);
     }
-    lv_obj_t *menu = Theme::button(pan, LV_SYMBOL_LIST, 36, 40, Theme::ACCENT);
-    lv_obj_set_pos(menu, 4, CTRL_H - 48);
+    lv_obj_t *menu = Theme::button(pan, LV_SYMBOL_LIST, px(36), px(40), Theme::ACCENT);
+    lv_obj_set_pos(menu, px(4), CTRL_H - px(48));
     lv_obj_add_event_cb(menu, [](lv_event_t *) {
         if (Theme::debounce(s_menuTapMs)) showMenu();
     }, LV_EVENT_CLICKED, nullptr);
-    s_muteBtn = Theme::button(pan, LV_SYMBOL_VOLUME_MAX, 34, 40, Theme::TEAL);
-    lv_obj_set_pos(s_muteBtn, 43, CTRL_H - 48);
+    s_muteBtn = Theme::button(pan, LV_SYMBOL_VOLUME_MAX, px(34), px(40), Theme::TEAL);
+    lv_obj_set_pos(s_muteBtn, px(43), CTRL_H - px(48));
     lv_obj_add_event_cb(s_muteBtn, [](lv_event_t *) { toggleSound(); }, LV_EVENT_CLICKED, nullptr);
     muteIcon();
 
     // Right column, top box: split action button — "Byt" (top 1/3) picks the action,
     // the bottom 2/3 runs it (Slå / Prata / Hoppa). In minefield it is the bomb button.
     if (s_world->mineLevel()) {
-        s_hitBtn = Theme::button(pan, tr(Str::ADV_BOMB), COL_R_W, 56, Theme::ACCENT, true);
-        lv_obj_set_pos(s_hitBtn, COL_R_X, 8);
+        s_hitBtn = Theme::button(pan, tr(Str::ADV_BOMB), COL_R_W, px(56), Theme::ACCENT, true);
+        lv_obj_set_pos(s_hitBtn, COL_R_X, px(8));
         s_swapBtn = nullptr;
     } else {
         // Top 1/3: "Byt" cycles the selected action among the ones possible right now.
-        s_swapBtn = Theme::button(pan, tr(Str::ADV_SWAP), COL_R_W, 18, Theme::LINE, true);
-        lv_obj_set_pos(s_swapBtn, COL_R_X, 8);
+        s_swapBtn = Theme::button(pan, tr(Str::ADV_SWAP), COL_R_W, px(18), Theme::LINE, true);
+        lv_obj_set_pos(s_swapBtn, COL_R_X, px(8));
         lv_obj_set_style_text_font(lv_obj_get_child(s_swapBtn, 0), &my_font_14, 0);
         lv_obj_add_event_cb(s_swapBtn, [](lv_event_t *) {
             if (!Theme::debounce(s_hitTapMs)) return;
             doSwap();
         }, LV_EVENT_CLICKED, nullptr);
         // Bottom 2/3: run the selected action.
-        s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, 36, Theme::ACCENT, true);
-        lv_obj_set_pos(s_hitBtn, COL_R_X, 28);
+        s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, px(36), Theme::ACCENT, true);
+        lv_obj_set_pos(s_hitBtn, COL_R_X, px(28));
     }
     s_actSel = ACT_HIT;
     s_actShown = -1;
@@ -2550,8 +2543,8 @@ static void buildControls()
         doHit();
     }, LV_EVENT_PRESSED, nullptr);
     s_bar = lv_bar_create(pan);
-    lv_obj_set_pos(s_bar, COL_R_X, 74);
-    lv_obj_set_size(s_bar, COL_R_W, 18);
+    lv_obj_set_pos(s_bar, COL_R_X, px(74));
+    lv_obj_set_size(s_bar, COL_R_W, px(18));
     lv_obj_set_style_bg_color(s_bar, Theme::c(0xEEF2F7), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_bar, 1, LV_PART_MAIN);
@@ -2564,11 +2557,11 @@ static void buildControls()
     // Carried items: icons in a wrapping row, two rows of three fit under the energy bar
     s_itemBox = lv_obj_create(pan);
     lv_obj_remove_style_all(s_itemBox);
-    lv_obj_set_pos(s_itemBox, COL_R_X, 100);
-    lv_obj_set_size(s_itemBox, COL_R_W, CTRL_H - 104);
+    lv_obj_set_pos(s_itemBox, COL_R_X, px(100));
+    lv_obj_set_size(s_itemBox, COL_R_W, CTRL_H - px(104));
     lv_obj_set_flex_flow(s_itemBox, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_style_pad_column(s_itemBox, 6, 0);
-    lv_obj_set_style_pad_row(s_itemBox, 6, 0);
+    lv_obj_set_style_pad_column(s_itemBox, px(6), 0);
+    lv_obj_set_style_pad_row(s_itemBox, px(6), 0);
     lv_obj_set_scrollable(s_itemBox, false);
     lv_obj_set_clickable(s_itemBox, false);
     for (int i = 0; i < H_COUNT; i++) s_item[i] = nullptr;
@@ -2594,13 +2587,13 @@ static void buildControls()
     lv_obj_set_hidden(s_flashCell, true);
     lv_obj_set_hidden(s_pogoCell, true);
 
-    s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,36,Theme::LINE);
-    lv_obj_set_pos(s_bombCancel,COL_R_X,106);
+    s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,px(36),Theme::LINE);
+    lv_obj_set_pos(s_bombCancel,COL_R_X,px(106));
     lv_obj_set_hidden(s_bombCancel,true);
     lv_obj_add_event_cb(s_bombCancel,[](lv_event_t*) {
         if(Theme::debounce(s_actionTapMs)) cancelBomb();
     },LV_EVENT_CLICKED,nullptr);
-    buildJoystick(s_scr);
+    buildJoystick(s_gameRoot);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -2611,27 +2604,28 @@ static void buildGame(bool loadFailed)
     s_scr = Theme::screen();
     s_activeScr = s_scr;
     lv_obj_add_event_cb(s_scr, screenDeleted, LV_EVENT_DELETE, nullptr);
+    s_gameRoot = AdvUi::gameRoot(s_scr, s_layout);
 
     // Viewport canvas
-    s_canvas = lv_canvas_create(s_scr);
-    lv_canvas_set_buffer(s_canvas, s_fb, VIEW_W, VIEW_H, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(s_canvas, 0, VIEW_Y);
+    s_canvas = lv_canvas_create(s_gameRoot);
+    lv_canvas_set_buffer(s_canvas, s_fb, s_layout.view.w, s_layout.view.h, LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_pos(s_canvas, s_layout.view.x, s_layout.view.y);
     lv_obj_set_clickable(s_canvas, true);
     lv_obj_add_event_cb(s_canvas, viewEvent, LV_EVENT_ALL, nullptr);
 
-    s_toast = Theme::label(s_scr, "", &my_font_14);
+    s_toast = Theme::label(s_gameRoot, "", &my_font_14);
     lv_label_set_long_mode(s_toast, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(s_toast, VIEW_W - 24);
+    lv_obj_set_width(s_toast, s_layout.view.w - 24);
     lv_obj_set_style_text_align(s_toast, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_color(s_toast, Theme::c(0x000000), 0);
     lv_obj_set_style_bg_opa(s_toast, 190, 0);
     lv_obj_set_style_radius(s_toast, 10, 0);
     lv_obj_set_style_pad_all(s_toast, 8, 0);
-    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + VIEW_H - 64);
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, s_layout.view.y + s_layout.view.h - 64);
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
-    s_stageLabel=Theme::label(s_scr,"",&my_font_14,Theme::TEXT);
+    s_stageLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_stageLabel,4,4);
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_stageLabel,210,0);
@@ -2897,7 +2891,12 @@ static void buildWorldPick()
 void show()
 {
     freeAll();
-    s_fb = (uint16_t *)heap_caps_aligned_alloc(64, VIEW_W * VIEW_H * 2, MALLOC_CAP_SPIRAM);
+    s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH());
+    const size_t stride = lv_draw_buf_width_to_stride(s_layout.view.w, LV_COLOR_FORMAT_RGB565);
+    const size_t frameBytes = stride >= size_t(s_layout.view.w) * sizeof(uint16_t) && stride % sizeof(uint16_t) == 0
+        ? Game::frameBytes(stride, s_layout.view.h) : 0;
+    s_fbStride = stride / sizeof(uint16_t);
+    s_fb = frameBytes ? (uint16_t *)heap_caps_aligned_alloc(64, frameBytes, MALLOC_CAP_SPIRAM) : nullptr;
     s_spr = (Sprites *)heap_caps_malloc(sizeof(Sprites), MALLOC_CAP_SPIRAM);
     void *wmem = heap_caps_malloc(sizeof(Otr::World), MALLOC_CAP_SPIRAM);
     void *pmem = heap_caps_malloc(sizeof(Otr::Planner), MALLOC_CAP_SPIRAM);
@@ -2920,7 +2919,7 @@ void show()
     const int64_t t0 = esp_timer_get_time();
     makeArt(s_spr);
     ESP_LOGI(TAG, "tile art %d ms (%u B sprites, %u B frame, world %u B, planner %u B)",
-             (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)(VIEW_W * VIEW_H * 2),
+             (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)frameBytes,
              (unsigned)sizeof(Otr::World), (unsigned)sizeof(Otr::Planner));
     // Scan the SD card for adventures (folders of ordered NN_name.adv maps under /otr/adventure).
     {
