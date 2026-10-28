@@ -31,6 +31,14 @@ namespace Karaoke {
 
 namespace {
 
+void memoryMark(const char *point)
+{
+    ESP_LOGI(TAG, "%s: internal=%u PSRAM=%u largest=%u", point,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+}
+
 SemaphoreHandle_t s_mux = nullptr;
 Sf::Synth s_synth;
 Midi::Song s_song;
@@ -284,6 +292,7 @@ void stopDiag()
 
 void fontTask(void *)
 {
+    memoryMark("bank-task-start");
     char path[128], name[64];
     Err err = Err::OK;
     s_loadPct = 0;
@@ -384,6 +393,7 @@ void fontTask(void *)
         }
     }
     writeRegistry(regText);
+    memoryMark("bank-task-end");
     vTaskDelete(nullptr);
 }
 
@@ -780,6 +790,7 @@ void unloadFont()
     s_fontReq.clear();
     s_prepGen = s_failGen = 0;
     s_fontState = FontState::NONE;
+    memoryMark("bank-unloaded");
 }
 
 int loadPct() { return s_loadPct; }
@@ -819,6 +830,7 @@ void setEffects(const Effects &e)
 
 Err open(const SongFile &sf)
 {
+    memoryMark("song-open-start");
     close();
     loadRegistry();
     std::vector<uint8_t> data;
@@ -847,6 +859,7 @@ Err open(const SongFile &sf)
     }
     s_crc = Midi::crc32(data.data(), data.size());
     s_size = (uint32_t)data.size();
+    std::vector<uint8_t>().swap(data);   // Parsing/CRC finished; do not overlap this copy with synth preparation
     const size_t slash = sf.path.find_last_of('/');
     s_fileName = slash == std::string::npos ? sf.path : sf.path.substr(slash + 1);
     s_melody = s_song.melody;
@@ -884,6 +897,7 @@ Err open(const SongFile &sf)
     Audio::setExternal(&renderCb, nullptr);
     KaraWeb::setSong(true, s_fileName.c_str());
     startDiag();
+    memoryMark("song-open-end");
     return Err::OK;
 }
 
@@ -900,6 +914,7 @@ void close()
     if (!synthBusy()) s_synth.reset();
     s_player.load(nullptr);
     s_song.clear();   // Frees the event/lyric buffers (PSRAM)
+    memoryMark("song-closed");
 }
 
 bool isOpen() { return s_open; }

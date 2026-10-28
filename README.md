@@ -4,7 +4,21 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
+> **Status:** v0.19.3 – **Phase D: responsive landscape karaoke**.
+> Layout uses live logical dimensions after landscape rotation, targeting **480×320 and 800×480**:
+> full-width scrollable, wrapping lyrics with reserved countdown space, a seek row and one primary row
+> (restart / −5 s / play-pause / +5 s / stop). A header hamburger holds tempo/key/volume, melody on/off
+> and melody-track choice with current state. Sheets stay screen-bounded with scrollable content and
+> a fixed close control. The song-list global bank selector remains; there is no player bank control,
+> and existing per-song registry bank overrides retain precedence.
+> Memory work maps existing allocations and adds heap diagnostics; no measured byte savings,
+> new full-screen buffers, synth/protocol/driver/profile changes or physical P4 support are claimed.
+> **Phase D test outcomes and firmware build verification are pending; all physical tests remain.**
+> 800×480 is a logical layout target, not a verified physical P4 resolution.
+> See [UI migration acceptance](docs/ui-migration-inventory.md#fas-d--karaoke-layout-och-minnesdiagnostik)
+> and the [karaoke plan](docs/MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
+>
+> Previous: v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
 > Adventures now load as `.adv` text files from the SD card (`/otr/adventure`); see
 > [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md). A map can mark **dark areas**
 > (`@dark`) that hide their contents until a **flashlight** (glyph `f`, levels 1–3) lights a cone
@@ -140,7 +154,9 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
-- **Karaoke (v0.13.0/v0.13.1, not hardware-tested)** – landscape screen, multiple SoundFonts (global default + per song), plays `.mid`/`.kar` from the SD card through a SoundFont synth
+- **Karaoke (v0.19.3 Phase D, physical verification pending)** – responsive landscape layout at logical
+  480×320 / 800×480, wrapping scrollable lyrics, one primary transport row and hamburger settings;
+  multiple SoundFonts (song-list global default, existing per-song registry overrides), plays `.mid`/`.kar` from the SD card through a SoundFont synth
   (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
   per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
 - **Sound (v0.9.0, hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
