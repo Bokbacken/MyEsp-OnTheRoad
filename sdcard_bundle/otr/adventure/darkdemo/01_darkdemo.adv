@@ -38,6 +38,8 @@ fog: false
 # Kartan: 12x18. Spelaren (S) nere, utgang (X) uppe. Mellan dem ett morkt rum
 # med vaggar (#) och en ingang/utgang (gap i x=5,6). Hoppstyltan 'j' ligger
 # inne i morkret. Ovanfor rummet star en tradvagg (T) som hoppstyltan vaultar.
+# Morkt omrade: hela rummets insida (x=2..9, y=8..11), dolt tills ficklampan
+# lyser pa rutan (eller spelaren star dar). Morkret blockerar inte rorelse.
 @map
 ............
 ......X.....
@@ -58,7 +60,5 @@ fog: false
 ......S.....
 ............
 
-# Morkt omrade: hela rummets insida (x=2..9, y=8..11). Doljs tills ficklampan
-# lyser pa rutan (eller det ar rutan spelaren star pa). Blockerar inte rorelse.
 @dark
 2,8 9,11

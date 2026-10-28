@@ -22,6 +22,8 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 > - `@dark` – mörka områden som bara lyses upp av ficklampan — avsnitt 10
 > - **Ficklampa** (`f` / `@treasures ... flashlight N`) – lyser upp mörkret i en kon framåt
 > - **Hoppstylta** (`j` / `@treasures ... pogo N`) – studsar automatiskt över hinder
+>
+> **Nytt i v0.20.0:** oberoende grupper av Sokoban-tryckplattor och grindar — avsnitt 10d.
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -79,8 +81,9 @@ Reglerna menyn följer:
   `/otr/adventure/` (strängarna `ADV_NO_ADVENTURES` / `ADV_NO_ADVENTURES_HELP`).
 
 En `.adv`-fil är vanlig text (UTF-8, max 64 KB) och består av **sektioner** som
-börjar med `@`. Rader som börjar med `#` är kommentarer. Tomma rader ignoreras
-överallt *utom* inuti `@map`, där varje rad är en kartrad.
+börjar med `@`. Rader som börjar med `#` är kommentarer utanför `@map`. Inuti
+`@map` finns inga kommentarer: `#` är ett karttecken (vägg), och endast en rad
+som efter trimning börjar med `@` avslutar kartsektionen. Tomma rader ignoreras.
 
 Sektionerna, i ordning:
 
@@ -98,7 +101,9 @@ Sektionerna, i ordning:
 @quests      deklarera uppdrag (id + namn SV/EN)
 @npc <id>    en person (upprepas per person)
 @node <id>   en dialograd (upprepas många gånger)
-@legend      informativ teckenreferens (valfri, parsas ej)
+@legend      teckenmappning för grupperade plattor/grindar (valfri)
+@plategroup  grupp-id på tryckplattor via koordinater
+@gategroup   grupp-id på grindar via koordinater
 ```
 
 ---
@@ -657,6 +662,44 @@ buske, oknuffbar sten osv.):
 > **Carry mellan kartor:** både ficklampa och hoppstylta är permanenta och
 > återställs **alltid** på nästa karta i äventyret, även om `@rules` inte listar
 > dem i `carry`. Spelaren behöver alltså bara plocka upp dem en gång.
+
+---
+
+### 10d. Grupperade Sokoban-plattor och grindar (v0.20.0)
+
+Tryckplattor (`o`) och grindar (`=`) hör som standard till grupp 0, vilket
+behåller det äldre globala beteendet. Grupper 1–35 är oberoende: gruppens grindar
+öppnas när minst en grupp-platta finns och samtliga dessa plattor bär en sten.
+Skriv grupp-id som `1`–`9` eller `A`–`Z` (`A`=10, `Z`=35; skiftläget ignoreras).
+
+Mappa egna, skiftlägeskänsliga karttecken i `@legend`:
+
+```
+@legend
+a = plate 1
+A = gate 1
+b = plate 2
+B = gate 2
+```
+
+Legend-definitioner går före inbyggda tecken (t.ex. `R`, `o` och `=`). `S`,
+mellanslag och `@` får inte omdefinieras; dubbletter och ogiltiga grupp-id ger
+fel med radnummer.
+
+Alternativt kan gruppen anges för redan placerade `o`-/`=`-rutor med koordinater
+(`x,y`, nollbaserat):
+
+```
+@plategroup 1: 3,4 5,4 7,8
+@gategroup 1: 9,4
+@plategroup 2: 12,10 14,10
+@gategroup 2: 16,10
+```
+
+Om en koordinat inte pekar på rätt ruttyp rapporteras ett fel med radnummer.
+Fyra sekventiella, spelbara exempelrum finns under
+[`docs/adventures/sokoban/`](adventures/sokoban/); SD-kortsversionerna finns i
+`/otr/adventure/sokoban/`.
 
 ---
 

@@ -40,6 +40,7 @@ carry: energy, maxenergy, items, lives   # följer med till nästa nivå
 reset: suit                               # dräktladdning nollas vid nivåbyte
 
 # Kartan: ytterkanten är gräs (gångbar ram). 's' och 'w' är resurs-glyfer.
+# Dold skatt: en ädelsten under busken 'b' på (7,2). Avtäcks när busken slås bort.
 @map
 .........X......
 ................
@@ -54,7 +55,6 @@ reset: suit                               # dräktladdning nollas vid nivåbyte
 .......S........
 ................
 
-# Dold skatt: en ädelsten under busken 'b' på (7,2). Avtäcks när busken slås bort.
 @treasures
 7 2 gem 1
 

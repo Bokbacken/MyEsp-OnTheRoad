@@ -1,0 +1,17 @@
+# Group Z is the highest supported group (35).
+@meta
+id: sokoban_04
+world: 95
+map_id: 98
+
+@rules
+lives: infinite
+
+@map
+############
+#S.Ro.=...X#
+#.....#....#
+############
+
+@plategroup Z: 4,1
+@gategroup Z: 6,1

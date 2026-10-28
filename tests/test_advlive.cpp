@@ -219,6 +219,25 @@ void testFog()
     delete w;
 }
 
+void testGroupedGates()
+{
+    using namespace Otr;
+    const char row[] = {'S', 'R', (char)(GROUPED_PLATE_GLYPH + 1),
+                        (char)(GROUPED_GATE_GLYPH + 1), 0};
+    const char *rows[] = {row};
+    World w;
+    CHECK(w.load(rows, 1));
+    Snapshot snapshot{};
+    const Source src = source(w, "Groups", nullptr, nullptr, nullptr);
+    fillMap(snapshot, src);
+    CHECK(snapshot.terrain[0][3] == 'm');
+    CHECK(!(snapshot.terrain[0][3] == 'M'));
+    w.move(Dir::RIGHT);
+    fillMap(snapshot, src);
+    CHECK(snapshot.terrain[0][3] == 'M');
+    CHECK(!w.gatesOpen());   // The compatibility query remains group 0.
+}
+
 // Worst case size: 64 x 64 fog map + every text at its maximum, all characters needing escapes.
 void testWorstCase()
 {
@@ -270,6 +289,7 @@ int main()
     testInactive();
     testVillage();
     testFog();
+    testGroupedGates();
     testWorstCase();
     CHECK_DONE();
 }

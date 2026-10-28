@@ -4,30 +4,12 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.19.3 – **Phase D: responsive landscape karaoke**.
-> Layout uses live logical dimensions after landscape rotation, targeting **480×320 and 800×480**:
-> a bounded header with one-line ellipsized title/metadata, full-width scrollable, wrapping lyrics,
-> a seek row and one primary row
-> (restart / −5 s / play-pause / +5 s / stop). A header hamburger holds tempo/key/volume, melody on/off
-> and melody-track choice with current state. Sheets stay screen-bounded with scrollable content and
-> a fixed close control. The song-list global bank selector remains; there is no player bank control,
-> and existing per-song registry bank overrides retain precedence.
-> Countdown dots flow with the lyrics and are hidden when absent; sheet titles/hints wrap.
-> Host-checked lyric viewports are 460×158 / 776×292, with 88×44 / 150×52 transport buttons.
-> A local shared-TextInput correction anchors the keyboard at the top-left instead of shifting it below the display; no broad rewrite.
-> Memory work maps existing allocations, releases UI-only vectors/raw parsed MIDI bytes and adds heap diagnostics; no measured byte savings,
-> new full-screen buffers, synth/protocol/driver/profile changes or physical P4 support are claimed.
-> **Karaoke and adventure-game host layout tests pass; three unchanged-source layout checks fail**
-> (Yatzy, adventure setup, mine dialog; details in the inventory). MIDI/index/stream/language tests pass.
-> Local firmware build was blocked by missing ESP-IDF. CI run `40664764225` for `a8f91ae`
-> failed at `ui_karaoke.cpp:41/43/52`: Xtensa `int32_t` (`long`) versus integer literals
-> prevented `std::clamp` type deduction. All three calls now use `std::clamp<int32_t>`;
-> corrected code commit `18586b0` now awaits approval of [CI run 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561)
-> (`action_required`). CodeQL reports zero C++/Python alerts; secret scanning found none.
-> **No firmware build success claimed; all physical tests remain.**
-> 800×480 is a logical layout target, not a verified physical P4 resolution.
-> See [UI migration acceptance](docs/ui-migration-inventory.md#fas-d--karaoke-layout-och-minnesdiagnostik)
-> and the [karaoke plan](docs/MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
+> **Status:** v0.20.0 – **Phase S1: grouped Sokoban pressure plates and gates**.
+> The adventure engine and `.adv` loader support 36 independent plate/gate groups
+> without changing the save format. A four-room playable demo is included under
+> `sdcard_bundle/otr/adventure/sokoban/`; see [adventure authoring](docs/AUTHORING_ADVENTURES.md).
+> Host engine and loader tests cover group behavior, legacy saves and grouped maps.
+> Firmware build and physical verification remain pending.
 >
 > Previous: v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
 > Adventures now load as `.adv` text files from the SD card (`/otr/adventure`); see

@@ -750,7 +750,7 @@ static int terrainSprite(int x, int y, int frame)
     case Tile::LAVA: return frame ? S_LAVA1 : S_LAVA0;
     case Tile::BASALT: return S_BASALT;
     case Tile::PLATE: return S_PLATE;
-    case Tile::GATE: return s_world->gatesOpen() ? S_GATE_O : S_GATE_C;
+    case Tile::GATE: return s_world->gateOpenAt(x, y) ? S_GATE_O : S_GATE_C;
     case Tile::CHECKPOINT:
         return x == s_world->checkpointX() && y == s_world->checkpointY() ? S_CHECK_ON : S_CHECK;
     case Tile::EXIT: return S_EXIT;

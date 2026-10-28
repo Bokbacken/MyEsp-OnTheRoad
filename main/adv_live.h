@@ -25,7 +25,7 @@
 //   Map rows: one character per cell.
 //     terrain  'a' + Otr::Tile (a grass, b sand, c floor, d rubble, e wall, f cracked, g tree,
 //              h water, i bridge, j lava, k basalt, l plate, m gate, n checkpoint, o exit,
-//              p crater), '?' = unrevealed fog
+//              p crater, M = an open gate), '?' = unrevealed fog
 //     obj      '.' none, 'A' + Otr::Obj for visible objects (B rock, C crate, D key, E door, F boat,
 //              G gem, H bush, I potion, J heart, K suit, L life, M mine), '!' = flagged fog cell.
 //              People are not in the map (they move): see "npcs".

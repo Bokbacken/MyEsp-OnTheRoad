@@ -116,7 +116,16 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
         if (!rows[y] || strlen(rows[y]) != w) return false;
         for (int x = 0; x < (int)w; x++) {
             Cell c;
-            if (!decode(rows[y][x], c)) return false;
+            const uint8_t glyph = (uint8_t)rows[y][x];
+            if (glyph >= GROUPED_PLATE_GLYPH && glyph < GROUPED_GATE_GLYPH) {
+                c = {Tile::PLATE, Obj::NONE};
+                val_[y][x] = glyph - GROUPED_PLATE_GLYPH;
+            } else if (glyph >= GROUPED_GATE_GLYPH && glyph < GROUPED_GATE_GLYPH + PLATE_GROUPS) {
+                c = {Tile::GATE, Obj::NONE};
+                val_[y][x] = glyph - GROUPED_GATE_GLYPH;
+            } else if (!decode(rows[y][x], c)) {
+                return false;
+            }
             terrain_[y][x] = (uint8_t)c.t;
             obj_[y][x] = (uint8_t)c.o;
             if (c.o == Obj::NPC) {
@@ -127,7 +136,6 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
                 val_[y][x] = (uint8_t)(d - '0');
             }
             if (c.o == Obj::GEM) gemsTotal_++;
-            if (c.t == Tile::PLATE) plates_++;
             if (rows[y][x] == 'S') {
                 startX_ = px_ = x;
                 startY_ = py_ = y;
@@ -259,7 +267,7 @@ bool World::playerCanEnter(int x, int y) const
     const Tile t = tile(x, y);
     if (isGround(t) || t == Tile::LAVA) return true;   // Lava: allowed, but it burns
     if (t == Tile::WATER) return boat_;
-    if (t == Tile::GATE) return gateOpen_;
+    if (t == Tile::GATE) return gateOpenAt(x, y);
     return false;
 }
 
@@ -296,17 +304,26 @@ bool World::pogoLand(Dir d, int &lx, int &ly) const
 
 void World::updateGates(uint32_t &ev)
 {
-    bool open = plates_ > 0;
-    for (int y = 0; y < h_ && open; y++)
+    bool hasPlate[PLATE_GROUPS] = {};
+    bool allCovered[PLATE_GROUPS];
+    for (int group = 0; group < PLATE_GROUPS; group++) allCovered[group] = true;
+    for (int y = 0; y < h_; y++)
         for (int x = 0; x < w_; x++)
-            if (terrain_[y][x] == (uint8_t)Tile::PLATE && obj_[y][x] != (uint8_t)Obj::ROCK) {
-                open = false;
-                break;
+            if (terrain_[y][x] == (uint8_t)Tile::PLATE) {
+                const int group = val_[y][x];
+                hasPlate[group] = true;
+                if (obj_[y][x] != (uint8_t)Obj::ROCK) allCovered[group] = false;
             }
-    if (open != gateOpen_) {
-        gateOpen_ = open;
+    uint64_t openGroups = 0;
+    for (int group = 0; group < PLATE_GROUPS; group++)
+        if (hasPlate[group] && allCovered[group]) openGroups |= uint64_t(1) << group;
+    if (openGroups != gateOpenGroups_) {
+        const uint64_t opened = openGroups & ~gateOpenGroups_;
+        const uint64_t closed = gateOpenGroups_ & ~openGroups;
+        gateOpenGroups_ = openGroups;
         rev_++;
-        ev |= open ? EV_GATE_OPEN : EV_GATE_CLOSE;
+        if (opened) ev |= EV_GATE_OPEN;
+        if (closed) ev |= EV_GATE_CLOSE;
     }
 }
 
@@ -592,7 +609,7 @@ uint32_t World::hit()
         rev_++;
         return EV_HIT;
     }
-    if (t == Tile::WALL || t == Tile::TREE || (t == Tile::GATE && !gateOpen_)) return EV_HIT;
+    if (t == Tile::WALL || t == Tile::TREE || (t == Tile::GATE && !gateOpenAt(tx, ty))) return EV_HIT;
     return EV_NONE;   // Swing at nothing
 }
 
@@ -781,7 +798,7 @@ size_t World::save(uint8_t *buf, size_t cap) const
     o.u16(keys_); o.u16(gems_); o.u16(gemsTotal_);
     o.u32((uint32_t)steps_);
     o.u8(energy_); o.u8(maxEnergy_); o.u8((uint8_t)(int8_t)livesLeft_); o.u16(livesUsed_); o.u16(suit_);
-    o.u8((boat_ ? 1 : 0) | (gateOpen_ ? 2 : 0) | (gameOver_ ? 4 : 0) | (exitReached_ ? 8 : 0));
+    o.u8((boat_ ? 1 : 0) | (gatesOpen() ? 2 : 0) | (gameOver_ ? 4 : 0) | (exitReached_ ? 8 : 0));
     o.u8(mineLevel_); o.u8(bomb3_); o.u8(bomb4_);
     o.u8(flash_); o.u8(pogo_);   // v3 (bytes 26,27): persistent ability levels (0..3)
     o.p = pb + PLAYER_BYTES;
@@ -825,18 +842,31 @@ bool World::restore(const uint8_t *buf, size_t n)
     if (!(bits & 4) && energy < 1) return false;
     r.p = pb + PLAYER_BYTES;
     const uint8_t *cells = r.p;
+    bool hasPlate[PLATE_GROUPS] = {};
+    bool allCovered[PLATE_GROUPS];
+    for (int group = 0; group < PLATE_GROUPS; group++) allCovered[group] = true;
     for (int i = 0; i < w_ * h_; i++) {
         const uint8_t *c = cells + i * CELL_BYTES;
         if (c[0] >= (uint8_t)Tile::COUNT || c[1] >= (uint8_t)Obj::COUNT || c[3] >= (uint8_t)Obj::COUNT || c[5] > 7)
             return false;
         if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
+        if ((c[0] == (uint8_t)Tile::PLATE || c[0] == (uint8_t)Tile::GATE) && c[2] >= PLATE_GROUPS)
+            return false;
+        if (c[0] == (uint8_t)Tile::PLATE) {
+            hasPlate[c[2]] = true;
+            if (c[1] != (uint8_t)Obj::ROCK) allCovered[c[2]] = false;
+        }
     }
+    uint64_t savedOpenGroups = 0;
+    for (int group = 0; group < PLATE_GROUPS; group++)
+        if (hasPlate[group] && allCovered[group]) savedOpenGroups |= uint64_t(1) << group;
     // Saved positions must still be walkable in the saved map, never a wall/solid.
     for (int pos : {py * w_ + px, cpy * w_ + cpx}) {
         const uint8_t *c = cells + pos * CELL_BYTES;
         const Tile t = (Tile)c[0];
         if (blocksWalk((Obj)c[1]) || !(isGround(t) || t == Tile::LAVA ||
-            (t == Tile::WATER && (bits & 1)) || (t == Tile::GATE && (bits & 2)))) return false;
+            (t == Tile::WATER && (bits & 1)) ||
+            (t == Tile::GATE && (savedOpenGroups & (uint64_t(1) << c[2]))))) return false;
     }
     if (level && ((lives == 0) != bool(bits & 4) || suit > 1 || b3 > 1 || b4 > 1)) return false;
     // Apply
@@ -845,15 +875,13 @@ bool World::restore(const uint8_t *buf, size_t n)
     keys_ = keys; gems_ = gems; steps_ = (int)steps;
     energy_ = energy; maxEnergy_ = maxE; livesLeft_ = lives; livesUsed_ = livesUsed; suit_ = suit;
     boat_ = bits & 1; gameOver_ = (bits & 4) != 0; exitReached_ = (bits & 8) != 0;
-    plates_ = 0;
     for (int y = 0; y < h_; y++)
         for (int x = 0; x < w_; x++) {
             const uint8_t *c = cells + (y * w_ + x) * CELL_BYTES;
             terrain_[y][x] = c[0]; obj_[y][x] = c[1]; val_[y][x] = c[2]; hid_[y][x] = c[3];
             hidVal_[y][x] = c[4]; flags_[y][x] = c[5]; dmg_[y][x] = c[6];
-            if (c[0] == (uint8_t)Tile::PLATE) plates_++;
         }
-    gateOpen_ = (bits & 2) != 0;
+    gateOpenGroups_ = savedOpenGroups;
     uint32_t ev = 0;
     updateGates(ev);
     rev_ += 2;
@@ -866,7 +894,7 @@ bool Planner::targetable(const World &w, int x, int y)
 {
     if (!w.inside(x, y) || w.flagged(x, y) || blocksWalk(w.obj(x, y))) return false;
     const Tile t = w.tile(x, y);
-    if (t == Tile::GATE) return w.gatesOpen();
+    if (t == Tile::GATE) return w.gateOpenAt(x, y);
     return isGround(t) || t == Tile::LAVA || t == Tile::WATER;
 }
 
@@ -905,7 +933,7 @@ Planner::Cat Planner::category(const World &w, int x, int y, WalkMode mode) cons
     if (isGround(t)) c = C_FREE;
     else if (t == Tile::LAVA) c = C_LAVA;
     else if (t == Tile::WATER) c = w.hasBoat() ? C_FREE : C_BOAT;
-    else if (t == Tile::GATE) c = w.gatesOpen() ? C_FREE : C_BLOCK;
+    else if (t == Tile::GATE) c = w.gateOpenAt(x, y) ? C_FREE : C_BLOCK;
     else c = C_BLOCK;
     if (c == C_BLOCK) return c;
     if (mode == WalkMode::ASSIST && !w.revealed(x, y)) return C_UNKNOWN;

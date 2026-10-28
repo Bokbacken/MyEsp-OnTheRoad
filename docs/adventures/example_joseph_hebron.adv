@@ -8,8 +8,12 @@
 #    components/otr_story/otr_story_joseph.cpp   (jakob, josef, ruben)
 #
 #  Se docs/AUTHORING_ADVENTURES.md för full teckenlegend och regler.
-#  Rader som börjar med '#' är kommentarer. Tomma rader ignoreras
-#  (utom inuti @map, där varje rad är en kartrad).
+#  Rader som börjar med '#' är kommentarer utanför @map; där är # en vägg.
+# ============================================================================
+# ============================================================================
+#  STORY
+#  Deklarera först alla namn (flaggor, räknare, föremål, uppdrag). Varje namn
+#  som används i cond/effects MÅSTE vara deklarerat (validate() kräver det).
 # ============================================================================
 
 @meta
@@ -36,7 +40,7 @@ fog: false               # true = minsvepar-värld (marken dold tills avtäckt)
 
 # --- Kartan (40 bred x 30 hög). Exakt ett 'S' (start) och minst ett 'X' ------
 # Siffror 1..9 = talbara personer (kopplas till @npc via "num").
-# Teckenlegend: se @legend längst ner och AUTHORING_ADVENTURES.md.
+# Teckenlegend: se docs/AUTHORING_ADVENTURES.md.
 @map
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 T...................X..................T
@@ -68,12 +72,6 @@ T.....S................................T
 T......................................T
 T......................................T
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-
-# ============================================================================
-#  STORY
-#  Deklarera först alla namn (flaggor, räknare, föremål, uppdrag). Varje namn
-#  som används i cond/effects MÅSTE vara deklarerat (validate() kräver det).
-# ============================================================================
 
 @flags
 met_jakob
@@ -246,15 +244,3 @@ effects: world npc_move 3 18 6; sound quest
 text.sv: Ruben stiger åt sidan. Gapet i trädraden öppnar sig, och stigen mot Dotan sträcker sig norrut.
 text.en: Reuben steps aside. The gap in the trees opens, and the path to Dothan stretches north.
 choice: Mot Dotan! | To Dothan! => END
-
-# ============================================================================
-#  @legend - informativ referens (parsas ej; teckentabellen är inbyggd).
-# ============================================================================
-@legend
-. = gräs (gångbar)          , = sand           _ = stengolv        # = vägg
-% = sprucken vägg (2 slag)  T = träd           ~ = vatten          ^ = lava
-o = tryckplatta             = = grind          Q = checkpoint      X = utgång (mål)
-S = start                   1..9 = person      b = buske           * + $ = ädelsten
-R r = sten (knuffa)         c C = låda (slå)   k K = nyckel        D = låst dörr
-B = båt                     p = trolldryck     h = hjärta          u = skyddsdräkt
-l = extra liv               m = dold mina

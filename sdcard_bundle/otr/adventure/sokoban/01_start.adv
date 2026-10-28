@@ -1,0 +1,25 @@
+# First room: legend-based group 1.
+@meta
+id: sokoban_01
+world: 95
+map_id: 95
+
+@about
+title.sv: Stenrum
+title.en: Stone Rooms
+desc.sv: Lös fyra rum med grupperade tryckplattor och grindar.
+desc.en: Solve four rooms with grouped pressure plates and gates.
+author: MyEsp-OnTheRoad
+
+@rules
+lives: infinite
+
+@legend
+a = plate 1
+A = gate 1
+
+@map
+############
+#S.Ra.A...X#
+#.....#....#
+############

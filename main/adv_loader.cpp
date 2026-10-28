@@ -133,7 +133,77 @@ bool isBuiltinGlyph(char c)
     }
 }
 
-enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
+struct LegendDef {
+    char glyph;
+    Otr::Tile tile;
+    uint8_t group;
+};
+
+constexpr int MAX_LEGEND = 128;
+
+bool groupFromText(const char *text, uint8_t &group)
+{
+    if (!text || text[0] == 0 || text[1] != 0) return false;
+    const char c = text[0];
+    if (c == '0') group = 0;
+    else if (c >= '1' && c <= '9') group = (uint8_t)(c - '0');
+    else if (c >= 'A' && c <= 'Z') group = (uint8_t)(c - 'A' + 10);
+    else if (c >= 'a' && c <= 'z') group = (uint8_t)(c - 'a' + 10);
+    else return false;
+    return true;
+}
+
+bool sameWord(const char *a, const char *b)
+{
+    while (*a && *b) {
+        const char ac = (*a >= 'A' && *a <= 'Z') ? (char)(*a - 'A' + 'a') : *a;
+        const char bc = (*b >= 'A' && *b <= 'Z') ? (char)(*b - 'A' + 'a') : *b;
+        if (ac != bc) return false;
+        a++;
+        b++;
+    }
+    return *a == 0 && *b == 0;
+}
+
+bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *err, size_t errCap)
+{
+    stripCommentIn(line);
+    char *equals = strchr(line, '=');
+    if (!equals) { setErr(err, errCap, lineNo, "legend needs 'glyph = plate|gate group'"); return false; }
+    *equals = 0;
+    char *glyphText = trimIn(line);
+    char *value = trimIn(equals + 1);
+    if (strlen(glyphText) != 1) { setErr(err, errCap, lineNo, "legend glyph must be one character"); return false; }
+    const char glyph = glyphText[0];
+    if (glyph == 'S' || glyph == ' ' || glyph == '\t' || glyph == '\r' || glyph == '\n' || glyph == '@') {
+        setErr(err, errCap, lineNo, "reserved legend glyph");
+        return false;
+    }
+    for (int i = 0; i < count; i++)
+        if (defs[i].glyph == glyph) { setErr(err, errCap, lineNo, "duplicate legend glyph"); return false; }
+    if (count >= MAX_LEGEND) { setErr(err, errCap, lineNo, "too many legend glyphs"); return false; }
+
+    char *kind = strtok(value, " \t");
+    char *groupText = strtok(nullptr, " \t");
+    if (!kind || strtok(nullptr, " \t")) {
+        setErr(err, errCap, lineNo, "legend needs 'glyph = plate|gate group'");
+        return false;
+    }
+    Otr::Tile tile;
+    if (sameWord(kind, "plate")) tile = Otr::Tile::PLATE;
+    else if (sameWord(kind, "gate")) tile = Otr::Tile::GATE;
+    else { setErr(err, errCap, lineNo, "legend supports only plate and gate"); return false; }
+    uint8_t group = 0;
+    if (groupText && !groupFromText(groupText, group)) {
+        setErr(err, errCap, lineNo, "invalid plate/gate group");
+        return false;
+    }
+    defs[count++] = {glyph, tile, group};
+    return true;
+}
+
+enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND,
+           PLATEGROUP, GATEGROUP };
 
 // Maps a "@tag" (without any arg) to a section. Returns false for an unknown tag.
 bool secFromTag(const char *tag, Sec &sec)
@@ -150,9 +220,93 @@ bool secFromTag(const char *tag, Sec &sec)
     else if (!strcmp(tag, "@items")) sec = ITEMS;
     else if (!strcmp(tag, "@quests")) sec = QUESTS;
     else if (!strcmp(tag, "@legend")) sec = LEGEND;
+    else if (!strcmp(tag, "@plategroup")) sec = PLATEGROUP;
+    else if (!strcmp(tag, "@gategroup")) sec = GATEGROUP;
     else if (!strcmp(tag, "@npc")) sec = NPC;
     else if (!strcmp(tag, "@node")) sec = NODE;
     else return false;
+    return true;
+}
+
+bool parseCoordinate(char *token, int &x, int &y)
+{
+    char *comma = strchr(token, ',');
+    if (!comma || strchr(comma + 1, ',')) return false;
+    *comma = 0;
+    auto number = [](const char *s, int &value) {
+        if (!*s) return false;
+        value = 0;
+        for (; *s; s++) {
+            if (*s < '0' || *s > '9') return false;
+            const int digit = *s - '0';
+            if (value > (Otr::MAX_W - digit) / 10) return false;
+            value = value * 10 + digit;
+        }
+        return true;
+    };
+    return number(token, x) && number(comma + 1, y);
+}
+
+bool applyGroupDirective(char *line, bool plates, Loaded &out, int lineNo, char *err, size_t errCap)
+{
+    stripCommentIn(line);
+    char *colon = strchr(line, ':');
+    if (!colon) { setErr(err, errCap, lineNo, "plate/gate group needs 'group: x,y ...'"); return false; }
+    *colon = 0;
+    uint8_t group;
+    if (!groupFromText(trimIn(line), group)) { setErr(err, errCap, lineNo, "invalid plate/gate group"); return false; }
+    char *coords = trimIn(colon + 1);
+    char *token = strtok(coords, " \t");
+    if (!token) { setErr(err, errCap, lineNo, "plate/gate group needs coordinates"); return false; }
+    const int width = out.rowCount ? (int)strlen(out.rows[0]) : 0;
+    for (; token; token = strtok(nullptr, " \t")) {
+        int x, y;
+        if (!parseCoordinate(token, x, y) || x >= width || y >= out.rowCount) {
+            setErr(err, errCap, lineNo, "invalid plate/gate coordinate");
+            return false;
+        }
+        const uint8_t glyph = (uint8_t)out.rows[y][x];
+        const bool isPlate = glyph >= Otr::GROUPED_PLATE_GLYPH && glyph < Otr::GROUPED_GATE_GLYPH
+                                 ? true
+                                 : glyph == 'o';
+        const bool isGate = glyph >= Otr::GROUPED_GATE_GLYPH &&
+                                    glyph < Otr::GROUPED_GATE_GLYPH + Otr::PLATE_GROUPS
+                                ? true
+                                : glyph == '=';
+        if ((plates && !isPlate) || (!plates && !isGate)) {
+            setErr(err, errCap, lineNo, plates ? "@plategroup cell is not a plate" : "@gategroup cell is not a gate");
+            return false;
+        }
+        out.rows[y][x] = (char)((plates ? Otr::GROUPED_PLATE_GLYPH : Otr::GROUPED_GATE_GLYPH) + group);
+    }
+    return true;
+}
+
+bool applyGroupDirectives(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
+{
+    char line[LINE_CAP];
+    size_t pos = 0;
+    int lineNo = 0;
+    while (pos < len) {
+        const size_t start = pos;
+        while (pos < len && text[pos] != '\n') pos++;
+        size_t n = pos - start;
+        if (pos < len) pos++;
+        lineNo++;
+        if (n >= LINE_CAP) continue;  // The main parser reports this with the same line number.
+        memcpy(line, text + start, n);
+        line[n] = 0;
+        char *t = trimIn(line);
+        if (t[0] != '@') continue;
+        char *space = strpbrk(t, " \t");
+        char *arg = nullptr;
+        if (space) { *space = 0; arg = trimIn(space + 1); }
+        if (!strcmp(t, "@plategroup")) {
+            if (!applyGroupDirective(arg ? arg : t + strlen(t), true, out, lineNo, err, errCap)) return false;
+        } else if (!strcmp(t, "@gategroup")) {
+            if (!applyGroupDirective(arg ? arg : t + strlen(t), false, out, lineNo, err, errCap)) return false;
+        }
+    }
     return true;
 }
 
@@ -207,6 +361,8 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     long curNpc = -1, curNode = -1;
     int nodeChoices = 0;
     bool oom = false;
+    LegendDef legend[MAX_LEGEND];
+    int legendCount = 0;
 
     // intern helper: sets oom on overflow (checked at the end).
     auto IN = [&](const char *s) -> const char * {
@@ -227,37 +383,42 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
         lineNo++;
         if (rawN >= LINE_CAP) { setErr(err, errCap, lineNo, "line too long"); return false; }
         memcpy(line, text + start, rawN);
+        if (rawN && line[rawN - 1] == '\r') rawN--;
         line[rawN] = 0;
 
-        // Inside @map: every non-blank/comment line is a raw map row until the next '@'.
+        // Inside @map, only a new section or a blank line ends/skips a row; '#' is map data.
         if (sec == MAP) {
             char tmp[LINE_CAP];
             memcpy(tmp, line, rawN + 1);
             char *t = trimIn(tmp);
             if (t[0] == '@') {
                 sec = NONE;   // fall through to section handling below
-            } else if (t[0] == 0 || t[0] == '#') {
+            } else if (t[0] == 0) {
                 continue;
             } else {
                 if (out.rowCount >= MAX_ROWS) { setErr(err, errCap, lineNo, "too many map rows"); return false; }
-                size_t w = strlen(t);
+                size_t w = strlen(line);
                 if (w > (size_t)Otr::MAX_W) { setErr(err, errCap, lineNo, "map row too wide"); return false; }
-                memcpy(out.rows[out.rowCount], t, w + 1);
+                memcpy(out.rows[out.rowCount], line, w + 1);
                 out.rowCount++;
                 continue;
             }
         }
 
         char *t = trimIn(line);
-        if (t[0] == 0 || t[0] == '#') continue;
+        if (t[0] == 0 || (t[0] == '#' && !(sec == LEGEND && strchr(t, '=')))) continue;
 
         if (t[0] == '@') {
             // "@tag" or "@tag arg".
             char *arg = nullptr;
-            char *space = strchr(t, ' ');
+            char *space = strpbrk(t, " \t");
             if (space) { *space = 0; arg = trimIn(space + 1); }
             Sec ns;
             if (!secFromTag(t, ns)) { setErr(err, errCap, lineNo, "unknown section"); return false; }
+            if (ns == PLATEGROUP || ns == GATEGROUP) {
+                sec = NONE;
+                continue;
+            }
             if (ns == DARK && arg && arg[0]) {
                 // v0.18.0: inline rect on the header ("@dark x0,y0 x1,y1"). More rects may follow as
                 // body lines. Over MAX_DARK rects are silently dropped (clipped later in World::load).
@@ -407,6 +568,9 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 if (out.darkCount < Otr::MAX_DARK) out.darks[out.darkCount++] = dr;
                 break;
             }
+            case LEGEND:
+                if (!parseLegendLine(t, legend, legendCount, lineNo, err, errCap)) return false;
+                break;
             case RESOURCES: {
                 // "glyph : id : name.sv : name.en : max : image"
                 stripCommentIn(t);
@@ -539,17 +703,32 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 break;
             }
             default:
-                break;   // LEGEND ignored; NONE skips
+                break;
         }
     }
 
     if (oom) { setErr(err, errCap, lineNo, "out of string space"); return false; }
 
-    // --- Build the MapDef rows (translate resource glyphs to grass, record placements) ---
+    // --- Apply grouped plate/gate authoring before translating resources to grass. ---
     if (out.rowCount == 0) { setErr(err, errCap, 0, "no @map rows"); return false; }
     const size_t w = strlen(out.rows[0]);
     for (int i = 0; i < out.rowCount; i++) {
         if (strlen(out.rows[i]) != w) { setErr(err, errCap, 0, "map rows not equal width"); return false; }
+    }
+    for (int y = 0; y < out.rowCount; y++)
+        for (size_t x = 0; x < w; x++)
+            for (int i = 0; i < legendCount; i++)
+                if (out.rows[y][x] == legend[i].glyph) {
+                    out.rows[y][x] = (char)((legend[i].tile == Otr::Tile::PLATE
+                                                  ? Otr::GROUPED_PLATE_GLYPH
+                                                  : Otr::GROUPED_GATE_GLYPH) +
+                                             legend[i].group);
+                    break;
+                }
+    if (!applyGroupDirectives(text, len, out, err, errCap)) return false;
+
+    // --- Build the MapDef rows (translate resource glyphs to grass, record placements) ---
+    for (int i = 0; i < out.rowCount; i++) {
         for (size_t x = 0; x < w; x++) {
             char ch = out.rows[i][x];
             for (int r = 0; r < out.resourceCount; r++) {

@@ -126,6 +126,75 @@ bool isBuiltinGlyph(char c)
     }
 }
 
+struct LegendDef {
+    char glyph;
+    Otr::Tile tile;
+    uint8_t group;
+};
+
+struct GroupDirective {
+    bool plates;
+    int line;
+    std::string args;
+};
+
+bool groupFromText(const std::string &text, uint8_t &group)
+{
+    if (text.size() != 1) return false;
+    const char c = text[0];
+    if (c == '0') group = 0;
+    else if (c >= '1' && c <= '9') group = (uint8_t)(c - '0');
+    else if (c >= 'A' && c <= 'Z') group = (uint8_t)(c - 'A' + 10);
+    else if (c >= 'a' && c <= 'z') group = (uint8_t)(c - 'a' + 10);
+    else return false;
+    return true;
+}
+
+bool parseLegend(const std::string &line, LegendDef &out, std::string &err, int lineNo)
+{
+    const size_t equals = line.find('=');
+    if (equals == std::string::npos) {
+        err = "line " + std::to_string(lineNo) + ": legend needs 'glyph = plate|gate group'";
+        return false;
+    }
+    const std::string glyphText = trim(line.substr(0, equals));
+    std::string value = stripComment(trim(line.substr(equals + 1)));
+    if (glyphText.size() != 1) {
+        err = "line " + std::to_string(lineNo) + ": legend glyph must be one character";
+        return false;
+    }
+    const char glyph = glyphText[0];
+    if (glyph == 'S' || glyph == ' ' || glyph == '\t' || glyph == '\r' || glyph == '\n' || glyph == '@') {
+        err = "line " + std::to_string(lineNo) + ": reserved legend glyph";
+        return false;
+    }
+    std::istringstream input(value);
+    std::string kind, groupText, extra;
+    if (!(input >> kind)) {
+        err = "line " + std::to_string(lineNo) + ": legend needs 'glyph = plate|gate group'";
+        return false;
+    }
+    const bool hasGroup = bool(input >> groupText);
+    if (input >> extra) {
+        err = "line " + std::to_string(lineNo) + ": legend needs 'glyph = plate|gate group'";
+        return false;
+    }
+    Otr::Tile tile;
+    if (kind == "plate") tile = Otr::Tile::PLATE;
+    else if (kind == "gate") tile = Otr::Tile::GATE;
+    else {
+        err = "line " + std::to_string(lineNo) + ": legend supports only plate and gate";
+        return false;
+    }
+    uint8_t group = 0;
+    if (hasGroup && !groupFromText(groupText, group)) {
+        err = "line " + std::to_string(lineNo) + ": invalid plate/gate group";
+        return false;
+    }
+    out = {glyph, tile, group};
+    return true;
+}
+
 }  // namespace
 
 bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
@@ -138,6 +207,8 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
 
     Otr::Rules rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
     std::vector<std::string> rawRows;
+    std::vector<LegendDef> legend;
+    std::vector<GroupDirective> groupDirectives;
 
     enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND };
     Sec sec = NONE;
@@ -150,26 +221,27 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
     int lineNo = 0;
     while (std::getline(in, line)) {
         lineNo++;
-        // Inside @map every line is a map row until the next '@' section.
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        // Inside @map, only a new section or a blank line ends/skips a row; '#' is map data.
         if (sec == MAP) {
             const std::string t = trim(line);
             if (!t.empty() && t[0] == '@') {
                 sec = NONE;  // fall through to section handling below
-            } else if (t.empty() || t[0] == '#') {
-                continue;  // blank / comment between @map and rows is skipped
+            } else if (t.empty()) {
+                continue;
             } else {
-                rawRows.push_back(t);
+                rawRows.push_back(line);
                 continue;
             }
         }
 
         const std::string t = trim(line);
-        if (t.empty() || t[0] == '#') continue;
+        if (t.empty() || (t[0] == '#' && !(sec == LEGEND && t.find('=') != std::string::npos))) continue;
 
         if (t[0] == '@') {
             // New section header. Form: "@tag" or "@tag arg".
             std::string tag = t, arg;
-            const size_t sp = t.find(' ');
+            const size_t sp = t.find_first_of(" \t");
             if (sp != std::string::npos) {
                 tag = t.substr(0, sp);
                 arg = trim(t.substr(sp + 1));
@@ -198,6 +270,10 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
             else if (tag == "@items") sec = ITEMS;
             else if (tag == "@quests") sec = QUESTS;
             else if (tag == "@legend") sec = LEGEND;
+            else if (tag == "@plategroup" || tag == "@gategroup") {
+                groupDirectives.push_back({tag == "@plategroup", lineNo, arg});
+                sec = NONE;
+            }
             else if (tag == "@npc") {
                 sec = NPC;
                 Npc n{};
@@ -390,6 +466,17 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 doc.items.push_back(nm);
                 break;
             }
+            case LEGEND: {
+                LegendDef def{};
+                if (!parseLegend(t, def, err, lineNo)) return false;
+                for (const LegendDef &existing : legend)
+                    if (existing.glyph == def.glyph) {
+                        err = "line " + std::to_string(lineNo) + ": duplicate legend glyph";
+                        return false;
+                    }
+                legend.push_back(def);
+                break;
+            }
             case NPC: {
                 if (curNpc < 0) break;
                 Npc &n = doc.npcs[(size_t)curNpc];
@@ -470,7 +557,7 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                 break;
             }
             default:
-                break;  // META already handled; LEGEND ignored; NONE skips
+                break;  // META already handled; NONE skips
         }
     }
 
@@ -486,6 +573,64 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
                   " != " + std::to_string(w);
             return false;
         }
+    }
+    for (std::string &row : rawRows)
+        for (size_t x = 0; x < row.size(); x++)
+            for (const LegendDef &def : legend)
+                if (row[x] == def.glyph) {
+                    row[x] = (char)((def.tile == Otr::Tile::PLATE ? Otr::GROUPED_PLATE_GLYPH
+                                                                   : Otr::GROUPED_GATE_GLYPH) + def.group);
+                    break;
+                }
+    for (const GroupDirective &directive : groupDirectives) {
+        std::string args = stripComment(directive.args);
+        const size_t colon = args.find(':');
+        if (colon == std::string::npos) {
+            err = "line " + std::to_string(directive.line) + ": plate/gate group needs 'group: x,y ...'";
+            return false;
+        }
+        uint8_t group;
+        if (!groupFromText(trim(args.substr(0, colon)), group)) {
+            err = "line " + std::to_string(directive.line) + ": invalid plate/gate group";
+            return false;
+        }
+        std::istringstream coords(trim(args.substr(colon + 1)));
+        std::string token;
+        if (!(coords >> token)) {
+            err = "line " + std::to_string(directive.line) + ": plate/gate group needs coordinates";
+            return false;
+        }
+        do {
+            const size_t comma = token.find(',');
+            if (comma == std::string::npos || token.find(',', comma + 1) != std::string::npos) {
+                err = "line " + std::to_string(directive.line) + ": invalid plate/gate coordinate";
+                return false;
+            }
+            const std::string xText = token.substr(0, comma);
+            const std::string yText = token.substr(comma + 1);
+            char *endX = nullptr, *endY = nullptr;
+            const long x = strtol(xText.c_str(), &endX, 10);
+            const long y = strtol(yText.c_str(), &endY, 10);
+            if (!endX || *endX || !endY || *endY || x < 0 || y < 0 || x >= (long)w ||
+                y >= (long)rawRows.size()) {
+                err = "line " + std::to_string(directive.line) + ": invalid plate/gate coordinate";
+                return false;
+            }
+            const uint8_t glyph = (uint8_t)rawRows[(size_t)y][(size_t)x];
+            const bool isPlate = (glyph >= Otr::GROUPED_PLATE_GLYPH && glyph < Otr::GROUPED_GATE_GLYPH) ||
+                                 glyph == 'o';
+            const bool isGate = (glyph >= Otr::GROUPED_GATE_GLYPH &&
+                                  glyph < Otr::GROUPED_GATE_GLYPH + Otr::PLATE_GROUPS) || glyph == '=';
+            if ((directive.plates && !isPlate) || (!directive.plates && !isGate)) {
+                err = "line " + std::to_string(directive.line) +
+                      (directive.plates ? ": @plategroup cell is not a plate" : ": @gategroup cell is not a gate");
+                return false;
+            }
+            rawRows[(size_t)y][(size_t)x] =
+                (char)((directive.plates ? Otr::GROUPED_PLATE_GLYPH : Otr::GROUPED_GATE_GLYPH) + group);
+        } while (coords >> token);
+    }
+    for (size_t i = 0; i < rawRows.size(); i++) {
         // Resource glyphs are not understood by the engine's decode(); record each
         // placement and translate the cell to grass so World::load() accepts the
         // map. The device overlays and picks up resources from doc.resources.
