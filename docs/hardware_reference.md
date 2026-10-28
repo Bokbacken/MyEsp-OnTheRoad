@@ -453,11 +453,15 @@ This order helps avoid startup pops and unexpectedly loud output.
 | Board input | 5 V through USB-C |
 | Battery type | Single-cell 3.7 V LiPo |
 | Charger | TP4054 |
-| Battery measurement | GPIO8 ADC through an onboard divider |
+| Battery measurement | GPIO8 / ADC1 channel 7 through an onboard divider (ratio unverified) |
 | Manufacturer-stated actual charge current | approximately 290 mA |
 | Manufacturer-stated full-system current example | approximately 401 mA with display, speaker, and charging active |
 
-Do not calculate battery voltage from GPIO8 until the divider ratio and ADC calibration are confirmed. Never connect a battery solely by connector shape; confirm polarity first.
+The firmware samples GPIO8 on the ES3C35P only, using ESP-IDF ADC oneshot at 12 dB attenuation and curve-fitting/eFuse ADC calibration when available. It takes eight readings and filters them in a low-priority task at 10-second intervals. Raw ADC counts remain available without ADC calibration; calibrated pin millivolts require the ADC calibration scheme. The P4 profile reports battery measurement as unsupported and never configures the S3 ADC pin.
+
+The divider ratio is still unverified: no matching schematic or manufacturer value has been confirmed. Battery voltage therefore stays **unknown** until an explicit one-point calibration is saved from a multimeter reading across the battery connector. That calibration is an empirical scale factor, not proof of the resistor values or board revision. The UI accepts a measured reference from 2500–4500 mV and a resulting scale from 1.5×–12×; out-of-range readings remain unknown. It never detects charging, USB presence, or battery presence, and it does not show a battery percentage.
+
+For manual validation, compare the displayed raw ADC and calibrated ADC pin voltage with a meter/known voltage, then calibrate against the voltage measured at BAT+ and BAT−. Repeat with audio idle and playing, and with USB disconnected/connected. Check the reading over several samples and after a reboot. The divider, absolute accuracy, and stability under load have **not** been physically verified. Never connect a battery directly to GPIO8 or attach a battery solely by connector shape; confirm polarity first.
 
 ---
 
@@ -526,7 +530,7 @@ A community hardware reference reports a working ST77922 panel and touch configu
 12. Mount microSD in 4-bit mode and perform a write/read test.
 13. Initialize ES8311 while the speaker amplifier remains disabled.
 14. Test low-volume playback, then microphone capture.
-15. Add battery ADC only after the divider ratio has been verified.
+15. Read raw battery ADC only on a verified S3 profile; show voltage only after ADC and one-point divider calibration, and verify the actual divider before treating it as hardware-confirmed.
 
 ---
 

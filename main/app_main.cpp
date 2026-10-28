@@ -13,6 +13,7 @@
 #include "app_players.h"
 #include "app_web.h"
 #include "board_audio.h"
+#include "board_battery.h"
 #include "board_sd.h"
 #include "otr_log.h"
 #include "lang.h"
@@ -20,6 +21,7 @@
 #include "board_display.h"
 #include "board_rgb.h"
 #include "board_touch.h"
+#include "battery_math.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "my_diag.h"
@@ -35,6 +37,8 @@
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
+#include "my_theme.h"
+#include "karaoke.h"
 
 static const char *TAG = "main";
 
@@ -80,6 +84,16 @@ static void colourTest(bool displayOk)
 
 static bool otaBusy() { return MyOta::busy(); }
 
+static Theme::BatteryIndicator batteryIndicator()
+{
+    const BoardBattery::Status status = BoardBattery::status();
+    uint16_t batteryMv = 0;
+    const uint16_t scale = Config::get().batteryScalePermille;
+    return {status.supported && status.sampleValid && status.adcCalibrated &&
+                BatteryMath::batteryMillivolts(status.adcMillivolts, scale, batteryMv),
+            batteryMv};
+}
+
 extern "C" void app_main(void)
 {
     // --- Core services: NVS, log capture, filesystem, settings, clock, diagnostics ---
@@ -91,6 +105,8 @@ extern "C" void app_main(void)
     if (fsOk) MyLog::setEventFile("/ffat/events.log");
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
+    Theme::setBatteryIndicatorReader(batteryIndicator);
+    BoardBattery::begin();
     const AppConfig &cfg = Config::get();
     Lang::setLang(cfg.lang);
     MyTime::begin(CFG_NVS_NS, "clk_t", cfg.tz);   // Same key as the Arduino builds
@@ -199,6 +215,7 @@ extern "C" void app_main(void)
     {
         const bool audioOk = Audio::begin(Touch::bus());
         Audio::setVolumes(cfg.soundOn, cfg.sfxVol, cfg.musicOn, cfg.musicVol);
+        Karaoke::setVolume(cfg.karaVolume);
         ESP_LOGI(TAG, "audio %s", audioOk ? "ok" : "not available");
     }
     UiBoot::setProgress(50);

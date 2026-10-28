@@ -1024,6 +1024,7 @@ bool melodyMuted() { return s_melodyMuted; }
 void setVolume(uint8_t v)
 {
     s_volume = v > 100 ? 100 : v;
+    Config::get().karaVolume = s_volume;
     Audio::setExternalVolume(s_volume);
 }
 

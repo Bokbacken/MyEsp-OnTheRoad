@@ -130,7 +130,7 @@ int melody();
 bool melodyFromRegister();      // Current melody came from the register (user choice)
 void setMelodyMuted(bool m);    // Sing the melody yourself
 bool melodyMuted();
-void setVolume(uint8_t v);      // 0..100 (kept for the session)
+void setVolume(uint8_t v);      // 0..100; session changes update config RAM, caller persists after debounce
 uint8_t volume();
 
 // v0.13.6: countdown dots in pauses >= COUNTDOWN_GAP_MS (max COUNTDOWN_MAX dots), see

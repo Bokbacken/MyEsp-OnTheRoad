@@ -284,6 +284,8 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "sfx_vol", c.sfxVol);
     cJSON_AddBoolToObject(o, "music_on", c.musicOn);
     cJSON_AddNumberToObject(o, "music_vol", c.musicVol);
+    cJSON_AddNumberToObject(o, "kara_volume", c.karaVolume);
+    cJSON_AddNumberToObject(o, "battery_scale_permille", c.batteryScalePermille);
     cJSON_AddNumberToObject(o, "joy_zones", c.joyZones);
     cJSON_AddNumberToObject(o, "joy_slow_ms", c.joySlowMs);
     cJSON_AddNumberToObject(o, "joy_fast_ms", c.joyFastMs);
@@ -319,6 +321,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     }
     if (q.getInt("sfx_vol", 0, 100, v, bad)) next.sfxVol = (uint8_t)v;
     if (q.getInt("music_vol", 0, 100, v, bad)) next.musicVol = (uint8_t)v;
+    if (q.getInt("kara_volume", 0, 100, v, bad)) next.karaVolume = (uint8_t)v;
     if (q.getInt("joy_zones", 1, 4, v, bad)) next.joyZones = (uint8_t)v;
     if (q.getInt("joy_slow_ms", JOY_MS_MIN, JOY_MS_MAX, v, bad)) next.joySlowMs = (uint16_t)v;
     if (q.getInt("joy_fast_ms", JOY_MS_MIN, JOY_MS_MAX, v, bad)) next.joyFastMs = (uint16_t)v;

@@ -62,6 +62,5 @@ constexpr int PIN_AMP_EN   = 1;    // Active LOW: LOW enables the amplifier. Kep
 // Misc
 // ---------------------------------------------------------------------------
 constexpr int PIN_BOOT_BTN = 0;    // BOOT button (strapping pin)
-constexpr int PIN_BAT_ADC  = 8;    // Battery divider - ratio NOT yet verified, report raw ADC only
+constexpr int PIN_BAT_ADC  = 8;    // S3 battery ADC1_CH7; divider ratio is unverified
 // GPIO45 / GPIO46 are strapping pins on the expansion header - do not force levels at reset.
-

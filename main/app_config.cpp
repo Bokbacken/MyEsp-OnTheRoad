@@ -1,5 +1,6 @@
 #include "app_config.h"
 #include "lang.h"
+#include "battery_math.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -48,6 +49,7 @@ void defaults(AppConfig &c)
     c.karaChoLvl = 50;
     c.karaVoices = 32;
     c.karaWebStream = 1;
+    c.karaVolume = 70;
     strcpy(c.tz, DEFAULT_TZ);
     strcpy(c.lang, "sv");
 }
@@ -92,6 +94,8 @@ void begin()
             g_cfg.karaChoLvl = p.getU8("kara_chol", g_cfg.karaChoLvl);
             g_cfg.karaVoices = p.getU8("kara_voices", g_cfg.karaVoices);
             g_cfg.karaWebStream = p.getU8("kara_webstream", g_cfg.karaWebStream) ? 1 : 0;
+            g_cfg.karaVolume = p.getU8("kara_vol", g_cfg.karaVolume);
+            g_cfg.batteryScalePermille = p.getU16("bat_scale", 0);
             // v0.10.0: the walking speed was halved. Settings saved by v0.9.0 with the
             // old defaults (150/75 ms) are upgraded; customised values are kept.
             if (p.getU8("joy_ver", 1) < 2 && g_cfg.joySlowMs == 150 && g_cfg.joyFastMs == 75) {
@@ -149,6 +153,8 @@ bool save()
     ok &= p.setU8("kara_chol", g_cfg.karaChoLvl);
     ok &= p.setU8("kara_voices", g_cfg.karaVoices);
     ok &= p.setU8("kara_webstream", g_cfg.karaWebStream);
+    ok &= p.setU8("kara_vol", g_cfg.karaVolume);
+    ok &= p.setU16("bat_scale", g_cfg.batteryScalePermille);
     return p.commit() && ok;
 }
 
@@ -267,6 +273,8 @@ void sanitize(AppConfig &c)
     if (c.karaChoLvl > 100) c.karaChoLvl = 50;
     if (c.karaVoices < 16 || c.karaVoices > 32) c.karaVoices = 32;
     c.karaWebStream = c.karaWebStream ? 1 : 0;
+    if (c.karaVolume > 100) c.karaVolume = 70;
+    c.batteryScalePermille = BatteryMath::sanitizeScale(c.batteryScalePermille);
     c.karaFont[sizeof(c.karaFont) - 1] = 0;
 }
 
