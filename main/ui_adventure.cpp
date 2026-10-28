@@ -1029,13 +1029,15 @@ static void updateStats()
     else lv_label_set_text_fmt(s_progressLabel, "%s:%d  Par:-",
         strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps());
     char timers[384];
-    size_t used = (size_t)snprintf(timers, sizeof timers, "%s:",
+    snprintf(timers, sizeof timers, "%s:",
         strcmp(Lang::currentLang(), "en") == 0 ? "Gate steps" : "Portsteg");
     bool timed = false;
     for (int group = 0; group < Otr::PLATE_GROUPS; ++group) {
         if (!w.isTimedGroup(group)) continue;
         timed = true;
-        used += (size_t)snprintf(timers + used, sizeof timers - used, " %c:%d",
+        const size_t used = strlen(timers);
+        if (used >= sizeof timers - 1) break;
+        snprintf(timers + used, sizeof timers - used, " %c:%d",
             group < 10 ? '0' + group : 'A' + group - 10, w.timerRemaining(group));
     }
     lv_label_set_text(s_timerLabel, timers);
