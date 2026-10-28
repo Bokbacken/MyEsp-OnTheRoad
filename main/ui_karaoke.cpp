@@ -38,9 +38,9 @@ Layout layout()
     Layout l{};
     l.w = UiMetrics::screenW();
     l.h = UiMetrics::screenH();
-    l.inset = std::clamp(UiMetrics::marginNormal(), 8, 12);
+    l.inset = std::clamp<int32_t>(UiMetrics::marginNormal(), 8, 12);
     l.gap = UiMetrics::marginSmall();
-    l.buttonH = std::clamp(UiMetrics::buttonH(), 44, 52);
+    l.buttonH = std::clamp<int32_t>(UiMetrics::buttonH(), 44, 52);
     l.headerH = l.buttonH + l.gap;
     l.infoY = l.headerH;
     l.lyricsY = l.infoY + my_font_14.line_height + l.gap;
@@ -49,7 +49,7 @@ Layout layout()
     l.seekH = std::max<int32_t>(28, my_font_14.line_height + 12);
     l.seekY = l.bottomY - l.gap - l.seekH;
     l.lyricsH = l.seekY - l.gap - l.lyricsY;
-    l.jumpW = std::clamp(l.w / 12, 40, 52);
+    l.jumpW = std::clamp<int32_t>(l.w / 12, 44, 52);
     l.toolbarY = l.headerH + l.gap;
     l.toolbarW = l.w - l.jumpW - 2 * l.inset - l.gap;
     l.listY = l.toolbarY + l.buttonH + my_font_14.line_height + 2 * l.gap;
@@ -548,6 +548,7 @@ void listDeleted(lv_event_t *e)
     if (s_listTimer) lv_timer_delete(s_listTimer);
     s_listTimer = nullptr;
     s_fontLbl = s_list = s_info = s_searchLbl = s_jumpCol = s_rescanBtn = s_input = nullptr;
+    std::vector<Entry>().swap(s_entries);   // The page callbacks/timer no longer need this UI-only view
 }
 
 void showList()

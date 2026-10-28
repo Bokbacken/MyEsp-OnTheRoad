@@ -6,14 +6,23 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 > **Status:** v0.19.3 – **Phase D: responsive landscape karaoke**.
 > Layout uses live logical dimensions after landscape rotation, targeting **480×320 and 800×480**:
-> full-width scrollable, wrapping lyrics with reserved countdown space, a seek row and one primary row
+> a bounded header with one-line ellipsized title/metadata, full-width scrollable, wrapping lyrics,
+> a seek row and one primary row
 > (restart / −5 s / play-pause / +5 s / stop). A header hamburger holds tempo/key/volume, melody on/off
 > and melody-track choice with current state. Sheets stay screen-bounded with scrollable content and
 > a fixed close control. The song-list global bank selector remains; there is no player bank control,
 > and existing per-song registry bank overrides retain precedence.
-> Memory work maps existing allocations and adds heap diagnostics; no measured byte savings,
+> Countdown dots flow with the lyrics and are hidden when absent; sheet titles/hints wrap.
+> Host-checked lyric viewports are 460×158 / 776×292, with 88×44 / 150×52 transport buttons.
+> A local shared-TextInput correction anchors the keyboard at the top-left instead of shifting it below the display; no broad rewrite.
+> Memory work maps existing allocations, releases UI-only vectors/raw parsed MIDI bytes and adds heap diagnostics; no measured byte savings,
 > new full-screen buffers, synth/protocol/driver/profile changes or physical P4 support are claimed.
-> **Phase D test outcomes and firmware build verification are pending; all physical tests remain.**
+> **Karaoke and adventure-game host layout tests pass; three unchanged-source layout checks fail**
+> (Yatzy, adventure setup, mine dialog; details in the inventory). MIDI/index/stream/language tests pass.
+> Local firmware build was blocked by missing ESP-IDF. CI run `40664764225` for `a8f91ae`
+> failed at `ui_karaoke.cpp:41/43/52`: Xtensa `int32_t` (`long`) versus integer literals
+> prevented `std::clamp` type deduction. All three calls now use `std::clamp<int32_t>`;
+> the corrected source awaits a new commit/CI run. **No firmware build success claimed; all physical tests remain.**
 > 800×480 is a logical layout target, not a verified physical P4 resolution.
 > See [UI migration acceptance](docs/ui-migration-inventory.md#fas-d--karaoke-layout-och-minnesdiagnostik)
 > and the [karaoke plan](docs/MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
@@ -388,6 +397,16 @@ g++ -std=c++17 -Wall -Wextra -O2 -Icomponents/otr_midi/include -Icomponents/otr_
 ```
 
 With the project's LVGL dependency available in `managed_components/lvgl__lvgl`, run
+`python3 tests/test_karaoke_layout.py /tmp/karaoke-layout-test` from the repository root
+for the production Karaoke UI, real TextInput and MIDI/index at logical 480×320 and 800×480
+in Swedish/English, using the production 256 KiB LVGL heap (engine/hardware stubbed).
+It covers flip, page next/back, scrolling to the last A–Ö key (minimum 44×42 px targets),
+modal-hit search, real keyboard CANCEL/READY callbacks and all keyboard child bounds,
+minus/plus on all steppers, last track, long messages, lyrics/no lyrics and actual-font label fit.
+See the [Phase D results](docs/ui-migration-inventory.md#körda-d-kontroller-och-verifieringsgräns)
+for exact recorded commands, results and remaining physical checks.
+
+Run
 `python3 tests/test_yatzy_layout.py` for host-side variants/players/picker, Yatzy game screen/dialogs,
 web-turn overlay and PIN numpad layout and interaction
 checks at 320×480, 480×800 and 800×480 in Swedish and English (CMake/Ninja required, no hardware).

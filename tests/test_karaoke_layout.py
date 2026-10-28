@@ -284,6 +284,8 @@ static void checkPlayer() {
         lv_obj_scroll_to_view(row, LV_ANIM_OFF); settle(); inside(row, body);
         for (int j : {1, 3}) fitsText(lv_obj_get_child(row, j));
         click(lv_obj_get_child(row, 3));
+        click(lv_obj_get_child(row, 1));
+        click(lv_obj_get_child(row, 3));
     }
     assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::volume() == 90);
     closeMenu();
@@ -323,9 +325,23 @@ int main() {
             UiKaraoke::show(); settle();
             const auto l = layout();
             assert(l.w == size.y && l.h == size.x);
+            printf("%dx%d %s flip=%d: lyrics=%dx%d, primary touch=%dx%d\n",
+                   int(l.w),int(l.h),language,int(flip),int(l.w-2*l.inset),int(l.lyricsH),
+                   int(l.bottomW),int(l.buttonH));
             inside(s_list, s_listScr); inside(s_jumpCol,s_listScr);
             assert(lv_obj_get_scroll_bottom(s_jumpCol) > 0);
             assert(lv_obj_get_child_count(s_list) <= PAGE + 2);
+            click(button(s_list, LV_SYMBOL_RIGHT)); assert(s_page == 1);
+            click(button(s_list, LV_SYMBOL_RIGHT)); assert(s_page == 2);
+            auto *jump = lv_obj_get_child(s_jumpCol,-1);
+            lv_obj_scroll_to_view(jump,LV_ANIM_OFF); settle(); inside(jump,s_jumpCol); fitsText(jump);
+            click(jump); assert(s_page == 2);
+            click(button(s_list, LV_SYMBOL_LEFT)); assert(s_page == 1);
+            click(button(s_list, LV_SYMBOL_LEFT)); assert(s_page == 0);
+            for (unsigned i=0; i<lv_obj_get_child_count(s_list)-1; ++i) {
+                auto *songButton=lv_obj_get_child(s_list,i);
+                inside(lv_obj_get_child(songButton,0),songButton);
+            }
             auto *bank = button(s_listScr, tr(Str::KARA_BTN_FONT));
             fitsText(bank);
             click(bank); auto *body = sheetBody();
@@ -335,12 +351,18 @@ int main() {
                    std::string(Karaoke::defaultFont()).find("Åäö") != std::string::npos);
             auto *search = lv_obj_get_parent(s_searchLbl);
             click(search); assert(s_input);
-            inside(lv_obj_get_child(s_listScr,-1),s_listScr);
-            searchDone(" long ", true, nullptr); settle();
+            inside(s_input,s_listScr);
+            for (unsigned i=0; i<lv_obj_get_child_count(s_input); ++i) inside(lv_obj_get_child(s_input,i),s_input);
+            lv_obj_send_event(lv_obj_get_child(s_input,3),LV_EVENT_CANCEL,nullptr); settle();
+            assert(!s_input && s_mode != ListMode::SEARCH);
+            click(search); assert(s_input);
+            lv_textarea_set_text(lv_obj_get_child(s_input,2)," long ");
+            lv_obj_send_event(lv_obj_get_child(s_input,3),LV_EVENT_READY,nullptr); settle();
             assert(s_mode == ListMode::SEARCH && s_query == "long");
             openEntry(s_firstSong); settle();
             assert(Karaoke::usedBank == Karaoke::defaultFont());
             checkPlayer();
+            assert(s_entries.capacity() == 0); // Old list screen and its UI-only view are gone
             click(button(P.scr,LV_SYMBOL_LEFT)); assert(!Karaoke::isOpen());
             assert(!s_sheet && s_listTimer);
             goUp(); // Leave search before exiting
@@ -370,6 +392,16 @@ int main() {
         Karaoke::font=Karaoke::FontState::READY; updateFontLabel(); settle();
         assert(!s_waitDlg && lv_obj_get_child_count(lv_layer_top()) == 0);
     }
+    Karaoke::opened = true; Karaoke::data.lines.clear();
+    showPlayer(); settle();
+    assert(!strcmp(lv_span_get_text(P.spRest),tr(Str::KARA_NO_LYRICS)));
+    click(button(P.scr,LV_SYMBOL_LIST)); sheetBody(); closeMenu();
+    msg(std::string(1600,'A').c_str()); settle();
+    auto *longBox=lv_obj_get_child(lv_obj_get_child(lv_layer_top(),-1),0);
+    inside(longBox,lv_screen_active());
+    auto *content=lv_msgbox_get_content(longBox); inside(content,longBox);
+    assert(lv_obj_get_scroll_bottom(content)>0);
+    lv_msgbox_close(longBox); settle();
     rotateOK=false;
     const auto *old=s_listScr;
     UiKaraoke::show(); settle(); assert(old == s_listScr); // No misoriented screen on allocation failure
