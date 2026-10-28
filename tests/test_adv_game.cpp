@@ -71,7 +71,7 @@ static void testBlit(G::Rect view)
 {
     constexpr uint16_t key = 0xF81F, untouched = 0xEEEE;
     for (int ts : {16, 32}) {
-        std::vector<uint16_t> sprite(ts * ts);
+        std::vector<uint16_t> sprite(size_t(ts) * ts);
         for (size_t i = 0; i < sprite.size(); ++i) sprite[i] = i % 3 ? uint16_t(i) : key;
         // Include row padding, leading/trailing guards and sprites fully/partly outside every edge.
         for (int stride : {view.w, view.w + 3}) {
