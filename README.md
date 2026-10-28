@@ -4,7 +4,32 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
+> **Status:** v0.19.3 – **Phase D: responsive landscape karaoke**.
+> Layout uses live logical dimensions after landscape rotation, targeting **480×320 and 800×480**:
+> a bounded header with one-line ellipsized title/metadata, full-width scrollable, wrapping lyrics,
+> a seek row and one primary row
+> (restart / −5 s / play-pause / +5 s / stop). A header hamburger holds tempo/key/volume, melody on/off
+> and melody-track choice with current state. Sheets stay screen-bounded with scrollable content and
+> a fixed close control. The song-list global bank selector remains; there is no player bank control,
+> and existing per-song registry bank overrides retain precedence.
+> Countdown dots flow with the lyrics and are hidden when absent; sheet titles/hints wrap.
+> Host-checked lyric viewports are 460×158 / 776×292, with 88×44 / 150×52 transport buttons.
+> A local shared-TextInput correction anchors the keyboard at the top-left instead of shifting it below the display; no broad rewrite.
+> Memory work maps existing allocations, releases UI-only vectors/raw parsed MIDI bytes and adds heap diagnostics; no measured byte savings,
+> new full-screen buffers, synth/protocol/driver/profile changes or physical P4 support are claimed.
+> **Karaoke and adventure-game host layout tests pass; three unchanged-source layout checks fail**
+> (Yatzy, adventure setup, mine dialog; details in the inventory). MIDI/index/stream/language tests pass.
+> Local firmware build was blocked by missing ESP-IDF. CI run `40664764225` for `a8f91ae`
+> failed at `ui_karaoke.cpp:41/43/52`: Xtensa `int32_t` (`long`) versus integer literals
+> prevented `std::clamp` type deduction. All three calls now use `std::clamp<int32_t>`;
+> corrected code commit `18586b0` now awaits approval of [CI run 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561)
+> (`action_required`). CodeQL reports zero C++/Python alerts; secret scanning found none.
+> **No firmware build success claimed; all physical tests remain.**
+> 800×480 is a logical layout target, not a verified physical P4 resolution.
+> See [UI migration acceptance](docs/ui-migration-inventory.md#fas-d--karaoke-layout-och-minnesdiagnostik)
+> and the [karaoke plan](docs/MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
+>
+> Previous: v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
 > Adventures now load as `.adv` text files from the SD card (`/otr/adventure`); see
 > [docs/AUTHORING_ADVENTURES.md](docs/AUTHORING_ADVENTURES.md). A map can mark **dark areas**
 > (`@dark`) that hide their contents until a **flashlight** (glyph `f`, levels 1–3) lights a cone
@@ -140,7 +165,9 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 
 ## Features
 
-- **Karaoke (v0.13.0/v0.13.1, not hardware-tested)** – landscape screen, multiple SoundFonts (global default + per song), plays `.mid`/`.kar` from the SD card through a SoundFont synth
+- **Karaoke (v0.19.3 Phase D, physical verification pending)** – responsive landscape layout at logical
+  480×320 / 800×480, wrapping scrollable lyrics, one primary transport row and hamburger settings;
+  multiple SoundFonts (song-list global default, existing per-song registry overrides), plays `.mid`/`.kar` from the SD card through a SoundFont synth
   (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
   per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
 - **Sound (v0.9.0, hardware-tested)** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
@@ -372,6 +399,16 @@ g++ -std=c++17 -Wall -Wextra -O2 -Icomponents/otr_midi/include -Icomponents/otr_
 ```
 
 With the project's LVGL dependency available in `managed_components/lvgl__lvgl`, run
+`python3 tests/test_karaoke_layout.py /tmp/karaoke-layout-test` from the repository root
+for the production Karaoke UI, real TextInput and MIDI/index at logical 480×320 and 800×480
+in Swedish/English, using the production 256 KiB LVGL heap (engine/hardware stubbed).
+It covers flip, page next/back, scrolling to the last A–Ö key (minimum 44×42 px targets),
+modal-hit search, real keyboard CANCEL/READY callbacks and all keyboard child bounds,
+minus/plus on all steppers, last track, long messages, lyrics/no lyrics and actual-font label fit.
+See the [Phase D results](docs/ui-migration-inventory.md#körda-d-kontroller-och-verifieringsgräns)
+for exact recorded commands, results and remaining physical checks.
+
+Run
 `python3 tests/test_yatzy_layout.py` for host-side variants/players/picker, Yatzy game screen/dialogs,
 web-turn overlay and PIN numpad layout and interaction
 checks at 320×480, 480×800 and 800×480 in Swedish and English (CMake/Ninja required, no hardware).

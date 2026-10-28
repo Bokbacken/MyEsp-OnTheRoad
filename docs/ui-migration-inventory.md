@@ -1,8 +1,9 @@
 # Fas A – UI-inventering och migrationsordning
 
 Inventeringsdatum: **27 oktober 2026**. Avsedd som arbets- och testunderlag inför **28 oktober**.
-Inventeringen är en källkodsgranskning; aktuell Fas B2-status och verifieringsgräns följer nedan.
-Firmwareversion **0.19.2** efter uttrycklig begäran i B2-review.
+Inventeringen är en källkodsgranskning; Fas B2/C och historiska verifieringsgränser bevaras nedan.
+Aktuell firmwareversion **0.19.3**, Fas D. Faktiska hostresultat och byggbegränsning
+redovisas i D-avsnittet; inga fysiska D-tester är utförda eller godkända här.
 
 ## Fas B2 – genomfört 28 oktober 2026
 
@@ -384,7 +385,147 @@ Ingen anledning att ändra motorerna
 `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/game_farkle.cpp` eller
 `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/game_scc.cpp`.
 
-## Karaoke – enbart gemensamma beroenden i Fas A
+## Fas D – Karaoke-layout och minnesdiagnostik
+
+Aktuellt arbete 28 oktober 2026, **v0.19.3**. Detta ersätter Fas A:s uppskjutna
+Karaoke-layoutbeslut, inte B/C eller deras historiska resultat. Minneskarta och
+avgränsningar finns i [befintliga Karaokeplanen](MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
+Tabellen under ”Historisk Fas A-baslinje” nedan beskriver läget vid inventeringen,
+inte ett påstående om dagens fasta mått.
+
+### Layoutbeslut och ägarskap
+
+- Läs live `UiMetrics::screenW/H` **efter** lyckad landscapeväxling; beräkna
+  listans, spelarens och sheetarnas geometri från dessa mått. Målen är logiskt
+  **480×320 och 800×480**. Det senare är inte fysiskt verifierad P4-upplösning.
+  Insets begränsas till **8–12 px** från metrics, kontrollhöjd till **44–52 px**,
+  med delad breddberäkning och begränsade gap. Ingen egen extra touchrotation
+  eller ändrad profil/driver ingår.
+- Headern är begränsad till `buttonH + gap`; titel och metadata är enradiga med
+  DOTS, inte innehållsexpanderande. Sheetarnas titlar/hints radbryter och har
+  innehållsstyrd höjd. Efter header/metadata, seekrad och **en** primär kontrollrad
+  får textytan återstående bredd/höjd och vertikal scroll. Nedräkningen ingår i
+  textens flexflöde och döljs när den saknas, utan separat fast höjdreservation.
+  Aktiv rad är en radbrytande
+  spangroup med sjungen/återstående text; kontexten är föregående och två kommande
+  rader: **fyra synliga logiska textrader**, inte LVGL-objekt för hela låten.
+  En lång logisk rad kan uppta flera visuella rader.
+  Produktionsgeometrin är:
+
+  ```text
+  headerH = buttonH + gap
+  lyricsY = headerH + font14.line_height + gap
+  bottomY = h - inset - buttonH
+  seekH = max(28, font14.line_height + 12)
+  seekY = bottomY - gap - seekH
+  lyricsH = seekY - gap - lyricsY
+  ```
+
+  Godkända produktions-UI-tester mäter **460×158 px** textviewport och **88×44 px**
+  kontroller vid 480×320; **776×292 px** respektive **150×52 px** vid 800×480.
+  Ingen fallback behövs på dessa två storlekar. Med faktiska fonter verifieras
+  att ±5-etiketterna ryms; fysisk läsbarhet återstår. Listans A–Ö-kolumn scrollar
+  med minst **44 px** träffbredd och **42 px** träffhöjd.
+- Primärraden är **omstart / −5 s / spela-paus / +5 s / stopp** på båda storlekar.
+  Hamburger i headern ger Tempo/tonart (befintlig sheet med volym), melodi på/av
+  och melodispårsval; nuvarande värden/val ska framgå. Inget ljudbanksreglage i
+  spelaren. Listans globala bankval består och befintligt `sf2=` per låt i
+  registret har fortsatt företräde; ingen registermigrering.
+- Sheets begränsas av skärmen: innehållet scrollas, stängknappen ligger fast
+  utanför scrollen och kan alltid nås. Sheetens lokala fontlista släpper även
+  vektorkapaciteten när sheeten raderas. UI-vyn `s_entries` släpper kapaciteten
+  när ägande listskärm raderas. Rå MIDI-bytevektor frigörs efter lyckad
+  parsning/CRC, före synthförberedelse; inga uppmätta bytebesparingar påstås.
+- Behåll async-stängning, skärm-/timer-cleanup, fade, väntedialog och befintligt
+  audio-/fonttaskägarskap. Inga nya fullskärmsbuffertar, synth-, protokoll-,
+  driver- eller profiländringar. `close()` är fortsatt inte bank-unload.
+- En lokal, tätt kopplad korrigering i delad `main/my_textinput.cpp`, inte en
+  bred omskrivning: tangentbordets befintliga bottenankare flyttade det under
+  displayen. `lv_obj_align(q->kb, LV_ALIGN_TOP_LEFT, 0, kbY)` ersätter
+  `lv_obj_set_pos`; riktiga CANCEL/READY-callbacks och alla tangentbordsbarns
+  bounds kontrolleras nu i det godkända Karaokehosttestet.
+- `ESP_LOGI`/`heap_caps` loggar fri intern **8-bitars** heap, fri PSRAM och största
+  fria PSRAM-block. `kara-ui`: `enter`, `landscape`, `list`, `player`, `portrait`,
+  `screen-cleanup` (async efter LVGL-deletion). `karaoke`: `bank-task-start`,
+  `bank-task-end`, `bank-unloaded`, `song-open-start`, `song-open-end`, `song-closed`.
+  Banktaskens stack frigörs **efter** `bank-task-end`; bibliotekets, strömmens
+  och rotationsbuffertens livstid är oförändrad. Loggarna är mätpunkter, inte
+  bevis på frigjorda byte; jämför upprepade körningar efter färdig async/fade.
+
+### Körda D-kontroller och verifieringsgräns
+
+Följande kördes från reporoten. LVGL **9.6.0** hämtades till `/tmp` och länkades från
+ignorerade `managed_components`; Karaokehosttestet använder produktionsheapen
+**256 KiB**. Inga orelaterade tester eller produktionskällor ändrades.
+
+| Kommando/kontroll | Faktiskt resultat och gräns |
+|---|---|
+| `python3 tests/test_karaoke_layout.py /tmp/karaoke-layout-test` | **PASS**. Hela produktions-UI:t, riktig TextInput och MIDI/index; engine/hårdvara stubbade. Produktionens `currentRequest/setDefaultFont` extraheras. Live flip, SV/EN, sidbyte fram/bak, scroll till sista A–Ö-knappen (minst 44×42 px), modal-hit-sökning, riktiga tangentbords-CANCEL/READY-callbacks och alla tangentbordsbarns bounds, minus/plus på samtliga steppers, sista spåret, 1 600 teckens meddelande och utan lyrics; verkliga fonter, etikettpassning och mått enligt ovan. |
+| `python3 tests/test_adv_game_layout.py /tmp/karaoke-regression-adv-game` | **PASS**, befintligt Äventyrs spel-layouttest. |
+| MIDI C++ (`tests/test_midi.cpp`) | **100 passed / 0 failed**. Ägarskapsregression i befintliga `testParseKar`: originalbytes nollställs och frigörs direkt efter parsning, före befintliga kontroller av parsade data. |
+| Index C++ (`tests/test_karaindex.cpp`) | **130 passed / 0 failed**. |
+| Stream C++ (`tests/test_karastream.cpp`) | **181 passed / 0 failed**. |
+| Språk C++ (`tests/test_lang.cpp`) | **1 958 passed / 0 failed**, 482 strängar, två språk. |
+| `python3 tests/test_yatzy_layout.py /tmp/karaoke-regression-yatzy` | **FAIL**, oförändrade berörda källor: containment `277,74..332,89` mot förälder `5,54..314,413`. |
+| `python3 tests/test_adv_setup.py /tmp/karaoke-regression-adv-setup` | **FAIL**, oförändrade berörda källor: listans `x == AdvUi::scale(6)`. |
+| `python3 tests/test_mine_dialog.py /tmp/karaoke-regression-mine` | **FAIL**, oförändrade berörda källor: kontroll `32,11304..287,11346` utanför 320×480. |
+| `idf.py build` / firmware-CI | **Kunde inte byggas lokalt**: command not found, ESP-IDF saknas. CI-workflow **40664764225** för **a8f91ae** **FAIL** vid `ui_karaoke.cpp:41/43/52`: `std::clamp`-typdeduktion misslyckas eftersom Xtensas `int32_t` är `long` men literalerna är `int`. Alla tre anrop är korrigerade till `std::clamp<int32_t>` i **18586b0**. [Kodcommitens CI 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561) kräver godkännande (`action_required`); inget lyckat firmwarebygge påstås. |
+| Slutverifiering efter kodcommit/CodeQL | Karaokehosttestet samt MIDI/index/stream/språk kördes om och **PASS**. CodeQL **0 C++/Python-larm**, hemlighetsskanning utan fynd och läsande kodgranskning utan betydande fynd. |
+
+Exakta C++-kommandon från reporoten, med körda binärer i `/tmp/karaoke-regression`:
+
+```sh
+mkdir -p /tmp/karaoke-regression
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_midi/include -Itests tests/test_midi.cpp components/otr_midi/*.cpp -o /tmp/karaoke-regression/test_midi && /tmp/karaoke-regression/test_midi
+g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_midi/include tests/test_karaindex.cpp main/kara_index.cpp -o /tmp/karaoke-regression/test_karaindex && /tmp/karaoke-regression/test_karaindex
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_midi/include -Itests tests/test_karastream.cpp main/kara_stream.cpp components/otr_midi/*.cpp -o /tmp/karaoke-regression/test_karastream && /tmp/karaoke-regression/test_karastream
+g++ -std=c++17 -Wall -Wextra -Imain -Imain/lang tests/test_lang.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o /tmp/karaoke-regression/test_lang && /tmp/karaoke-regression/test_lang
+```
+
+Hosttesterna bevisar inte fysisk touch/läsbarhet, ljudsynk/underruns,
+minnesmarginal på enhet eller P4-display-/touchportning.
+
+### Manuell D-acceptans – allt återstår
+
+Utför hela checklistan på **båda logiska landscape-måtten 480×320 och 800×480**.
+Fysisk större skärm kräver först verifierad display/touch; ett hostmått är ingen
+P4-portning. Registrera enhet, firmware, faktisk/logisk upplösning, språk,
+systemrotation, karaFlip, låt/bank, förväntat/faktiskt och loggar. Hostresultat
+står ovan; hela den fysiska checklistan nedan återstår.
+
+- [ ] In/ut och återinträde med **båda karaFlip** och **systemrotation 0/180°**:
+  touch hörn/mitt, lista/spelare/sheets/väntedialog, sedan huvudmeny → Äventyr →
+  meny → Yatzy. Portrait, touch och tidigare B/C-flöden ska återställas utan
+  dubbel rotation, kvarliggande modal eller stale timer.
+- [ ] Lång låtlista (>40 poster), sista sida, mappar/bakåt, A–Ö, lång sökning,
+  tom sökträff, tangentbord/sökavbryt och omskanning; långa SV/EN-namn. Globalt
+  bankval med många/långa banknamn, giltig/ogiltig/saknad bank och vänteläge.
+  Inga dolda kontroller; kontrollera att gammal per-låt-bank fortfarande vinner.
+- [ ] Låtöppning, spela, pausa/fortsätt, stopp, omstart, −5/+5 s, seek nära början/
+  slut, naturligt låtslut och tillbaka till listan. Endast en primärrad, alla
+  träffytor nåbara och rätt position/status; inga audio- eller laddningsregressioner.
+- [ ] Långa titlar och textrader: fullbredds textyta, sjungen/återstående
+  spangroup radbryts, föregående/två nästa rader scrollas utan kontrollöverlapp.
+  Kontrollera stavelsesynk och återställning efter paus/seek/tempo/omstart,
+  långa intron och pauser med nedräkning; punkterna ingår i scrollens flexflöde
+  och döljs när nedräkning saknas, utan överlapp med kontroller.
+- [ ] Alla hamburgervägar: öppna/stäng/återöppna meny, Tempo/tonart/volym och
+  deras gränser, melodi av/på, spår automatiskt/explicit och tillbaka/stäng.
+  Aktuella värden/val syns; långa spårnamn och sista raden går att scrolla till.
+  Varje sheet hålls inom skärmen med fast nåbart kryss, ingen genomklickning;
+  spelaren saknar bankval och listans bankväg är fortsatt tillgänglig.
+- [ ] Starta med ljud av: prova **Ja och Nej separat**, fortsatt uppspelning/
+  tyst läge, stäng och återinträde, sedan meny/Äventyr/Yatzy. Inget kvarliggande
+  top-layer, oavsiktligt ljudpåslag eller fastlåst återväg.
+- [ ] Upprepa minst tre hela inträden/utträden, låtbyten och globala bankcykler,
+  öppna/stäng font-/spårsheets och vänta ut laddning/fade. Logga **fri intern
+  heap, fri PSRAM och största fria PSRAM-block** före/efter rotation, cleanup,
+  låtöppning, bankladdning start/slut och unload. Skilj kvarhållen cache från
+  växande förlust; notera OOM, fragmentering och audio/underruns/hack samt att
+  spelmusiken återkommer korrekt. Inga besparingar eller stabilitetsresultat
+  får anges utan dessa mätningar.
+
+### Historisk Fas A-baslinje
 
 **K** avser `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/ui_karaoke.cpp`.
 Karaoke har **absolut landscape-bas 480×320**, `W/H` (K:26–29).
@@ -429,7 +570,7 @@ säker väg tillbaka gör det.
 | 5 / **P1, C1 genomförd** | Gemensam mini-layout för **Pig → Farkle → Skepp & kapten**, inklusive board/filt/info/knappar, tärningsplatser/nest och flash. **Medel**, Farkle högre hitboxrisk. D: `miniLayout` och `showMini`. | Hostgeometri utökad för 1/2/5/6 tärningar och åtta scoreboardposter på 320×480/480×800. Motorer och Yatzys cupfysik orörda. Fysisk träffsäkerhet/läsbarhet och spel/overlay-flöden ska fortfarande göras manuellt. |
 | 6 / **P1, C2 genomförd** | Båda resultatvyerna `showResults/showMiniResults` delar `resultLayout`. Ranking, poäng, återspel och menysemantik oförändrade. | Hostgeometri täcker åtta resultatrader och bottenknappar på 320×480/480×800; scrolling finns när kortet inte rymmer innehållet. Fysisk namn-/poängläsbarhet och knappåtkomst återstår. |
 | 7 / **P2, hjälpvyer** | Inställningar, Wi-Fi, klocksetter, boot, OTA och temaankare enligt tabellen ovan. **Låg–medel.** | Kan skjutas upp om navigationen är säker i första testet. Uppgradera till P0 för det faktiska testflödet om t.ex. nätval/retur blir oåtkomligt. **Godkänt:** kropp/footer anpassas med befintliga helpers, långa texter/scroll och touch utan regress; inga globala temabyte som oförutsett påverkar alla spel. |
-| 8 / **P2, separat Karaoke-steg** | Karaoke-layout/minnesmätning, eventuell cache-/bufferlivscykel och senare syntharbete. **Hög resursrisk.** K, karaoke-/LVGL-/synthfilerna ovan. | Efter Äventyr och de tre tärningsspelen, enligt befintlig Karaokeplan. **Godkänt:** dokumenterad före/efter-mätning på befintlig S3 och senare P4, korrekt rotation/retur och fortsatt S3-funktion. OOM vid rotation/återgång som påverkar övriga spel lyfts till gemensam P0; full Karaoke-migrering är inte en förutsättning för första speltestet. |
+| 8 / **Fas D, aktuellt avgränsat steg** | Responsiv Karaoke-layout och minnesdiagnostik enligt D-avsnittet ovan och befintlig Karaokeplan. **Hög resursrisk.** Ingen synth-/driver-/profiländring eller ny fullskärmsbuffer. | Efter B/C. Acceptans på logiska 480×320/800×480 samt upprepade heap-/audioflöden enligt D-checklistan; alla fysiska resultat återstår. OOM vid rotation/återgång som påverkar övriga spel är gemensam P0. Senare optimering kräver mätdata. |
 
 ### Avgränsade Äventyrs-ändringar
 
@@ -486,7 +627,7 @@ För webb-overlay behövs separat ansluten och frånkopplad webbsits.
 | S8 Farkle | Samtliga sex tärningar, välj/avvälj, låst/hållen/nest, kast/flash och Banka; webb-overlay. | Samma, även kantträff mellan täta tärningar. | Ingen granntärning togglas; låsta kan inte frigöras, överlagrad touch blockeras. |
 | S9 Skepp & kapten | Fem tärningar, skepp/kapten/besättning/chips, last, Spara/Kasta, resultat. | Samma; text/last-hint och långa namn får inte täcka knappar. | Låst/valbar skiljs, alla kontroller/resultat/retur nåbara. |
 | S10 Gemensamt/Yatzy regress | Variant/players/picker/filter, PIN fel/omförsök/avbryt, Yatzy cup/ROLL↔RESULT/table-scroll, avslutsdialog och ranking. | Samma; webbspel ansluten/frånkopplad→spela lokalt för alla tre mini-spel också. | Tidigare färdiga flöden förblir fungerande; fixa inte deras motor/nätprotokoll för layout. |
-| S11 Orienteringsretur, avgränsad Karaoke | In/ut från låtlista, karaFlip båda lägen, 0/180° systemrotation; hörn/mitt, sheet/väntedialog. Starta också med ljud av: prova både Ja och Nej i startup-dialogen, sedan tillbaka till meny→Äventyr. Prova låtstart bara om data/bank finns och tid medger. | Samma **efter** spelbaslinjen; större landscape-UI förväntas ännu ha fasta 480×320-mått. | Portrait och touch återställda, inget dolt modalobjekt efter något av dialogsvaren. **STOPP för rotationsväxlingen** vid OOM/felmappning; ingen full Karaoke-/synthacceptans krävs eller påstås. |
+| S11 Orienteringsretur, Karaoke | In/ut från låtlista, karaFlip båda lägen, 0/180° systemrotation; hörn/mitt, sheet/väntedialog. Starta med ljud av: både Ja och Nej, sedan meny→Äventyr→Yatzy. | Samma **efter** spelbaslinjen, nu med logiskt 800×480 som D-layoutmål, inte fysiskt P4-bevis. | Portrait/touch återställda, inga dolda modalobjekt. **STOPP** vid OOM/felmappning. Full D-acceptans följer checklistan ovan; samtliga fysiska resultat återstår. |
 
 **Kortaste praktiska körordning:** S0 → S1 → S2–S6 (Äventyr) → S7 → S8 → S9 →
 S10 → S11. Vid knapp tid: ta baslinje och avvikelser hellre än att stressa in B2

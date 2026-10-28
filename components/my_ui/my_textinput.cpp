@@ -134,7 +134,7 @@ lv_obj_t *openQwerty(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int32_t 
     lv_keyboard_set_textarea(q->kb, q->ta);
     lv_keyboard_set_popovers(q->kb, true);
     const int32_t kbY = pad + 20 + 56;
-    lv_obj_set_pos(q->kb, 0, kbY);
+    lv_obj_align(q->kb, LV_ALIGN_TOP_LEFT, 0, kbY);
     lv_obj_set_size(q->kb, w, h - kbY);
     lv_obj_set_style_bg_color(q->kb, Theme::c(Theme::BG), 0);
     lv_obj_set_style_border_width(q->kb, 0, 0);

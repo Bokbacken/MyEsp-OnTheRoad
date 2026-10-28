@@ -109,6 +109,9 @@ static void testParseKar()
     std::vector<uint8_t> f = karFile();
     Song s;
     CHECK(parse(f.data(), f.size(), s) == Err::OK);
+    // Karaoke releases the raw file before synth preparation; parsed data must be independent.
+    memset(f.data(), 0, f.size());
+    std::vector<uint8_t>().swap(f);
     CHECK(s.format == 1 && s.tracks == 5 && s.division == 480);
     CHECK(s.title == "Testlåt" || s.title == "Testl\xC3\xA5t");
     CHECK(s.artist == "Artisten");

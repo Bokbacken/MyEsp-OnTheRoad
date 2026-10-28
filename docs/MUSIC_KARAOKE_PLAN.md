@@ -1,8 +1,11 @@
 # Karaoke och musik – design och plan
 
-Senast uppdaterad: 2026-10-25 (v0.13.1). Status: steg 1 klart i v0.13.0 och utökat i v0.13.1 (liggande skärm,
-flera ljudbanker; ej HW-testat), steg 2 (mikrofon och
-poäng) planerat till v0.14.0.
+Senast uppdaterad: 2026-10-28 (**v0.19.3, Fas D**). Steg 1 och dess historiska
+utökningar beskrivs nedan; aktuellt arbete är responsiv Karaoke och
+minnesdiagnostik, inte mikrofon/poäng. D-hostresultat och lokal byggbegränsning
+redovisas i befintliga UI-inventeringen;
+**alla fysiska D-tester återstår**. Steg 2:s äldre v0.14.0-mål är historiskt,
+inte en leverans i denna version.
 
 ## 1. Mål
 
@@ -91,6 +94,92 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   grupperas efter kanalernas sändnivåer så att varje grupp renderas en gång. Inställningar i NVS (`kara_rev`,
   `kara_revl`, `kara_cho`, `kara_chol`; på, 50 %). Inga reglage i UI:t ännu.
 - **v0.13.1 – ljud av:** går man in i karaoke med ljudet avstängt frågar en dialog om ljudet ska slås på.
+
+## 2.5 Fas D – responsiv Karaoke och minneskartläggning (v0.19.3)
+
+Fortsättning på UI-migreringens B/C, utan att ändra deras historia eller lägga
+en parallell plan. Layout och den fullständiga manuella acceptanslistan finns i
+[UI-inventeringens D-avsnitt](ui-migration-inventory.md#fas-d--karaoke-layout-och-minnesdiagnostik).
+Det avsnittet ersätter Fas A:s fasta Karaoke-layoutantaganden.
+
+### Beslut och avgränsning
+
+- Geometri från live `UiMetrics` **efter landscape**, logiskt **480×320 och
+  800×480**, med begränsade marginaler/mellanrum/kontrollhöjder. 800×480 är en
+  logisk layoutstorlek, inte verifierad fysisk P4-upplösning eller panelportning.
+- Begränsad header (`buttonH + gap`) med enradig DOTS-titel/metadata;
+  sheetarnas titlar/hints radbryter med innehållsstyrd höjd. Fullbred scrollande
+  text i återstående yta efter header/metadata, seek och kontrollrad.
+  Aktiv spangroup radbryter sjungen/återstående text med föregående/två nästa
+  kontextrader. Nedräkningen ingår i textens flexflöde och döljs när den saknas,
+  utan separat fast reservation. Seekrad och **en** primärrad:
+  omstart / −5 s / spela-paus / +5 s / stopp på båda måtten.
+  Insets är 8–12 px och kontrollhöjd 44–52 px. Produktionshosttesterna mäter
+  viewport **460×158** / **776×292** och kontroller **88×44** / **150×52**
+  vid respektive logisk storlek; ingen fallback behövs där, ±5-etiketterna
+  ryms med riktiga fonter (fysisk läsbarhet ej verifierad). A–Ö-kolumnen scrollar
+  med minst 44×42 px träffyta.
+- Headerns hamburger samlar Tempo/tonart med befintlig volym, melodi på/av och
+  melodispårsval med synligt aktuellt tillstånd. Inget bankval i spelaren;
+  listans globala bankval och registrets per-låt-`sf2=`-företräde består.
+  Sheets hålls inom skärmen med scrollande innehåll och fast stängkontroll.
+- Bevara async-/timer-/fadeägarskap, extern audiokälla, banktask/lås och
+  laddningsspärrar. Frigör sheetens lokala fontlistekapacitet vid deletion,
+  inte medan köade valcallbacks använder den. Inga nya fullskärmsbuffertar
+  eller synth-/protokoll-/driver-/profiländringar ingår.
+- Lokal korrigering i delad `main/my_textinput.cpp`, ingen bred omskrivning:
+  `lv_obj_align(q->kb, LV_ALIGN_TOP_LEFT, 0, kbY)` ersätter `lv_obj_set_pos`
+  så befintlig bottenankring inte skjuter tangentbordet under displayen.
+  Det stärkta, godkända Karaokehosttestet täcker verkliga CANCEL/READY-callbacks,
+  alla tangentbordsbarns bounds, sidbyte fram/bak, sista A–Ö-knappen och
+  minus/plus på samtliga steppers.
+
+### Minneskarta – ägare och mätgränser, inte uppmätta besparingar
+
+| Del | Befintlig allokering/livstid och D-gräns |
+|---|---|
+| LVGL-låtlista och sheets (`main/ui_karaoke.cpp`) | Sidgränsen **40** begränsar LVGL-låtrader, inte hela biblioteket/resultatvektorn. Labels, spans och styles kostar fortfarande heap. Sheetens skannade `s_fonts` släpper innehåll och kapacitet vid sheet-deletion; UI-vyn `s_entries` släpper kapacitet när ägande listskärm raderas. Biblioteksindexet frigörs inte av detta. |
+| Biblioteksindex (`main/kara_index.*`) | Låtrecords och strängpool, högst 2 000 låtar, cache `songs.idx`; bibliotekets egen livstid följer inte automatiskt skärmradering. Paging av UI är inte paging av indexminnet. |
+| Låt och lyrics (`main/karaoke.cpp`, `otr_midi`) | Rå MIDI-bytevektor frigörs direkt efter lyckad parsning/CRC före synthförberedelse. Parsade MIDI-händelser, stavelser och rader finns kvar för hela öppna låten. UI skapar endast **fyra synliga logiska lyrikrader** (föregående, aktiv, två nästa); wrapping kan ge fler visuella rader, inte en kopia av hela låten i LVGL. |
+| SF2-val och sampel (`components/otr_synth/otr_synth.cpp`) | Bankstruktur/hydra, valda presets/regioner, zon-/intervallurval och selektiva/resamplade sampelbuffertar har synth-/fonttaskens livstid. Budgeten beror på största fria PSRAM-block minus reserv, inte bara totalt ledigt minne. En UI-fontlista är inte synthbanken; `close()` och `unloadFont()` är olika operationer. Ingen ändring av urval, budget eller sampelalgoritm i D. |
+| Audio/webbström (`main/kara_stream.*`, `main/kara_web.cpp`) | PCM-ring och webbström hanteras separat från UI-skärmen; befintlig audio-/streamlivstid och protokoll behålls. Färre synliga labels säger inget om dessa buffertar. |
+| Ritning/rotation (`main/board_display.cpp`, `components/my_lvgl/my_lvgl.cpp`) | Två partiella RGB565-ritbuffertar och en återanvänd rotationsbuffer, inte en ny Karaoke-fullskärmsbuffer. Rotationscachen kan ligga kvar efter portraitretur; skilj kvarhållen kapacitet från läcka efter upprepade besök. D ändrar inte drivrutinens bufferägarskap. |
+
+`ESP_LOGI`/`heap_caps` loggar fri intern **8-bitars** heap, fri PSRAM och största
+fria PSRAM-block. UI-punkter under `kara-ui`: `enter`, `landscape`, `list`, `player`,
+`portrait`, `screen-cleanup` (async efter LVGL-deletion). Under `karaoke`:
+`bank-task-start`, `bank-task-end`, `bank-unloaded`, `song-open-start`,
+`song-open-end`, `song-closed`. Taskstacken frigörs först **efter** `bank-task-end`;
+bibliotekets/strömmens/rotationsbuffertens livstid ändras inte. Jämför samma
+låt/bank/upplösning efter färdig laddning/async/fade.
+Skärmcleanup bevisar inte att synth/stream/rotationscache
+är frigjord. Inga nya bytebesparingar, minnesmarginaler eller prestandavinster
+hävdas före mätning. De äldre hostmätningarna nedan är historiska synthresultat,
+inte D-resultat.
+
+**Hostverifiering:** Karaoke- och Äventyrs spel-layouttester **PASS**.
+MIDI **100/0**, index **130/0**, stream **181/0**, språk **1 958/0**
+(482 strängar/två språk). Befintliga Yatzy-/Äventyr setup-/min-dialogtester
+**FAIL** i oförändrade berörda källor. Exakta kommandon, fel och testgränser
+finns i [UI-inventeringens resultattabell](ui-migration-inventory.md#körda-d-kontroller-och-verifieringsgräns).
+Karaokehosttestet använder produktions-UI, verklig TextInput/MIDI/index,
+LVGL 9.6.0 med 256 KiB heap och stubbad engine/hårdvara.
+MIDI-testets befintliga `testParseKar` nollställer/frigör nu originalbytes direkt
+efter parsning före datakontrollerna: ägarskapsregressionen passerar inom **100/0**.
+`idf.py build` kunde inte köras lokalt (ESP-IDF saknas); CI **40664764225**
+för **a8f91ae** **FAIL** vid `ui_karaoke.cpp:41/43/52`, där `std::clamp` inte
+kan deducera samma typ för Xtensas `int32_t` (`long`) och `int`-literaler.
+Alla tre anrop är korrigerade till `std::clamp<int32_t>` i **18586b0**.
+[Kodcommitens CI 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561)
+kräver godkännande (`action_required`); inget godkänt firmwarebygge påstås.
+Slutlig hostomkörning av Karaoke/MIDI/index/stream/språk passerar.
+CodeQL: **0 larm** i C++/Python; hemlighetsskanning: inga fynd.
+
+**Fysisk verifiering återstår:** hela D-checklistan på båda logiska storlekarna,
+inklusive rotation/retur till meny/Äventyr/Yatzy, lång lista/sök/bank, alla
+transport-/hamburgervägar, lång text/synk, ljud-av Ja/Nej och upprepad
+inträdes-/bank-/låtcykling med heap-/audiologg. Inget fysiskt godkännande eller
+uppmätt bytebesparing påstås av denna dokumentationsuppdatering.
 
 ## 3. Registret `karaoke.reg`
 
