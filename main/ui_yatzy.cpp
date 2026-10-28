@@ -834,8 +834,7 @@ static void showPicker(int slot)
 //           scrollable score table in the lower half.
 // ========================================================================================
 static constexpr int32_t SCR_W = 320, SCR_H = 480;
-static constexpr int32_t FELT_X = 4, FELT_Y = 48, FELT_W = SCR_W - 8;
-static constexpr int32_t BTN_Y = 432, BTN_H = 44;                 // Mini-game baseline
+static constexpr int32_t FELT_Y = 48;
 static constexpr int32_t NEST_H_ROLL = 74;
 static constexpr int32_t SUG_H = 96;
 static constexpr lv_opa_t SUG_OPA = 180;
@@ -2382,12 +2381,16 @@ static void webTimer(lv_timer_t *t)
     }
 }
 
+static int32_t miniWebTop();
+
 static void buildWebOverlay(lv_obj_t *scr)
 {
     const int32_t inset = 2 * UiMetrics::marginSmall();
     const int32_t panelW = LV_MIN(UiMetrics::screenW() - 2 * inset, 600);
     const int32_t panelH = 3 * UiMetrics::buttonH() + UiMetrics::marginNormal() + UiMetrics::controlSpacing();
-    const int32_t top = s_gameType == GameType::YATZY ? UiMetrics::titleH() + UiMetrics::marginSmall() : FELT_Y;
+    const int32_t top = s_gameType == GameType::YATZY
+                            ? UiMetrics::titleH() + UiMetrics::marginSmall()
+                            : miniWebTop();
     s_webBlock = plainBox(scr, 0, top, UiMetrics::screenW(), UiMetrics::screenH() - top);
     lv_obj_set_clickable(s_webBlock, true);   // Swallows touches (dice, cup, buttons, table)
     lv_obj_set_scroll_chain(s_webBlock, false);
@@ -2591,25 +2594,67 @@ static void showGame()
 // ========================================================================================
 // Results
 // ========================================================================================
+struct ResultLayout {
+    int32_t w, h, scale, cardX, cardY, cardW, cardH, buttonY, buttonH;
+    int32_t buttonX, buttonW, againX, rowH, badgeSize, nameX, nameW, scoreW, variantW;
+};
+
+static ResultLayout resultLayout(int32_t w, int32_t h, int32_t scale, int32_t titleH, int32_t normal)
+{
+    ResultLayout l{};
+    l.w = w;
+    l.h = h;
+    l.scale = LV_CLAMP(100, scale, 150);
+    l.cardX = normal / 2;
+    l.cardY = titleH + normal;
+    l.cardW = w - 2 * l.cardX;
+    l.buttonH = 46 * l.scale / 100;
+    l.buttonY = h - normal - l.buttonH;
+    l.cardH = LV_MAX(0, l.buttonY - normal - l.cardY);
+    l.buttonX = normal;
+    l.buttonW = (w - 3 * normal) / 2;
+    l.againX = 2 * normal + l.buttonW;
+    l.rowH = 42 * l.scale / 100;
+    l.badgeSize = 32 * l.scale / 100;
+    l.nameX = 42 * l.scale / 100;
+    l.scoreW = 56 * l.scale / 100;
+    l.nameW = LV_MAX(0, LV_MIN(170 * l.scale / 100, l.cardW - l.nameX - l.scoreW - 10 * l.scale / 100));
+    l.variantW = LV_MIN(150 * l.scale / 100, w / 2);
+    return l;
+}
+
+static ResultLayout resultLayout()
+{
+    const int32_t scale = 100 * UiMetrics::buttonH() / 42;
+    return resultLayout(UiMetrics::screenW(), UiMetrics::screenH(), scale,
+                        UiMetrics::titleH(), UiMetrics::marginNormal());
+}
+
 static void showResults()
 {
     Audio::play(Sound::Sfx::WIN);
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::RES_TITLE));
+    const ResultLayout layout = resultLayout();
     lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode(), s_game.savedRollsRule()), &my_font_14, Theme::TEAL);
-    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
+    lv_obj_set_width(var, layout.variantW);
+    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12 * layout.scale / 100, 14 * layout.scale / 100);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
     int n = s_game.ranking(order, places);
-    lv_obj_t *card = Theme::card(scr, 310, 360);
-    lv_obj_set_pos(card, 5, 54);
+    lv_obj_t *card = Theme::card(scr, layout.cardW, layout.cardH);
+    lv_obj_set_pos(card, layout.cardX, layout.cardY);
+    lv_obj_set_scrollable(card, true);
+    lv_obj_set_scroll_dir(card, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scroll_chain(card, false);
     static const uint32_t MEDAL[3] = {Theme::GOLD, 0xC9D3DE, 0xD08A4A};
     for (int i = 0; i < n; i++) {
         const YatzyPlayer &p = s_game.player(order[i]);
-        int32_t y = i * 42;
+        int32_t y = i * layout.rowH;
         lv_obj_t *badge = lv_obj_create(card);
         lv_obj_remove_style_all(badge);
-        lv_obj_set_size(badge, 32, 32);
+        lv_obj_set_size(badge, layout.badgeSize, layout.badgeSize);
         lv_obj_set_pos(badge, 0, y);
         lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(badge, Theme::c(places[i] <= 3 ? MEDAL[places[i] - 1] : Theme::PANEL_RAISED), 0);
@@ -2620,19 +2665,23 @@ static void showResults()
         lv_obj_center(nl);
         lv_obj_t *name = Theme::label(card, p.name, &my_font_18, places[i] == 1 ? Theme::GOLD : Theme::TEXT);
         lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(name, 170);
-        lv_obj_set_pos(name, 42, y + 5);
+        lv_obj_set_width(name, layout.nameW);
+        lv_obj_set_pos(name, layout.nameX, y + 5 * layout.scale / 100);
         char pts[12];
         snprintf(pts, sizeof(pts), "%d", s_game.total(order[i]));
         lv_obj_t *pl = Theme::label(card, pts, &my_font_24);
+        lv_obj_set_width(pl, layout.scoreW);
+        lv_obj_set_style_text_align(pl, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_align(pl, LV_ALIGN_TOP_RIGHT, 0, y + 2);
     }
 
-    lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN), 150, 46, Theme::ACCENT, true);
-    lv_obj_set_pos(again, 160, 424);
+    lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN),
+                                    layout.buttonW, layout.buttonH, Theme::ACCENT, true);
+    lv_obj_set_pos(again, layout.againX, layout.buttonY);
     lv_obj_add_event_cb(again, [](lv_event_t *) { s_game.restartSamePlayers(); showGame(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *menu = Theme::button(scr, trp(LV_SYMBOL_HOME " ", Str::RES_MENU), 140, 46, Theme::MUTED);
-    lv_obj_set_pos(menu, 10, 424);
+    lv_obj_t *menu = Theme::button(scr, trp(LV_SYMBOL_HOME " ", Str::RES_MENU),
+                                   layout.buttonW, layout.buttonH, Theme::MUTED);
+    lv_obj_set_pos(menu, layout.buttonX, layout.buttonY);
     lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
 
     Rgb::effectFlash(255, 200, 60, 1200);
@@ -2643,7 +2692,7 @@ static void showResults()
 // ========================================================================================
 // v0.6.0: Pig, Farkle and Ship/Captain/Crew ("mini" screens)
 //
-// One shared layout (320 x 480):
+// One shared layout, retaining the 320 x 480 baseline:
 //   header      current player, round, menu (same quit dialog as Yatzy)
 //   scoreboard  card with every player's total (current player in orange)
 //   felt        dice row; held / locked dice glide down into the nest strip
@@ -2653,12 +2702,137 @@ static void showResults()
 // turn are shown for a moment before the engine moves on (passTurn() / endTurn()).
 // Web seats use the same overlay + command queue as Yatzy (HOLD / ROLL / BANK / END_TURN).
 // ========================================================================================
-static constexpr int32_t M_BOARD_Y = 50, M_BOARD_H = 112;
-static constexpr int32_t M_FELT_Y = 168, M_FELT_H = 176;
-static constexpr int32_t M_ROW_Y = M_FELT_Y + 30, M_NEST_Y = M_FELT_Y + 104;
-static constexpr int32_t M_INFO_Y = 350;
 static constexpr uint32_t M_ROLL_MS = 650, M_ROLL_TICK_MS = 50, M_BUST_MS = 1600, M_SCC_END_MS = 1500;
 static constexpr int M_MAX_DICE = 6;
+
+struct MiniLayout {
+    int32_t w, h, scale, inset, gap, webTop;
+    int32_t boardX, boardY, boardW, boardH, boardRowH;
+    int32_t feltX, feltY, feltW, feltH, rowY, nestY, nestBoxY, nestBoxH;
+    int32_t infoY, hintX, hintY, hintW, hintH, buttonY, buttonH, buttonX, buttonGap, actW, rollX, rollW;
+    int32_t chipX, chipW, chipGap, flashX, flashY, flashW, flashH;
+};
+
+static MiniLayout miniLayout(int32_t w, int32_t h, int32_t scale, int32_t titleH, int32_t inset, int32_t gap)
+{
+    MiniLayout l{};
+    l.w = w;
+    l.h = h;
+    l.scale = LV_CLAMP(100, scale, 150);
+    l.inset = inset;
+    l.gap = gap;
+    l.webTop = titleH + inset;
+    l.boardX = 5 * l.scale / 100;
+    l.boardY = titleH + inset + 2 * l.scale / 100;
+    l.boardW = w - 2 * l.boardX;
+    l.boardRowH = 25 * l.scale / 100;
+    l.boardH = 12 * l.scale / 100 + 4 * l.boardRowH;
+    l.feltX = inset;
+    l.feltY = l.boardY + l.boardH + gap;
+    l.feltW = w - 2 * l.feltX;
+    l.buttonH = 44 * l.scale / 100;
+    l.buttonY = h - inset - l.buttonH;
+    l.infoY = l.buttonY - 82 * l.scale / 100;
+    l.feltH = LV_MAX(0, l.infoY - gap - l.feltY);
+    l.hintX = w - 182 * l.scale / 100;
+    l.hintY = l.infoY + 38 * l.scale / 100;
+    l.hintW = 170 * l.scale / 100;
+    l.hintH = LV_MAX(1, l.buttonY - l.hintY - gap);
+    l.rowY = l.feltY + 30 * l.scale / 100 + LV_MAX(0, l.feltH - 176 * l.scale / 100) / 2;
+    l.nestY = l.feltY + l.feltH - 72 * l.scale / 100;
+    l.nestBoxY = l.nestY - 2 * l.scale / 100;
+    l.nestBoxH = LV_MAX(0, l.feltY + l.feltH - l.nestY - 4 * l.scale / 100);
+    l.buttonX = 6 * l.scale / 100;
+    l.buttonGap = 6 * l.scale / 100;
+    l.actW = (w - 2 * l.buttonX - l.buttonGap - 2 * l.scale / 100) / 2;
+    l.rollX = l.buttonX + l.actW + l.buttonGap;
+    l.rollW = w - l.buttonX - l.rollX;
+    l.chipX = l.buttonX;
+    l.chipGap = 4 * l.scale / 100;
+    l.chipW = (w - 2 * l.chipX - 2 * l.chipGap) / 3;
+    l.flashX = l.feltX + 26 * l.scale / 100;
+    l.flashY = l.feltY + 50 * l.scale / 100 + LV_MAX(0, l.feltH - 176 * l.scale / 100) / 2;
+    l.flashW = l.feltW - 52 * l.scale / 100;
+    l.flashH = 70 * l.scale / 100;
+    return l;
+}
+
+static MiniLayout miniLayout()
+{
+    const int32_t scale = 100 * UiMetrics::buttonH() / 42;
+    return miniLayout(UiMetrics::screenW(), UiMetrics::screenH(), scale,
+                      UiMetrics::titleH(), UiMetrics::marginSmall(), UiMetrics::controlSpacing());
+}
+
+static int32_t miniWebTop() { return miniLayout().webTop; }
+
+static int32_t miniSlotStep(const MiniLayout &l, int dice, int32_t dieSize)
+{
+    if (dice < 2) return 0;
+    const int32_t base = dice == 6 ? 51 : (dice == 5 ? 60 : 110);
+    const int32_t available = (l.feltW - dieSize - 2 * l.inset) / (dice - 1);
+    return LV_MAX(dieSize, LV_MIN(base * l.scale / 100, available));
+}
+
+static int32_t miniSlotX(const MiniLayout &l, int dice, int32_t dieSize, int i)
+{
+    const int32_t step = miniSlotStep(l, dice, dieSize);
+    return l.w / 2 - step * (dice - 1) / 2 + step * i - dieSize / 2;
+}
+
+static int32_t miniDieY(const MiniLayout &l, bool pig, int dice, int32_t dieSize, bool down)
+{
+    if (down) return l.nestY + (dice == 6 ? 10 : 6) * l.scale / 100;
+    return pig ? l.feltY + (l.feltH - dieSize) / 2 : l.rowY;
+}
+
+static int32_t miniBoardColW(const MiniLayout &l, bool two)
+{
+    const int32_t gap = 2 * l.scale / 100;
+    return two ? (l.boardW - 2 * l.inset - gap) / 2 : l.boardW - 2 * l.inset;
+}
+
+static int32_t miniBoardNameX(const MiniLayout &l, bool two, int player)
+{
+    const int32_t colW = miniBoardColW(l, two);
+    return l.inset + (two ? (player / 4) * (colW + 2 * l.scale / 100) : 0);
+}
+
+static int32_t miniBoardNameW(const MiniLayout &l, bool two)
+{
+    return miniBoardColW(l, two) - 72 * l.scale / 100;
+}
+
+static int32_t miniBoardTotalX(const MiniLayout &l, bool two, int player)
+{
+    return miniBoardNameX(l, two, player) + miniBoardColW(l, two) - 66 * l.scale / 100;
+}
+
+static int32_t miniBoardRowY(const MiniLayout &l, int player)
+{
+    return 6 * l.scale / 100 + (player % 4) * l.boardRowH;
+}
+
+static int32_t miniRollX(const MiniLayout &l, int32_t x, int32_t dieSize)
+{
+    return LV_CLAMP(l.feltX + l.inset, x, l.feltX + l.feltW - l.inset - dieSize);
+}
+
+static int32_t miniRollY(const MiniLayout &l, bool pig, int32_t y, int32_t dieSize)
+{
+    const int32_t minY = l.feltY + l.inset;
+    const int32_t maxY = pig ? l.feltY + l.feltH - dieSize - l.inset
+                             : l.nestY - dieSize - l.inset;
+    return LV_CLAMP(minY, y, LV_MAX(minY, maxY));
+}
+
+static int32_t miniHitInset(const MiniLayout &l, int dice, int32_t dieSize, int imageScale)
+{
+    const int32_t step = miniSlotStep(l, dice, dieSize);
+    const int32_t wanted = LV_MAX(4, (dieSize * (imageScale - 100) + 100) / 200);
+    const int32_t available = dice < 2 ? (l.feltW - dieSize) / 2 : (step - dieSize) / 2;
+    return LV_MAX(0, LV_MIN(wanted, available));
+}
 
 static lv_obj_t *s_mDie[M_MAX_DICE];
 static int s_mFace[M_MAX_DICE];
@@ -2666,8 +2840,9 @@ static bool s_mRollMask[M_MAX_DICE];
 static int s_mDice = 0;
 static int32_t s_mSize = 52;
 static int32_t s_mScale = ZOOM_100;
+static MiniLayout s_mLayout{};
 static lv_obj_t *s_mName[YATZY_MAX_PLAYERS], *s_mTotal[YATZY_MAX_PLAYERS];
-static lv_obj_t *s_mBig, *s_mSub, *s_mHint, *s_mFlash, *s_mFlashText;
+static lv_obj_t *s_mBig, *s_mSub, *s_mHint, *s_mHintViewport, *s_mFlash, *s_mFlashText;
 static lv_obj_t *s_mChip[3];
 static lv_obj_t *s_mActBtn, *s_mActLabel, *s_mRollBtn, *s_mRollLabel;
 static bool s_mRolling = false;
@@ -2743,18 +2918,20 @@ static void mSetFace(int i, int face)
     lv_image_set_src(s_mDie[i], &s_faces->buf[face]);
 }
 
-static int32_t mRowY() { return s_gameType == GameType::PIG ? M_FELT_Y + M_FELT_H / 2 - s_mSize / 2 : M_ROW_Y; }
+static int32_t mRowY()
+{
+    return miniDieY(s_mLayout, s_gameType == GameType::PIG, s_mDice, s_mSize, false);
+}
 
 static int32_t mSlotX(int i)
 {
-    const int32_t step = s_mDice == 6 ? 51 : (s_mDice == 5 ? 60 : 110);
-    const int32_t span = step * (s_mDice - 1);
-    return SCR_W / 2 - span / 2 + step * i - s_mSize / 2;
+    return miniSlotX(s_mLayout, s_mDice, s_mSize, i);
 }
 
 static void mPlaceDie(int i, bool animate)
 {
-    const int32_t x = mSlotX(i), y = mDieDown(i) ? M_NEST_Y + (s_mDice == 6 ? 10 : 6) : mRowY();
+    const int32_t x = mSlotX(i);
+    const int32_t y = miniDieY(s_mLayout, s_gameType == GameType::PIG, s_mDice, s_mSize, mDieDown(i));
     if (animate) animXY(s_mDie[i], x, y, MOVE_MS);
     else lv_obj_set_pos(s_mDie[i], x, y);
     // Farkle: dice set aside on an earlier roll are dimmed (they cannot be released)
@@ -2997,7 +3174,10 @@ static void mRollTimer(lv_timer_t *t)
     for (int i = 0; i < s_mDice; i++) {
         if (!s_mRollMask[i]) continue;
         mSetFace(i, rnd(1, 6));
-        lv_obj_set_pos(s_mDie[i], mSlotX(i) + (int32_t)(rnd(-6, 6) * k), mRowY() - 8 + (int32_t)(rnd(-10, 10) * k));
+        const int32_t x = miniRollX(s_mLayout, mSlotX(i) + (int32_t)(rnd(-6, 6) * k), s_mSize);
+        const int32_t y = miniRollY(s_mLayout, s_gameType == GameType::PIG,
+                                    mRowY() - 8 + (int32_t)(rnd(-10, 10) * k), s_mSize);
+        lv_obj_set_pos(s_mDie[i], x, y);
         lv_image_set_rotation(s_mDie[i], (int32_t)(rnd(-300, 300) * k));
     }
 }
@@ -3089,9 +3269,11 @@ static void showMini()
     s_webBlock = s_webPanel = s_webText = s_webLocal = nullptr;
     s_mRolling = s_mPending = false;
     s_mRollBits = 0;
+    s_mHintViewport = nullptr;
     s_mDice = s_gameType == GameType::PIG ? s_pig.numDice() : (s_gameType == GameType::FARKLE ? FARKLE_DICE : SCC_DICE);
     s_mSize = s_mDice == 6 ? 46 : 52;   // The two cached sprite sizes (shared with Yatzy)
     s_mScale = s_mDice <= 2 ? ZOOM_100 * 3 / 2 : ZOOM_100;   // Pig: bigger dice
+    s_mLayout = miniLayout();
     s_faces = facesFor(s_mSize);
     if (!s_faces) ESP_LOGE("games", "die sprites: out of PSRAM");
 
@@ -3100,16 +3282,18 @@ static void showMini()
     lv_obj_clean(h);
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_playerLabel, 160);
-    lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_obj_set_width(s_playerLabel, s_mLayout.w - 160 * s_mLayout.scale / 100);
+    lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10 * s_mLayout.scale / 100, 0);
     s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
-    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62, 0);
-    lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48, 34, Theme::LINE);
-    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6, 0);
+    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62 * s_mLayout.scale / 100, 0);
+    lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48 * s_mLayout.scale / 100,
+                                   34 * s_mLayout.scale / 100, Theme::LINE);
+    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6 * s_mLayout.scale / 100, 0);
     lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
 
     // Scoreboard: one column up to 4 players, two columns above
-    lv_obj_t *board = plainBox(scr, 5, M_BOARD_Y, SCR_W - 10, M_BOARD_H);
+    lv_obj_t *board = plainBox(scr, s_mLayout.boardX, s_mLayout.boardY,
+                               s_mLayout.boardW, s_mLayout.boardH);
     lv_obj_set_style_radius(board, 12, 0);
     lv_obj_set_style_bg_color(board, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(board, LV_OPA_COVER, 0);
@@ -3117,28 +3301,30 @@ static void showMini()
     lv_obj_set_style_border_color(board, Theme::c(Theme::LINE), 0);
     const int n = mPlayers();
     const bool two = n > 4;
-    const int32_t colW = two ? 150 : 290;
     for (int p = 0; p < n; p++) {
-        const int32_t x = 10 + (two ? (p / 4) * 152 : 0), y = 6 + (p % 4) * 25;
+        const int32_t x = miniBoardNameX(s_mLayout, two, p);
+        const int32_t y = miniBoardRowY(s_mLayout, p);
         s_mName[p] = Theme::label(board, s_names[p], &my_font_18);
         lv_label_set_long_mode(s_mName[p], LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(s_mName[p], colW - 64);
+        lv_obj_set_width(s_mName[p], miniBoardNameW(s_mLayout, two));
         lv_obj_set_pos(s_mName[p], x, y);
         s_mTotal[p] = Theme::label(board, "0", &my_font_18);
-        lv_obj_set_width(s_mTotal[p], 56);
+        lv_obj_set_width(s_mTotal[p], 56 * s_mLayout.scale / 100);
         lv_obj_set_style_text_align(s_mTotal[p], LV_TEXT_ALIGN_RIGHT, 0);
-        lv_obj_set_pos(s_mTotal[p], x + colW - 66, y);
+        lv_obj_set_pos(s_mTotal[p], miniBoardTotalX(s_mLayout, two, p), y);
     }
 
     // Felt + nest
-    lv_obj_t *felt = plainBox(scr, FELT_X, M_FELT_Y, FELT_W, M_FELT_H);
+    lv_obj_t *felt = plainBox(scr, s_mLayout.feltX, s_mLayout.feltY,
+                              s_mLayout.feltW, s_mLayout.feltH);
     lv_obj_set_style_radius(felt, 14, 0);
     lv_obj_set_style_bg_color(felt, Theme::c(0x123A3F), 0);
     lv_obj_set_style_bg_grad_color(felt, Theme::c(0x0E2730), 0);
     lv_obj_set_style_bg_grad_dir(felt, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(felt, LV_OPA_COVER, 0);
     if (s_gameType != GameType::PIG) {
-        lv_obj_t *nest = plainBox(scr, FELT_X + 6, M_NEST_Y - 2, FELT_W - 12, M_FELT_Y + M_FELT_H - M_NEST_Y - 4);
+        lv_obj_t *nest = plainBox(scr, s_mLayout.feltX + s_mLayout.buttonX, s_mLayout.nestBoxY,
+                                  s_mLayout.feltW - 2 * s_mLayout.buttonX, s_mLayout.nestBoxH);
         lv_obj_set_style_radius(nest, 12, 0);
         lv_obj_set_style_bg_color(nest, Theme::c(0x000000), 0);
         lv_obj_set_style_bg_opa(nest, LV_OPA_30, 0);
@@ -3152,7 +3338,8 @@ static void showMini()
         static const Str CHIP[3] = {Str::G_SHIP, Str::G_CAPTAIN, Str::G_CREW};
         static const char *FACE[3] = {"6 ", "5 ", "4 "};
         for (int k = 0; k < 3; k++) {
-            s_mChip[k] = plainBox(scr, 6 + k * 104, M_INFO_Y, 100, 30);
+            s_mChip[k] = plainBox(scr, s_mLayout.chipX + k * (s_mLayout.chipW + s_mLayout.chipGap),
+                                  s_mLayout.infoY, s_mLayout.chipW, 30 * s_mLayout.scale / 100);
             lv_obj_set_style_radius(s_mChip[k], 15, 0);
             lv_obj_set_style_bg_opa(s_mChip[k], LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(s_mChip[k], 1, 0);
@@ -3160,33 +3347,44 @@ static void showMini()
             lv_obj_center(l);
         }
         s_mBig = Theme::label(scr, "", &my_font_24, Theme::GOLD);
-        lv_obj_set_pos(s_mBig, 12, M_INFO_Y + 38);
+        lv_obj_set_pos(s_mBig, 12 * s_mLayout.scale / 100,
+                       s_mLayout.infoY + 38 * s_mLayout.scale / 100);
         s_mSub = nullptr;
-        s_mHint = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-        lv_obj_set_width(s_mHint, 170);
+        s_mHintViewport = plainBox(scr, s_mLayout.hintX, s_mLayout.hintY,
+                                   s_mLayout.hintW, s_mLayout.hintH);
+        lv_obj_set_scrollable(s_mHintViewport, true);
+        lv_obj_set_clickable(s_mHintViewport, true);
+        lv_obj_set_scroll_dir(s_mHintViewport, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(s_mHintViewport, LV_SCROLLBAR_MODE_AUTO);
+        lv_obj_set_scroll_chain(s_mHintViewport, false);
+        s_mHint = Theme::label(s_mHintViewport, "", &my_font_14, Theme::MUTED);
+        lv_obj_set_width(s_mHint, LV_PCT(100));
         lv_label_set_long_mode(s_mHint, LV_LABEL_LONG_MODE_WRAP);
         lv_obj_set_style_text_align(s_mHint, LV_TEXT_ALIGN_RIGHT, 0);
-        lv_obj_set_pos(s_mHint, SCR_W - 182, M_INFO_Y + 38);
+        lv_obj_align(s_mHint, LV_ALIGN_TOP_RIGHT, 0, 0);
     } else {
         s_mBig = Theme::label(scr, "", &my_font_36, Theme::GOLD);
-        lv_obj_set_pos(s_mBig, 12, M_INFO_Y - 2);
+        lv_obj_set_pos(s_mBig, 12 * s_mLayout.scale / 100,
+                       s_mLayout.infoY - 2 * s_mLayout.scale / 100);
         s_mSub = Theme::label(scr, "", &my_font_18, Theme::TEAL);
-        lv_obj_align(s_mSub, LV_ALIGN_TOP_RIGHT, -12, M_INFO_Y + 10);
+        lv_obj_align(s_mSub, LV_ALIGN_TOP_RIGHT, -12 * s_mLayout.scale / 100,
+                     s_mLayout.infoY + 10 * s_mLayout.scale / 100);
         s_mHint = Theme::label(scr, "", &my_font_14, Theme::MUTED);
         lv_label_set_long_mode(s_mHint, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(s_mHint, SCR_W - 24);
-        lv_obj_set_pos(s_mHint, 12, M_INFO_Y + 50);
+        lv_obj_set_width(s_mHint, s_mLayout.w - 24 * s_mLayout.scale / 100);
+        lv_obj_set_pos(s_mHint, 12 * s_mLayout.scale / 100,
+                       s_mLayout.infoY + 50 * s_mLayout.scale / 100);
     }
 
     // Buttons: Banka (green) / Spara (blue) + Kasta
     const bool scc = s_gameType == GameType::SCC;
-    s_mActBtn = Theme::button(scr, "", 150, BTN_H, scc ? Theme::BLUE : Theme::GREEN, true);
-    lv_obj_set_pos(s_mActBtn, 6, BTN_Y);
+    s_mActBtn = Theme::button(scr, "", s_mLayout.actW, s_mLayout.buttonH, scc ? Theme::BLUE : Theme::GREEN, true);
+    lv_obj_set_pos(s_mActBtn, s_mLayout.buttonX, s_mLayout.buttonY);
     s_mActLabel = lv_obj_get_child(s_mActBtn, 0);
     lv_obj_add_event_cb(s_mActBtn, [](lv_event_t *) { mAction(); }, LV_EVENT_CLICKED, nullptr);
-    s_mRollBtn = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL), 152, BTN_H,
+    s_mRollBtn = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL), s_mLayout.rollW, s_mLayout.buttonH,
                                scc ? Theme::ACCENT : Theme::BLUE, true);
-    lv_obj_set_pos(s_mRollBtn, 162, BTN_Y);
+    lv_obj_set_pos(s_mRollBtn, s_mLayout.rollX, s_mLayout.buttonY);
     s_mRollLabel = lv_obj_get_child(s_mRollBtn, 0);
     lv_obj_add_event_cb(s_mRollBtn, [](lv_event_t *) { mRoll(); }, LV_EVENT_CLICKED, nullptr);
 
@@ -3198,14 +3396,15 @@ static void showMini()
         lv_obj_set_size(s_mDie[i], s_mSize, s_mSize);
         lv_image_set_pivot(s_mDie[i], s_mSize / 2, s_mSize / 2);
         lv_image_set_scale(s_mDie[i], (uint32_t)s_mScale);
-        lv_obj_set_ext_click_area(s_mDie[i], 4);
+        lv_obj_set_ext_click_area(s_mDie[i], miniHitInset(s_mLayout, s_mDice, s_mSize, s_mScale * 100 / ZOOM_100));
         lv_obj_add_event_cb(s_mDie[i], [](lv_event_t *e) { mToggle((int)(intptr_t)lv_event_get_user_data(e)); },
                             LV_EVENT_CLICKED, (void *)(intptr_t)i);
         mPlaceDie(i, false);
     }
 
     // Bust / Farkle / cargo flash (over the felt)
-    s_mFlash = plainBox(scr, 30, M_FELT_Y + 50, SCR_W - 60, 70);
+    s_mFlash = plainBox(scr, s_mLayout.flashX, s_mLayout.flashY,
+                        s_mLayout.flashW, s_mLayout.flashH);
     lv_obj_set_style_radius(s_mFlash, 16, 0);
     lv_obj_set_style_bg_color(s_mFlash, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_bg_opa(s_mFlash, 230, 0);
@@ -3214,7 +3413,7 @@ static void showMini()
     lv_obj_set_style_shadow_color(s_mFlash, Theme::c(0x000000), 0);
     lv_obj_set_style_shadow_opa(s_mFlash, LV_OPA_60, 0);
     s_mFlashText = Theme::label(s_mFlash, "", &my_font_24);
-    lv_obj_set_width(s_mFlashText, SCR_W - 80);
+    lv_obj_set_width(s_mFlashText, s_mLayout.flashW - 20 * s_mLayout.scale / 100);
     lv_obj_set_style_text_align(s_mFlashText, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_mFlashText, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_center(s_mFlashText);
@@ -3231,11 +3430,12 @@ static void showMiniResults()
     s_mRollBtn = nullptr;   // miniRefresh() is a no-op from here on
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::RES_TITLE));
+    const ResultLayout layout = resultLayout();
     lv_obj_t *var = Theme::label(scr, gameTitle(), &my_font_14, Theme::TEAL);
     lv_label_set_long_mode(var, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(var, 150);
+    lv_obj_set_width(var, layout.variantW);
     lv_obj_set_style_text_align(var, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12, 14);
+    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12 * layout.scale / 100, 14 * layout.scale / 100);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
     int n;
@@ -3244,14 +3444,18 @@ static void showMiniResults()
     case GameType::FARKLE: n = s_farkle.ranking(order, places); break;
     default: n = s_scc.ranking(order, places); break;
     }
-    lv_obj_t *card = Theme::card(scr, 310, 360);
-    lv_obj_set_pos(card, 5, 54);
+    lv_obj_t *card = Theme::card(scr, layout.cardW, layout.cardH);
+    lv_obj_set_pos(card, layout.cardX, layout.cardY);
+    lv_obj_set_scrollable(card, true);
+    lv_obj_set_scroll_dir(card, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scroll_chain(card, false);
     static const uint32_t MEDAL[3] = {Theme::GOLD, 0xC9D3DE, 0xD08A4A};
     for (int i = 0; i < n; i++) {
-        int32_t y = i * 42;
+        int32_t y = i * layout.rowH;
         lv_obj_t *badge = lv_obj_create(card);
         lv_obj_remove_style_all(badge);
-        lv_obj_set_size(badge, 32, 32);
+        lv_obj_set_size(badge, layout.badgeSize, layout.badgeSize);
         lv_obj_set_pos(badge, 0, y);
         lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(badge, Theme::c(places[i] <= 3 ? MEDAL[places[i] - 1] : Theme::PANEL_RAISED), 0);
@@ -3262,16 +3466,19 @@ static void showMiniResults()
         lv_obj_center(nl);
         lv_obj_t *name = Theme::label(card, s_names[order[i]], &my_font_18, places[i] == 1 ? Theme::GOLD : Theme::TEXT);
         lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(name, 170);
-        lv_obj_set_pos(name, 42, y + 5);
+        lv_obj_set_width(name, layout.nameW);
+        lv_obj_set_pos(name, layout.nameX, y + 5 * layout.scale / 100);
         char pts[12];
         snprintf(pts, sizeof(pts), "%d", mTotal(order[i]));
         lv_obj_t *pl = Theme::label(card, pts, &my_font_24);
+        lv_obj_set_width(pl, layout.scoreW);
+        lv_obj_set_style_text_align(pl, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_align(pl, LV_ALIGN_TOP_RIGHT, 0, y + 2);
     }
 
-    lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN), 150, 46, Theme::ACCENT, true);
-    lv_obj_set_pos(again, 160, 424);
+    lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN),
+                                    layout.buttonW, layout.buttonH, Theme::ACCENT, true);
+    lv_obj_set_pos(again, layout.againX, layout.buttonY);
     lv_obj_add_event_cb(again, [](lv_event_t *) {
         switch (s_gameType) {
         case GameType::PIG: s_pig.start(); break;
@@ -3280,8 +3487,9 @@ static void showMiniResults()
         }
         showMini();
     }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *menu = Theme::button(scr, trp(LV_SYMBOL_HOME " ", Str::RES_MENU), 140, 46, Theme::MUTED);
-    lv_obj_set_pos(menu, 10, 424);
+    lv_obj_t *menu = Theme::button(scr, trp(LV_SYMBOL_HOME " ", Str::RES_MENU),
+                                   layout.buttonW, layout.buttonH, Theme::MUTED);
+    lv_obj_set_pos(menu, layout.buttonX, layout.buttonY);
     lv_obj_add_event_cb(menu, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
 
     Rgb::effectFlash(255, 200, 60, 1200);

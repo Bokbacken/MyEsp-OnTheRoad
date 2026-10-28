@@ -25,6 +25,7 @@ code = r'''
 #include <cstring>
 #include <initializer_list>
 #include <string>
+#include <tuple>
 #include <unistd.h>
 #include "lvgl.h"
 #include "my_theme.h"
@@ -91,6 +92,134 @@ static constexpr int32_t FELT_Y = 48;
 static constexpr uint32_t WEB_TICK_MS = 50;
 static uint32_t s_gen;
 @OVERLAY_STATE@
+@RESPONSIVE_LAYOUTS@
+@RESPONSIVE_RESULTS@
+static void inside(lv_obj_t *obj, lv_obj_t *parent);
+static void checkResponsiveLayouts(lv_display_t *display) {
+    for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}}) {
+        lv_display_set_resolution(display, size.x, size.y);
+        for (const char *language : {"sv", "en"}) {
+            Lang::setLang(language);
+            const auto mini = miniLayout();
+            if (size.x == 320) {
+                assert(mini.boardX == 5 && mini.boardY == 50 && mini.boardH == 112);
+                assert(mini.feltY == 168 && mini.feltH == 176 && mini.infoY == 350);
+                assert(mini.buttonY == 432 && mini.buttonH == 44);
+            }
+            assert(mini.boardX + mini.boardW <= mini.w);
+            assert(mini.boardY + mini.boardH + mini.gap <= mini.feltY);
+            assert(mini.feltY + mini.feltH + mini.gap <= mini.infoY);
+            assert(mini.buttonY + mini.buttonH <= mini.h - mini.inset);
+            assert(mini.flashX >= mini.feltX && mini.flashY >= mini.feltY);
+            assert(mini.flashX + mini.flashW <= mini.feltX + mini.feltW);
+            assert(mini.flashY + mini.flashH <= mini.feltY + mini.feltH);
+
+            const int32_t boardNameW = miniBoardNameW(mini, true);
+            for (int player = 0; player < 8; ++player) {
+                const int32_t nameX = miniBoardNameX(mini, true, player);
+                const int32_t totalX = miniBoardTotalX(mini, true, player);
+                assert(nameX >= 0 && nameX + boardNameW <= totalX);
+                assert(totalX + 56 * mini.scale / 100 <= mini.boardW);
+                assert(miniBoardRowY(mini, player) + mini.boardRowH <= mini.boardH);
+            }
+            for (int chip = 0; chip < 3; ++chip)
+                assert(mini.chipX + chip * (mini.chipW + mini.chipGap) + mini.chipW <= mini.w - mini.chipX);
+            assert(mini.hintX + mini.hintW <= mini.w);
+            assert(mini.hintY + mini.hintH + mini.gap <= mini.buttonY);
+
+            for (auto dice : {std::tuple<int, int, int, bool>{1, 52, 150, true},
+                              {2, 52, 150, true}, {5, 52, 100, false}, {6, 46, 100, false}}) {
+                const int count = std::get<0>(dice), dieSize = std::get<1>(dice);
+                const int imageScale = std::get<2>(dice);
+                const bool pig = std::get<3>(dice);
+                const int hitInset = miniHitInset(mini, count, dieSize, imageScale);
+                int previousRight = -1;
+                for (int i = 0; i < count; ++i) {
+                    const int x = miniSlotX(mini, count, dieSize, i);
+                    assert(x - hitInset >= mini.feltX);
+                    assert(x + dieSize + hitInset <= mini.feltX + mini.feltW);
+                    if (i) assert(previousRight <= x - hitInset);
+                    previousRight = x + dieSize + hitInset;
+                    const int rowY = miniDieY(mini, pig, count, dieSize, false);
+                    const int nestY = miniDieY(mini, pig, count, dieSize, true);
+                    assert(rowY >= mini.feltY && rowY + dieSize <= mini.feltY + mini.feltH);
+                    assert(nestY >= mini.feltY && nestY + dieSize <= mini.feltY + mini.feltH);
+                    for (int jitter : {-16, 16}) {
+                        const int rollX = miniRollX(mini, x + jitter, dieSize);
+                        const int rollY = miniRollY(mini, pig, rowY - 8 + jitter, dieSize);
+                        assert(rollX >= mini.feltX + mini.inset);
+                        assert(rollX + dieSize <= mini.feltX + mini.feltW - mini.inset);
+                        assert(rollY >= mini.feltY + mini.inset);
+                        assert(rollY + dieSize <= mini.feltY + mini.feltH);
+                    }
+                }
+            }
+
+            const auto results = resultLayout();
+            assert(results.cardY + results.cardH <= results.buttonY - UiMetrics::marginNormal());
+            assert(results.buttonY + results.buttonH <= results.h - UiMetrics::marginNormal());
+            assert(results.buttonX >= 0 && results.againX + results.buttonW <= results.w);
+            assert(7 * results.rowH + results.badgeSize <= results.cardH);
+            assert(results.nameW > 0 && results.scoreW > 0 && results.variantW > 0);
+
+            auto *card = lv_obj_create(lv_screen_active());
+            lv_obj_set_pos(card, results.cardX, results.cardY);
+            lv_obj_set_size(card, results.cardW, results.cardH);
+            lv_obj_set_scrollable(card, true);
+            lv_obj_set_scroll_dir(card, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
+            for (int player = 0; player < 8; ++player) {
+                const int y = player * results.rowH;
+                auto *badge = lv_obj_create(card);
+                lv_obj_set_size(badge, results.badgeSize, results.badgeSize);
+                lv_obj_set_pos(badge, 0, y);
+                auto *name = lv_label_create(card);
+                lv_label_set_text(name, "A very long player name with Swedish letters ÅÄÖ");
+                lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
+                lv_obj_set_width(name, results.nameW);
+                lv_obj_set_pos(name, results.nameX, y + 5 * results.scale / 100);
+                auto *score = lv_label_create(card);
+                lv_label_set_text(score, "123456");
+                lv_obj_set_width(score, results.scoreW);
+                lv_obj_set_pos(score, results.cardW - results.scoreW, y + 2);
+            }
+            auto *menu = lv_button_create(lv_screen_active());
+            lv_obj_set_pos(menu, results.buttonX, results.buttonY);
+            lv_obj_set_size(menu, results.buttonW, results.buttonH);
+            auto *again = lv_button_create(lv_screen_active());
+            lv_obj_set_pos(again, results.againX, results.buttonY);
+            lv_obj_set_size(again, results.buttonW, results.buttonH);
+            lv_obj_update_layout(lv_screen_active());
+            inside(card, lv_screen_active());
+            for (unsigned child = 0; child < lv_obj_get_child_count(card); ++child)
+                inside(lv_obj_get_child(card, child), card);
+            inside(menu, lv_screen_active()); inside(again, lv_screen_active());
+            assert(lv_obj_get_y(card) + lv_obj_get_height(card) <= lv_obj_get_y(menu));
+
+            auto *hintArea = lv_obj_create(lv_screen_active());
+            lv_obj_set_pos(hintArea, mini.hintX, mini.hintY);
+            lv_obj_set_size(hintArea, mini.hintW, mini.hintH);
+            lv_obj_set_scrollable(hintArea, true);
+            lv_obj_set_clickable(hintArea, true);
+            lv_obj_set_scroll_dir(hintArea, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(hintArea, LV_SCROLLBAR_MODE_AUTO);
+            lv_obj_set_scroll_chain(hintArea, false);
+            auto *hint = lv_label_create(hintArea);
+            lv_label_set_text(hint, language[0] == 's'
+                ? "Håll lasten och samla skepp, kapten och besättning innan du sparar. Den här långa svenska instruktionen ska gå att rulla utan att täcka knapparna."
+                : "Hold the cargo and collect ship, captain, and crew before saving. This deliberately long English hint must scroll without covering the controls.");
+            lv_obj_set_style_text_font(hint, &my_font_14, 0);
+            lv_obj_set_width(hint, LV_PCT(100));
+            lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_WRAP);
+            lv_obj_update_layout(lv_screen_active());
+            inside(hintArea, lv_screen_active());
+            assert(lv_obj_get_scroll_bottom(hintArea) > 0);
+            lv_obj_delete(hintArea);
+            lv_obj_delete(menu); lv_obj_delete(again); lv_obj_delete(card);
+        }
+    }
+    lv_display_set_resolution(display, 320, 480);
+}
 @MODALS@
 static lv_obj_t *child(lv_obj_t *o, int i) { return lv_obj_get_child(o, i); }
 static void settle() {
@@ -414,6 +543,7 @@ int main() {
     static uint8_t pixels[800 * 20 * 2];
     lv_display_set_buffers(display, pixels, nullptr, sizeof(pixels), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, [](lv_display_t *d, const lv_area_t *, uint8_t *) { lv_display_flush_ready(d); });
+    checkResponsiveLayouts(display);
     char dir[] = "/tmp/yatzy-players-XXXXXX"; storageBase = mkdtemp(dir);
     assert(Players::begin());
     // No registry: preserve the two default guests.
@@ -521,6 +651,8 @@ code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ======
 code = code.replace("@PLAYERS@", section("static uint16_t s_pids", "static void startYatzy()"))
 code = code.replace("@PICKER@", section("static PlayerDb *s_pickDb", "// ========================================================================================\n// Game screen"))
 code = code.replace("@OVERLAY_STATE@", section("static lv_obj_t *s_webBlock", "static void updateWebOverlay()\n{"))
+code = code.replace("@RESPONSIVE_LAYOUTS@", section("static constexpr uint32_t M_ROLL_MS", "static lv_obj_t *s_mDie"))
+code = code.replace("@RESPONSIVE_RESULTS@", section("struct ResultLayout {", "static void showResults()\n{"))
 code = code.replace("@MODALS@", section("static void onMenu(lv_event_t *)\n{", "// --- Web play") +
                     section("static void updateWebOverlay()\n{", "static void webWriteTimer") +
                     section("static void buildWebOverlay(lv_obj_t *scr)\n{", "static void showGame()\n{"))
