@@ -739,6 +739,35 @@ static void testS2Errors()
     CHECK(world.tile(1, 0) == Otr::Tile::ICE && world.rawObj(1, 0) == Otr::Obj::GEM);
 }
 
+static void testZeroTreasureAmounts()
+{
+    const char *text =
+        "@rules\n"
+        "start_energy: 4\n"
+        "energy_cap: 10\n"
+        "potion_default: 3\n"
+        "heart_default: 2\n"
+        "@map\n"
+        "S...\n"
+        "@treasures\n"
+        "1 0 potion 0\n"
+        "2 0 heart 0\n";
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {0};
+    CHECK(Adv::parse(text, std::strlen(text), *L, err, sizeof err));
+    CHECK(L->treasureCount == 2 && L->treasures[0].amount == 0 && L->treasures[1].amount == 0);
+    Otr::World world;
+    CHECK(world.load(L->map));
+    world.setEnergy(1);
+    CHECK(world.move(Otr::Dir::RIGHT) & Otr::EV_POTION);
+    CHECK(world.energy() == 4);
+    CHECK(world.move(Otr::Dir::RIGHT) & Otr::EV_HEART);
+    CHECK(world.maxEnergy() == 6 && world.energy() == 6);
+
+    const char *outOfRange = "@map\nS..\n@treasures\n1 0 potion 256\n";
+    CHECK(!Adv::parse(outOfRange, std::strlen(outOfRange), *L, err, sizeof err));
+}
+
 int main()
 {
     testGenerated();
@@ -753,6 +782,7 @@ int main()
     testS2Legend();
     testS2Effects();
     testS2Errors();
+    testZeroTreasureAmounts();
     std::printf("\n%s: %d passed, %d failed\n", g_fail ? "FAIL" : "OK", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
