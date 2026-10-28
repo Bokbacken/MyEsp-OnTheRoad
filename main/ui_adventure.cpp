@@ -168,7 +168,7 @@ static lv_obj_t *s_keyBox, *s_keyIcons[6];
 // v0.18.0: HUD indicators for the permanent abilities (shown only while owned) and the
 // previous ability levels, used to raise the pickup toast on a level increase (no event bit left).
 static lv_obj_t *s_flashCell, *s_pogoCell;    // v0.18.0: ability image + level digit (icon in s_item[])
-static lv_obj_t *s_flashLvl, *s_pogoLvl;      // level digit beside each ability icon
+static lv_obj_t *s_flashLvl, *s_pogoLvl;      // contrasting level badge on each ability icon
 static int s_prevFlash, s_prevPogo;
 static uint32_t s_actionTapMs;
 static void bombAction();
@@ -1060,8 +1060,8 @@ static void updateStats()
         lv_obj_set_hidden(s_keyIcons[i], !owned);
         anyKey |= owned;
     }
-    lv_obj_set_hidden(s_keyBox, !anyKey);
-    // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
+    lv_obj_set_hidden(s_keyBox, !anyKey || s_bombSize > 0);
+    // Right column: carried items, shown only while owned.
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     // Permanent abilities: show the item image + its level digit only while owned.
     if (s_flashCell) {
@@ -2064,6 +2064,7 @@ static void bombAction()
             if(!Theme::debounce(s_actionTapMs)) return;
             s_bombSize=(int)(intptr_t)lv_event_get_user_data(e); s_bombX=s_bombY=-1;
             closeDialog(); lv_obj_set_hidden(s_bombCancel,false);
+            updateStats();
             lv_label_set_text(lv_obj_get_child(s_hitBtn,0),"OK");
             toast(tr(Str::ADV_BOMB_PREVIEW),Theme::GOLD,6000);
         },LV_EVENT_CLICKED,(void*)(intptr_t)size);
@@ -2694,23 +2695,22 @@ static void makeColoredKeyIcons()
     }
 }
 
-static void buildKeyIcons()
+static void buildKeyIcons(lv_obj_t *panel, int32_t rightX, int32_t rightW)
 {
     makeColoredKeyIcons();
-    s_keyBox = lv_obj_create(s_gameRoot);
+    s_keyBox = lv_obj_create(panel);
     lv_obj_remove_style_all(s_keyBox);
-    lv_obj_set_size(s_keyBox, LV_SIZE_CONTENT, 20);
+    lv_obj_set_size(s_keyBox, 56, 36);
+    lv_obj_set_pos(s_keyBox, rightX + rightW - 56,
+                   s_layout.controls.h - s_layout.controlPx(4) - 36);
     lv_obj_set_style_bg_color(s_keyBox, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(s_keyBox, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(s_keyBox, 2, 0);
-    lv_obj_set_style_pad_column(s_keyBox, 4, 0);
-    lv_obj_set_flex_flow(s_keyBox, LV_FLEX_FLOW_ROW);
-    lv_obj_align(s_keyBox, LV_ALIGN_TOP_RIGHT, -4, s_layout.view.h - 24);
     lv_obj_set_scrollable(s_keyBox, false);
     lv_obj_set_clickable(s_keyBox, false);
     for (int i = 0; i < 6; ++i) {
         auto *icon = s_keyIcons[i] = lv_canvas_create(s_keyBox);
         lv_canvas_set_buffer(icon, s_spr->coloredKeys[i], 16, 16, LV_COLOR_FORMAT_RGB565);
+        lv_obj_set_pos(icon, (i % 3) * 20, (i / 3) * 20);
         lv_obj_set_clickable(icon, false);
         lv_obj_set_hidden(icon, true);
     }
@@ -2720,7 +2720,7 @@ static void buildKeyIcons()
 // Bottom control panel (Kent's v0.10.x sketch):
 //   left   symbol + count rows (lives, suit, keys, gems) above the menu (hamburger) and mute buttons
 //   centre large joystick (its red centre also stops tap-to-walk)
-//   right  Slå box, red energy bar, icons of carried items (boat, later knife/sword ...; 2 rows)
+//   right  Slå box, red energy bar, carried abilities, then a 3x2 owned-key grid
 static void buildControls()
 {
     const auto px = [](int32_t baseline) { return s_layout.controlPx(baseline); };
@@ -2808,44 +2808,43 @@ static void buildControls()
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     s_barLbl = Theme::label(s_bar, "", &my_font_14, Theme::BG);
     lv_obj_center(s_barLbl);
-    // Carried items: icons in a wrapping row, two rows of three fit under the energy bar
+    // Compact level badges keep all three abilities in one row above the keys.
     s_itemBox = lv_obj_create(pan);
     lv_obj_remove_style_all(s_itemBox);
-    lv_obj_set_pos(s_itemBox, COL_R_X, px(100));
-    lv_obj_set_size(s_itemBox, COL_R_W, CTRL_H - px(104));
-    lv_obj_set_flex_flow(s_itemBox, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_style_pad_column(s_itemBox, px(6), 0);
-    lv_obj_set_style_pad_row(s_itemBox, px(6), 0);
+    lv_obj_set_pos(s_itemBox, COL_R_X, px(96));
+    lv_obj_set_size(s_itemBox, COL_R_W, HUD_PX + 2);
+    lv_obj_set_flex_flow(s_itemBox, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(s_itemBox, 4, 0);
     lv_obj_set_scrollable(s_itemBox, false);
     lv_obj_set_clickable(s_itemBox, false);
     for (int i = 0; i < H_COUNT; i++) s_item[i] = nullptr;
     s_item[H_BOAT] = hudIcon(s_itemBox, H_BOAT);
-    // v0.18.0: permanent abilities shown as the item image + a small level digit (not text).
-    // Each sits in its own tight row (icon then digit) so the digit stays next to its image.
     auto abilityCell = [&](HudIcon ic, uint32_t col, lv_obj_t *&lvl) -> lv_obj_t * {
         lv_obj_t *cell = lv_obj_create(s_itemBox);
         lv_obj_remove_style_all(cell);
-        lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(cell, 2, 0);
-        lv_obj_set_width(cell, LV_SIZE_CONTENT);
-        lv_obj_set_height(cell, HUD_PX + 2);
+        lv_obj_set_size(cell, HUD_PX + 2, HUD_PX + 2);
         lv_obj_set_scrollable(cell, false);
         lv_obj_set_clickable(cell, false);
         s_item[ic] = hudIcon(cell, ic);
         lvl = Theme::label(cell, "", &my_font_14, col);
+        lv_obj_set_style_bg_color(lvl, Theme::c(Theme::PANEL), 0);
+        lv_obj_set_style_bg_opa(lvl, LV_OPA_COVER, 0);
+        lv_obj_set_style_min_width(lvl, 10, 0);
+        lv_obj_set_style_text_align(lvl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(lvl, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
         return cell;
     };
     s_flashCell = abilityCell(H_FLASH, Theme::GOLD, s_flashLvl);
     s_pogoCell  = abilityCell(H_POGO, Theme::TEAL, s_pogoLvl);
     lv_obj_set_hidden(s_flashCell, true);
     lv_obj_set_hidden(s_pogoCell, true);
+    buildKeyIcons(pan, COL_R_X, COL_R_W);
 
     s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,px(36),Theme::LINE);
     lv_obj_set_pos(s_bombCancel,COL_R_X,px(106));
     lv_obj_set_hidden(s_bombCancel,true);
     lv_obj_add_event_cb(s_bombCancel,[](lv_event_t*) {
-        if(Theme::debounce(s_actionTapMs)) cancelBomb();
+        if(Theme::debounce(s_actionTapMs)) { cancelBomb(); updateStats(); }
     },LV_EVENT_CLICKED,nullptr);
     buildJoystick(s_gameRoot);
 }
@@ -2907,7 +2906,6 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_timerLabel,false);
     lv_obj_set_hidden(s_timerLabel,true);
     buildControls();
-    buildKeyIcons();
     snapPlayer();
     s_fxX = -1;
     s_bumpT0 = 0;

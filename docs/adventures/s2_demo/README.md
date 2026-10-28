@@ -115,9 +115,12 @@ The standard HUD keeps the map clear. In the hamburger menu, turn on
 For example `2:33` means group 2 has 33 successful displacements remaining;
 `2:0` means closed, not zero seconds. The line remains visible after expiry,
 while extra info is enabled, updates on reactivation and scrolls horizontally
-if several groups need space. Owned colored keys appear as key symbols at the
-bottom right, one per owned color regardless of quantity, and disappear when
+if several groups need space. Owned colored keys appear as key symbols
+in the control panel's bottom-right corner alongside the other collected items,
+one per owned color regardless of quantity, and disappear when
 the last key of that color is spent. The 1–6 marks identify colors, not counts.
+During bomb placement the key symbols temporarily hide so the Cancel button
+remains unobstructed.
 
 `@rules` → `par: N` accepts 1–65535; omit it for no target.
 `par: 56` is a displacement target, not a command count:
@@ -157,8 +160,8 @@ and **480×800**, in SV and EN:
   `2:0`, and that waiting or pausing does not decrement it.
 - Use the joystick across ice and all four arrows; verify visible gliding
   through the cells/corners at both zooms, release/STOP, and menu interruption.
-- Match all six key/door colors **and 1–6 markers**, including the bottom-right
-  owned-key symbols (no quantity labels; no symbol for an unowned color);
+- Match all six key/door colors **and 1–6 markers**, including the control panel's
+  bottom-right owned-key symbols (no quantity labels; no symbol for an unowned color);
   try the green side door with the red key as above, and verify unlocking
   requires another movement input.
 - Reach the exit at 56/par 56; restart and make a detour to exceed par.

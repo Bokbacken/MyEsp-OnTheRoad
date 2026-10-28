@@ -34,6 +34,7 @@ code = r'''
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <deque>
 #include "adv_game_geometry.h"
 #include "otr_world.h"
 #include "otr_joystick.h"
@@ -44,14 +45,48 @@ using Otr::Dir;
 using Otr::Obj;
 using Otr::Tile;
 namespace Game = AdvUi::Game;
-struct lv_obj_t { std::string text; bool hidden = false; uint32_t color = 0; };
+struct lv_obj_t {
+    std::string text;
+    bool hidden = false;
+    uint32_t color = 0, background = 0;
+    int x = 0, y = 0, w = 0, h = 0, gap = 0, opacity = 0;
+    bool row = false, bottomRight = false, clickable = true, scrollable = true;
+    lv_obj_t *parent = nullptr;
+    std::vector<lv_obj_t *> children;
+    const uint16_t *pixels = nullptr;
+};
+static std::deque<lv_obj_t> uiObjects;
+static lv_obj_t *lv_obj_create(lv_obj_t *parent) {
+    uiObjects.emplace_back();
+    auto *obj=&uiObjects.back(); obj->parent=parent;
+    if (parent) parent->children.push_back(obj);
+    return obj;
+}
+static void lv_obj_remove_style_all(lv_obj_t *) {}
+static void lv_obj_set_size(lv_obj_t *o, int w, int h) { o->w=w; o->h=h; }
+static void lv_obj_set_pos(lv_obj_t *o, int x, int y) { o->x=x; o->y=y; }
+static void lv_obj_set_scrollable(lv_obj_t *o, bool on) { o->scrollable=on; }
+static void lv_obj_set_clickable(lv_obj_t *o, bool on) { o->clickable=on; }
+static void lv_obj_set_flex_flow(lv_obj_t *o, int) { o->row=true; }
+static void lv_obj_set_style_pad_column(lv_obj_t *o, int gap, int) { o->gap=gap; }
+static void lv_obj_set_style_bg_opa(lv_obj_t *o, int opacity, int) { o->opacity=opacity; }
+static void lv_obj_set_style_min_width(lv_obj_t *o, int w, int) { o->w=std::max(o->w,w); }
+static void lv_obj_set_style_text_align(lv_obj_t *, int, int) {}
+static void lv_obj_align(lv_obj_t *o, int, int, int) { o->bottomRight=true; }
+static lv_obj_t *lv_canvas_create(lv_obj_t *parent) { return lv_obj_create(parent); }
+static void lv_canvas_set_buffer(lv_obj_t *o, const uint16_t *pixels, int w, int h, int) {
+    o->pixels=pixels; o->w=w; o->h=h;
+}
+enum { LV_OPA_COVER=255, LV_COLOR_FORMAT_RGB565, LV_FLEX_FLOW_ROW, LV_TEXT_ALIGN_CENTER,
+       LV_ALIGN_BOTTOM_RIGHT };
+static constexpr int my_font_14=18; // Production font's line_height, not the glyph point size.
 static void lv_label_set_text(lv_obj_t *o, const char *s) { o->text = s; }
 static void lv_label_set_text_fmt(lv_obj_t *o, const char *fmt, ...) {
     char text[256]; va_list ap; va_start(ap, fmt); vsnprintf(text, sizeof text, fmt, ap); va_end(ap);
     o->text = text;
 }
 static void lv_obj_set_style_text_color(lv_obj_t *, uint32_t, int) {}
-static void lv_obj_set_style_bg_color(lv_obj_t *, uint32_t, int) {}
+static void lv_obj_set_style_bg_color(lv_obj_t *o, uint32_t color, int) { o->background=color; }
 static void lv_obj_set_style_border_color(lv_obj_t *, uint32_t, int) {}
 static void lv_obj_set_state(lv_obj_t *, int, bool) {}
 static void lv_obj_set_hidden(lv_obj_t *o, bool hide) { o->hidden = hide; }
@@ -63,6 +98,10 @@ namespace Theme {
 constexpr uint32_t TEXT=1, MUTED=2, ACCENT=3, GOLD=4, TEAL=5, GREEN=6, RED=7, BLUE=8, LINE=9;
 constexpr uint32_t PANEL=0x17263A;
 static uint32_t c(uint32_t n) { return n; }
+static lv_obj_t *label(lv_obj_t *parent, const char *text, const int *font, uint32_t color) {
+    auto *obj=lv_obj_create(parent); obj->text=text; obj->h=*font; obj->color=color;
+    obj->w=9; return obj;
+}
 }
 struct lv_event_t { lv_obj_t *target; };
 static lv_obj_t *lv_event_get_target_obj(lv_event_t *e) { return e->target; }
@@ -102,6 +141,7 @@ static lv_obj_t *s_item[H_COUNT]={labelObjects+6,labelObjects+7,labelObjects+8,l
                                 labelObjects+10,labelObjects+11,labelObjects+12};
 static lv_obj_t *s_flashCell=labelObjects+13, *s_pogoCell=labelObjects+14;
 static lv_obj_t *s_flashLvl=labelObjects+15, *s_pogoLvl=labelObjects+16;
+static lv_obj_t *s_itemBox;
 static lv_obj_t *s_bar=labelObjects+17, *s_barLbl=labelObjects+18;
 static lv_obj_t *s_hitBtn=labelObjects+19, *s_swapBtn=labelObjects+20;
 static int s_prevFlash, s_prevPogo, s_actSel, s_actShown=-1;
@@ -120,6 +160,11 @@ static bool busy(uint32_t now) { return s_moveMs && now-s_moveT0<s_moveMs; }
 /*HUD*/
 /*EXTRA_TOGGLE*/
 /*KEY_ART*/
+/*KEY_CONSTRUCTION*/
+static void buildInventory(lv_obj_t *pan, int32_t COL_R_X, int32_t COL_R_W) {
+    const auto px=[](int32_t baseline) { return s_layout.controlPx(baseline); };
+/*ITEM_CONSTRUCTION*/
+}
 static void toast(const char *, uint32_t=Theme::TEXT, uint32_t=2200) {}
 static void eventToasts(uint32_t) {}
 static void bombAction() {}
@@ -296,8 +341,88 @@ static void movementTests() {
     ev=doMove(Dir::RIGHT); assert((ev&Otr::EV_EXIT) && results==0);
     load(); performanceText(text,sizeof text); assert(strstr(text,"Par: -"));
 }
+static Game::Rect bounds(lv_obj_t *obj) {
+    Game::Rect rect{obj->x,obj->y,obj->w,obj->h};
+    for (auto *parent=obj->parent; parent; parent=parent->parent) {
+        rect.x+=parent->x; rect.y+=parent->y;
+    }
+    return rect;
+}
+static bool contains(Game::Rect outer, Game::Rect inner) {
+    return inner.x>=outer.x && inner.y>=outer.y &&
+           inner.x+inner.w<=outer.x+outer.w && inner.y+inner.h<=outer.y+outer.h;
+}
+static bool separate(Game::Rect a, Game::Rect b) {
+    return a.x+a.w<=b.x || b.x+b.w<=a.x || a.y+a.h<=b.y || b.y+b.h<=a.y;
+}
+// Only row placement and label alignment are simulated; sizes/parents/styles come from production.
+static void inventoryLayout(lv_obj_t *obj) {
+    int x=0;
+    for (auto *child : obj->children) {
+        if (child->hidden) continue;
+        if (obj->row) { child->x=x; child->y=0; x+=child->w+obj->gap; }
+        if (child->bottomRight) { child->x=obj->w-child->w; child->y=obj->h-child->h; }
+        inventoryLayout(child);
+    }
+}
+static void inventoryConstructionTests() {
+    for (auto size : {Game::Point{320,480}, {480,800}, {481,801}}) {
+        s_layout=Game::layout(size.x,size.y);
+        const auto px=[](int v) { return s_layout.controlPx(v); };
+        auto *panel=lv_obj_create(nullptr);
+        lv_obj_set_pos(panel,0,s_layout.controls.y);
+        lv_obj_set_size(panel,s_layout.controls.w,s_layout.controls.h);
+        const int rightX=s_layout.joystick.x+s_layout.joystick.w;
+        const int rightW=s_layout.controls.w-rightX-px(4);
+        buildInventory(panel,rightX,rightW);
+        assert(s_keyBox->parent==panel && s_keyBox->w==56 && s_keyBox->h==36);
+        assert(s_keyBox->hidden && !s_keyBox->clickable && !s_keyBox->scrollable);
+        assert(s_keyBox->children.size()==6);
+        load(); world.setBoat(true); world.setFlashlight(3); world.setPogo(3);
+        for (auto owned : {std::vector<int>{}, {4}, {0,2,5}, {0,1,2,3,4,5}}) {
+            for (int i=0;i<6;++i) world.setKeys(Otr::KeyColor(i),0);
+            for (int i : owned) world.setKeys(Otr::KeyColor(i),42);
+            updateStats(); inventoryLayout(panel);
+            const auto grid=bounds(s_keyBox), items=bounds(s_itemBox);
+            assert(s_keyBox->hidden==owned.empty());
+            assert(contains(bounds(panel),grid) && contains(bounds(panel),items));
+            assert(grid.x>=rightX && grid.x+grid.w==size.x-px(4));
+            assert(grid.y+grid.h==size.y-px(4));
+            assert(separate(grid,items) && separate(grid,s_layout.joystick));
+            for (auto area : {grid,items}) {
+                assert(separate(area,{rightX,s_layout.controls.y+px(74),rightW,px(18)}));
+                assert(separate(area,{rightX,s_layout.controls.y+px(8),rightW,px(56)}));
+            }
+            for (int i=0;i<6;++i) {
+                auto *icon=s_keyIcons[i];
+                const bool has=std::find(owned.begin(),owned.end(),i)!=owned.end();
+                assert(icon->hidden!=has && icon->parent==s_keyBox);
+                assert(icon->x==(i%3)*20 && icon->y==(i/3)*20);
+                assert(icon->w==16 && icon->h==16 && contains(grid,bounds(icon)));
+                assert(icon->pixels==s_spr->coloredKeys[i] && icon->children.empty());
+                if (has) { world.setKeys(Otr::KeyColor(i),1); updateStats(); assert(!icon->hidden); }
+            }
+            std::vector<Game::Rect> cells;
+            for (auto *cell : {s_item[H_BOAT],s_flashCell,s_pogoCell}) {
+                assert(!cell->hidden && contains(items,bounds(cell)));
+                for (auto previous : cells) assert(separate(previous,bounds(cell)));
+                cells.push_back(bounds(cell));
+                for (auto *child : cell->children) assert(contains(bounds(cell),bounds(child)));
+            }
+            for (auto *level : {s_flashLvl,s_pogoLvl}) {
+                assert(level->text=="3" && level->h==18 && level->w>=10);
+                assert(level->opacity==LV_OPA_COVER && level->background==Theme::PANEL);
+                assert(level->color!=level->background);
+            }
+            assert(s_flashLvl->color==Theme::GOLD && s_pogoLvl->color==Theme::TEAL);
+        }
+        s_bombSize=3; updateStats(); assert(s_keyBox->hidden);
+        s_bombSize=0; updateStats(); assert(!s_keyBox->hidden);
+    }
+}
 static void inventoryTests() {
     makeArt(s_spr); makeColoredKeyIcons();
+    inventoryConstructionTests();
     std::set<std::vector<uint16_t>> images, badges;
     for (int i=0;i<6;++i) {
         images.emplace(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256);
@@ -469,7 +594,7 @@ int main() {
         actionTests(); movementTests(); inventoryTests(); timerTests();
     }
     rendererTests();
-    puts("S2 production UI: renderer (3 sizes/2 zooms), action, forced movement, optional HUD, owned-key icons, muted SFX OK");
+    puts("S2 production UI: renderer (3 sizes/2 zooms), action, forced movement, optional HUD, control-panel key grid/ability badges (3 sizes/2 languages), muted SFX OK");
 }
 '''
 replacements = {
@@ -488,7 +613,10 @@ replacements = {
     "PERFORMANCE": section("static void performanceText(", "static void addPerformance("),
     "EXTRA_STATE": section("static bool s_extraHud", "static lv_obj_t *s_keyBox"),
     "EXTRA_TOGGLE": section("static const char *extraHudText()", "static void showMenu()"),
-    "KEY_ART": section("static void makeColoredKeyIcons()", "static void buildKeyIcons()"),
+    "KEY_ART": section("static void makeColoredKeyIcons()", "static void buildKeyIcons("),
+    "KEY_CONSTRUCTION": section("static lv_obj_t *hudIcon(", "static void makeColoredKeyIcons()") +
+                        section("static void buildKeyIcons(", "// Bottom control panel"),
+    "ITEM_CONSTRUCTION": section("    // Compact level badges", "    s_bombCancel=Theme::button"),
 }
 menu = section("static void showMenu()", "// 32 px sprite")
 assert "menuButton(c, extraHudText(), Theme::LINE, toggleExtraHud)" in menu

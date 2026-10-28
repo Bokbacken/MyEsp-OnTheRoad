@@ -88,6 +88,7 @@ static constexpr int ACT_HIT = 0;
 static Otr::World world, *s_world = &world;
 /*EXTRA_STATE*/
 static lv_obj_t *s_keyBox, *s_keyIcons[6];
+static int s_bombSize;
 static int s_prevFlash, s_prevPogo;
 static int langIdx() { return !strcmp(Lang::currentLang(), "en"); }
 static const char *advMapTitle() { return "A long map title"; }
@@ -165,25 +166,27 @@ static void checkKeys() {
         updateStats(); lv_obj_update_layout(s_scr);
         assert(!hidden(s_keyBox));
         auto strip=AdvUi::gameBounds(s_keyBox);
-        assert(strip.x>=0 && strip.x+strip.w==s_layout.width-4);
-        assert(strip.y>=32 && strip.y+strip.h<=s_layout.controls.y-4);
-        int previous=strip.x;
+        assert(lv_obj_get_parent(s_keyBox)==lv_obj_get_parent(s_hitBtn));
+        assert(contains(AdvUi::gameBounds(lv_obj_get_parent(s_hitBtn)),strip));
+        assert(strip.x+strip.w==s_layout.width-s_layout.controlPx(4));
+        assert(lv_obj_get_y(s_keyBox)+strip.h==s_layout.controls.h-s_layout.controlPx(4));
+        assert(strip.w==56 && strip.h==36);
         for (int i=0;i<6;++i) {
             const bool has=std::find(owned.begin(),owned.end(),i)!=owned.end();
             assert(hidden(s_keyIcons[i])!=has);
             if (!has) continue;
             auto bounds=AdvUi::gameBounds(s_keyIcons[i]);
-            assert(bounds.x>=previous && bounds.y>=strip.y);
+            assert(lv_obj_get_parent(s_keyIcons[i])==s_keyBox);
+            assert(bounds.x==strip.x+(i%3)*20 && bounds.y==strip.y+(i/3)*20);
             assert(bounds.x+bounds.w<=strip.x+strip.w && bounds.y+bounds.h<=strip.y+strip.h);
             assert(bounds.w==16 && bounds.h==16);
-            previous=bounds.x+bounds.w;
             const std::vector<uint16_t> before(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256);
             world.setKeys(Otr::KeyColor(i),1); updateStats();
             assert(!hidden(s_keyIcons[i]) && before==
                    std::vector<uint16_t>(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256));
         }
     }
-    // All six keys coexist with every carried item; the keys never enter the cramped item wrap.
+    // All six keys coexist with every carried item in the control panel's right column.
     world.setBoat(true); world.setFlashlight(3); world.setPogo(3);
     updateStats(); lv_obj_update_layout(s_scr);
     const auto strip=AdvUi::gameBounds(s_keyBox), items=AdvUi::gameBounds(s_itemBox);
@@ -198,18 +201,25 @@ static void checkKeys() {
         cells.push_back(bounds);
     }
     assert(!strcmp(lv_label_get_text(s_flashLvl),"3") && !strcmp(lv_label_get_text(s_pogoLvl),"3"));
+    for (auto *level : {s_flashLvl,s_pogoLvl}) {
+        assert(lv_obj_get_style_text_font(level,0)==&my_font_14);
+        assert(lv_obj_get_style_bg_opa(level,0)==LV_OPA_COVER);
+        assert(lv_color_eq(lv_obj_get_style_bg_color(level,0),Theme::c(Theme::PANEL)));
+        assert(!lv_color_eq(lv_obj_get_style_text_color(level,0),Theme::c(Theme::PANEL)));
+        assert(lv_obj_get_width(level)>=10 && lv_obj_get_height(level)>=my_font_14.line_height);
+    }
     for (auto *cell : {s_flashCell,s_pogoCell})
         for (uint32_t i=0;i<lv_obj_get_child_count(cell);++i)
             assert(contains(AdvUi::gameBounds(cell),AdvUi::gameBounds(lv_obj_get_child(cell,i))));
     for (auto *icon : s_keyIcons) assert(!hidden(icon));
-    // The independent key strip also stays clear of the existing active cancel control.
-    lv_obj_set_hidden(s_bombCancel,false); lv_obj_update_layout(s_scr);
-    const auto cancel=AdvUi::gameBounds(s_bombCancel);
-    assert(contains(s_layout.controls,cancel) && separate(cancel,strip));
     for (auto *control : {s_itemBox,s_bar,s_hitBtn,s_swapBtn,s_muteBtn})
         if (control) assert(separate(strip,AdvUi::gameBounds(control)));
     assert(separate(strip,s_layout.joystick));
-    lv_obj_set_hidden(s_bombCancel,true);
+    // Bomb selection temporarily replaces the keys, without moving the cancel control.
+    s_bombSize=3; lv_obj_set_hidden(s_bombCancel,false); updateStats();
+    assert(hidden(s_keyBox));
+    s_bombSize=0; lv_obj_set_hidden(s_bombCancel,true); updateStats();
+    assert(!hidden(s_keyBox));
     const char *doors[]={"S.."};
     std::string row=doors[0]; row[1]=row[2]=char(Otr::COLORED_DOOR_GLYPH);
     const char *map[]={row.c_str()};
