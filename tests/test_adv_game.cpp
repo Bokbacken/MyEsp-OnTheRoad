@@ -42,11 +42,12 @@ static void testMap(G::Rect canvas)
 
 static void testJoystick(G::Rect pad)
 {
-    const G::Point centre = {pad.x + G::JOY_CX, pad.y + G::JOY_CY};
+    const auto j = G::joyGeometry(pad);
+    const G::Point centre = {pad.x + j.cx, pad.y + j.cy};
     CHECK(G::JOY_R == 74 && G::JOY_STOP_R == 23 && G::JOY_KNOB_R == 20);
     CHECK(pad.contains(centre));
-    CHECK(pad.contains({pad.x, pad.y}) && pad.contains({pad.x + 159, pad.y + 159}));
-    CHECK(!pad.contains({pad.x - 1, pad.y}) && !pad.contains({pad.x + 160, pad.y}));
+    CHECK(pad.contains({pad.x, pad.y}) && pad.contains({pad.x + pad.w - 1, pad.y + pad.h - 1}));
+    CHECK(!pad.contains({pad.x - 1, pad.y}) && !pad.contains({pad.x + pad.w, pad.y}));
     Otr::JoyConfig config;
     for (G::Point local : {G::Point{0, 0}, G::Point{22, 0}, G::Point{23, 0},
                           G::Point{24, 0}, G::Point{48, 0}, G::Point{49, 0},
@@ -54,17 +55,18 @@ static void testJoystick(G::Rect pad)
                           G::Point{-80, -80}, G::Point{79, 79}, G::Point{200, -200}}) {
         const auto delta = G::joyDelta(pad, {centre.x + local.x, centre.y + local.y});
         CHECK(delta.x == local.x && delta.y == local.y);
-        const auto actual = Otr::joySample(delta.x, delta.y, G::JOY_R, G::JOY_STOP_R, config);
-        const auto baseline = Otr::joySample(local.x, local.y, 74, 23, config);
+        const auto actual = Otr::joySample(delta.x, delta.y, j.radius, j.stopRadius, config);
+        const auto baseline = Otr::joySample(local.x, local.y, j.radius, j.stopRadius, config);
         CHECK(actual.moving == baseline.moving && actual.zone == baseline.zone);
         CHECK(actual.dir == baseline.dir && actual.alt == baseline.alt);
         CHECK(actual.intervalMs == baseline.intervalMs);
     }
-    CHECK(!Otr::joySample(22, 0, G::JOY_R, G::JOY_STOP_R, config).moving);
-    CHECK(Otr::joySample(23, 0, G::JOY_R, G::JOY_STOP_R, config).zone == 1);
-    CHECK(Otr::joySample(48, 0, G::JOY_R, G::JOY_STOP_R, config).zone == 1);
-    CHECK(Otr::joySample(49, 0, G::JOY_R, G::JOY_STOP_R, config).zone == 2);
-    CHECK(Otr::joySample(74, 0, G::JOY_R, G::JOY_STOP_R, config).zone == 2);
+    CHECK(!Otr::joySample(j.stopRadius - 1, 0, j.radius, j.stopRadius, config).moving);
+    CHECK(Otr::joySample(j.stopRadius, 0, j.radius, j.stopRadius, config).zone == 1);
+    const int boundary = j.stopRadius + (j.radius - j.stopRadius + 1) / 2;
+    CHECK(Otr::joySample(boundary - 1, 0, j.radius, j.stopRadius, config).zone == 1);
+    CHECK(Otr::joySample(boundary, 0, j.radius, j.stopRadius, config).zone == 2);
+    CHECK(Otr::joySample(j.radius, 0, j.radius, j.stopRadius, config).zone == 2);
 }
 
 static void testBlit(G::Rect view)
@@ -105,11 +107,14 @@ int main()
     CHECK(l.joystick.x == 80 && l.joystick.y == 320);
     CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 204800);
     l = G::layout(480, 800);  // Logical profile dimensions, not a physical P4 assertion.
-    CHECK(l.view.x == 0 && l.view.y == 0 && l.view.w == 480 && l.view.h == 640);
-    CHECK(l.joystick.x == 160 && l.joystick.y == 640);
-    CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 614400);
+    CHECK(l.view.x == 0 && l.view.y == 0 && l.view.w == 480 && l.view.h == 560);
+    CHECK(l.controls.h == 240 && l.joystick.w == 240 && l.joystick.x == 120 && l.joystick.y == 560);
+    const auto joy = G::joyGeometry(l.joystick);
+    CHECK(joy.cx == 120 && joy.cy == 120 && joy.radius == 111 && joy.stopRadius == 34 && joy.knobRadius == 30);
+    CHECK(l.controlPx(36) == 54 && l.controlPx(48) == 72);
+    CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 537600);
     l = G::layout(481, 801);
-    CHECK(l.view.w == 481 && l.view.h == 641 && l.joystick.x == 160);
+    CHECK(l.view.w == 481 && l.view.h == 561 && l.controls.h == 240 && l.joystick.x == 120);
     l = G::layout(240, 320);
     CHECK(l.width == 320 && l.height == 480);  // No new small-screen layout.
     CHECK(G::frameBytes(0, 640) == 0 && G::frameBytes(960, 0) == 0);
@@ -117,9 +122,11 @@ int main()
     for (G::Point size : {G::Point{320, 480}, G::Point{480, 800}, G::Point{481, 801}, G::Point{600, 1024}}) {
         const auto layout = G::layout(size.x, size.y);
         CHECK(layout.width == size.x && layout.height == size.y);
-        CHECK(layout.view.h + layout.controls.h == size.y && layout.controls.h == 160);
+        CHECK(layout.view.h + layout.controls.h == size.y && layout.controls.h == size.x / 2);
         CHECK(layout.controls.y == layout.view.y + layout.view.h && layout.controls.w == layout.view.w);
         CHECK(layout.joystick.y == layout.controls.y && layout.joystick.h == layout.controls.h);
+        CHECK(layout.joystick.w == layout.controls.h);
+        CHECK(layout.controlPx(160) == layout.controls.h);
         CHECK(layout.joystick.x >= 80 && layout.width - layout.joystick.x - layout.joystick.w >= 80);
         testMap(layout.view);
         testJoystick(layout.joystick);
@@ -139,7 +146,7 @@ int main()
         }
     }
     // Actual canvas/pad positions remain authoritative after an additional parent translation.
-    testMap({103, 207, 480, 640});
+    testMap({103, 207, 480, 560});
     testJoystick({263, 847, 160, 160});
     CHECK_DONE();
 }

@@ -1,4 +1,4 @@
-// Adventure viewport and fixed-pixel controls; world art is never stretched.
+// Adventure viewport and proportional controls; world art is never stretched.
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
@@ -22,14 +22,28 @@ constexpr int32_t JOY_R = 74, JOY_STOP_R = JOY_R * 17 / 53, JOY_KNOB_R = JOY_R *
 struct Layout {
     int32_t width, height;
     Rect view, controls, joystick;
+    int32_t controlPx(int32_t baseline) const {
+        return int32_t(int64_t(baseline) * controls.h / JOY_SIZE);
+    }
 };
+
+struct JoyGeometry {
+    int32_t cx, cy, radius, stopRadius, knobRadius;
+};
+
+inline JoyGeometry joyGeometry(Rect area) {
+    return {area.w / 2, area.h / 2, JOY_R * area.w / JOY_SIZE,
+            JOY_STOP_R * area.w / JOY_SIZE, JOY_KNOB_R * area.w / JOY_SIZE};
+}
 
 inline Layout layout(int32_t screenW, int32_t screenH) {
     // Preserve the portrait baseline on unsupported smaller displays.
     const int32_t w = screenW < 320 ? 320 : screenW;
+    const int32_t panelH = w / 2;
     const int32_t h = screenH < 480 ? 480 : screenH;
-    return {w, h, {0, 0, w, h - JOY_SIZE}, {0, h - JOY_SIZE, w, JOY_SIZE},
-            {(w - JOY_SIZE) / 2, h - JOY_SIZE, JOY_SIZE, JOY_SIZE}};
+    const int32_t height = h > panelH ? h : panelH + 1;
+    return {w, height, {0, 0, w, height - panelH}, {0, height - panelH, w, panelH},
+            {(w - panelH) / 2, height - panelH, panelH, panelH}};
 }
 
 inline size_t frameBytes(size_t strideBytes, int32_t height) {
@@ -72,7 +86,8 @@ inline bool worldPoint(Rect canvas, Point touch, int32_t camX, int32_t camY, int
 
 // Do not clip drags: the full pad rectangle and points beyond the ring use the outer zone.
 inline Point joyDelta(Rect area, Point touch) {
-    return {touch.x - area.x - JOY_CX, touch.y - area.y - JOY_CY};
+    const auto j = joyGeometry(area);
+    return {touch.x - area.x - j.cx, touch.y - area.y - j.cy};
 }
 
 }  // namespace Game
