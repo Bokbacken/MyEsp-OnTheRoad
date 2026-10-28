@@ -31,6 +31,9 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 >
 > **Nytt i v0.20.1 (Fas S2):** spakar, tidsgrindar, is, transportband, färgade
 > nycklar/dörrar och par-bedömning — avsnitt 10e.
+>
+> **Nytt i v0.21.0 (Fas S3):** skridskor, giftmark/träsk/vassa stenar,
+> färglådor/färgplattor och uttryckliga spak+platta-AND-grupper — avsnitt 10f.
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -194,7 +197,7 @@ något (de två får överlappa, `reset` vinner).
 | `maxenergy` | permanent max-energi (hjärtan) |
 | `items` | story-föremål och resurser i inventariet |
 | `lives` | liv (använda/kvar) |
-| `suit` | dräktladdningar (lavaskydd) |
+| `suit` | dräktladdningar (lava- och terrängskydd, se 10f) |
 | `keys` | nycklar |
 | `gems` | ädelstenar – **förs aldrig över** (nollas alltid mellan nivåer) |
 | `boat` | båt |
@@ -766,8 +769,9 @@ Demot med alla S2-mekanismer finns i
 
 En spak är solid och aktiveras bara med en uttrycklig handling; att gå in i den
 aktiverar den inte. Flera vanliga toggle-spakar i samma grupp delar latch och
-växlar gruppens tillstånd. En grupp får inte blanda plattor och spakar; laddaren
-avvisar blandningen med radnummer. På enheten väljer **Byt / Swap** handlingen
+växlar gruppens tillstånd. Utan uttryckligt AND-läge (se 10f) får en grupp inte
+blanda plattor och spakar; laddaren avvisar blandningen med radnummer.
+På enheten väljer **Byt / Swap** handlingen
 **Spak / Lever**; den nedre delen av utförandeknappen aktiverar spaken.
 
 `@timedgate <grupp>: N` konfigurerar en grupp med `N` steg (1–65535). En sådan
@@ -806,11 +810,137 @@ En `@treasures`-rad får inte ligga på en gruppbärande platta, grind eller spa
 laddaren avvisar det med radnummer eftersom cellen använder sitt värde för
 grupp-id.
 
-Nya spelsparningar använder motorformat **SAVE_VERSION=4**. Efter rutdatan finns
+S2 introducerade motorformat **SAVE_VERSION=4**. Efter rutdatan finns
 ett separat **86-byte S2-tillägg** med färgnycklar, spak-latches och återstående
 grindtider. Motorformat v1/v2/v3 migreras vid läsning; de nya S2-tillstånden
 börjar då tomma/av. SD-sessionens yttre container är fortsatt version 1. Äldre
-firmware kan inte läsa format 4.
+firmware kan inte läsa format 4. För aktuellt S3-format 5, se 10f.
+
+### 10f. S3: skridskor, giftterräng och färgsokoban (v0.21.0)
+
+De nya karttecknen väljs uttryckligen i `@legend`; inga gamla standardtecken
+byter betydelse. Produktionsloadern (`main/adv_loader`) är referensen även för
+S3. Det äldre hostverktyget `tools/adv_parse.*` stöder inte S2/S3.
+
+| `@legend`-värde | Betydelse |
+|---|---|
+| `skates` | Permanenta skridskor |
+| `poison` | Giftmark |
+| `swamp` | Träsk |
+| `sharp_rocks` | Uppstickande vassa stenar |
+| `box <färg>` | Flyttbar Sokoban-låda, inte en sönderslagbar `crate` |
+| `plate <färg>` | Färgplatta, som börjar i grupp 0 |
+| `plate <grupp> <färg>` | Färgplatta direkt i angiven grupp |
+
+Färgerna är `red`, `green`, `blue`, `yellow`, `purple`, `cyan`, med samma
+färg-/siffermärkning **1–6** som nycklarna. Färg och grindgrupp är oberoende:
+flytta en färgplatta till önskad grupp med befintliga `@plategroup`-koordinater.
+Exempel:
+
+```text
+@legend
+i = ice
+s = skates
+p = poison
+w = swamp
+h = sharp_rocks
+r = box red
+a = plate red
+! = lever 1
+G = gate 1
+
+@andgate 1
+
+@map
+###############
+#Ssi.pwh......#
+#..r.a...G..X.#
+#..!..........#
+###############
+
+@plategroup
+1: 5,2
+```
+
+#### Skridskor och rörelse
+
+Upplockade skridskor är alltid aktiva; de förbrukas inte och kräver ingen
+separat aktiveringsknapp. På is blir varje riktningsinput ett vanligt steg:
+spelaren kan stanna och byta riktning. Utan skridskor gäller tidigare glidning.
+Band tvingar fortfarande rörelse, även med skridskor.
+Tap-to-walk kan planera över is när skridskor är aktiva; utan skridskor
+undviks is som tidigare. Band undviks fortfarande av planeraren.
+
+Skridskor följer samma permanenta förmågemodell som ficklampa/hoppstylta:
+de följer med mellan kartor oberoende av `carry`/`reset`-maskerna och sparas
+med världen. Start av ett nytt äventyr ger inga skridskor.
+
+#### Energi och skyddsdräkt
+
+| Terräng | Utan dräktladdning | Med dräktladdning |
+|---|---:|---:|
+| Giftmark | 1 | 0 |
+| Träsk | 2 | 1 |
+| Vassa stenar | 4 | 2 |
+
+Kostnaden tas en gång per faktisk landning på rutan, inklusive återinträde,
+tvångsrörelse och hoppets landning. Att stå stilla, slå, använda spak eller
+försöka ett blockerat steg kostar ingen terrängenergi.
+Skadan använder samma energi-/döds-/respawnregler som övrig skada.
+Skyddet gäller när `suitCharges() > 0`; dessa tre terränger förbrukar inte
+dräktladdningar. Lava och minor behåller sina tidigare laddningsregler.
+Skridskor skyddar inte mot terrängskada.
+
+#### Lådor, plattor och dolda föremål
+
+Färglådor knuffas som stenar, utan nyckelkrav, men kan inte slås sönder.
+En färgplatta kräver en låda med **samma färg**: spelaren, sten och fel färg
+aktiverar den inte. Gamla neutrala plattor behåller sina stenregler;
+färglådor ersätter inte sten där. Alla plattor i en grupp måste vara rätt täckta.
+
+Det befintliga `@treasures`-lagret kan ligga under sten eller färglåda.
+När täckningen knuffas bort lämnas skatten på ursprungsrutan, inte under det
+flyttade objektet. Spelaren går samtidigt in där och kan plocka upp skatten
+direkt. Exempel: `@treasures` → `3 2 potion 2` under lådan i exemplet ovan.
+Ingen ny sugpropps-/dragfunktion införs.
+Skatter på plattor/grindar/spakar är fortsatt ogiltiga, även på färgplattor,
+eftersom grupp-id och föremålsmängd inte får kollidera.
+
+#### Uttrycklig spak+platta-AND
+
+`@group <grupp>: and` (eller kortformen `@andgate <grupp>`) anger AND-läge
+för gruppen (0–9/A–Z).
+Grinden öppnas endast när gruppens spak-latch är ON **och** alla gruppens
+plattor är rätt täckta. Spak OFF eller en bortflyttad täckning stänger igen.
+Flera spakar delar gruppens latch, precis som tidigare.
+
+| Grupp | Utan `@andgate` | Med `@andgate` |
+|---|---|---|
+| Bara plattor | Alla måste vara täckta | Stängd: spakvillkoret saknas |
+| Bara spak | Spak-latch styr | Stängd: plattvillkoret saknas |
+| Både spak och plattor | Parsefel, som tidigare | ON och alla täckta |
+| Varken spak eller plattor | Stängd | Stängd |
+
+AND och `@timedgate` får inte användas på samma grupp. Dubbla AND-direktiv,
+okänd färg, extra argument och ogiltiga grupp-/koordinatangivelser ger parsefel
+med radnummer; befintliga resurs-/glyf- och skattkollisioner förblir fel.
+
+#### Sparformat och verifieringsgräns
+
+Motorformat **5** lägger till exakt **en byte** (skridskor av/på) efter
+format 4:s 86-byte S2-tillägg, före CRC. Äldre format 1–4 läses med skridskor
+**av**; äldre firmware kan inte läsa format 5. Terräng- och objekt-id:n är
+tillagda sist i befintliga enum och ryms i rutornas befintliga bytefält.
+Färglådans läge, dolda skatter, dräkt, energi och spak-latch sparas redan där.
+Plattfärg och grupp ryms också i befintliga rutbyte; AND-konfigurationen hämtas
+från laddad karta. Ingen extra färg-/gruppmatris behöver sparas. SD-sessionens
+yttre container är fortsatt version **1**.
+
+Hosttesterna täcker mekanik, loaderfel, gamla sparformat, återställning,
+UI-rendering och den externa demots dokumenterade lösning.
+**Fysisk ESP32-/skärm-/touchverifiering återstår för S3**, liksom firmwarebygge
+i ESP-IDF. Se [demots README](adventures/s3_demo/README.md) för SD-sökväg,
+lösning och manuell kontroll.
 
 ---
 
@@ -915,6 +1045,11 @@ g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
   [`docs/adventures/s2_demo/README.md`](adventures/s2_demo/README.md) och
   [`docs/adventures/s2_demo/s2_demo.adv`](adventures/s2_demo/s2_demo.adv) –
   spakar, tidsgrind, is, band, färgnycklar och par.
+- **S3-provbana (v0.21.0):**
+  [`docs/adventures/s3_demo/README.md`](adventures/s3_demo/README.md) och
+  [`docs/adventures/s3_demo/s3_demo.adv`](adventures/s3_demo/s3_demo.adv) –
+  skridskor, tre skadliga terränger med/utan dräkt, färgsokoban,
+  spak+platta-AND och skatt under en flyttbar låda.
 - **Alla inbyggda äventyr som `.adv`:**
   [`docs/adventures/generated/`](adventures/generated/) – byn, josef (2 kartor),
   minfaltet och testvarlden, exporterade direkt från den kompilerade

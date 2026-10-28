@@ -34,6 +34,7 @@ public:
 
     // Advances to the next map after an exit, carrying/resetting resources per the LEAVING map's
     // @rules. "keys" covers legacy and all six colored key counters; reset wins over carry.
+    // Skates persist like flashlight/pogo regardless of the carry/reset masks.
     // Returns false (with err) if there is no next map or it fails to load. Call hasNext()
     // first to tell "adventure complete" from "load error".
     bool travel(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,

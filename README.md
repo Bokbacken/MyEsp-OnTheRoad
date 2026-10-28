@@ -4,7 +4,18 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.20.1 – the adventure engine includes S1 grouped Sokoban plates/gates
+> **Status: v0.21.0** – adventure skates, poison ground/swamp/sharp rocks,
+> six colored push-box/plate pairs and explicit lever+plate AND groups.
+> The larger external demo and reproducible solution are in
+> [`docs/adventures/s3_demo/`](docs/adventures/s3_demo/), mirrored in the SD bundle.
+> Engine saves are now format 5 (one skates byte added to format 4);
+> formats 1–4 load with skates off. The SD-session container remains version 1.
+> See [authoring section 10f](docs/AUTHORING_ADVENTURES.md#10f-s3-skridskor-giftterräng-och-färgsokoban-v0210).
+> **Verification:** host tests cover these additions; physical ESP32/display/touch
+> verification and a firmware build are still required. No enemy AI, editor or undo
+> is included in this release.
+>
+> Previous: v0.20.1 – the adventure engine includes S1 grouped Sokoban plates/gates
 > (introduced in v0.20.0) and S2 levers, timed gates, ice, belts, colored keys/doors
 > and par scoring. The S2 `.adv` example is in
 > [`docs/adventures/s2_demo/`](docs/adventures/s2_demo/); the four-room grouped
@@ -366,6 +377,18 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 ```
 
 ### Tests (host)
+
+Adventure v0.21.0 checks (run from the repository root; binaries stay in `/tmp`):
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_s3.cpp main/adv_loader.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_s3 && /tmp/test_adv_s3
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_s3_demo.cpp main/adv_loader.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_s3_demo && /tmp/test_s3_demo
+python3 tests/test_adv_s2_ui.py /tmp
+```
+
+The demo test reads the delivered `.adv` files through the production loader and
+executes the solution in its README, including a save/restore checkpoint.
+These host checks do not replace an ESP-IDF firmware build or physical testing.
 
 ```sh
 INC="-Imain -Icomponents/my_wifi/include -Icomponents/my_ui/include"

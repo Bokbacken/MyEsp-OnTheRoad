@@ -1,0 +1,84 @@
+@meta
+id: s3_demo
+world: 97
+map_id: 97
+
+@about
+title.sv: Isstationens sex salar
+title.en: Six halls of the ice station
+desc.sv: En stor provbana: skridskor, tre faror, skyddsdräkt, sex färglådor och en OCH-port.
+desc.en: A large training gallery: skates, three hazards, a suit, six colored boxes and an AND gate.
+author: MyEsp-OnTheRoad
+
+@rules
+start_energy: 32
+energy_cap: 32
+lives: infinite
+suit_base_steps: 8
+suit_per_extra_max: 0
+
+@legend
+i = ice
+s = skates
+> = belt right
+p = poison
+w = swamp
+z = sharp_rocks
+a = box red
+b = box green
+c = box blue
+d = box yellow
+e = box purple
+f = box cyan
+A = plate 1 red
+B = plate 2 green
+C = plate 3 blue
+D = plate 4 yellow
+E = plate 5 purple
+F = plate 6 cyan
+g = gate 1
+h = gate 2
+j = gate 3
+k = gate 4
+m = gate 5
+n = gate 6
+! = lever 6
+
+@group 6: and
+
+@map
+#################################################
+#1###############################################
+#S...iiii...s...iiii....>>.....................##
+##############################################.##
+##############################################.##
+##############################################.##
+##..............z...w...p...u...z...w...p......##
+##.##############################################
+##.##############################################
+##.################################!#############
+##....g.....h.....j.....k.....m.......n........##
+####a#####b#####c#####d#####e####.f###########.##
+####A#####B#####C#####D#####E####.F###########.##
+####.#####.#####.#####.#####.####..###########.##
+#################################..###########.##
+##############################################.##
+#####________#######________#######________###.##
+#####________#######________#######________###.##
+##X.......*.............*.............*........##
+#################################################
+#################################################
+
+@treasures
+4 11 potion 6
+
+@npc guide
+name: Stationsvärden | Station keeper
+look: 0
+num: 1
+
+@node guide.start
+speaker: guide
+text.sv: Is först, sedan skridskor. Pilar tvingar ändå. Faror kostar 1/2/4; dräkten sänker till 0/1/2. Skjut sex färglådor till rätt plattor. Cyan kräver också spaken. Röd låda gömmer energi.
+text.en: Ice first, then skates. Arrows still force movement. Hazards cost 1/2/4; the suit reduces this to 0/1/2. Push six colored boxes onto matching plates. Cyan also needs the lever. Red hides energy.
+choice: Till provbanan! | Into the gallery! => END

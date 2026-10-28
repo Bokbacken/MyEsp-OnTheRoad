@@ -72,6 +72,7 @@ enum Spr : uint8_t {
     S_CHECK, S_CHECK_ON, S_EXIT, S_CRATER, S_FOG, S_FLAG, S_BUSH, S_POTION, S_HEART, S_SUIT, S_LIFE,
     S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
     S_FLASH, S_POGO, S_DARK,                  // v0.18.0: flashlight / pogo pickups + unlit dark cell
+    S_POISON, S_SWAMP, S_SHARP, S_SKATES, S_BOX, S_COLOR_PLATE,
     S_NPC0,                                   // v0.11.0: people, NPC_LOOKS looks x 4 directions (Dir order)
     S_NPC_LAST = S_NPC0 + 3 * 4 - 1,
     S_COUNT
@@ -84,10 +85,11 @@ enum HudIcon : uint8_t {
     H_LIFE, H_SUIT, H_KEY, H_GEM,   // Left column: counters
     H_BOAT,                         // Right column: carried items (on/off)
     H_FLASH, H_POGO,                // v0.18.0 permanent abilities, shown as image + level digit
+    H_SKATES,
     H_COUNT
 };
 // Lives use the extra-life heart (green, +) so the counter matches the pickup that raises it.
-static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT, S_FLASH, S_POGO};
+static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT, S_FLASH, S_POGO, S_SKATES};
 
 static constexpr int NPC_LOOKS = 3;           // Npc::look 0..2 (baker, shepherd, old man)
 static constexpr int PORTRAIT_PX = 48;        // Dialogue portrait: head + shoulders of the sprite, 2x
@@ -507,6 +509,30 @@ static void makeArt(Sprites *sp)
     line(b[S_BASALT], 20, 18, 31, 15, rgb(36, 34, 40));
     line(b[S_BASALT], 12, 8, 10, 0, rgb(36, 34, 40));
     line(b[S_BASALT], 20, 18, 16, 31, rgb(36, 34, 40));
+    fillNoise(b[S_POISON], 78, 40, 100, 7, 81);
+    // Skull and crossbones distinguish poison even without colour.
+    line(b[S_POISON], 7, 23, 24, 29, rgb(240, 235, 205), 3);
+    line(b[S_POISON], 7, 29, 24, 23, rgb(240, 235, 205), 3);
+    disc(b[S_POISON], 16, 12, 9, rgb(240, 235, 205));
+    rect(b[S_POISON], 12, 17, 19, 21, rgb(240, 235, 205));
+    disc(b[S_POISON], 12, 11, 2.5f, rgb(30, 20, 35));
+    disc(b[S_POISON], 20, 11, 2.5f, rgb(30, 20, 35));
+    rect(b[S_POISON], 15, 15, 16, 17, rgb(30, 20, 35));
+    fillNoise(b[S_SWAMP], 67, 83, 46, 8, 82);
+    // Mud pools, ripples and upright reeds, unlike water's horizontal waves.
+    disc(b[S_SWAMP], 11, 22, 8, rgb(35, 44, 26));
+    disc(b[S_SWAMP], 23, 12, 6, rgb(35, 44, 26));
+    line(b[S_SWAMP], 5, 23, 15, 23, rgb(152, 163, 91), 2);
+    for (int x : {5, 17, 27}) {
+        line(b[S_SWAMP], x, 18, x, 5, rgb(196, 181, 111), 2);
+        line(b[S_SWAMP], x, 12, x - 4, 8, rgb(196, 181, 111), 2);
+    }
+    fillNoise(b[S_SHARP], 90, 86, 85, 6, 83);
+    for (int x : {8, 22}) {
+        for (int y = 6; y <= 27; ++y)
+            rect(b[S_SHARP], x - (y - 6) / 3, y, x + (y - 6) / 3, y, rgb(205, 210, 218));
+        line(b[S_SHARP], x, 6, x, 26, rgb(70, 73, 82), 2);
+    }
     artGrass(b[S_PLATE], 2);
     rect(b[S_PLATE], 4, 4, 27, 27, rgb(96, 96, 108));
     rect(b[S_PLATE], 6, 6, 25, 25, rgb(170, 168, 180));
@@ -530,6 +556,24 @@ static void makeArt(Sprites *sp)
     for (int y = 6; y <= 26; y += 5) line(b[S_CRATE], 6, y, 25, y, rgb(146, 96, 46));
     line(b[S_CRATE], 6, 6, 25, 26, rgb(110, 70, 34), 3);
     line(b[S_CRATE], 25, 6, 6, 26, rgb(110, 70, 34), 3);
+    fillKey(b[S_BOX]);
+    rect(b[S_BOX], 3, 3, 28, 29, rgb(70, 65, 60));
+    rect(b[S_BOX], 5, 5, 26, 26, rgb(210, 200, 185));
+    rect(b[S_BOX], 8, 8, 23, 23, rgb(130, 120, 110));
+    line(b[S_BOX], 5, 26, 26, 26, rgb(245, 240, 225), 2);
+    artFloor(b[S_COLOR_PLATE], 5);
+    rect(b[S_COLOR_PLATE], 3, 22, 28, 28, rgb(65, 65, 70));
+    rect(b[S_COLOR_PLATE], 5, 20, 26, 25, rgb(210, 205, 195));
+    line(b[S_COLOR_PLATE], 8, 22, 23, 22, rgb(245, 240, 225), 2);
+    fillKey(b[S_SKATES]);
+    for (int x : {3, 17}) {
+        rect(b[S_SKATES], x + 1, 5, x + 7, 18, rgb(52, 126, 212));
+        rect(b[S_SKATES], x + 1, 15, x + 11, 21, rgb(85, 173, 245));
+        for (int y = 8; y <= 14; y += 3)
+            line(b[S_SKATES], x + 3, y, x + 7, y, rgb(245, 250, 255), 2);
+        rect(b[S_SKATES], x + 3, 22, x + 4, 25, rgb(230, 240, 250));
+        line(b[S_SKATES], x, 27, x + 12, 27, rgb(230, 240, 250), 2);
+    }
     fillKey(b[S_KEY]);
     disc(b[S_KEY], 11.f, 16.f, 6.f, rgb(214, 160, 30));
     disc(b[S_KEY], 11.f, 16.f, 2.5f, KEY);
@@ -743,7 +787,9 @@ static void blit(int id, int sx, int sy, bool keyed)
 
 static int terrainSprite(int x, int y, int frame)
 {
-    switch (s_world->tile(x, y)) {
+    const Tile tile = s_world->tile(x, y);
+    if (tile >= Tile::PLATE_RED && tile <= Tile::PLATE_CYAN) return S_COLOR_PLATE;
+    switch (tile) {
     case Tile::GRASS: return (hash3(x, y, 77) & 3) == 0 ? S_GRASS1 : S_GRASS0;
     case Tile::SAND: return S_SAND;
     case Tile::FLOOR: return S_FLOOR;
@@ -761,6 +807,9 @@ static int terrainSprite(int x, int y, int frame)
         return x == s_world->checkpointX() && y == s_world->checkpointY() ? S_CHECK_ON : S_CHECK;
     case Tile::EXIT: return S_EXIT;
     case Tile::CRATER: return S_CRATER;
+    case Tile::POISON: return S_POISON;
+    case Tile::SWAMP: return S_SWAMP;
+    case Tile::SHARP_ROCKS: return S_SHARP;
     case Tile::LEVER:
     case Tile::ICE:
     case Tile::BELT_UP:
@@ -775,6 +824,7 @@ static int objSprite(Obj o)
 {
     if (o >= Obj::KEY_RED && o <= Obj::KEY_CYAN) return S_KEY;
     if (o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN) return S_DOOR;
+    if (o >= Obj::BOX_RED && o <= Obj::BOX_CYAN) return S_BOX;
     switch (o) {
     case Obj::ROCK: return S_ROCK;
     case Obj::CRATE: return S_CRATE;
@@ -789,6 +839,7 @@ static int objSprite(Obj o)
     case Obj::LIFE: return S_LIFE;
     case Obj::FLASH: return S_FLASH;
     case Obj::POGO: return S_POGO;
+    case Obj::SKATES: return S_SKATES;
     default: return -1;
     }
 }
@@ -799,6 +850,7 @@ static int keyColorId(Obj o)
 {
     if (o >= Obj::KEY_RED && o <= Obj::KEY_CYAN) return int(o) - int(Obj::KEY_RED);
     if (o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN) return int(o) - int(Obj::DOOR_RED);
+    if (o >= Obj::BOX_RED && o <= Obj::BOX_CYAN) return int(o) - int(Obj::BOX_RED);
     return -1;
 }
 
@@ -847,7 +899,7 @@ static void coloredSprite(const uint16_t *src, int size, int id, Pixel pixel)
     for (int y = 0; y < size; ++y) for (int x = 0; x < size; ++x) {
         const uint16_t p = src[y * size + x];
         if (p == KEY) continue;
-        // Retain the original key silhouette / door planks and lock shading.
+        // Retain each object's silhouette and surface shading.
         const int light = 80 + (((p >> 11) & 31) * 175 / 31);
         pixel(x, y, rgb(r * light / 255, g * light / 255, b * light / 255));
     }
@@ -947,7 +999,10 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
         for (int tx = tx0; tx <= tx1; tx++) {
             const int sx = tx * ts - camX, sy = ty * ts - camY;
             if (over && w.rawObj(tx, ty) == Obj::MINE) {   // Game over: show where the mines were
-                blit(terrainSprite(tx, ty, frame), sx, sy, false);
+                const Tile tile = w.tile(tx, ty);
+                if (tile >= Tile::PLATE_RED && tile <= Tile::PLATE_CYAN)
+                    coloredObject(S_COLOR_PLATE, int(tile) - int(Tile::PLATE_RED), sx, sy);
+                else blit(terrainSprite(tx, ty, frame), sx, sy, false);
                 terrainOverlay(w.tile(tx, ty), tx, ty, sx, sy);
                 blit(S_MINE, sx, sy, true);
                 continue;
@@ -961,8 +1016,11 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
                 blit(S_DARK, sx, sy, false);
                 continue;
             }
-            blit(terrainSprite(tx, ty, frame), sx, sy, false);
-            terrainOverlay(w.tile(tx, ty), tx, ty, sx, sy);
+            const Tile tile = w.tile(tx, ty);
+            if (tile >= Tile::PLATE_RED && tile <= Tile::PLATE_CYAN)
+                coloredObject(S_COLOR_PLATE, int(tile) - int(Tile::PLATE_RED), sx, sy);
+            else blit(terrainSprite(tx, ty, frame), sx, sy, false);
+            terrainOverlay(tile, tx, ty, sx, sy);
             if (fog) {
                 const int n = w.mineHint(tx, ty);
                 if (n > 0 && w.tile(tx, ty) != Tile::WALL && w.tile(tx, ty) != Tile::TREE) blit(S_NUM1 + n - 1, sx, sy, true);
@@ -982,7 +1040,10 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
         const float t = moveProgress(now);
         const int rx = (int)lroundf((s_rockFromX + (s_rockToX - s_rockFromX) * t) * ts);
         const int ry = (int)lroundf((s_rockFromY + (s_rockToY - s_rockFromY) * t) * ts);
-        blit(S_ROCK, rx - camX, ry - camY, true);
+        const Obj pushed = w.obj(s_rockToX, s_rockToY);
+        const int color = keyColorId(pushed);
+        if (color >= 0) coloredObject(S_BOX, color, rx - camX, ry - camY);
+        else blit(S_ROCK, rx - camX, ry - camY, true);
     }
     if (w.sailing()) blit(S_BOAT, ppx - camX, ppy - camY + ts / 8, true);
     blit(S_PL_UP + (int)w.facing(), ppx - camX, ppy - camY - (w.sailing() ? ts / 8 : 0), true);
@@ -1063,6 +1124,7 @@ static void updateStats()
     lv_obj_set_hidden(s_keyBox, !anyKey || s_bombSize > 0);
     // Right column: carried items, shown only while owned.
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
+    if (s_item[H_SKATES]) lv_obj_set_hidden(s_item[H_SKATES], !w.hasSkates());
     // Permanent abilities: show the item image + its level digit only while owned.
     if (s_flashCell) {
         if (w.flashlight() > 0) {
@@ -1716,7 +1778,8 @@ static uint32_t doMove(Dir d, bool vault = false)
     if (s_bombSize || busy(now) || s_world->gameOver() || s_world->exitReached()) return 0;
     const int fx = s_world->playerX(), fy = s_world->playerY();
     const int tx = fx + Otr::dirX(d), ty = fy + Otr::dirY(d);
-    const bool wasRock = s_world->obj(tx, ty) == Obj::ROCK;
+    const Obj pushed = s_world->obj(tx, ty);
+    const bool wasPushable = pushed == Obj::ROCK || (pushed >= Obj::BOX_RED && pushed <= Obj::BOX_CYAN);
     const Tile targetTile = s_world->tile(tx, ty);
     // v0.18.3: a manual pogo jump lands beyond the obstacle(s); the rest of the handling (animation
     // glide from the take-off cell, events, toasts) is identical to a normal step.
@@ -1760,7 +1823,7 @@ static uint32_t doMove(Dir d, bool vault = false)
             const uint32_t fit = iv > TICK_MS ? iv - TICK_MS / 2 : iv;
             s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit > WALK_MS_MAX ? WALK_MS_MAX : fit;
         }
-        s_rockAnim = s_moveTrace.count == 1 && wasRock && (ev & Otr::EV_PUSHED) &&
+        s_rockAnim = s_moveTrace.count == 1 && wasPushable && (ev & Otr::EV_PUSHED) &&
             !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
         if (s_rockAnim) {
             s_rockFromX = tx;
@@ -2808,7 +2871,7 @@ static void buildControls()
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     s_barLbl = Theme::label(s_bar, "", &my_font_14, Theme::BG);
     lv_obj_center(s_barLbl);
-    // Compact level badges keep all three abilities in one row above the keys.
+    // Compact level badges keep the boat and levelled abilities above the keys.
     s_itemBox = lv_obj_create(pan);
     lv_obj_remove_style_all(s_itemBox);
     lv_obj_set_pos(s_itemBox, COL_R_X, px(96));
@@ -2838,6 +2901,10 @@ static void buildControls()
     s_pogoCell  = abilityCell(H_POGO, Theme::TEAL, s_pogoLvl);
     lv_obj_set_hidden(s_flashCell, true);
     lv_obj_set_hidden(s_pogoCell, true);
+    // The fourth item fits beside (not inside) the fixed six-key grid.
+    s_item[H_SKATES] = hudIcon(pan, H_SKATES);
+    lv_obj_set_pos(s_item[H_SKATES], COL_R_X, s_layout.controls.h - px(4) - HUD_PX);
+    lv_obj_set_hidden(s_item[H_SKATES], true);
     buildKeyIcons(pan, COL_R_X, COL_R_W);
 
     s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,px(36),Theme::LINE);

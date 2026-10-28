@@ -47,11 +47,20 @@ constexpr uint8_t LEVER_GLYPH = GROUPED_LEVER_GLYPH;
 constexpr uint8_t BELT_GLYPH = BELT_UP_GLYPH;
 constexpr uint8_t COLOR_KEY_GLYPH = COLORED_KEY_GLYPH;
 constexpr uint8_t COLOR_DOOR_GLYPH = COLORED_DOOR_GLYPH;
+// Low, non-text bytes leave the existing S2 encoding unchanged.
+constexpr uint8_t BOX_GLYPH = 1;
+constexpr uint8_t COLORED_PLATE_GLYPH = 7;
+constexpr uint8_t POISON_GLYPH = 13;
+constexpr uint8_t SWAMP_GLYPH = 14;
+constexpr uint8_t SHARP_ROCKS_GLYPH = 15;
+constexpr uint8_t SKATES_GLYPH = 16;
 
 enum class Tile : uint8_t {
     GRASS, SAND, FLOOR, RUBBLE, WALL, CRACKED, TREE, WATER, BRIDGE, LAVA, BASALT, PLATE, GATE,
     CHECKPOINT, EXIT, CRATER,
     LEVER, ICE, BELT_UP, BELT_RIGHT, BELT_DOWN, BELT_LEFT,
+    POISON, SWAMP, SHARP_ROCKS,
+    PLATE_RED, PLATE_GREEN, PLATE_BLUE, PLATE_YELLOW, PLATE_PURPLE, PLATE_CYAN,
     COUNT
 };
 
@@ -63,6 +72,7 @@ enum class Obj : uint8_t {
     FLASH, POGO,  // v0.18.0: flashlight + pogo-stick pickups. objAmount = level 1..3 (0 => 1).
     KEY_RED, KEY_GREEN, KEY_BLUE, KEY_YELLOW, KEY_PURPLE, KEY_CYAN,
     DOOR_RED, DOOR_GREEN, DOOR_BLUE, DOOR_YELLOW, DOOR_PURPLE, DOOR_CYAN,
+    SKATES, BOX_RED, BOX_GREEN, BOX_BLUE, BOX_YELLOW, BOX_PURPLE, BOX_CYAN,
     COUNT
 };
 
@@ -141,7 +151,7 @@ struct Treasure {
 // unless lit by the flashlight cone or occupied by the player. Darkness hides but never blocks
 // movement. Coordinates are clipped to the map bounds in World::load (invalid rects are dropped).
 struct DarkRect { uint8_t x0, y0, x1, y1; };
-struct GroupControl { uint8_t group; uint16_t steps; };
+struct GroupControl { uint8_t group; uint16_t steps; bool requireBoth = false; };
 
 // Optional caller-owned output: one manual landing plus at most 128 forced landings.
 // Respawns are not displacements. The trace is never stored in World or saves.
@@ -163,6 +173,8 @@ struct MapDef {
     const GroupControl *controls = nullptr;
     int controlCount = 0;
     int par = 0;
+    // Optional group overrides for colored plates; zero = default, otherwise group + 1.
+    const uint8_t (*plateGroups)[MAX_W] = nullptr;
 };
 
 struct MineLevel { uint8_t w, h, mines; };
@@ -236,6 +248,7 @@ public:
     // v0.18.0 abilities (levels 0 = none, 1..3). Persistent and upgradable; never lowered.
     int flashlight() const { return flash_; }
     int pogo() const { return pogo_; }
+    bool hasSkates() const { return skates_; }
 
     // v0.18.0 dark areas. darkCell(): the cell is flagged dark (a static map property). lit():
     // the flashlight cone (facing direction, range flash_+2, ~45deg) reaches the cell - flashlight
@@ -288,6 +301,7 @@ public:
     // (not gated by the carry mask). Clamped to 0..3. See adv_sd_session.
     void setFlashlight(int l) { flash_ = (uint8_t)(l < 0 ? 0 : l > 3 ? 3 : l); rev_++; }
     void setPogo(int l) { pogo_ = (uint8_t)(l < 0 ? 0 : l > 3 ? 3 : l); rev_++; }
+    void setSkates(bool active) { skates_ = active; rev_++; }
 
     // Campaign and map travel, no rendering / storage dependencies.
     bool loadMines(int level);
@@ -304,7 +318,7 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 4;   // v4: bounded color/latch/timer extension after cells
+    static constexpr uint16_t SAVE_VERSION = 5;   // v5: one skates byte after the v4 extension
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
@@ -345,10 +359,12 @@ private:
     int energy_, maxEnergy_, livesLeft_, livesUsed_, suit_;
     uint64_t gateOpenGroups_;
     uint64_t leverGroups_;
+    uint64_t andGroups_;
     uint16_t controlSteps_[PLATE_GROUPS], timers_[PLATE_GROUPS];
     uint8_t colorKeys_[(int)KeyColor::COUNT];
     int par_;
     bool boat_, gameOver_, exitReached_;
+    bool skates_;
     uint8_t mapId_;
     uint8_t talkNpc_;
     uint8_t mineLevel_, bomb3_, bomb4_;
@@ -387,7 +403,7 @@ public:
     // passable neighbour snaps to that neighbour (nearest first). Otherwise false (obstacle).
     static constexpr float SNAP = 1.f / 3.f;
     static bool pickTarget(const World &w, float fx, float fy, int &tx, int &ty);
-    static bool targetable(const World &w, int x, int y); // Ice/belts excluded until forced-aware planning.
+    static bool targetable(const World &w, int x, int y); // Belts/uncontrolled ice need forced-aware planning.
 
     // A* from the player to (tx, ty). Bounded: every cell is settled at most once.
     PlanResult plan(const World &w, int tx, int ty, WalkMode mode, Path &out);

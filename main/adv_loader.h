@@ -103,6 +103,7 @@ struct Loaded {
     // Lever/timed gate configuration; map.controls points into this fixed backing.
     Otr::GroupControl controls[Otr::PLATE_GROUPS];
     int controlCount;
+    uint8_t plateGroups[Otr::MAX_H][Otr::MAX_W];
 
     // @resources
     Resource resources[MAX_RESOURCES];

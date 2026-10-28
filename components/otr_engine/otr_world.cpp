@@ -58,15 +58,27 @@ bool decode(char c, Cell &out)
     }
 }
 
+bool coloredBox(Obj o) { return o >= Obj::BOX_RED && o <= Obj::BOX_CYAN; }
+bool coloredPlate(Tile t) { return t >= Tile::PLATE_RED && t <= Tile::PLATE_CYAN; }
+bool plate(Tile t) { return t == Tile::PLATE || coloredPlate(t); }
+bool plateCovered(Tile t, Obj o)
+{
+    if (t == Tile::PLATE) return o == Obj::ROCK;
+    return coloredPlate(t) && coloredBox(o) &&
+           (int)t - (int)Tile::PLATE_RED == (int)o - (int)Obj::BOX_RED;
+}
+
 // Ground that both the player and rocks can stand on.
 bool isGround(Tile t)
 {
+    if (coloredPlate(t)) return true;
     switch (t) {
     case Tile::GRASS: case Tile::SAND: case Tile::FLOOR: case Tile::RUBBLE:
     case Tile::BRIDGE: case Tile::BASALT: case Tile::PLATE: case Tile::CHECKPOINT:
     case Tile::EXIT: case Tile::CRATER:
     case Tile::ICE: case Tile::BELT_UP: case Tile::BELT_RIGHT:
     case Tile::BELT_DOWN: case Tile::BELT_LEFT:
+    case Tile::POISON: case Tile::SWAMP: case Tile::SHARP_ROCKS:
         return true;
     default:
         return false;
@@ -76,13 +88,13 @@ bool isGround(Tile t)
 bool coloredKey(Obj o) { return o >= Obj::KEY_RED && o <= Obj::KEY_CYAN; }
 bool coloredDoor(Obj o) { return o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN; }
 bool forcedTile(Tile t) { return t >= Tile::ICE && t <= Tile::BELT_LEFT; }
-bool groupedTile(Tile t) { return t == Tile::PLATE || t == Tile::GATE || t == Tile::LEVER; }
-bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH || o == Obj::NPC || coloredDoor(o); }
+bool groupedTile(Tile t) { return plate(t) || t == Tile::GATE || t == Tile::LEVER; }
+bool blocksWalk(Obj o) { return o == Obj::ROCK || coloredBox(o) || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH || o == Obj::NPC || coloredDoor(o); }
 bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
            o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4 ||
-           o == Obj::FLASH || o == Obj::POGO || coloredKey(o);
+           o == Obj::FLASH || o == Obj::POGO || o == Obj::SKATES || coloredKey(o);
 }
 bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == Tile::CRACKED; }
 
@@ -123,7 +135,15 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
         for (int x = 0; x < (int)w; x++) {
             Cell c;
             const uint8_t glyph = (uint8_t)rows[y][x];
-            if (glyph >= GROUPED_PLATE_GLYPH && glyph < GROUPED_GATE_GLYPH) {
+            if (glyph >= BOX_GLYPH && glyph < BOX_GLYPH + 6) {
+                c = {Tile::FLOOR, (Obj)((int)Obj::BOX_RED + glyph - BOX_GLYPH)};
+            } else if (glyph >= COLORED_PLATE_GLYPH && glyph < COLORED_PLATE_GLYPH + 6) {
+                c = {(Tile)((int)Tile::PLATE_RED + glyph - COLORED_PLATE_GLYPH), Obj::NONE};
+            } else if (glyph >= POISON_GLYPH && glyph <= SHARP_ROCKS_GLYPH) {
+                c = {(Tile)((int)Tile::POISON + glyph - POISON_GLYPH), Obj::NONE};
+            } else if (glyph == SKATES_GLYPH) {
+                c = {Tile::FLOOR, Obj::SKATES};
+            } else if (glyph >= GROUPED_PLATE_GLYPH && glyph < GROUPED_GATE_GLYPH) {
                 c = {Tile::PLATE, Obj::NONE};
                 val_[y][x] = glyph - GROUPED_PLATE_GLYPH;
             } else if (glyph >= GROUPED_GATE_GLYPH && glyph < GROUPED_GATE_GLYPH + PLATE_GROUPS) {
@@ -196,10 +216,19 @@ bool World::load(const MapDef &def)
     bool configured[PLATE_GROUPS] = {};
     for (int i = 0; i < def.controlCount; ++i) {
         const GroupControl &control = def.controls[i];
-        if (control.group >= PLATE_GROUPS || configured[control.group]) return false;
+        if (control.group >= PLATE_GROUPS || configured[control.group] ||
+            (control.requireBoth && control.steps)) return false;
         configured[control.group] = true;
         controlSteps_[control.group] = control.steps;
+        if (control.requireBoth) andGroups_ |= uint64_t(1) << control.group;
     }
+    if (def.plateGroups)
+        for (int y = 0; y < h_; ++y)
+            for (int x = 0; x < w_; ++x)
+                if (def.plateGroups[y][x]) {
+                    if (!coloredPlate(tile(x, y)) || def.plateGroups[y][x] > PLATE_GROUPS) return false;
+                    val_[y][x] = def.plateGroups[y][x] - 1;
+                }
     par_ = def.par;
     uint32_t gateEvents = 0;
     updateGates(gateEvents);
@@ -262,7 +291,10 @@ int World::timerRemaining(int group) const
 
 bool World::leverOnAt(int x, int y) const
 {
-    return inside(x, y) && tile(x, y) == Tile::LEVER && gateOpenForGroup(val_[y][x]);
+    if (!inside(x, y) || tile(x, y) != Tile::LEVER) return false;
+    const int group = val_[y][x];
+    return group < PLATE_GROUPS && (controlSteps_[group] ? timers_[group] != 0 :
+                                   (leverGroups_ & (uint64_t(1) << group)) != 0);
 }
 
 uint32_t World::activate()
@@ -289,7 +321,8 @@ void World::tickTimers(uint32_t &ev)
 
 void World::activatePlate(int x, int y, uint32_t &ev)
 {
-    if (tile(x, y) != Tile::PLATE) return;
+    if (!plate(tile(x, y))) return;
+    if (coloredPlate(tile(x, y)) && !plateCovered(tile(x, y), rawObj(x, y))) return;
     const int group = val_[y][x];
     if (group >= PLATE_GROUPS) return;
     if (controlSteps_[group]) {
@@ -397,15 +430,17 @@ void World::updateGates(uint32_t &ev)
     for (int group = 0; group < PLATE_GROUPS; group++) allCovered[group] = true;
     for (int y = 0; y < h_; y++)
         for (int x = 0; x < w_; x++)
-            if (terrain_[y][x] == (uint8_t)Tile::PLATE) {
+            if (plate(tile(x, y))) {
                 const int group = val_[y][x];
                 if (group >= PLATE_GROUPS) continue;
                 hasPlate[group] = true;
-                if (obj_[y][x] != (uint8_t)Obj::ROCK) allCovered[group] = false;
+                if (!plateCovered(tile(x, y), rawObj(x, y))) allCovered[group] = false;
             }
     uint64_t openGroups = leverGroups_;
     for (int group = 0; group < PLATE_GROUPS; group++)
-        if (controlSteps_[group]) {
+        if (andGroups_ & (uint64_t(1) << group)) {
+            if (!hasPlate[group] || !allCovered[group]) openGroups &= ~(uint64_t(1) << group);
+        } else if (controlSteps_[group]) {
             if (timers_[group]) openGroups |= uint64_t(1) << group;
             else openGroups &= ~(uint64_t(1) << group);
         } else if (hasPlate[group] && allCovered[group]) openGroups |= uint64_t(1) << group;
@@ -516,6 +551,7 @@ uint32_t World::pickup(uint32_t ev)
         if (gems_ == gemsTotal_) ev |= EV_ALL_GEMS;
         break;
     case Obj::BOAT: boat_ = true; ev |= EV_BOAT; break;
+    case Obj::SKATES: skates_ = true; ev |= EV_TREASURE; break;
     case Obj::POTION: {
         const int a = amount ? amount : rules_.potionDefault;
         energy_ = energy_ + a > maxEnergy_ ? maxEnergy_ : energy_ + a;
@@ -597,9 +633,12 @@ uint32_t World::move(Dir d, MoveTrace *trace)
     case Obj::CRATE:
     case Obj::BUSH:
         break;   // v0.18.0: fall through to the pogo gate (a pogo stick may vault it)
+    case Obj::BOX_RED: case Obj::BOX_GREEN: case Obj::BOX_BLUE:
+    case Obj::BOX_YELLOW: case Obj::BOX_PURPLE: case Obj::BOX_CYAN:
     case Obj::ROCK: {
         const int bx = tx + dirX(d), by = ty + dirY(d);
         if (!rockCanEnter(bx, by)) break;   // v0.18.0: not pushable -> fall through to the pogo gate
+        if (coloredBox(target) && (tile(bx, by) == Tile::WATER || tile(bx, by) == Tile::LAVA)) break;
         set(tx, ty, Obj::NONE);
         const Tile under = tile(bx, by);
         if (under == Tile::WATER) {
@@ -609,7 +648,7 @@ uint32_t World::move(Dir d, MoveTrace *trace)
             set(bx, by, Tile::BASALT);
             ev |= EV_SIZZLE;
         } else {
-            set(bx, by, Obj::ROCK);
+            set(bx, by, target);
             plateX = bx; plateY = by;
         }
         ev |= EV_PUSHED;
@@ -663,6 +702,14 @@ uint32_t World::landOn(int destX, int destY, uint32_t ev, MoveTrace *trace)
         }
     }
     if (tile(px_, py_) == Tile::WATER) ev |= EV_SAILING;
+    const Tile ground = tile(px_, py_);
+    const int hazard = ground == Tile::POISON ? 1 : ground == Tile::SWAMP ? 2 :
+                       ground == Tile::SHARP_ROCKS ? 4 : 0;
+    if (hazard) {
+        const int loss = suit_ > 0 ? hazard / 2 : hazard;
+        if (loss) hurt(loss, ev);
+        if (ev & EV_DIED) return ev;
+    }
     if (tile(px_, py_) == Tile::CHECKPOINT && (cpX_ != px_ || cpY_ != py_)) {
         cpX_ = px_;
         cpY_ = py_;
@@ -700,7 +747,7 @@ uint32_t World::vault(MoveTrace *trace)
 bool World::forcedMotion(Dir &direction) const
 {
     const Tile t = tile(px_, py_);
-    if (t == Tile::ICE) { direction = facing_; return true; }
+    if (t == Tile::ICE && !skates_) { direction = facing_; return true; }
     if (t >= Tile::BELT_UP && t <= Tile::BELT_LEFT) {
         direction = (Dir)((int)t - (int)Tile::BELT_UP);
         return true;
@@ -740,7 +787,7 @@ uint32_t World::hit()
         uncover(tx, ty, ev);
         return ev | EV_HIT | EV_BROKE;
     }
-    if (o == Obj::ROCK || o == Obj::DOOR || coloredDoor(o)) return EV_HIT;
+    if (o == Obj::ROCK || coloredBox(o) || o == Obj::DOOR || coloredDoor(o)) return EV_HIT;
     const Tile t = tile(tx, ty);
     if (t == Tile::CRACKED) {
         if (++dmg_[ty][tx] >= CRACK_HITS) {
@@ -802,7 +849,7 @@ bool World::removeNpc(int num)
 bool World::clearObj(int x, int y)
 {
     const Obj o = rawObj(x, y);
-    if (o != Obj::DOOR && !coloredDoor(o) && o != Obj::ROCK && o != Obj::CRATE && o != Obj::BUSH) return false;
+    if (o != Obj::DOOR && !coloredDoor(o) && o != Obj::ROCK && !coloredBox(o) && o != Obj::CRATE && o != Obj::BUSH) return false;
     set(x, y, Obj::NONE);
     uint32_t ev = 0;
     uncover(x, y, ev);
@@ -894,6 +941,7 @@ void World::carryFrom(const World &w)
 {
     keys_=w.keys_; boat_=w.boat_; suit_=w.suit_; energy_=w.energy_; maxEnergy_=w.maxEnergy_;
     memcpy(colorKeys_, w.colorKeys_, sizeof(colorKeys_));
+    skates_ = w.skates_;
     livesLeft_=w.livesLeft_; livesUsed_=w.livesUsed_; ++rev_;
 }
 
@@ -902,7 +950,8 @@ void World::carryFrom(const World &w)
 //                reserved u16.
 // Body: player block (PLAYER_BYTES) + per cell 7 bytes (terrain, obj, val, hid, hidVal, flags,
 //       dmg) for w * h cells, row major. v4 appends 6 color counts, a u64 group latch,
-//       and 36 u16 remaining timers. The old player block's reserved tail is unchanged.
+//       and 36 u16 remaining timers; v5 adds a boolean skates byte. The old player block's
+//       reserved tail is unchanged, and v1-v4 restore without skates.
 //       Trailer: CRC32 of header + body.
 
 namespace {
@@ -924,7 +973,7 @@ struct Reader {
 };
 }  // namespace
 
-size_t World::saveSize() const { return HEADER_BYTES + PLAYER_BYTES + CELL_BYTES * (size_t)(w_ * h_) + S2_BYTES + 4; }
+size_t World::saveSize() const { return HEADER_BYTES + PLAYER_BYTES + CELL_BYTES * (size_t)(w_ * h_) + S2_BYTES + 1 + 4; }
 
 size_t World::save(uint8_t *buf, size_t cap) const
 {
@@ -958,6 +1007,7 @@ size_t World::save(uint8_t *buf, size_t cap) const
     for (uint8_t count : colorKeys_) o.u8(count);
     o.u32((uint32_t)leverGroups_); o.u32((uint32_t)(leverGroups_ >> 32));
     for (uint16_t timer : timers_) o.u16(timer);
+    o.u8(skates_ ? 1 : 0);
     o.u32(crc32(buf, n - 4));
     return n;
 }
@@ -970,7 +1020,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     const int version = r.u16();
     if (version < 1 || version > SAVE_VERSION || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
         return false;
-    if (n != saveSize() - (version < 4 ? S2_BYTES : 0)) return false;
+    if (n != saveSize() - (version < 4 ? S2_BYTES : 0) - (version < 5 ? 1 : 0)) return false;
     r.u8();
     if (r.u32() != n - HEADER_BYTES - 4) return false;
     r.u16();
@@ -997,6 +1047,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     uint8_t colors[(int)KeyColor::COUNT] = {};
     uint16_t timers[PLATE_GROUPS] = {};
     uint64_t latches = 0;
+    int skates = 0;
     if (version >= 4) {
         Reader ext{cells + size_t(w_) * size_t(h_) * CELL_BYTES};
         for (uint8_t &color : colors) color = (uint8_t)ext.u8();
@@ -1008,6 +1059,8 @@ bool World::restore(const uint8_t *buf, size_t n)
             if (timers[group] > controlSteps_[group] ||
                 (controlSteps_[group] && (latches & (uint64_t(1) << group)))) return false;
         }
+        if (version >= 5) skates = ext.u8();
+        if (skates > 1) return false;
     }
     bool hasPlate[PLATE_GROUPS] = {};
     uint64_t hasLever = 0;
@@ -1019,20 +1072,23 @@ bool World::restore(const uint8_t *buf, size_t n)
             return false;
         if (version < 4 && (c[0] > (uint8_t)Tile::CRATER || c[1] > (uint8_t)Obj::POGO ||
                             c[3] > (uint8_t)Obj::POGO)) return false;
+        if (version < 5 && (c[0] > (uint8_t)Tile::BELT_LEFT || c[1] > (uint8_t)Obj::DOOR_CYAN ||
+                            c[3] > (uint8_t)Obj::DOOR_CYAN)) return false;
         if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
-        if ((c[0] == (uint8_t)Tile::PLATE || c[0] == (uint8_t)Tile::GATE ||
-             c[0] == (uint8_t)Tile::LEVER) && c[2] >= PLATE_GROUPS)
+        if (groupedTile((Tile)c[0]) && c[2] >= PLATE_GROUPS)
             return false;
         if (c[0] == (uint8_t)Tile::LEVER) hasLever |= uint64_t(1) << c[2];
-        if (c[0] == (uint8_t)Tile::PLATE) {
+        if (plate((Tile)c[0])) {
             hasPlate[c[2]] = true;
-            if (c[1] != (uint8_t)Obj::ROCK) allCovered[c[2]] = false;
+            if (!plateCovered((Tile)c[0], (Obj)c[1])) allCovered[c[2]] = false;
         }
     }
     if (latches & ~hasLever) return false;
     uint64_t savedOpenGroups = latches;
     for (int group = 0; group < PLATE_GROUPS; group++)
-        if (controlSteps_[group]) {
+        if (andGroups_ & (uint64_t(1) << group)) {
+            if (!hasPlate[group] || !allCovered[group]) savedOpenGroups &= ~(uint64_t(1) << group);
+        } else if (controlSteps_[group]) {
             if (timers[group]) savedOpenGroups |= uint64_t(1) << group;
         } else if (hasPlate[group] && allCovered[group]) savedOpenGroups |= uint64_t(1) << group;
     // Saved positions must still be walkable in the saved map, never a wall/solid.
@@ -1047,6 +1103,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     if (level && ((lives == 0) != bool(bits & 4) || suit > 1 || b3 > 1 || b4 > 1)) return false;
     // Apply
     bomb3_ = b3; bomb4_ = b4; flash_ = (uint8_t)flash; pogo_ = (uint8_t)pogo;
+    skates_ = skates != 0;
     px_ = px; py_ = py; cpX_ = cpx; cpY_ = cpy; facing_ = (Dir)facing;
     keys_ = keys; gems_ = gems; steps_ = (int)steps;
     energy_ = energy; maxEnergy_ = maxE; livesLeft_ = lives; livesUsed_ = livesUsed; suit_ = suit;
@@ -1073,7 +1130,7 @@ bool Planner::targetable(const World &w, int x, int y)
 {
     if (!w.inside(x, y) || w.flagged(x, y) || blocksWalk(w.obj(x, y))) return false;
     const Tile t = w.tile(x, y);
-    if (forcedTile(t)) return false;
+    if (forcedTile(t) && !(t == Tile::ICE && w.hasSkates())) return false;
     if (t == Tile::GATE) return w.gateOpenAt(x, y);
     return isGround(t) || t == Tile::LAVA || t == Tile::WATER;
 }
@@ -1109,7 +1166,7 @@ Planner::Cat Planner::category(const World &w, int x, int y, WalkMode mode) cons
 {
     if (!w.inside(x, y) || w.flagged(x, y) || blocksWalk(w.obj(x, y))) return C_BLOCK;
     const Tile t = w.tile(x, y);
-    if (forcedTile(t)) return C_BLOCK;
+    if (forcedTile(t) && !(t == Tile::ICE && w.hasSkates())) return C_BLOCK;
     Cat c;
     if (isGround(t)) c = C_FREE;
     else if (t == Tile::LAVA) c = C_LAVA;

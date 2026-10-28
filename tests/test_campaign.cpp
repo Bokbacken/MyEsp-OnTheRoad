@@ -154,13 +154,13 @@ static void testMapsSaves() {
   CHECK(!session.restore(backup,n,w,st)); CHECK(session.mapIndex()==1&&w.keys()==3&&st.items[0]==2);
  }
  CHECK(!session.restore(buffer,n-1,w,st)); CHECK(!session.restore(nullptr,n,w,st));
- // Actual v1-v3 layouts: omit the v4 extension, repair body length, and clear bytes
+ // Actual v1-v3 layouts: omit the v4/v5 extensions, repair body length, and clear bytes
  // that were reserved in that version before calculating the old-size CRC.
  for(int id=1;id<=3;id++) for(int version=1;version<=3;version++) {
   CHECK(session.start(id,w,st)); CHECK(w.load(WORLDS[id-1]));
   w.addKeys(5); w.setFlashlight(2); w.setPogo(3); n=w.save(buffer,sizeof(buffer));
   const size_t legacySize=16+32+7*size_t(w.width()*w.height())+4;
-  CHECK(n==legacySize+86); n=legacySize;
+  CHECK(n==legacySize+87); n=legacySize;
   buffer[4]=(uint8_t)version; buffer[5]=0;
   const uint32_t body=(uint32_t)(n-20);
   for(int i=0;i<4;i++) buffer[10+i]=(uint8_t)(body>>(8*i));
