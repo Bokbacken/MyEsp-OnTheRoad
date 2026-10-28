@@ -12,6 +12,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(tempfile.mkdtemp(prefix="adv-game-"))
+WORK = WORK.resolve()
 WORK.mkdir(parents=True, exist_ok=True)
 source = (ROOT / "main/ui_adventure.cpp").read_text()
 
@@ -187,7 +188,7 @@ static void checkKeys() {
         }
     }
     // All six keys coexist with every carried item in the control panel's right column.
-    world.setBoat(true); world.setFlashlight(3); world.setPogo(3);
+    world.setBoat(true); world.setFlashlight(3); world.setPogo(3); world.setSuction(true);
     updateStats(); lv_obj_update_layout(s_scr);
     const auto strip=AdvUi::gameBounds(s_keyBox), items=AdvUi::gameBounds(s_itemBox);
     assert(contains(s_layout.controls,items) && separate(strip,items));
@@ -201,11 +202,14 @@ static void checkKeys() {
         cells.push_back(bounds);
     }
     assert(!strcmp(lv_label_get_text(s_flashLvl),"3") && !strcmp(lv_label_get_text(s_pogoLvl),"3"));
+    const auto suction=AdvUi::gameBounds(s_item[H_SUCTION]);
+    assert(!hidden(s_item[H_SUCTION]) && contains(s_layout.controls,suction));
+    assert(separate(strip,suction) && separate(items,suction));
     for (auto *level : {s_flashLvl,s_pogoLvl}) {
-        assert(lv_obj_get_style_text_font(level,0)==&my_font_14);
-        assert(lv_obj_get_style_bg_opa(level,0)==LV_OPA_COVER);
-        assert(lv_color_eq(lv_obj_get_style_bg_color(level,0),Theme::c(Theme::PANEL)));
-        assert(!lv_color_eq(lv_obj_get_style_text_color(level,0),Theme::c(Theme::PANEL)));
+        assert(lv_obj_get_style_text_font(level,LV_PART_MAIN)==&my_font_14);
+        assert(lv_obj_get_style_bg_opa(level,LV_PART_MAIN)==LV_OPA_COVER);
+        assert(lv_color_eq(lv_obj_get_style_bg_color(level,LV_PART_MAIN),Theme::c(Theme::PANEL)));
+        assert(!lv_color_eq(lv_obj_get_style_text_color(level,LV_PART_MAIN),Theme::c(Theme::PANEL)));
         assert(lv_obj_get_width(level)>=10 && lv_obj_get_height(level)>=my_font_14.line_height);
     }
     for (auto *cell : {s_flashCell,s_pogoCell})

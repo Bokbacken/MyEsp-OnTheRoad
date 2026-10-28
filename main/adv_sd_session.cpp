@@ -20,13 +20,14 @@ struct PlayerSnap {
     int energy, maxEnergy, suit, keys, livesLeft, livesUsed;
     bool boat;
     bool skates;
+    bool suction;
     int flash, pogo;   // v0.18.0: permanent abilities (always carried, not gated by the carry mask)
     int colorKeys[(int)Otr::KeyColor::COUNT];
 };
 PlayerSnap snapPlayer(const Otr::World &w)
 {
     PlayerSnap snap = {w.energy(), w.maxEnergy(), w.suitCharges(), w.keys(), w.livesLeft(), w.livesUsed(),
-                       w.hasBoat(), w.hasSkates(), w.flashlight(), w.pogo(), {}};
+                       w.hasBoat(), w.hasSkates(), w.hasSuction(), w.flashlight(), w.pogo(), {}};
     for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
         snap.colorKeys[i] = w.keys((Otr::KeyColor)i);
     return snap;
@@ -199,11 +200,12 @@ bool SdSession::travel(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &s
     if (keep(CARRY_BOAT)) w.setBoat(old.boat);
     if (keep(CARRY_LIVES)) w.setLives(old.livesLeft, old.livesUsed);
     // GEMS are map-local (each map has its own total), so they are never carried across maps.
-    // Flashlight, pogo and skates are PERMANENT abilities - always re-applied, regardless of the
+    // Flashlight, pogo, skates and suction are PERMANENT abilities - always re-applied, regardless of the
     // per-map carry/reset mask. (World::load() zeroed them; restore their levels here.)
     w.setFlashlight(old.flash);
     w.setPogo(old.pogo);
     w.setSkates(old.skates);
+    w.setSuction(old.suction);
 
     // Story items/flags/counters/quests: the raw bitset indices belong to the old script, so start
     // fresh and (when items carry) re-apply the snapshot by name onto the new script.

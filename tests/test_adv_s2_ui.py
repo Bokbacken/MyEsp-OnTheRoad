@@ -235,6 +235,46 @@ static void actionTests() {
     // Holding/turning the joystick does not use the selected action.
     doMove(Dir::DOWN); assert(world.leverOnAt(1,2));
 }
+static void pullTests() {
+    load(); rows[1][1]='.'; rows[2][2]='S'; rows[3][2]='R'; reload();
+    assert(!actAvail(ACT_PULL));
+    world.setSuction(true);
+    assert(actAvail(ACT_PULL));
+    const int steps=world.steps(), energy=world.energy();
+    doSwap();
+    assert(s_actSel==ACT_PULL && world.steps()==steps && world.energy()==energy);
+    assert(world.playerX()==2 && world.playerY()==2 && world.obj(2,3)==Obj::ROCK);
+    assert(s_hitBtn->text==(langIdx()?"Pull":"Dra"));
+    doHit();
+    assert(world.playerX()==2 && world.playerY()==1 && world.obj(2,2)==Obj::ROCK);
+    assert(s_moveTrace.count==1 && s_moveMs>0 && !s_rockAnim);
+    assert(!actAvail(ACT_PULL)); // Backward landing is a wall.
+    menuPause();
+    world.setSuction(false); refreshActBtn();
+    assert(s_actSel==ACT_HIT);
+    load(); rows[1][2]=char(Otr::SUCTION_GLYPH); reload();
+    doMove(Dir::RIGHT); menuPause();
+    assert(world.hasSuction() && objSprite(Obj::SUCTION)==S_SUCTION && keyColorId(Obj::SUCTION)==-1);
+    load(); rows[2][1]=char(Otr::GROUPED_LEVER_GLYPH);
+    const char *ptr[10]; for(int y=0;y<10;++y) ptr[y]=rows[y].c_str();
+    Otr::EnemyDef foe{Otr::EnemyKind::CHASER,2,1};
+    Otr::MapDef def{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0};
+    def.enemies=&foe; def.enemyCount=1;
+    assert(world.load(def)); snapPlayer(); world.setEnergy(1); world.setLives(3,0);
+    s_moveMs=10; s_moveT0=clockMs-11; s_moveTrace.count=1;
+    s_moveEvents=Otr::EV_EXIT|Otr::EV_TALK; s_rockAnim=true;
+    s_fromX=9; s_fromY=8; s_pathPos=2; s_joy.press(clockMs,70,0);
+    s_actSel=ACT_LEVER; doHit();
+    assert(!world.gameOver() && world.livesLeft()==2 && deaths==0);
+    assert(!s_moveMs && !s_moveTrace.count && !s_moveEvents && !s_rockAnim);
+    assert(s_fromX==world.playerX() && s_fromY==world.playerY() && s_pathPos==-1 && !s_joy.held());
+    int playerX,playerY; playerPixel(clockMs,playerX,playerY);
+    assert(playerX==world.playerX()*s_ts && playerY==world.playerY()*s_ts);
+    finishMovement(clockMs); assert(results==0 && talks==0);
+    world.setEnergy(1); world.setLives(1,0);
+    s_actSel=ACT_LEVER; doHit();
+    assert(world.gameOver() && deaths==1 && !s_moveMs);
+}
 static void movementTests() {
     // Both held joystick and tap-planned steps may stop and turn on skated ice.
     load(); rows[1][2]=char(Otr::SKATES_GLYPH);
@@ -393,13 +433,17 @@ static void inventoryConstructionTests() {
         assert(s_keyBox->parent==panel && s_keyBox->w==56 && s_keyBox->h==36);
         assert(s_keyBox->hidden && !s_keyBox->clickable && !s_keyBox->scrollable);
         assert(s_keyBox->children.size()==6);
-        load(); world.setBoat(true); world.setFlashlight(3); world.setPogo(3); world.setSkates(true);
+        load(); world.setBoat(true); world.setFlashlight(3); world.setPogo(3); world.setSkates(true); world.setSuction(true);
         for (auto owned : {std::vector<int>{}, {4}, {0,2,5}, {0,1,2,3,4,5}}) {
             for (int i=0;i<6;++i) world.setKeys(Otr::KeyColor(i),0);
             for (int i : owned) world.setKeys(Otr::KeyColor(i),42);
             updateStats(); inventoryLayout(panel);
             const auto grid=bounds(s_keyBox), items=bounds(s_itemBox);
             const auto skates=bounds(s_item[H_SKATES]);
+            const auto suction=bounds(s_item[H_SUCTION]);
+            assert(!s_item[H_SUCTION]->hidden && contains(bounds(panel),suction));
+            assert(separate(suction,grid) && separate(suction,items) && separate(suction,skates));
+            assert(s_item[H_SUCTION]->pixels==s_spr->hud[H_SUCTION]);
             assert(!s_item[H_SKATES]->hidden && contains(bounds(panel),skates));
             assert(separate(skates,grid) && separate(skates,items) && separate(skates,s_layout.joystick));
             assert(s_item[H_SKATES]->pixels==s_spr->hud[H_SKATES]);
@@ -577,6 +621,7 @@ static void rendererTests() {
             rows[7][2+c]=char(Otr::COLORED_DOOR_GLYPH+c);
         }
         reload(); draw();
+        assert(objSprite(Obj::SUCTION)==S_SUCTION && keyColorId(Obj::SUCTION)==-1);
         std::set<std::vector<uint16_t>> terrain, keys, doors, badges;
         for(int x=2;x<8;++x) { terrain.insert(cell(x,3)); keys.insert(cell(x,5)); doors.insert(cell(x,7)); }
         if (terrain.size()!=6 || keys.size()!=6 || doors.size()!=6)
@@ -637,6 +682,24 @@ static void rendererTests() {
             boxBadges.insert(badge);
         }
         assert(boxes.size()==6 && plates.size()==6 && boxBadges==badges);
+        load(); rows[3][2]=char(Otr::COLORED_PLATE_GLYPH+4); reload(); draw();
+        const auto emptyPatrol=cell(2,3), emptyChaser=cell(3,3);
+        Otr::EnemyDef foes[]={{Otr::EnemyKind::PATROL,2,3},{Otr::EnemyKind::CHASER,3,3}};
+        foes[0].routeCount=1; foes[0].route[0]={2,3};
+        const char *actorRows[10]; for(int y=0;y<10;++y) actorRows[y]=rows[y].c_str();
+        Otr::MapDef actors{90,actorRows,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0};
+        actors.enemies=foes; actors.enemyCount=2;
+        assert(world.load(actors)); snapPlayer(); draw();
+        assert(cell(2,3)!=emptyPatrol && cell(3,3)!=emptyChaser && cell(2,3)!=cell(3,3));
+        Otr::DarkRect dark{2,3,3,3}; actors.darks=&dark; actors.darkCount=1;
+        assert(world.load(actors)); snapPlayer(); draw();
+        assert(cell(2,3)==cell(3,3));
+        for(auto p : cell(2,3)) assert(p==rgb(6,6,12));
+        rows[2][2]='m';
+        actors.darks=nullptr; actors.darkCount=0; actors.rules.fog=true;
+        assert(world.load(actors)); snapPlayer(); draw();
+        assert(!world.revealed(2,3) && !world.revealed(3,3));
+        assert(cell(2,3)==cell(3,3));
         for (int c=0;c<6;++c) {
             load(); rows[1][2]=char(Otr::BOX_GLYPH+c); reload(); draw();
             const auto before=cell(2,1);
@@ -663,7 +726,7 @@ int main() {
     assert(!s_extraHud);
     for (const char *language : {"sv","en"}) {
         assert(Lang::setLang(language));
-        actionTests(); movementTests(); inventoryTests(); timerTests();
+        actionTests(); pullTests(); movementTests(); inventoryTests(); timerTests();
     }
     rendererTests();
     puts("S2/v0.21 production UI: hazard shapes, skates pickup/HUD/ice controls, six box/plate badges and push animations, renderer (3 sizes/2 zooms), inventory (2 languages), actions/HUD/SFX OK");

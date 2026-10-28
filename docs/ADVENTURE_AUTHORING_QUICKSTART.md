@@ -5,7 +5,9 @@ grupperade Sokoban-pussel och minsvepare på ett ställe. För dialoger, skatter
 resurser, grafik och fullständiga regler, se
 [den detaljerade författarguiden](AUTHORING_ADVENTURES.md). Fungerande banor
 finns i [Sokoban-demot](adventures/sokoban/sokoban.adv) och
-[S2-demot](adventures/s2_demo/README.md).
+[S2-demot](adventures/s2_demo/README.md),
+[0.21.0-demot](adventures/s3_demo/README.md) och
+[0.21.1-demot](adventures/s4_demo/README.md).
 
 ## 1. Börja med en karta
 
@@ -63,7 +65,7 @@ kartan. Skriv kommentarer utanför `@map`.
 Stor/liten bokstav spelar roll. Alla andra lediga tecken kan användas som
 resurs-glyfer med `@resources`.
 
-## 3. `@legend`: S1- och S2-varianter
+## 3. `@legend`: terräng och objekt
 
 Definiera ett eget karttecken per rad:
 
@@ -88,6 +90,10 @@ Laddaren accepterar dessa typer:
 | `ice` | Is; inget argument |
 | `belt up\|right\|down\|left` | Band i en av de fyra riktningarna |
 | `key <färg>` / `door <färg>` | Färgnyckel / färgdörr: `red`, `green`, `blue`, `yellow`, `purple`, `cyan` |
+| `skates` / `suction` | Permanenta skridskor / sugpropp |
+| `poison` / `swamp` / `sharp_rocks` | Giftmark / träsk / vassa stenar |
+| `box <färg>` / `plate <färg>` | Flyttbar färglåda / matchande färgplatta |
+| `plate <grupp> <färg>` | Färgplatta i en uttrycklig grindgrupp |
 
 Grupp skrivs som `0`–`9` eller `A`–`Z` (`A`=10, `Z`=35); gruppbokstäver och
 nyckelord är skiftlägesokänsliga. Karttecknet självt är skiftlägeskänsligt.
@@ -125,8 +131,10 @@ på vanliga `o`-/`=`-rutor med nollbaserade kartkoordinater (`x,y`):
 @gategroup 1: 5,1
 ```
 
-En koordinat måste peka på rätt ruttyp. Grupper kan inte blanda plattor och
-spakar. En tidsgrupp (`@timedgate <grupp>: N`, `N`=1–65535 steg) kräver minst en
+En koordinat måste peka på rätt ruttyp. För att blanda plattor och spakar krävs
+`@andgate <grupp>`: spaken måste vara ON **och** alla plattor rätt täckta.
+Utan detta direktiv är blandningen ett fel. En tidsgrupp
+(`@timedgate <grupp>: N`, `N`=1–65535 steg) kräver minst en
 grind och exakt en platta eller spak. Timern tickar på lyckade förflyttningar,
 inte på blockering, upplåsning eller handling; spelet räknar inga realtidssekunder
 under paus eller dialog. Välj **Spak / Lever** med **Byt / Swap** och aktivera
@@ -139,6 +147,25 @@ kartor; `reset: keys` tömmer dem och vinner om båda anges.
 resultat visar stegen i förhållande till par. Se
 [fyrarumsdemot](adventures/sokoban/sokoban.adv) för flera oberoende rum i samma
 karta och [S2-demot](adventures/s2_demo/README.md) för alla S2-objekt tillsammans.
+
+### Sugpropp och fiender (0.21.1)
+
+Placera sugproppen med `s = suction` i `@legend`, eller lägg `X Y suction`
+i `@treasures`, exempelvis under en sten eller färglåda. Ägandet sparas och
+följer med mellan kartor, liksom skridskor, även om `reset` används för andra
+resurser. Ett nytt äventyr börjar utan utrustning.
+
+Stå vänd mot en sten/färglåda och välj **Dra** med **Byt**. Utför med nedre
+delen av handlingsknappen: spelaren backar och objektet följer till den gamla
+spelarrutan. Valet utför aldrig draget. Sönderslagbara lådor går inte att dra.
+Drag är en ny handling, inte undo; terräng, timers och fiender fortsätter framåt.
+
+Fiender placeras med separata koordinater, inte nya kartglyfer. Se
+[fullständig syntax och turordning](AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211)
+och [demots exakta testsekvens](adventures/s4_demo/README.md).
+Högst åtta fiender och sexton vägpunkter per patrull stöds. Utan uttryckligt
+område gäller hela kartan. En blockerad patrull eller jagare utan väg väntar.
+Fiender kan inte knuffa stenar eller färglådor.
 
 ## 5. Minsvepare
 
@@ -173,7 +200,7 @@ kampanjnivå och ge dem numrerade filnamn. Ett komplett 12-banors exempel finns 
 
 ## 6. Kontrollera filen
 
-S2-syntax ska kontrolleras med produktionsladdaren. `tools/adv_parse.*` är
-fortfarande en S1-referensparser och validerar inte S2. Kör hosttestet för
-produktionsloadern eller S2-demot enligt kommandona i
+Ny syntax ska kontrolleras med produktionsladdaren. `tools/adv_parse.*` är
+fortfarande en S1-referensparser och validerar inte S2–S4. Kör hosttestet för
+produktionsloadern eller motsvarande demo enligt kommandona i
 [författarguidens valideringsavsnitt](AUTHORING_ADVENTURES.md#13-importexport-status).

@@ -20,15 +20,17 @@
 //    "checkpoint":[x,y],"steps":..,
 //    "npcs":[{"num":1,"x":..,"y":..,"look":0,"name":"..","talking":false}],
 //    "items":[{"name":"Bulle","count":2}],
+//    "suction":false,"skates":false,"flashlight":0,"pogo":0,
+//    "enemies":[{"x":..,"y":..,"kind":"patrol|chaser"}],  visible actors only
 //    "dialog":null | {"speaker":"..","narrator":false,"look":0,"text":"..","ref":"Läs 1Mo 37:15",
 //                     "choices":[{"text":"..","locked":false,"hint":""}]}}
 //   Map rows: one character per cell.
 //     terrain  'a' + Otr::Tile (a grass, b sand, c floor, d rubble, e wall, f cracked, g tree,
 //              h water, i bridge, j lava, k basalt, l plate, m gate, n checkpoint, o exit,
-//              p crater, M = an open gate), '?' = unrevealed fog
+//              p crater, M = an open gate), '?' = unrevealed fog, '#' = unlit darkness
 //     obj      '.' none, 'A' + Otr::Obj for visible objects (B rock, C crate, D key, E door, F boat,
 //              G gem, H bush, I potion, J heart, K suit, L life, M mine), '!' = flagged fog cell.
-//              People are not in the map (they move): see "npcs".
+//              'f' = suction pickup. Moving actors are separate: see "npcs" / "enemies".
 //     hint     fog worlds only ('hint' is [] otherwise): '0'..'8' mines around a revealed cell.
 #pragma once
 
@@ -61,6 +63,11 @@ struct ItemInfo {
     uint8_t count;
 };
 
+struct EnemyInfo {
+    uint8_t x, y;
+    bool chaser;
+};
+
 struct ChoiceInfo {
     char text[CHOICE_CAP];
     char hint[HINT_CAP];
@@ -86,14 +93,15 @@ struct Snapshot {
     uint32_t worldRev;        // World::revision() the map was copied at
     uint8_t worldId;
     uint8_t w, h;
-    bool fog;
+    bool fog, hasDark;
     char world[NAME_CAP];
     char terrain[Otr::MAX_H][Otr::MAX_W];
     char obj[Otr::MAX_H][Otr::MAX_W];
     char hint[Otr::MAX_H][Otr::MAX_W];
     // Per update
     uint8_t px, py, facing;
-    bool sailing, boat, gatesOpen, gameOver, exitReached;
+    bool sailing, boat, gatesOpen, gameOver, exitReached, suction, skates;
+    uint8_t flashlight, pogo;
     int16_t energy, energyMax, lives, livesUsed, keys, gems, gemsTotal, suit;
     uint8_t cpX, cpY;
     uint32_t steps;
@@ -101,6 +109,8 @@ struct Snapshot {
     int safeLeft, bombSize, bombX, bombY;
     uint8_t npcCount;
     NpcInfo npcs[MAX_NPCS];
+    uint8_t enemyCount;
+    EnemyInfo enemies[Otr::MAX_ENEMIES];
     uint8_t itemCount;
     ItemInfo items[MAX_ITEMS];
     DialogInfo dialog;

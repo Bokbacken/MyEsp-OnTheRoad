@@ -4,16 +4,27 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.21.0** – adventure skates, poison ground/swamp/sharp rocks,
+> **Status: v0.21.1** – findable suction cup and explicit **Dra / Pull** action,
+> deterministic turn-based patrols and pathfinding chasers, with optional movement areas.
+> Action selection (**Byt / Swap**) never performs the action; use the lower button to pull.
+> The external [S4 demo](docs/adventures/s4_demo/README.md) includes an exact tested solution
+> and is mirrored in the SD bundle. Existing S2/S3 demos are preserved.
+> Engine saves use format 6 for suction ownership and enemy position/route state;
+> formats 1–5 remain readable. The SD-session container remains version 1.
+> See [authoring section 10g](docs/AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211)
+> for syntax, turn order, bounds and compatibility.
+> **Verification:** physical ESP32/display/touch testing remains necessary;
+> this sandbox has no ESP-IDF toolchain for a firmware build.
+> No undo, editor, release-workflow changes, tags or GitHub Releases are included.
+>
+> Previous: v0.21.0 – adventure skates, poison ground/swamp/sharp rocks,
 > six colored push-box/plate pairs and explicit lever+plate AND groups.
 > The larger external demo and reproducible solution are in
 > [`docs/adventures/s3_demo/`](docs/adventures/s3_demo/), mirrored in the SD bundle.
 > Engine saves are now format 5 (one skates byte added to format 4);
 > formats 1–4 load with skates off. The SD-session container remains version 1.
 > See [authoring section 10f](docs/AUTHORING_ADVENTURES.md#10f-s3-skridskor-giftterräng-och-färgsokoban-v0210).
-> **Verification:** host tests cover these additions; physical ESP32/display/touch
-> verification and a firmware build are still required. No enemy AI, editor or undo
-> is included in this release.
+> The owner confirms that this preceding gameplay block works on hardware.
 >
 > Previous: v0.20.1 – the adventure engine includes S1 grouped Sokoban plates/gates
 > (introduced in v0.20.0) and S2 levers, timed gates, ice, belts, colored keys/doors
@@ -377,6 +388,35 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 ```
 
 ### Tests (host)
+
+Adventure v0.21.1 checks (run from the repository root; no ESP-IDF required):
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adv_s4_engine.cpp components/otr_engine/otr_world.cpp -o /tmp/test_adv_s4_engine && /tmp/test_adv_s4_engine
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_s4_loader.cpp main/adv_loader.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_s4_loader && /tmp/test_adv_s4_loader
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_s4_demo.cpp main/adv_loader.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_s4_demo && /tmp/test_s4_demo
+python3 tests/test_adv_s2_ui.py /tmp
+node tests/test_adv_live_web.js
+g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o /tmp/test_advlive && /tmp/test_advlive
+g++ -std=c++17 -Wall -Wextra -Imain -Itools -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_catalog.cpp main/adv_catalog.cpp main/adv_sd_session.cpp main/adv_loader.cpp tools/adv_parse.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_catalog && /tmp/test_adv_catalog
+python3 tools/embed_web.py --check
+```
+
+The demo test reads the delivered `.adv` through the production loader and
+executes the README sequence; it also checks the SD-bundle copy. See
+[the demo checklist](docs/adventures/s4_demo/README.md) for physical checks.
+
+Verification for this change: S4 engine **658**, S4 loader **373**, legacy
+engine **1,826**, legacy loader **1,267**, catalog **226**, S3 **325**, live JSON **116** checks
+passed. Engine/loader/UI extraction also passed ASan/UBSan. S2 and S3 external
+demo regressions passed; the S4 solution finishes both delivered copies in
+**179 inputs / 175 steps**, with **58/64 energy** and no lives lost.
+The web canvas was checked in a browser at desktop/mobile sizes, and the
+production LVGL layout passed three screen sizes. Firmware is not
+locally build-tested here (no ESP-IDF); physical device verification remains open.
+CodeQL found no C++/Python alerts. Its `js/bad-tag-filter` alert in the local
+web test is a false positive: the regex extracts trusted, versioned JavaScript
+for tests; it does not sanitize HTML or process user input.
 
 Adventure v0.21.0 checks (run from the repository root; binaries stay in `/tmp`):
 

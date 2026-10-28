@@ -40,14 +40,18 @@ void fillMap(Snapshot &s, const Source &src)
     s.w = (uint8_t)w.width();
     s.h = (uint8_t)w.height();
     s.fog = w.fog();
+    s.hasDark = false;
     copyStr(s.world, sizeof(s.world), src.worldName);
     for (int y = 0; y < s.h; y++)
         for (int x = 0; x < s.w; x++) {
-            const bool hidden = s.fog && !w.revealed(x, y);
+            s.hasDark = s.hasDark || w.darkCell(x, y);
+            const bool fogHidden = s.fog && !w.revealed(x, y);
+            const bool dark = !fogHidden && w.darkHidden(x, y);
+            const bool hidden = fogHidden || dark;
             const Obj o = w.obj(x, y);
             const Tile t = w.tile(x, y);
-            s.terrain[y][x] = hidden ? '?' : (t == Tile::GATE && w.gateOpenAt(x, y) ? 'M' : (char)('a' + (int)t));
-            if (hidden) s.obj[y][x] = w.flagged(x, y) ? '!' : '.';
+            s.terrain[y][x] = dark ? '#' : hidden ? '?' : (t == Tile::GATE && w.gateOpenAt(x, y) ? 'M' : (char)('a' + (int)t));
+            if (hidden) s.obj[y][x] = fogHidden && w.flagged(x, y) ? '!' : '.';
             else s.obj[y][x] = (o == Obj::NONE || o == Obj::NPC) ? '.' : (char)('A' + (int)o);
             s.hint[y][x] = (s.fog && !hidden) ? (char)('0' + w.mineHint(x, y)) : '0';
         }
@@ -62,6 +66,10 @@ void fillState(Snapshot &s, const Source &src)
     s.facing = (uint8_t)w.facing();
     s.sailing = w.sailing();
     s.boat = w.hasBoat();
+    s.suction = w.hasSuction();
+    s.skates = w.hasSkates();
+    s.flashlight = (uint8_t)w.flashlight();
+    s.pogo = (uint8_t)w.pogo();
     s.gatesOpen = w.gatesOpen();
     s.gameOver = w.gameOver();
     s.exitReached = w.exitReached();
@@ -82,11 +90,20 @@ void fillState(Snapshot &s, const Source &src)
     s.bomb3=w.bombs(3); s.bomb4=w.bombs(4); s.safeLeft=w.safeLeft(); s.lang=src.lang;
     s.bombSize=src.bombSize; s.bombX=src.bombX; s.bombY=src.bombY;
 
+    // Moving actors are separate overlays, never object glyphs.
+    s.enemyCount = 0;
+    for (int i = 0; i < w.enemyCount() && s.enemyCount < Otr::MAX_ENEMIES; ++i) {
+        const auto &e = w.enemy(i);
+        if ((w.fog() && !w.revealed(e.x, e.y)) || w.darkHidden(e.x, e.y)) continue;
+        s.enemies[s.enemyCount++] = EnemyInfo{e.x, e.y, w.enemyDef(i).kind == Otr::EnemyKind::CHASER};
+    }
+
     // People: map numbers 1..9 that stand somewhere
     s.npcCount = 0;
     for (int num = 1; num <= MAX_NPCS; num++) {
         int x, y;
         if (!w.findNpc(num, x, y)) continue;
+        if ((w.fog() && !w.revealed(x, y)) || w.darkHidden(x, y)) continue;
         NpcInfo &n = s.npcs[s.npcCount++];
         const Otr::Story::Npc *def = src.story ? src.story->npcByNum(num) : nullptr;
         n.num = (uint8_t)num;
@@ -214,7 +231,11 @@ void rows(Out &o, const char (*layer)[Otr::MAX_W], int w, int h)
     for (int y = 0; y < h; y++) {
         if (y) o.put(",");
         o.put("\"");
-        o.raw(layer[y], (size_t)w);   // Only plain ASCII letters / digits / '.?!': no escaping needed
+        for (int x = 0; x < w; ++x) {
+            if (layer[y][x] == '\\') o.put("\\\\");   // Appended object IDs include backslash.
+            else if (layer[y][x] == '"') o.put("\\\"");
+            else o.raw(&layer[y][x], 1);
+        }
         o.put("\"");
     }
     o.put("]");
@@ -256,6 +277,9 @@ size_t toJson(const Snapshot &s, uint32_t clientMapRev, char *buf, size_t cap)
           s.mapId,s.mineLevel,s.completed,s.bomb3,s.bomb4,s.safeLeft,s.lang,s.bombSize,s.bombX,s.bombY);
     o.put("\"boat\":");
     o.boolean(s.boat);
+    o.fmt(",\"suction\":%s,\"skates\":%s,\"flashlight\":%u,\"pogo\":%u",
+          s.suction ? "true" : "false", s.skates ? "true" : "false",
+          (unsigned)s.flashlight, (unsigned)s.pogo);
     o.put(",\"gates_open\":");
     o.boolean(s.gatesOpen);
     o.put(",\"game_over\":");
@@ -270,6 +294,13 @@ size_t toJson(const Snapshot &s, uint32_t clientMapRev, char *buf, size_t cap)
               (unsigned)n.y, (unsigned)n.look, n.talking ? "true" : "false");
         o.str(n.name);
         o.put("}");
+    }
+    o.put("],\"enemies\":[");
+    for (int i = 0; i < s.enemyCount; ++i) {
+        const EnemyInfo &e = s.enemies[i];
+        if (i) o.put(",");
+        o.fmt("{\"x\":%u,\"y\":%u,\"kind\":\"%s\"}",
+              (unsigned)e.x, (unsigned)e.y, e.chaser ? "chaser" : "patrol");
     }
     o.put("],\"items\":[");
     for (int i = 0; i < s.itemCount; i++) {
@@ -336,7 +367,10 @@ void publish(const Source &src)
     if (!s) return;
     const Otr::World &w = *src.world;
     if (s_mapDirty || !s->active || s->mapRev == 0 || s->worldRev != w.revision() || s->worldId != w.mapId() ||
-        s->w != w.width() || s->h != w.height() || strcmp(s->world, src.worldName ? src.worldName : "") != 0) {
+        s->w != w.width() || s->h != w.height() ||
+        (s->hasDark && (s->px != w.playerX() || s->py != w.playerY() ||
+         s->facing != (uint8_t)w.facing() || s->flashlight != w.flashlight())) ||
+        strcmp(s->world, src.worldName ? src.worldName : "") != 0) {
         fillMap(*s, src);
         s->mapRev++;
         if (s->mapRev == 0) s->mapRev = 1;   // 0 means "no map" to a client

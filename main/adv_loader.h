@@ -96,6 +96,11 @@ struct Loaded {
     Otr::Treasure treasures[MAX_TREASURES];
     int treasureCount;
 
+    // @enemies: patrol X Y loop|pingpong [area X0 Y0 X1 Y1] route X,Y ...
+    //           chaser X Y [area X0 Y0 X1 Y1]
+    Otr::EnemyDef enemies[Otr::MAX_ENEMIES];
+    int enemyCount;
+
     // @dark (v0.18.0): inclusive dark-area rectangles. map.darks points at this array.
     Otr::DarkRect darks[Otr::MAX_DARK];
     int darkCount;

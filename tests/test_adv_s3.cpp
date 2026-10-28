@@ -226,7 +226,8 @@ static void saves()
     CHECK(w.restore(saved.data(), saved.size()) && w.hasSkates());
     for (int fault = 0; fault < 4; ++fault) {
         auto bad = saved;
-        if (fault == 0) bad[bad.size() - 5] = 2;
+        if (fault == 0) bad[16 + 32 + 7 * w.width() * w.height() +
+                            6 + 8 + 2 * PLATE_GROUPS] = 2;
         if (fault == 1) bad[48] = (uint8_t)Tile::COUNT;
         if (fault == 2) bad[49] = (uint8_t)Obj::COUNT;
         if (fault == 3) bad[51] = (uint8_t)Obj::COUNT;
@@ -236,14 +237,16 @@ static void saves()
         CHECK(w.save(unchanged.data(), unchanged.size()) == unchanged.size());
         CHECK(unchanged == saved);
     }
-    for (int version = 1; version <= 4; ++version) {
+    for (int version = 1; version <= 5; ++version) {
         auto old = saved;
-        const size_t extension = version < 4 ? 6 + 8 + 2 * PLATE_GROUPS + 1 : 1;
-        old.resize(old.size() - extension);
+        const size_t legacySize = 16 + 32 + 7 * size_t(w.width()) * size_t(w.height()) +
+                                  (version >= 4 ? 6 + 8 + 2 * PLATE_GROUPS : 0) +
+                                  (version >= 5 ? 1 : 0) + 4;
+        old.resize(legacySize);
         old[4] = (uint8_t)version;
         fixCrc(old);
         CHECK(w.restore(old.data(), old.size()));
-        CHECK(!w.hasSkates());
+        CHECK(w.hasSkates() == (version >= 5));
     }
 }
 

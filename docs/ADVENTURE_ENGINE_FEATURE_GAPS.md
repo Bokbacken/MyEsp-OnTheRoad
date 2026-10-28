@@ -15,6 +15,9 @@ spakar och tidsgrindar, is och transportband, generiska och färgade nycklar/dö
 par-bedömning, dimma/minsvepare, minor, bomber, båt/vatten, lava, skyddsdräkt,
 energi/liv/checkpoints, dolda skatter, mörker+ficklampa, hoppstylta (pogo-vault),
 NPC-dialog med flaggor/räknare/quests/villkor/effekter och utgång.
+Sedan v0.21.1 även sugpropp/Dra, turbaserad patrull och BFS-jagare med
+valfria områden; se [syntax och gränser](AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211).
+Sugpropp är inte generell undo.
 
 ---
 
@@ -38,8 +41,6 @@ NPC-dialog med flaggor/räknare/quests/villkor/effekter och utgång.
 
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
-| 11 | **Patrullerande fiende (fast mönster)** | Rör sig deterministiskt per spelarsteg; turbaserat, passar motorn | 3 |
-| 12 | **Jagande fiende (enkel AI)** | Går mot spelaren (BFS/Manhattan) – motorn har redan A*-plannern att återanvända | 3 |
 | 13 | **Projektiler / fällor** | Pilfälla, eldpelare som tänds i intervall | 3 |
 | 14 | **Enkel strid / HP på fiende** | Slå-knappen finns redan; ge fiender träfftålighet | 3 |
 | 15 | **Giftig/skadande terräng (ej lava)** | Taggar, träsk som tär energi – nästan gratis via Rules | 1 |
@@ -88,8 +89,6 @@ NPC-dialog med flaggor/räknare/quests/villkor/effekter och utgång.
 ## Mina topp-rekommendationer (bäst värde för insatsen)
 - **Ångra drag (#34)** – det enskilt mest efterfrågade i seriösa sokoban-banor; dyrare
   men lyfter hela pusseldelen.
-- **Patrull/jagande fiende (#11/#12)** – A*-plannern finns redan att luta sig mot, ger
-  motorn en helt ny dimension (action/stealth).
 - **Teleport-par (#4)** – bygger vidare på grupp-id-tänket och kan ge nya pussel.
 
 Allt ovan är host-testbart utan hårdvara, i linje med "minimal ändring, kompilera, testa".

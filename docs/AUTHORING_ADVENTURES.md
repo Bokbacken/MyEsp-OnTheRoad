@@ -34,6 +34,9 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 >
 > **Nytt i v0.21.0 (Fas S3):** skridskor, giftmark/träsk/vassa stenar,
 > färglådor/färgplattor och uttryckliga spak+platta-AND-grupper — avsnitt 10f.
+>
+> **Nytt i v0.21.1:** sugpropp/Dra och turbaserade patruller/jagare —
+> avsnitt 10g. 0.21.0-mekanik och äldre demobanor finns kvar.
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -45,6 +48,7 @@ realistiskt importbart:
 | teckenlegenden     | `decode()` (tecken -> `Tile`/`Obj`) | `components/otr_engine/otr_world.cpp` |
 | `@treasures`       | `Otr::Treasure` (dolt lager i `World`) | `components/otr_engine/include/otr_world.h` |
 | `@resources`       | `Adv::Resource` + föremålssystemet | `main/adv_loader.h` |
+| `@enemies`         | `Otr::EnemyDef` + separat dynamiskt fiendetillstånd | `components/otr_engine/include/otr_world.h` |
 | `@flags/@counters/@items/@quests/@npc/@node` | `struct Script` m.fl. | `components/otr_story/include/otr_story.h` |
 
 > Kompletta, fungerande exempel finns att utgå från:
@@ -104,6 +108,7 @@ Sektionerna, i ordning:
 @rules       spelregler (energi, liv, lava, dimma, par) + carry/reset
 @map         själva kartan, ritad med ASCII-tecken
 @dark        mörka områden som ficklampan lyser upp (valfri, v0.18.0)
+@enemies     patruller/jagare, rutter och valfria områden (valfri, v0.21.1)
 @treasures   dolda skatter under täckande objekt (valfri)
 @resources   egna samlingsbara föremål kopplade till glyfer (valfri)
 @flags       deklarera alla flaggor du använder
@@ -902,7 +907,7 @@ Det befintliga `@treasures`-lagret kan ligga under sten eller färglåda.
 När täckningen knuffas bort lämnas skatten på ursprungsrutan, inte under det
 flyttade objektet. Spelaren går samtidigt in där och kan plocka upp skatten
 direkt. Exempel: `@treasures` → `3 2 potion 2` under lådan i exemplet ovan.
-Ingen ny sugpropps-/dragfunktion införs.
+Sugpropp/Dra tillkommer i **0.21.1**, se 10g.
 Skatter på plattor/grindar/spakar är fortsatt ogiltiga, även på färgplattor,
 eftersom grupp-id och föremålsmängd inte får kollidera.
 
@@ -938,9 +943,169 @@ yttre container är fortsatt version **1**.
 
 Hosttesterna täcker mekanik, loaderfel, gamla sparformat, återställning,
 UI-rendering och den externa demots dokumenterade lösning.
-**Fysisk ESP32-/skärm-/touchverifiering återstår för S3**, liksom firmwarebygge
-i ESP-IDF. Se [demots README](adventures/s3_demo/README.md) för SD-sökväg,
+Ägaren har bekräftat att 0.21.0-blocket fungerar på hårdvara. Se
+[demots README](adventures/s3_demo/README.md) för SD-sökväg,
 lösning och manuell kontroll.
+
+### 10g. Sugpropp och turbaserade fiender (v0.21.1)
+
+Produktionsloadern är referens för syntaxen nedan. Fiender överförs som
+separata definitioner och tillstånd, inte via nya enbytes-kartglyfer.
+Objekt-id för sugpropp har lagts sist; äldre objekt har inte numrerats om.
+
+#### Sugpropp och Dra
+
+```text
+@legend
+s = suction
+```
+
+Använd `s` i kartan för en synlig pickup, eller `X Y suction` i
+`@treasures` för en dold sugpropp under exempelvis sten/färglåda. Vanliga
+skattregler gäller: skatten hör till rutan, följer inte objektet och får inte
+ligga på platta/grind/spak. En framflyttad täckning kan avslöja och omedelbart
+ge spelaren utrustningen.
+
+Med sugpropp kan spelaren dra **sten och de sex färglådorna**, aldrig
+sönderslagbara lådor eller buskar. Stå vänd mot objektet, välj **Dra** med
+**Byt**, och utför med nedre delen av handlingsknappen. Val och utförande är
+separata. Utan sugpropp finns inte handlingen. Spelaren backar en ruta,
+objektet flyttas till spelarens förra ruta. Båda destinationerna måste vara
+giltiga; väggar, objekt, stängda grindar och fiender får inte kringgås.
+Bakåtrutan får inte vara upptagen av en fiende. Objektets destination måste
+vara tillåten stenmark: inte vatten/lava (inte ens med båt/dräkt), grind,
+checkpoint, utgång eller spak. Dolda skatter räknas inte som synliga hinder.
+Stänger själva objektflytten grinden bakom spelaren avvisas hela draget utan
+ändringar. En tidsgrind följer däremot samma regel som vanlig gång:
+inträdet prövas före landningens timertick och grinden kan löpa ut under spelaren.
+Färgen följer lådan, medan terrängens plattfärg/grupp och dolda skatter
+stannar på sina rutor. Grindvillkor räknas om även när en platta avtäcks.
+
+Bakåtlandning använder vanliga pickup-, fara- och checkpointregler. På is
+utan skridskor fortsätter spelaren **bakåt**, inte tillbaka in i det dragna
+objektet. Skridskor stoppar isglidning men inte band. Bandets riktning
+bestämmer efterföljande rörelse (och fortsatt isglidning); själva dragkedjan
+behåller spelarens ursprungliga ansiktsriktning. Varje tvångssteg använder
+vanlig kollision, inklusive eventuell fiendekontakt. Mörker påverkar bara
+synlighet, inte möjligheten att dra eller kollidera.
+
+Sugproppen förbrukas inte, behålls vid död/respawn och följer med vid
+kartbyte i både vanlig världscarry och SD-session. Precis som skridskor,
+ficklampa och pogo påverkas den inte av resursmaskerna `carry`/`reset`.
+Nystart/omstart genom ny kartladdning återställer kartan och tar bort
+utrustningen tills den hittas igen. Ett drag återställer aldrig tid,
+energi, fiender eller en tidigare värld.
+
+#### Fiendesyntax och gränser
+
+En fiende per rad i `@enemies`, med nollbaserade koordinater:
+
+```text
+@enemies
+patrol 3 2 loop area 1 1 8 6 route 3,2 7,2 7,5 3,5
+patrol 12 2 pingpong route 12,2 16,2
+chaser 20 4 area 18 1 28 8
+chaser 30 4
+```
+
+- `patrol X Y loop|pingpong [area X0 Y0 X1 Y1] route X,Y ...`
+  anger ordnade vägpunkter. `loop` återvänder från sista till första;
+  `pingpong` vänder vid ändpunkterna. Segmenten är vågräta/lodräta, även
+  start till första punkt och sista till första i en slinga. Patrullen
+  går en ruta mot nästa punkt; blockeras nästa ruta väntar den, utan omväg.
+  En ruttpunkt ger en stillastående patrull när punkten nåtts.
+  Statiska hinder/farlig terräng längs hela segmentet är loaderfel; flyttbara
+  objekt, NPC, dörrar och grindar får däremot spärra rutten dynamiskt.
+- `chaser X Y [area X0 Y0 X1 Y1]` jagar spelarens aktuella position.
+- `area` är en **inklusive** rektangel. Utelämnad rektangel betyder hela
+  kartan. Start, rutt, sökning och varje steg måste hålla sig inom området.
+  Om spelaren står utanför jagarens område väntar jagaren.
+- Högst **8 fiender**, **16 vägpunkter per patrull**, karta högst **80×80**.
+  Ogiltiga typer, lägen, argument, koordinater, startkollisioner, områden,
+  rutter och överskridna gränser ger loaderfel med radnummer.
+- Jagaren använder bredden-först-sökning på den **aktuella** kartan inför
+  varje steg, med grannordningen **upp, höger, ned, vänster**. Varje ruta
+  besöks högst en gång per sökning. Ingen väg betyder vänta, inte ett
+  vägggenomträngande eller girigt reservsteg.
+- Sökarbetsytan delas av alla fiender: två 16-bitarsfält om 6400 element,
+  totalt **25 600 byte per World**, inte per fiende. Högst åtta sökningar
+  per handling (högst **204 800 grannkontroller**, plus initiering och
+  vägspårning); inga nya stora stack- eller per-fiende-kartarrayer.
+
+Väggar, träd, spruckna väggar, spakar, stängda grindar, alla dörrar, stenar,
+färglådor, sönderslagbara lådor, buskar och NPC blockerar. Andra fiender
+blockerar också; fiender uppdateras i deklarationsordning och byter inte
+plats med varandra. De knuffar aldrig och plockar inte upp föremål.
+Flyttade objekt och ändrade grindar påverkar nästa förflyttning direkt.
+
+Fiender går inte på vatten, lava, giftmark, träsk, vassa stenar eller minor.
+Is och band är vanlig mark för dem: ingen glidning/tvångsrörelse eller
+terrängskada. De har ingen energi, inget HP och inget stridssystem.
+Mörker/dimma ändrar inte kollision eller sökning men döljer fienden i
+enhetsvyn och webblivevyn enligt samma synlighetsregler som övriga objekt.
+Patrull och jagare har skilda symboler; sugpropp visas både som pickup och
+ägd utrustning i HUD.
+
+#### Gemensam turordning
+
+| Input | Timers/steg | Fiender |
+|---|---|---|
+| Lyckad gång eller knuff | Befintlig tick per landning | En gemensam fiendetur efter hela kedjan |
+| Lyckat drag | Som gång, inklusive bakåtlandning | En tur efter hela kedjan |
+| Lyckat pogohopp | En tick på landningen, inte överflugna rutor | En tur efter eventuell tvångskedja |
+| Is-/bandkedja | En tick per faktisk landning, högst 128 extra | Ingen extra fiendetur per tvångssteg |
+| Upplåst dörr | Ingen gång/timertick, som tidigare | En tur |
+| Lyckad spakaktivering | Ingen gång/timertick, som tidigare | En tur |
+| Blockerad input, slag, bara riktningsändring | Ingen tick | Ingen tur |
+| Rendering, paus, dialog, val av handling | Ingen tick | Ingen tur |
+
+1. Kontrollera handlingen; flytta objekt/öppna dörr/ändra spak, avslöja
+   eventuell skatt och räkna om grindvillkor. Ett blockerat drag ändrar inget.
+2. Vid varje faktisk landning: ticka timers, flytta spelaren och öka steg,
+   aktivera spelarens platta, kontrollera fiendekontakt; därefter mina,
+   dimavtäckning, lava/övrig terrängskada, checkpoint, utgång och pickup.
+   Död avbryter direkt. Ett knuffat/draget objekts platta aktiveras också
+   enligt den befintliga knuffordningen efter den manuella landningen.
+3. Lös hela is-/bandkedjan med samma landningsregler (högst 128 extra
+   landningar). Död/utgång avbryter; befintlig stoppregel för mina/lavabränning
+   behålls.
+4. Om spelaren fortfarande lever och världen inte lämnats: varje fiende får
+   högst ett steg i deklarationsordning, med kontaktkontroll.
+
+Spak- och dörrhandlingar hoppar över landning/timertick men låter fienderna
+agera. De ändrar inte äldre timers godtyckligt.
+
+Kontakt ger **2 energi** via befintlig skada/liv/respawn, högst en
+kontaktskada under samma handling även med flera fiender/tvångslandningar.
+Spelaren kan gå in på en fienderuta; fienden väntar där tills spelaren
+lämnar. En fiende som försöker gå in på spelarens ruta gör skada men
+stannar på sin gamla ruta. Pogo skadar inte vid överflygning; landningen
+kontrolleras som vanlig kontakt. Vid död avbryts kedjan och återstående
+fiendeuppdateringar; respawn är ingen ny förflyttning eller återställning.
+Utgång avbryter också fortsatta uppdateringar.
+
+#### Save/restore, checkpoint och SD-session
+
+Motorformat **6** behåller format 5 och lägger före CRC till:
+sugproppsbyte, fiendeantal, 32-bitars definitionssignatur och fyra byte per
+fiende (**x, y, målindex, riktning**). Signaturen förhindrar tyst återläsning
+mot andra fiender/rutter/områden. Tillstånd valideras innan världen ändras.
+Format **1–5** läses med sugpropp **av** och fiender i kartans initiala
+läge/ruttriktning. Äldre enum-id:n behåller sin betydelse. Äldre firmware
+kan inte läsa format 6. SD-sessionens yttre container förblir **version 1**.
+
+Checkpoint flyttar bara respawnpunkten. Död behåller flyttade objekt,
+fiendernas aktuella ruttillstånd, timers och utrustning; full omstart laddar
+kartan på nytt. SD-sparning omsluter världens fiendetillstånd som övrig
+världsdata. Vid resa till en ny karta laddas den kartans fiender från
+definitionen; de överförs inte som spelarutrustning.
+
+Se [0.21.1-demots README](adventures/s4_demo/README.md) för exakt
+lösning, produktionsloader-/motortest och manuella kontroller. Fysisk
+ESP32-/skärm-/touchkontroll och SD-hantering på enheten återstår.
+Lokalt firmwarebygge kunde inte köras eftersom denna körmiljö saknar ESP-IDF;
+aktuell byggstatus i CI visas på PR:n. Releaseworkflow, tags och releases
+ändras inte av spelmekaniken.
 
 ---
 
@@ -999,7 +1164,7 @@ referensparser är inte funktionellt likvärdig för alla formatversioner.
   bygger menyn; `main/adv_sd_session.{h,cpp}` sköter spara-per-mapp och
   carry/reset. Detta ingår i firmware-bygget (`idf.py build`).
 - **På värddator:** `tools/adv_parse.{h,cpp}` är fortfarande en S1-parser och
-  validerar inte S2-syntax. Använd produktionsladdaren `Adv::parseFile` för S2.
+  validerar inte S2–S4-syntax. Använd produktionsladdaren `Adv::parseFile`.
 
 Host-tester bevisar att formatet importeras till den **faktiska** motorn (inte
 en leksaksmodell):
@@ -1050,6 +1215,10 @@ g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
   [`docs/adventures/s3_demo/s3_demo.adv`](adventures/s3_demo/s3_demo.adv) –
   skridskor, tre skadliga terränger med/utan dräkt, färgsokoban,
   spak+platta-AND och skatt under en flyttbar låda.
+- **Sugpropp och fiender (v0.21.1):**
+  [S4-demots README](adventures/s4_demo/README.md) och externa SD-karta –
+  dold sugpropp, färglåda/platta, drag, patrull, jagare, områden och
+  blockering med flyttbara objekt.
 - **Alla inbyggda äventyr som `.adv`:**
   [`docs/adventures/generated/`](adventures/generated/) – byn, josef (2 kartor),
   minfaltet och testvarlden, exporterade direkt från den kompilerade

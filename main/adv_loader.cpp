@@ -116,6 +116,7 @@ Otr::Obj objFromName(const char *name)
     if (!strcmp(s, "flashlight") || !strcmp(s, "flash")) return Otr::Obj::FLASH;   // v0.18.0
     if (!strcmp(s, "pogo") || !strcmp(s, "pogostick")) return Otr::Obj::POGO;      // v0.18.0
     if (!strcmp(s, "skates")) return Otr::Obj::SKATES;
+    if (!strcmp(s, "suction")) return Otr::Obj::SUCTION;
     return Otr::Obj::NONE;
 }
 
@@ -242,10 +243,11 @@ bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *
         for (; d < 4; d++) if (arg && sameWord(arg, dirs[d])) break;
         if (d == 4) { setErr(err, errCap, lineNo, "invalid belt direction"); return false; }
         encoded = (uint8_t)(Otr::BELT_UP_GLYPH + d);
-    } else if (sameWord(kind, "skates") || sameWord(kind, "poison") ||
+    } else if (sameWord(kind, "skates") || sameWord(kind, "suction") || sameWord(kind, "poison") ||
                sameWord(kind, "swamp") || sameWord(kind, "sharp_rocks")) {
-        if (arg) { setErr(err, errCap, lineNo, "terrain/skates takes no argument"); return false; }
-        encoded = sameWord(kind, "skates") ? Otr::SKATES_GLYPH :
+        if (arg) { setErr(err, errCap, lineNo, "terrain/equipment takes no argument"); return false; }
+        encoded = sameWord(kind, "suction") ? Otr::SUCTION_GLYPH :
+                  sameWord(kind, "skates") ? Otr::SKATES_GLYPH :
                   sameWord(kind, "poison") ? Otr::POISON_GLYPH :
                   sameWord(kind, "swamp") ? Otr::SWAMP_GLYPH : Otr::SHARP_ROCKS_GLYPH;
     } else if (sameWord(kind, "key") || sameWord(kind, "door") || sameWord(kind, "box")) {
@@ -263,7 +265,7 @@ bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *
     return true;
 }
 
-enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND,
+enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, ENEMIES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND,
            PLATEGROUP, GATEGROUP, TIMEDGATE, ANDGATE };
 
 // Maps a "@tag" (without any arg) to a section. Returns false for an unknown tag.
@@ -274,6 +276,7 @@ bool secFromTag(const char *tag, Sec &sec)
     else if (!strcmp(tag, "@rules")) sec = RULES;
     else if (!strcmp(tag, "@map")) sec = MAP;
     else if (!strcmp(tag, "@treasures")) sec = TREASURES;
+    else if (!strcmp(tag, "@enemies")) sec = ENEMIES;
     else if (!strcmp(tag, "@resources")) sec = RESOURCES;
     else if (!strcmp(tag, "@dark")) sec = DARK;
     else if (!strcmp(tag, "@flags")) sec = FLAGS;
@@ -309,6 +312,147 @@ bool parseCoordinate(char *token, int &x, int &y)
         return true;
     };
     return number(token, x) && number(comma + 1, y);
+}
+
+bool byteNumber(const char *text, uint8_t &value)
+{
+    unsigned n = 0;
+    if (!text || !*text) return false;
+    for (; *text; ++text) {
+        if (*text < '0' || *text > '9') return false;
+        const unsigned digit = (unsigned)(*text - '0');
+        if (n > (255u - digit) / 10u) return false;
+        n = n * 10u + digit;
+    }
+    value = (uint8_t)n;
+    return true;
+}
+
+bool parseEnemy(char *line, Otr::EnemyDef &enemy, int lineNo, char *err, size_t errCap)
+{
+    stripCommentIn(line);
+    constexpr int TOKEN_CAP = Otr::MAX_ROUTE + 10;
+    char *tokens[TOKEN_CAP];
+    int count = 0;
+    for (char *p = strtok(line, " \t"); p; p = strtok(nullptr, " \t")) {
+        if (count == TOKEN_CAP) { setErr(err, errCap, lineNo, "too many enemy route points/tokens"); return false; }
+        tokens[count++] = p;
+    }
+    auto bad = [&](const char *message) { setErr(err, errCap, lineNo, message); return false; };
+    if (count < 3) return bad("enemy needs 'patrol X Y mode [area ...] route ...' or 'chaser X Y [area ...]'");
+    enemy = Otr::EnemyDef{};
+    if (sameWord(tokens[0], "patrol")) enemy.kind = Otr::EnemyKind::PATROL;
+    else if (sameWord(tokens[0], "chaser")) enemy.kind = Otr::EnemyKind::CHASER;
+    else return bad("unknown enemy kind");
+    if (!byteNumber(tokens[1], enemy.x) || !byteNumber(tokens[2], enemy.y))
+        return bad("invalid enemy start coordinates");
+    int i = 3;
+    if (enemy.kind == Otr::EnemyKind::PATROL) {
+        if (i == count || (!sameWord(tokens[i], "loop") && !sameWord(tokens[i], "pingpong")))
+            return bad("patrol mode must be loop or pingpong");
+        enemy.pingPong = sameWord(tokens[i++], "pingpong");
+    }
+    if (i < count && sameWord(tokens[i], "area")) {
+        if (count - i < 5 ||
+            !byteNumber(tokens[i + 1], enemy.x0) || !byteNumber(tokens[i + 2], enemy.y0) ||
+            !byteNumber(tokens[i + 3], enemy.x1) || !byteNumber(tokens[i + 4], enemy.y1))
+            return bad("enemy area needs four coordinates");
+        enemy.bounded = true;
+        i += 5;
+    }
+    if (enemy.kind == Otr::EnemyKind::CHASER)
+        return i == count ? true : bad("unexpected chaser arguments");
+    if (i == count || !sameWord(tokens[i++], "route") || i == count)
+        return bad("patrol needs route X,Y ...");
+    for (; i < count; ++i) {
+        int x, y;
+        if (enemy.routeCount == Otr::MAX_ROUTE) return bad("too many enemy route points");
+        if (!parseCoordinate(tokens[i], x, y)) return bad("invalid enemy route coordinate");
+        enemy.route[enemy.routeCount++] = {(uint8_t)x, (uint8_t)y};
+    }
+    return true;
+}
+
+// Mirrors the engine's initial enemy terrain: gates start closed and hazards/mines block.
+bool enemyWalkable(uint8_t glyph)
+{
+    if ((glyph >= Otr::GROUPED_PLATE_GLYPH && glyph < Otr::GROUPED_GATE_GLYPH) ||
+        (glyph >= Otr::ICE_GLYPH && glyph < Otr::COLORED_DOOR_GLYPH) ||
+        (glyph >= Otr::COLORED_PLATE_GLYPH && glyph < Otr::COLORED_PLATE_GLYPH + 6) ||
+        glyph == Otr::SKATES_GLYPH || glyph == Otr::SUCTION_GLYPH) return true;
+    switch (glyph) {
+    case '.': case 'S': case ',': case '_': case 'o': case 'Q': case 'X':
+    case 'k': case 'K': case 'B': case '*': case '+': case '$': case 'p':
+    case 'h': case 'u': case 'l': case 'a': case 'z': case 'f': case 'j':
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool enemyRouteTerrain(uint8_t glyph)
+{
+    if (enemyWalkable(glyph) || (glyph >= '1' && glyph <= '9') ||
+        (glyph >= Otr::BOX_GLYPH && glyph < Otr::BOX_GLYPH + 6) ||
+        (glyph >= Otr::COLORED_DOOR_GLYPH && glyph < Otr::COLORED_DOOR_GLYPH + 6) ||
+        (glyph >= Otr::GROUPED_GATE_GLYPH && glyph < Otr::GROUPED_LEVER_GLYPH)) return true;
+    switch (glyph) {
+    case 'R': case 'r': case 'c': case 'C': case 'D': case 'b': case '=':
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool validateEnemies(const Loaded &out, const int *lines, char *err, size_t errCap)
+{
+    const int width = (int)strlen(out.rows[0]);
+    auto inside = [&](int x, int y) { return x < width && y < out.rowCount; };
+    for (int i = 0; i < out.enemyCount; ++i) {
+        const Otr::EnemyDef &e = out.enemies[i];
+        auto bad = [&](const char *message) { setErr(err, errCap, lines[i], message); return false; };
+        if (!inside(e.x, e.y)) return bad("enemy start coordinates outside map");
+        if (out.rows[e.y][e.x] == 'S') return bad("enemy start overlaps player");
+        if (!enemyWalkable((uint8_t)out.rows[e.y][e.x]))
+            return bad("enemy start is not walkable (or overlaps NPC)");
+        for (int j = 0; j < i; ++j)
+            if (e.x == out.enemies[j].x && e.y == out.enemies[j].y)
+                return bad("enemy starts overlap");
+        if (e.bounded && (e.x0 > e.x1 || e.y0 > e.y1 ||
+                         !inside(e.x0, e.y0) || !inside(e.x1, e.y1)))
+            return bad("invalid enemy area bounds");
+        auto inArea = [&](int x, int y) {
+            return !e.bounded || (x >= e.x0 && x <= e.x1 && y >= e.y0 && y <= e.y1);
+        };
+        if (!inArea(e.x, e.y)) return bad("enemy start outside area");
+        for (int j = 0; j < e.routeCount; ++j) {
+            const Otr::EnemyPoint &p = e.route[j];
+            if (!inside(p.x, p.y)) return bad("enemy route coordinates outside map");
+            if (!inArea(p.x, p.y)) return bad("enemy route outside area");
+            if (!enemyRouteTerrain((uint8_t)out.rows[p.y][p.x]))
+                return bad("enemy route is not walkable");
+        }
+        auto segment = [&](int x, int y, int tx, int ty) {
+            if (x != tx && y != ty) return bad("patrol route segments must be axis-aligned");
+            const int dx = (tx > x) - (tx < x), dy = (ty > y) - (ty < y);
+            while (x != tx || y != ty) {
+                x += dx;
+                y += dy;
+                if (!enemyRouteTerrain((uint8_t)out.rows[y][x]))
+                    return bad("patrol route crosses impassable terrain");
+            }
+            return true;
+        };
+        if (e.routeCount) {
+            if (!segment(e.x, e.y, e.route[0].x, e.route[0].y)) return false;
+            for (int j = 1; j < e.routeCount; ++j)
+                if (!segment(e.route[j - 1].x, e.route[j - 1].y, e.route[j].x, e.route[j].y))
+                    return false;
+            if (!e.pingPong && !segment(e.route[e.routeCount - 1].x, e.route[e.routeCount - 1].y,
+                                       e.route[0].x, e.route[0].y)) return false;
+        }
+    }
+    return true;
 }
 
 bool applyGroupDirective(char *line, bool plates, Loaded &out, int lineNo, char *err, size_t errCap)
@@ -432,6 +576,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     int legendCount = 0;
     int rowLines[MAX_ROWS] = {};
     int treasureLines[MAX_TREASURES] = {};
+    int enemyLines[Otr::MAX_ENEMIES] = {};
     int timedLines[Otr::PLATE_GROUPS] = {};
     int andLines[Otr::PLATE_GROUPS] = {};
     uint16_t timedSteps[Otr::PLATE_GROUPS] = {};
@@ -489,6 +634,9 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             if (space) { *space = 0; arg = trimIn(space + 1); }
             Sec ns;
             if (!secFromTag(t, ns)) { setErr(err, errCap, lineNo, "unknown section"); return false; }
+            if (ns == ENEMIES && arg && arg[0] && arg[0] != '#') {
+                setErr(err, errCap, lineNo, "@enemies takes no arguments"); return false;
+            }
             if (ns == ANDGATE) {
                 uint8_t group;
                 if (arg) stripCommentIn(arg);
@@ -665,22 +813,34 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 // "x y item [amount]"
                 char buf[LINE_CAP];
                 copyStr(buf, sizeof(buf), t);
-                char *tok[4] = {nullptr, nullptr, nullptr, nullptr};
+                char *tok[5] = {};
                 int nt = 0;
-                for (char *p = strtok(buf, " ,\t"); p && nt < 4; p = strtok(nullptr, " ,\t")) tok[nt++] = p;
-                if (nt < 3) { setErr(err, errCap, lineNo, "treasure needs 'x y item [amount]'"); return false; }
+                for (char *p = strtok(buf, " ,\t"); p && nt < 5; p = strtok(nullptr, " ,\t")) tok[nt++] = p;
+                if (nt < 3 || nt > 4) { setErr(err, errCap, lineNo, "treasure needs 'x y item [amount]'"); return false; }
+                uint8_t x, y, amount = 1;
+                if (!byteNumber(tok[0], x) || !byteNumber(tok[1], y) ||
+                    (nt == 4 && !byteNumber(tok[3], amount))) {
+                    setErr(err, errCap, lineNo, "invalid treasure coordinates/amount"); return false;
+                }
                 const Otr::Obj item = objFromName(tok[2]);
                 if (item == Otr::Obj::NONE) { setErr(err, errCap, lineNo, "unknown treasure item"); return false; }
                 if (out.treasureCount >= MAX_TREASURES) { setErr(err, errCap, lineNo, "too many treasures"); return false; }
                 treasureLines[out.treasureCount] = lineNo;
                 Otr::Treasure &tr = out.treasures[out.treasureCount++];
                 tr = Otr::Treasure{};
-                tr.x = (uint8_t)atoi(tok[0]);
-                tr.y = (uint8_t)atoi(tok[1]);
+                tr.x = x;
+                tr.y = y;
                 tr.item = item;
-                tr.amount = (uint8_t)(nt >= 4 ? atoi(tok[3]) : 1);
+                tr.amount = amount;
                 break;
             }
+            case ENEMIES:
+                if (out.enemyCount == Otr::MAX_ENEMIES) {
+                    setErr(err, errCap, lineNo, "too many enemies"); return false;
+                }
+                if (!parseEnemy(t, out.enemies[out.enemyCount], lineNo, err, errCap)) return false;
+                enemyLines[out.enemyCount++] = lineNo;
+                break;
             case DARK: {
                 // One dark rectangle per body line: "x0,y0 x1,y1". Over MAX_DARK rects are silently
                 // dropped (consistent with the inline @dark form).
@@ -850,7 +1010,9 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
 
     for (int i = 0; i < out.treasureCount; i++) {
         const Otr::Treasure &tr = out.treasures[i];
-        if (tr.x >= w || tr.y >= out.rowCount) continue;  // Engine validates treasure coordinates.
+        if (tr.x >= w || tr.y >= out.rowCount) {
+            setErr(err, errCap, treasureLines[i], "treasure coordinates outside map"); return false;
+        }
         const uint8_t c = (uint8_t)out.rows[tr.y][tr.x];
         if (c == 'o' || c == '=' ||
             (c >= Otr::COLORED_PLATE_GLYPH && c < Otr::COLORED_PLATE_GLYPH + 6) ||
@@ -915,6 +1077,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
         }
         out.rowPtrs[i] = out.rows[i];
     }
+    if (!validateEnemies(out, enemyLines, err, errCap)) return false;
     out.map.id = (uint8_t)out.mapId;
     out.map.rows = out.rowPtrs;
     out.map.h = out.rowCount;
@@ -927,6 +1090,8 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     out.map.controlCount = out.controlCount;
     out.map.par = par;
     out.map.plateGroups = out.plateGroups;
+    out.map.enemies = out.enemyCount ? out.enemies : nullptr;
+    out.map.enemyCount = out.enemyCount;
 
     // --- Build the Script ---
     out.script.npcs = out.npcs;
