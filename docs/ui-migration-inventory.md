@@ -308,12 +308,54 @@ Alla nedanstående enhetsflöden är **touch**, eventuellt kombinerat med webbsp
 | Spelare `showPlayers/rebuildPlayerList`, register `showPicker/pickTableEvent/openWheel` | **Responsiv**, D:470–570,630–821: live mått, flexrader, namn dots, roster vertikalscroll, registertabell anpassar kolumn vid storleksändring; CharWheel får live W/H. | **Låg–medel:** återanvänd redan fungerande gemensamt flöde, prova 1/8 spelare, gäster, långt namn, filter, lägg till/ta bort och återgång för vart spel. Inte samma kod som Äventyrs profilval. |
 | Informations-/avslutsdialoger `layoutDialog/infoBox/onMenu/quitEvent` | **Responsiv/begränsad**, D:402–433,2210–2237: maxbredd från metrics, maxhöjd H−2×marginLarge; innehållsscroll förväntas från LVGL-msgbox, inte uttryckligen aktiverad i `layoutDialog`. Fonter sätts separat. | **Låg–medel:** delas även av minispelen; migrera inte om i onödan. Befintliga hosttester innehåller långtext/scrollfall men har inte körts här. Bekräfta scroll samt att avsluta/avbryt inte lämnar overlay eller gamla timers. |
 | PIN `webToggleEvent/webPinDone`, `UiNumpad::open/keyEvent/finish/close` | D:436–467; `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/ui_numpad.cpp:65–164,180–188`: **responsiv**, top-layer 100 %, breddstak `buttonWMax`, höjder begränsas av H/8 och H/9; titel/info/hint dots (info max två rader), font 14/24. Touch på buttonmatrix, blockerar underliggande vy. | **Låg–medel:** redan metrics-baserat, men långa förklaringar kan avsiktligt trunkeras; prova PIN fel/omförsök/bekräfta/avbryt. Async delete och callbackens godkännande måste bevaras. |
-| Webbväntan `buildWebOverlay/updateWebOverlay/webTimer/webLocalEvent` | **Responsiv** geometri, D:2245–2283,2359–2425; blocker från y=48 i mini, live W/H, panel max 600 bred, scroll/wrap-text font 14 och ”spela lokalt”. Generation `s_gen` avvecklar inaktuell timer. | **Medel:** gemensam overlay fungerar geometriskt även ovanpå fast mini-layout; det bevisar inte att själva mini-spelet migrerats. Behåll blocker för tärningar/knappar och headerns meny, prova ansluten/frånkopplad webbsits. Ingen nätlogikändring. |
-| Pig `showMini/miniRefresh/mRoll/mAction/mPlaceDie/mRowY` | **Absolut**, D:2656–2667,2746–2759,2803–2880,3005–3055,3084–3226. En/två tärningar, 52-px sprite med 1,5× bildskala; mitt på fast filt, inga hållplatser för Pig. | **Medel:** särskilt synlig bild kontra objekt/hitbox vid skalning; Pig har ingen hold-semantik. Banka/Kasta vid fasta bottenkoordinater måste senare följa gemensam mini-geometri utan regeländring. |
-| Farkle samma entry + `mToggle/mDieDown` | **Absolut**; sex 46-px tärningar, steg 51 i `mSlotX`, hållna tärningar flyttas till fast nest-y, låsta dimmas; objekt har extra klickyta 4 px. D:2720–2725,2748–2762,3058–3066,3092–3094,3193–3204. | **Medel–hög:** tätaste tärningsraden; verifiera samtliga sex träffytor, låst/valbar och rörelse till/från nest. Delar sprites, inte Yatzys positionslayout. |
-| Skepp & kapten / SCC samma entry + `miniRefresh/mToggle` | **Absolut**; fem 52-px tärningar, steg 60; tre rollchips (6+k×104,350), 100×30, font 14; last/hint vid y=388, wrap-hint bredd 170; Spara/Kasta. D:2746–2759,2803–2880,3058–3066,3150–3169. | **Medel:** kontrollera skepp/kapten/besättning, last och låsta kontra omkastbara tärningar; långa texter kan kollidera. Samma layout-PR som Pig/Farkle, men egna acceptansfall. |
-| Gemensam mini-scoreboard, filt, informationsyta, flash | D:836–838,2656–2659,3111–3219: **absolut** SCR_W/H=320/480, board y=50 h=112, filt y=168 h=176, info y=350, knappar y=432 h=44. Scoreboard 1 kolumn ≤4, annars två fasta 150-px kolumner med dots-namn. Flash 260×70 och wrap font 24. | **Medel–hög:** inga live metrics för dessa huvudytor; på större portrait blir delar kvar i 320-px-området medan header/ankrad text kan breda ut sig. Fast layout är en migrationsrisk, **inte belägg för att allt är otestbart på större panel**. Filt/board är ej en adaptiv tabell; längre flashtext kan klippas. |
-| Resultat `showMiniResults` och Yatzys `showResults` | **Absolut med enstaka ankare**, D:2594–2640,3229–3289: kort 310×360 vid (5,54), rader var 42, namn 170 dots, font 18/24, knappar y=424. | **Medel:** även Yatzys resultatsida återstår. Återspel/huvudmeny och 8-spelarranking måste ingå; förbättrad spelskärm betyder inte att slutskärmen är migrerad. |
+| Webbväntan `buildWebOverlay/updateWebOverlay/webTimer/webLocalEvent` | **Responsiv** geometri, D:2245–2283,2359–2425; mini-blocker börjar vid layoutens headergräns (48 px vid 320×480), täcker scoreboard/spelyta/knappar men inte headerns meny. Panelen är fortsatt bottenankrad, max 600 bred, text scroll/wrap och ”spela lokalt”. Generation `s_gen` avvecklar inaktuell timer. | **Befintligt hosttest:** testar ansluten/frånkopplad overlay och inputblockering. Verklig webbsession/touch återstår. Ingen nätlogikändring. |
+| Pig `showMini/miniRefresh/mRoll/mAction/mPlaceDie/mRowY` | **Responsiv gemensam geometri**, D: `MiniLayout/miniLayout`, `miniSlotX`, `miniDieY`, `miniHitInset` och `mRollTimer`: en/två tärningar använder samma beräknade filt, resultatrad, knappar och flash. 52-px cachebild/1,5× bildskala och animationsfysik är bevarade; utökad träffyta begränsas av avståndet till grannen. Pig har fortsatt ingen hold-semantik. | **Hosttest:** 1/2 tärningar, landnings-/nestmål och hitboxgränser på 320×480 samt logiska 480×800. Manuell fysisk precision/läsbarhet återstår. |
+| Farkle samma entry + `mToggle/mDieDown` | **Responsiv**, sex 46-px tärningar får lika fördelade mål i den beräknade filten; hållna tärningar använder nestmålet, låsta dimmas. Hitboxutökning klipps till halva mellanrummet så grannar inte överlappar. | **Hosttest:** alla sex placeringar, animationens gränser och klickområden provas geometriskt på två portraitmått. Låst/valbar semantik och faktisk touch måste verifieras manuellt. |
+| Skepp & kapten / SCC samma entry + `miniRefresh/mToggle` | **Responsiv** femtärningsrad, skepp/kapten/besättning-chips, last/hint och Spara/Kasta använder samma mini-layout; hint får wrap-bredd och behåller skilda eventtyper/valbar-låst-semantik. | **Utökat hosttest:** testkoden täcker fem tärningar, tre chips och lång SV/EN-hint i scrollbar wrap-yta. Låst/valbar-semantik och faktisk läsbarhet/touch återstår. |
+| Gemensam mini-scoreboard, filt, informationsyta, flash | **Responsiv helper `miniLayout`** (D, nya layoutsektionen efter Yatzy-resultat): live W/H och metrics håller 320×480-måtten (scoreboard x=5/y=50/h=112, filt y=168/h=176, info y=350, knappar y=432/h=44). Större portrait får bredare/taller board/filt/info. Upp till åtta namn ligger i två kolumner, dots-namn och totaler; tärningsrader/hitboxes, nest och flash använder samma geometri. | **Utökat hosttest:** koden täcker 1/2/5/6 tärningar, 8 scoreboardposter, containment och grannträffar vid 320×480/480×800. LVGL-testkörning kräver dependency nedan. Fysisk läsbarhet/touch återstår; ingen ny cache/buffert. |
+| Resultat `showMiniResults` och Yatzys `showResults` | **Responsiva via gemensam `resultLayout`**: kort/scrollområde fyller bredden och slutar före två bottenknappar; badge/rad/textbredd skalar, långa namn får dots och poäng högerställs. Ranking/poäng/återspel/menyflöde är oförändrade. | **Utökat hosttest:** testkoden modellerar åtta långa namn/rader och nedersta knappar via layouthelpern på båda portraitmåtten. LVGL-testkörning kräver dependency nedan; manuell läsbarhet/knappåtkomst återstår. |
+
+### Fas C – implementerat i koden, fysisk acceptans återstår
+
+`miniLayout` beräknar huvudytor från live `UiMetrics`-mått. Den behåller
+320×480-baslinjens board/filt/info/knapp/flashkoordinater och använder större
+portraitbredd/-höjd inom samma ytor i stället för att lämna ett 320-px-spel
+centrerat på en bred panel. Scoreboard delas vid fler än fyra spelare; namn får
+dots och totaler separata kolumnutrymmen. Tärningarnas x-/y-mål, rulljitter,
+nestposition och utökade klickyta kommer från samma geometri. Klickutökningen
+begränsas efter tillgängligt avstånd, särskilt för de sex tätt placerade
+Farkle-tärningarna; Pig behåller sina en-/tvåtärningsbilder och bildskala.
+SCC:s chips, last/hint och actionknappar följer layouten. Extra lång hinttext
+wrappar i en egen scrollbar viewport ovanför knapparna. Webbblockern lämnar
+headerns meny åtkomlig och täcker de lokala spelkontrollerna under webbturen.
+
+`resultLayout` delas av Yatzy och minispelen: ranking, medaljer och poängdata
+kommer fortsatt från befintlig motor; kortets yta beräknas mellan header och
+bottenknappar och blir vertikalt scrollbar om innehållet inte ryms. Namn dots-
+förkortas inom poängkolumnens gräns. Ingen motor, scoring, eventtyp,
+webbprotokoll, bild-cache, tärningssprite, Yatzy-bägare eller firmwareversion
+ändras. Ingen ny landscapevariant eller P4-portning ingår.
+
+Host-layouttestet använder produktionsfunktionerna `miniLayout`,
+`miniSlotX/miniDieY/miniRollX/miniRollY/miniHitInset` och `resultLayout` för
+320×480 och profilens logiska 480×800-mått. Det kontrollerar Pig med en/två,
+Farkle med sex, SCC med fem tärningar, åtta scoreboard-/resultatrader,
+nest-/animationsgränser, icke-överlappande träffytor och att kontroller ligger
+utanför kortens scrollområde. Hostmåttet 480×800 är inte verifiering av fysisk
+panel. Touchprecision, läsbarhet, ansluten/frånkopplad webbinteraktion,
+fullständiga spel-/resultatflöden och P4-testning återstår manuellt.
+
+### Fas C-kontroller i denna arbetskopia
+
+| Kontroll | Resultat |
+|---|---|
+| `tests/test_games.cpp` (Pig/Farkle/SCC) | **137 passed, 0 failed**. Regler/motorer är oförändrade. |
+| `tests/test_cup.cpp` (Yatzy cup) | **50 passed, 0 failed**. |
+| `tests/test_yatzy.cpp` (Yatzy motor) | **67 passed, 0 failed**. |
+| Extraherade produktionshelpers `miniLayout`/slot/nest/animation/hitbox och `resultLayout` | **Godkänt** med tillfällig hostharness för 320×480/480×800, 1/2/5/6 tärningar, åtta scoreboard- och resultatrader. Detta är inte LVGL-rendering. |
+| `tests/test_yatzy_layout.py` | **Ej körbart här:** `managed_components/lvgl__lvgl` saknas, så CMake kan inte konfigurera LVGL. Testkoden är utökad men dess LVGL-assertioner är inte utförda i denna arbetskopia. |
+| Firmware | **Ej byggt:** `idf.py` saknas. Ingen firmware-CI kördes i denna session. |
+| Python syntax och `git diff --check` | Godkända. |
 
 ### Kontroll av det uppgivna färdiga Yatzy-spåret
 
@@ -321,7 +363,7 @@ Koden stöder att metrics/hårdvaruprofiler, menyn, variants/players/picker,
 dialoger, webb-overlay/numpad och **Yatzys spelvylager** har genomförts.
 `GameLayout/gameLayout`, `showGame`, `setPhase`, `slotX`, `cupPlace` och
 `refreshSuggestions` delar beräknad geometri (D:848–889,2428–2588).
-Fasta 320/480-konstanter finns kvar som baslinje och för mini, inte som bevis
+Fasta 320/480-konstanter finns kvar som baslinje, inte som bevis
 för att Yatzys huvudytor fortfarande alltid är absoluta.
 Metrics beräknas vid `showGame`, inte som en generell garanti om ombyggnad mitt
 under pågående spel/rotation.
@@ -335,8 +377,8 @@ PSRAM och cachar två storlekar; den tillfälliga LVGL-canvasen raderas men
 (D:993–1019,1531–1851). Radie 73 och press-slack 14 px är fortfarande fasta;
 cup-tärningarnas klick stängs av så att touch går till bägaren.
 Det är fungerande återanvändning i kod, inte en utförd fysisk precisionstest.
-Återanvänd bildcache/temafonter/animationer men koppla minispelens ritpositioner,
-nest och hitboxes till **en och samma** mini-layout i efterföljande PR.
+Fas C återanvänder bildcache/temafonter/animationer och kopplar minispelens
+ritpositioner, animations-/nestmål och hitboxes till samma beräknade mini-layout.
 Ingen anledning att ändra motorerna
 `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/game_pig.cpp`,
 `/home/runner/work/MyEsp-OnTheRoad/MyEsp-OnTheRoad/main/game_farkle.cpp` eller
@@ -384,8 +426,8 @@ säker väg tillbaka gör det.
 | 2 / **P1, B1 först** | Äventyrs väljarramar, radbredder/text och vanliga dialogers maxmått/scroll; återanvänd AH där lämpligt. **Medel.** A:2340–2439,2690–2884; AH:8–73. | Efter inventering; kan utvecklas host-side före P4 bring-up. **Godkänt:** 320×480-flöde oförändrat, målprofil 480×800 utan överlapp; långa SV/EN-namn/beskrivningar/fel, full spelarlista, fortsätt/nytt/avbryt samt menyavslut nåbara. Canvas (0,0)/320², kontrollpanel/plattgeometri, kamerafunktioner och eventtyper lämnas exakt som förr. |
 | 3 / **P1, B2 villkorad** | Äventyrs input-/hitboxkoppling vid **beslutad** flytt/storleksändring av spelvyn. **Hög.** A:52–65,740–922,2100–2267,2477–2657 och joystickheadern ovan. | Endast efter B1 och explicit viewportbeslut; B1 kräver inte detta. **Godkänt:** en gemensam geometri för canvasorigin/ritning/touch, skärm→lokal→värld korrekt även med icke-noll origin, kamera vid kartkant och 16/32-zoom. Plattans mitt/radie/stopzon/knopp och objekt-hitbox överens, 1–4 zoner, dominant/alternate, hold/release/press-lost och 400-ms väntande tapp behåller beteende. Ingen ny kalibrering, fysisk joystick, multitouch eller känslighetsändring utan separat behov. |
 | 4 / **P1, berättelsetext** | Äventyrs samtalsbox/svarspanel, scroll/clipping. **Medel–hög.** A:1262–1539. | Efter B1, före/med B2 bara om spelviewporten berörs. **Godkänt:** längsta befintliga SD-nod och låsta svar/hints, skip/typewriter/sista svar/avslut nåbara på båda portraitstorlekar; ingen rörelse bakom, ingen fokusändring till styrplattan. Håll separat om B1 annars blir för stor. |
-| 5 / **P1, C1 efter Äventyr** | Gemensam mini-layout för **Pig → Farkle → Skepp & kapten**, inklusive board/filt/info/knappar, tärningsplatser/nest och flash. **Medel**, Farkle högre hitboxrisk. D:2656–2880,3084–3226. | Återanvänd metrics och redan migrerade väljare/dialog/overlay; dela inte in Yatzys cupfysik. **Godkänt:** 1/2/5/6 tärningar och 1/8 spelare, korrekta klickplatser efter animation, läsbara totaler/chips/hints, Banka/Spara/Kasta nåbara vid 320×480 och målprofil; oförändrade kast/poäng/regler/tidsförlopp. |
-| 6 / **P1, C2 eller liten del av C1** | Båda resultatvyerna `showResults/showMiniResults`. **Medel.** D:2594–2640,3229–3289. | Efter gemensamt mini-lager; motorkod orörd. **Godkänt:** 8 långa namn/rankningar, totaler, återspel och huvudmeny nåbara utan överlapp; ingen ny sessions-/poänglogik. |
+| 5 / **P1, C1 genomförd** | Gemensam mini-layout för **Pig → Farkle → Skepp & kapten**, inklusive board/filt/info/knappar, tärningsplatser/nest och flash. **Medel**, Farkle högre hitboxrisk. D: `miniLayout` och `showMini`. | Hostgeometri utökad för 1/2/5/6 tärningar och åtta scoreboardposter på 320×480/480×800. Motorer och Yatzys cupfysik orörda. Fysisk träffsäkerhet/läsbarhet och spel/overlay-flöden ska fortfarande göras manuellt. |
+| 6 / **P1, C2 genomförd** | Båda resultatvyerna `showResults/showMiniResults` delar `resultLayout`. Ranking, poäng, återspel och menysemantik oförändrade. | Hostgeometri täcker åtta resultatrader och bottenknappar på 320×480/480×800; scrolling finns när kortet inte rymmer innehållet. Fysisk namn-/poängläsbarhet och knappåtkomst återstår. |
 | 7 / **P2, hjälpvyer** | Inställningar, Wi-Fi, klocksetter, boot, OTA och temaankare enligt tabellen ovan. **Låg–medel.** | Kan skjutas upp om navigationen är säker i första testet. Uppgradera till P0 för det faktiska testflödet om t.ex. nätval/retur blir oåtkomligt. **Godkänt:** kropp/footer anpassas med befintliga helpers, långa texter/scroll och touch utan regress; inga globala temabyte som oförutsett påverkar alla spel. |
 | 8 / **P2, separat Karaoke-steg** | Karaoke-layout/minnesmätning, eventuell cache-/bufferlivscykel och senare syntharbete. **Hög resursrisk.** K, karaoke-/LVGL-/synthfilerna ovan. | Efter Äventyr och de tre tärningsspelen, enligt befintlig Karaokeplan. **Godkänt:** dokumenterad före/efter-mätning på befintlig S3 och senare P4, korrekt rotation/retur och fortsatt S3-funktion. OOM vid rotation/återgång som påverkar övriga spel lyfts till gemensam P0; full Karaoke-migrering är inte en förutsättning för första speltestet. |
 
