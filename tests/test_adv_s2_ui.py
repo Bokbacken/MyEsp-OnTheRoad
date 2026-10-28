@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-WORK = pathlib.Path(tempfile.mkdtemp(prefix="adv-s2-ui-", dir=sys.argv[1] if len(sys.argv) > 1 else None))
+WORK = pathlib.Path(tempfile.mkdtemp(prefix="adv-s2-ui-", dir=sys.argv[1] if len(sys.argv) > 1 else ROOT))
 atexit.register(shutil.rmtree, WORK)
 source = (ROOT / "main/ui_adventure.cpp").read_text()
 
@@ -138,7 +138,7 @@ static lv_obj_t *s_keyBox=labelObjects+22;
 static lv_obj_t *s_keyIcons[6]={labelObjects+23,labelObjects+24,labelObjects+25,
                               labelObjects+26,labelObjects+27,labelObjects+28};
 static lv_obj_t *s_item[H_COUNT]={labelObjects+6,labelObjects+7,labelObjects+8,labelObjects+9,
-                                labelObjects+10,labelObjects+11,labelObjects+12};
+                                labelObjects+10,labelObjects+11,labelObjects+12,labelObjects+29};
 static lv_obj_t *s_flashCell=labelObjects+13, *s_pogoCell=labelObjects+14;
 static lv_obj_t *s_flashLvl=labelObjects+15, *s_pogoLvl=labelObjects+16;
 static lv_obj_t *s_itemBox;
@@ -236,6 +236,21 @@ static void actionTests() {
     doMove(Dir::DOWN); assert(world.leverOnAt(1,2));
 }
 static void movementTests() {
+    // Both held joystick and tap-planned steps may stop and turn on skated ice.
+    load(); rows[1][2]=char(Otr::SKATES_GLYPH);
+    rows[1][3]=rows[1][4]=char(Otr::ICE_GLYPH); reload();
+    doMove(Dir::RIGHT); menuPause();
+    assert(world.hasSkates() && !s_item[H_SKATES]->hidden);
+    s_joy.press(clockMs,70,0);
+    doMove(Dir::RIGHT); menuPause();
+    assert(world.playerX()==3 && world.steps()==2);
+    doMove(Dir::DOWN); menuPause(); assert(world.playerX()==3 && world.playerY()==2);
+    Otr::Planner planner; Otr::Path path;
+    int tapX=-1,tapY=-1;
+    assert(Otr::Planner::pickTarget(world,4.5f,1.5f,tapX,tapY) && tapX==4 && tapY==1);
+    assert(planner.plan(world,4,1,Otr::WalkMode::ASSIST,path)==Otr::PlanResult::OK);
+    for (int i=0;i<path.len;++i) { doMove(Dir(path.dirs[i])); menuPause(); }
+    assert(world.playerX()==4 && world.playerY()==1);
     load(4);
     rows[1][2]=char(Otr::BELT_UP_GLYPH+1); // right, down, left: final cell diagonally from origin
     rows[1][3]=char(Otr::BELT_UP_GLYPH+2);
@@ -378,12 +393,16 @@ static void inventoryConstructionTests() {
         assert(s_keyBox->parent==panel && s_keyBox->w==56 && s_keyBox->h==36);
         assert(s_keyBox->hidden && !s_keyBox->clickable && !s_keyBox->scrollable);
         assert(s_keyBox->children.size()==6);
-        load(); world.setBoat(true); world.setFlashlight(3); world.setPogo(3);
+        load(); world.setBoat(true); world.setFlashlight(3); world.setPogo(3); world.setSkates(true);
         for (auto owned : {std::vector<int>{}, {4}, {0,2,5}, {0,1,2,3,4,5}}) {
             for (int i=0;i<6;++i) world.setKeys(Otr::KeyColor(i),0);
             for (int i : owned) world.setKeys(Otr::KeyColor(i),42);
             updateStats(); inventoryLayout(panel);
             const auto grid=bounds(s_keyBox), items=bounds(s_itemBox);
+            const auto skates=bounds(s_item[H_SKATES]);
+            assert(!s_item[H_SKATES]->hidden && contains(bounds(panel),skates));
+            assert(separate(skates,grid) && separate(skates,items) && separate(skates,s_layout.joystick));
+            assert(s_item[H_SKATES]->pixels==s_spr->hud[H_SKATES]);
             assert(s_keyBox->hidden==owned.empty());
             assert(contains(bounds(panel),grid) && contains(bounds(panel),items));
             assert(grid.x>=rightX && grid.x+grid.w==size.x-px(4));
@@ -432,6 +451,9 @@ static void inventoryTests() {
     }
     assert(images.size()==6 && badges.size()==6);
     load(); updateStats();
+    assert(s_item[H_SKATES]->hidden);
+    world.setSkates(true); updateStats(); assert(!s_item[H_SKATES]->hidden);
+    world.setSkates(false); updateStats(); assert(s_item[H_SKATES]->hidden);
     assert(s_keyBox->hidden);
     for (auto *icon : s_keyIcons) assert(icon->hidden);
     // Quantity is not rendered: one owned key and 42 owned keys have identical indicators.
@@ -537,7 +559,8 @@ static void rendererTests() {
         std::vector<uint16_t> fb(count+2,0xbeef); s_fb=fb.data()+1;
         auto draw=[&] {
             std::fill(s_fb,s_fb+count,0xbeef);
-            render(clockMs,0,0,world.playerX()*ts,world.playerY()*ts,0);
+            int playerX,playerY; playerPixel(clockMs,playerX,playerY);
+            render(clockMs,0,0,playerX,playerY,0);
             assert(fb.front()==0xbeef && fb.back()==0xbeef);
             for (int y=0;y<s_layout.view.h;++y)
                 for (size_t x=size.x;x<s_fbStride;++x) assert(s_fb[y*s_fbStride+x]==0xbeef);
@@ -578,6 +601,55 @@ static void rendererTests() {
         auto off=cell(3,3);
         world.move(Dir::DOWN); world.move(Dir::DOWN); world.move(Dir::RIGHT);
         world.activate(); draw(); assert(off!=cell(3,3));
+        load();
+        rows[3][2]=char(Otr::POISON_GLYPH); rows[3][3]=char(Otr::SWAMP_GLYPH);
+        rows[3][4]=char(Otr::SHARP_ROCKS_GLYPH); rows[3][5]=char(Otr::SKATES_GLYPH);
+        for (int c=0;c<6;++c) {
+            rows[5][2+c]=char(Otr::BOX_GLYPH+c);
+            rows[7][2+c]=char(Otr::COLORED_PLATE_GLYPH+c);
+        }
+        reload(); draw();
+        assert(terrainSprite(2,3,0)==S_POISON && terrainSprite(3,3,0)==S_SWAMP &&
+               terrainSprite(4,3,0)==S_SHARP && objSprite(Obj::SKATES)==S_SKATES);
+        std::set<std::vector<uint8_t>> shapes;
+        for (int x=2;x<5;++x) {
+            std::vector<uint8_t> shape;
+            for (auto p : cell(x,3)) {
+                const int brightness=((p>>11)*255/31+((p>>5)&63)*255/63+(p&31)*255/31)/3;
+                shape.push_back(brightness>140);
+            }
+            assert(std::count(shape.begin(),shape.end(),1)>0);
+            shapes.insert(shape);
+        }
+        assert(shapes.size()==3); // Skull, reeds and spikes survive monochrome at both zooms.
+        assert(cell(5,3)!=cell(6,3));
+        std::set<std::vector<uint16_t>> boxes,plates,boxBadges;
+        for (int c=0;c<6;++c) {
+            assert(objSprite(Obj(int(Obj::BOX_RED)+c))==S_BOX);
+            assert(keyColorId(Obj(int(Obj::BOX_RED)+c))==c);
+            auto box=cell(2+c,5), plate=cell(2+c,7);
+            boxes.insert(box); plates.insert(plate); assert(box!=plate);
+            std::vector<uint16_t> badge;
+            const int scale=ts/16;
+            for (int y=0;y<7*scale;++y) for (int x=11*scale;x<ts;++x) {
+                assert(box[y*ts+x]==plate[y*ts+x]); badge.push_back(box[y*ts+x]);
+            }
+            boxBadges.insert(badge);
+        }
+        assert(boxes.size()==6 && plates.size()==6 && boxBadges==badges);
+        for (int c=0;c<6;++c) {
+            load(); rows[1][2]=char(Otr::BOX_GLYPH+c); reload(); draw();
+            const auto before=cell(2,1);
+            const auto ev=doMove(Dir::RIGHT);
+            assert((ev&Otr::EV_PUSHED) && s_rockAnim && s_moveTrace.count==1);
+            const auto duration=s_moveMs;
+            // Box starts at its old cell, not prematurely at its engine destination.
+            draw(); assert(cell(2,1)==before);
+            const auto empty=cell(3,1);
+            clockMs+=duration/2; draw(); const auto middle=cell(3,1); assert(middle!=empty);
+            clockMs+=duration-duration/2; finishMovement(clockMs); draw();
+            assert(!s_rockAnim && cell(3,1)!=middle && world.obj(3,1)==Obj(int(Obj::BOX_RED)+c));
+        }
         // Exercise the real framebuffer overlay at all clipping boundaries, with stride guards.
         for(int sx : {-ts,-ts+1,size.x-1,size.x})
             for(int sy : {-ts,-ts+1,s_layout.view.h-1,s_layout.view.h}) {
@@ -594,7 +666,7 @@ int main() {
         actionTests(); movementTests(); inventoryTests(); timerTests();
     }
     rendererTests();
-    puts("S2 production UI: renderer (3 sizes/2 zooms), action, forced movement, optional HUD, control-panel key grid/ability badges (3 sizes/2 languages), muted SFX OK");
+    puts("S2/v0.21 production UI: hazard shapes, skates pickup/HUD/ice controls, six box/plate badges and push animations, renderer (3 sizes/2 zooms), inventory (2 languages), actions/HUD/SFX OK");
 }
 '''
 replacements = {

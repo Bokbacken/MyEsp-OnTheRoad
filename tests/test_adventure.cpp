@@ -691,7 +691,7 @@ static void testLegacyGroupZeroSave()
     static const char *const rows[] = {"So="};
     const MapDef def = {77, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0};
     CHECK_EQ(World::SAVE_MAGIC, 0x5352544F);
-    CHECK_EQ(World::SAVE_VERSION, 4);
+    CHECK_EQ(World::SAVE_VERSION, 5);
     CHECK(W.load(def));
     CHECK(W.restore(legacy, sizeof(legacy)));
     CHECK(W.gatesOpen());
@@ -914,7 +914,7 @@ static void testSaveLoad()
     CHECK(W.load(WORLDS[1]));
     CHECK_EQ(W.mapId(), WORLD_MINES);
     const size_t n = W.saveSize();
-    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 6 + 8 + 2 * PLATE_GROUPS + 4);
+    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 6 + 8 + 2 * PLATE_GROUPS + 1 + 4);
     CHECK_EQ((long)W.save(SAVEBUF, n - 1), 0);
     // Play a little: flag, walk, step on a mine
     int fx = -1, fy = -1;
