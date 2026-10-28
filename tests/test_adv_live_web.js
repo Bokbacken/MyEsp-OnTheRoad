@@ -27,7 +27,9 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 const html = fs.readFileSync('main/web/adventure.html', 'utf8');
-vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], sandbox);
+const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i);
+assert(script, 'adventure page contains a script');
+vm.runInContext(script[1], sandbox);
 const run = source => vm.runInContext(source, sandbox);
 run(`map = {w: 4, h: 2, terrain: ['a~?#', 'aaaa'], obj: ['....', '.f..'], hint: [], fog: false};`);
 run(`for (let code = 97; code <= 127; ++code) {
