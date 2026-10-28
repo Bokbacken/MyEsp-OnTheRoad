@@ -98,9 +98,9 @@ def package(build, output, root=ROOT):
     flasher = json.loads(nonempty(build / "flasher_args.json"))
     files = flasher["flash_files"]
     require(isinstance(files, dict) and len(files) >= 3, "Incomplete flash metadata")
-    require({"MyEsp_OnTheRoad.bin", "bootloader/bootloader.bin",
+    require({"MyEsp_OnTheRoad.bin", "bootloader/bootloader.bin", "ota_data_initial.bin",
              "partition_table/partition-table.bin"}.issubset(files.values()),
-            "Flash metadata lacks app, bootloader or partition table")
+            "Flash metadata lacks app, bootloader, partition table or initial OTA data")
     merged = nonempty(build / "merged.bin")
     for offset, name in files.items():
         data = nonempty(flash_file(build, name))
@@ -203,7 +203,8 @@ def publish(directory, root=ROOT):
         notes_path = Path(tmp) / "notes.txt"
         notes_path.write_text(notes)
         subprocess.run(["gh", "release", "create", tag, "--repo", repo, "--verify-tag",
-                        "--draft", "--title", f"{tag} — {BOARD}", "--notes-file", str(notes_path)],
+                        "--target", sha, "--draft", "--title", f"{tag} — {BOARD}",
+                        "--notes-file", str(notes_path)],
                        check=True)
     subprocess.run(["gh", "release", "upload", tag, "--repo", repo,
                     *map(str, assets)], check=True)

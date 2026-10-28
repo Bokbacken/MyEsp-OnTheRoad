@@ -148,6 +148,13 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "smallest"):
             self.package()
 
+    def test_flash_metadata_requires_initial_ota_data(self):
+        data = json.loads((self.build / "flasher_args.json").read_text())
+        del data["flash_files"]["0xe000"]
+        self.write("build/flasher_args.json", json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "initial OTA data"):
+            self.package()
+
     def test_missing_ota_slot(self):
         with self.assertRaisesRegex(ValueError, "both OTA"):
             release.ota_slots("factory,app,factory,0x10000,5M\n")
@@ -213,6 +220,7 @@ class ReleaseTests(unittest.TestCase):
         create, upload = [call.args[0] for call in run.call_args_list]
         self.assertIn("--draft", create)
         self.assertIn("--verify-tag", create)
+        self.assertEqual(create[create.index("--target") + 1], SHA)
         self.assertNotIn("--clobber", upload)
 
     def test_existing_same_sha_tag_is_reused_including_annotated(self):
