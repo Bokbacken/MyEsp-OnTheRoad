@@ -245,7 +245,7 @@ bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *
         encoded = (uint8_t)(Otr::BELT_UP_GLYPH + d);
     } else if (sameWord(kind, "skates") || sameWord(kind, "suction") || sameWord(kind, "poison") ||
                sameWord(kind, "swamp") || sameWord(kind, "sharp_rocks")) {
-        if (arg) { setErr(err, errCap, lineNo, "terrain/skates takes no argument"); return false; }
+        if (arg) { setErr(err, errCap, lineNo, "terrain/equipment takes no argument"); return false; }
         encoded = sameWord(kind, "suction") ? Otr::SUCTION_GLYPH :
                   sameWord(kind, "skates") ? Otr::SKATES_GLYPH :
                   sameWord(kind, "poison") ? Otr::POISON_GLYPH :
@@ -369,6 +369,88 @@ bool parseEnemy(char *line, Otr::EnemyDef &enemy, int lineNo, char *err, size_t 
         if (enemy.routeCount == Otr::MAX_ROUTE) return bad("too many enemy route points");
         if (!parseCoordinate(tokens[i], x, y)) return bad("invalid enemy route coordinate");
         enemy.route[enemy.routeCount++] = {(uint8_t)x, (uint8_t)y};
+    }
+    return true;
+}
+
+// Mirrors the engine's initial enemy terrain: gates start closed and hazards/mines block.
+bool enemyWalkable(uint8_t glyph)
+{
+    if ((glyph >= Otr::GROUPED_PLATE_GLYPH && glyph < Otr::GROUPED_GATE_GLYPH) ||
+        (glyph >= Otr::ICE_GLYPH && glyph < Otr::COLORED_DOOR_GLYPH) ||
+        (glyph >= Otr::COLORED_PLATE_GLYPH && glyph < Otr::COLORED_PLATE_GLYPH + 6) ||
+        glyph == Otr::SKATES_GLYPH || glyph == Otr::SUCTION_GLYPH) return true;
+    switch (glyph) {
+    case '.': case 'S': case ',': case '_': case 'o': case 'Q': case 'X':
+    case 'k': case 'K': case 'B': case '*': case '+': case '$': case 'p':
+    case 'h': case 'u': case 'l': case 'a': case 'z': case 'f': case 'j':
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool enemyRouteTerrain(uint8_t glyph)
+{
+    if (enemyWalkable(glyph) || (glyph >= '1' && glyph <= '9') ||
+        (glyph >= Otr::BOX_GLYPH && glyph < Otr::BOX_GLYPH + 6) ||
+        (glyph >= Otr::COLORED_DOOR_GLYPH && glyph < Otr::COLORED_DOOR_GLYPH + 6) ||
+        (glyph >= Otr::GROUPED_GATE_GLYPH && glyph < Otr::GROUPED_LEVER_GLYPH)) return true;
+    switch (glyph) {
+    case 'R': case 'r': case 'c': case 'C': case 'D': case 'b': case '=':
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool validateEnemies(const Loaded &out, const int *lines, char *err, size_t errCap)
+{
+    const int width = (int)strlen(out.rows[0]);
+    auto inside = [&](int x, int y) { return x < width && y < out.rowCount; };
+    for (int i = 0; i < out.enemyCount; ++i) {
+        const Otr::EnemyDef &e = out.enemies[i];
+        auto bad = [&](const char *message) { setErr(err, errCap, lines[i], message); return false; };
+        if (!inside(e.x, e.y)) return bad("enemy start coordinates outside map");
+        if (out.rows[e.y][e.x] == 'S') return bad("enemy start overlaps player");
+        if (!enemyWalkable((uint8_t)out.rows[e.y][e.x]))
+            return bad("enemy start is not walkable (or overlaps NPC)");
+        for (int j = 0; j < i; ++j)
+            if (e.x == out.enemies[j].x && e.y == out.enemies[j].y)
+                return bad("enemy starts overlap");
+        if (e.bounded && (e.x0 > e.x1 || e.y0 > e.y1 ||
+                         !inside(e.x0, e.y0) || !inside(e.x1, e.y1)))
+            return bad("invalid enemy area bounds");
+        auto inArea = [&](int x, int y) {
+            return !e.bounded || (x >= e.x0 && x <= e.x1 && y >= e.y0 && y <= e.y1);
+        };
+        if (!inArea(e.x, e.y)) return bad("enemy start outside area");
+        for (int j = 0; j < e.routeCount; ++j) {
+            const Otr::EnemyPoint &p = e.route[j];
+            if (!inside(p.x, p.y)) return bad("enemy route coordinates outside map");
+            if (!inArea(p.x, p.y)) return bad("enemy route outside area");
+            if (!enemyRouteTerrain((uint8_t)out.rows[p.y][p.x]))
+                return bad("enemy route is not walkable");
+        }
+        auto segment = [&](int x, int y, int tx, int ty) {
+            if (x != tx && y != ty) return bad("patrol route segments must be axis-aligned");
+            const int dx = (tx > x) - (tx < x), dy = (ty > y) - (ty < y);
+            while (x != tx || y != ty) {
+                x += dx;
+                y += dy;
+                if (!enemyRouteTerrain((uint8_t)out.rows[y][x]))
+                    return bad("patrol route crosses impassable terrain");
+            }
+            return true;
+        };
+        if (e.routeCount) {
+            if (!segment(e.x, e.y, e.route[0].x, e.route[0].y)) return false;
+            for (int j = 1; j < e.routeCount; ++j)
+                if (!segment(e.route[j - 1].x, e.route[j - 1].y, e.route[j].x, e.route[j].y))
+                    return false;
+            if (!e.pingPong && !segment(e.route[e.routeCount - 1].x, e.route[e.routeCount - 1].y,
+                                       e.route[0].x, e.route[0].y)) return false;
+        }
     }
     return true;
 }
@@ -737,7 +819,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 if (nt < 3 || nt > 4) { setErr(err, errCap, lineNo, "treasure needs 'x y item [amount]'"); return false; }
                 uint8_t x, y, amount = 1;
                 if (!byteNumber(tok[0], x) || !byteNumber(tok[1], y) ||
-                    (nt == 4 && (!byteNumber(tok[3], amount) || !amount))) {
+                    (nt == 4 && !byteNumber(tok[3], amount))) {
                     setErr(err, errCap, lineNo, "invalid treasure coordinates/amount"); return false;
                 }
                 const Otr::Obj item = objFromName(tok[2]);
@@ -995,6 +1077,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
         }
         out.rowPtrs[i] = out.rows[i];
     }
+    if (!validateEnemies(out, enemyLines, err, errCap)) return false;
     out.map.id = (uint8_t)out.mapId;
     out.map.rows = out.rowPtrs;
     out.map.h = out.rowCount;

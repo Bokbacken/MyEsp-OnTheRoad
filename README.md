@@ -389,6 +389,32 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 
 ### Tests (host)
 
+Adventure v0.21.1 checks (run from the repository root; no ESP-IDF required):
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adv_s4_engine.cpp components/otr_engine/otr_world.cpp -o /tmp/test_adv_s4_engine && /tmp/test_adv_s4_engine
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_s4_loader.cpp main/adv_loader.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_s4_loader && /tmp/test_adv_s4_loader
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_s4_demo.cpp main/adv_loader.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_s4_demo && /tmp/test_s4_demo
+python3 tests/test_adv_s2_ui.py /tmp
+node tests/test_adv_live_web.js
+g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o /tmp/test_advlive && /tmp/test_advlive
+g++ -std=c++17 -Wall -Wextra -Imain -Itools -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_catalog.cpp main/adv_catalog.cpp main/adv_sd_session.cpp main/adv_loader.cpp tools/adv_parse.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_catalog && /tmp/test_adv_catalog
+python3 tools/embed_web.py --check
+```
+
+The demo test reads the delivered `.adv` through the production loader and
+executes the README sequence; it also checks the SD-bundle copy. See
+[the demo checklist](docs/adventures/s4_demo/README.md) for physical checks.
+
+Verification for this change: S4 engine **658**, S4 loader **373**, legacy
+engine **1,826**, legacy loader **1,259**, catalog **226**, S3 **325**, live JSON **116** checks
+passed. Engine/loader/UI extraction also passed ASan/UBSan. S2 and S3 external
+demo regressions passed; the S4 solution finishes both delivered copies in
+**179 inputs / 175 steps**, with **58/64 energy** and no lives lost.
+The web canvas was checked in a browser at desktop/mobile sizes, and the
+production LVGL layout passed three screen sizes. Firmware is not
+locally build-tested here (no ESP-IDF); physical device verification remains open.
+
 Adventure v0.21.0 checks (run from the repository root; binaries stay in `/tmp`):
 
 ```sh

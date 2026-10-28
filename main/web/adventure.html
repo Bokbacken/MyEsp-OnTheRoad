@@ -180,11 +180,22 @@ function terrain(c, ch, x, y) {
     case 'o': grass(c, x, y); circ(c, 12, 12, 10, '#f4c542'); circ(c, 12, 12, 7, '#fff3b0'); poly(c, [12, 5, 14, 10, 19, 12, 14, 14, 12, 19, 10, 14, 5, 12, 10, 10], '#e08a00'); break;
     case 'p': grass(c, x, y); circ(c, 12, 12, 9, '#2d2a26'); circ(c, 12, 12, 6, '#1a1815'); break;
     case '?': rect(c, 0, 0, S, S, '#1b2534'); lineC(c, 0, S - .5, S, S - .5, '#253246'); lineC(c, S - .5, 0, S - .5, S, '#253246'); break;
+    case '#': rect(c, 0, 0, S, S, '#06060c'); break;   // Outside the complete terrain encoding a..DEL
+    case 'z': case '{': case '|': case '}': case '~': case '\x7f': {
+      const id = ch.charCodeAt(0) - 122;
+      const col = ['#e53935', '#43a047', '#2196f3', '#fdd835', '#ab47bc', '#00bcd4'][id];
+      grass(c, x, y); rect(c, 3, 3, 18, 18, col); rect(c, 6, 6, 12, 12, '#30343e');
+      c.fillStyle = '#fff'; c.font = 'bold 12px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(id + 1, 12, 12); break;
+    }
     default: rect(c, 0, 0, S, S, '#000');
   }
 }
 function object(c, ch) {
   switch (ch) {
+    case 'f':   // Obj::SUCTION (appended after the six coloured boxes)
+      rect(c, 9, 3, 6, 10, '#37cdd7'); rect(c, 6, 11, 12, 3, '#d7f5fa');
+      circ(c, 12, 17, 6, '#2da0b9'); circ(c, 12, 17, 3, '#142d41'); break;
     case 'B': circ(c, 12, 13, 9, '#8d8f96'); circ(c, 9, 10, 4, '#b5b7bd'); break;                                   // rock
     case 'C': rect(c, 3, 3, 18, 18, '#a8743d'); c.strokeStyle = '#6b4423'; c.lineWidth = 2; c.strokeRect(4, 4, 16, 16); lineC(c, 4, 4, 20, 20, '#6b4423', 2); lineC(c, 20, 4, 4, 20, '#6b4423', 2); break;
     case 'D': circ(c, 8, 12, 4.5, '#f4c542'); circ(c, 8, 12, 2, '#3d8b3a'); rect(c, 12, 11, 9, 3, '#f4c542'); rect(c, 17, 14, 2, 3, '#f4c542'); rect(c, 20, 14, 1.5, 3, '#f4c542'); break;
@@ -261,6 +272,27 @@ function drawPlayer(c, px, py, dir, sailing) {
   circ(c, px + 12, py + 12, 2.2, '#fff');
 }
 
+function visibleCell(x, y) {
+  const t = map && map.terrain[y] && map.terrain[y][x];
+  return !!t && t !== '?' && t !== '#';
+}
+function drawEnemy(c, e) {
+  if (!visibleCell(e.x, e.y)) return;
+  const x = e.x * CELL, y = e.y * CELL, chase = e.kind === 'chaser';
+  const col = chase ? '#eb414b' : '#a564eb';
+  circ(c, x + 12, y + 13, 8, col);
+  if (chase) {
+    poly(c, [x + 4, y + 8, x + 6, y + 1, x + 10, y + 7], col);
+    poly(c, [x + 14, y + 7, x + 18, y + 1, x + 20, y + 8], col);
+  } else {
+    rect(c, x + 6, y + 3, 12, 3, '#e6cdff');
+    rect(c, x + 5, y + 19, 4, 4, col); rect(c, x + 15, y + 19, 4, 4, col);
+  }
+  rect(c, x + 6, y + 9, 5, 4, '#fff'); rect(c, x + 14, y + 9, 5, 4, '#fff');
+  rect(c, x + 8, y + 10, 2, 3, '#14141e'); rect(c, x + 15, y + 10, 2, 3, '#14141e');
+  lineC(c, x + 9, y + 17, x + 15, y + 17, '#14141e', 2);
+}
+
 // Renders the full world into the world canvas (1 cell = CELL px), then scales / crops to the screen.
 const world = document.createElement('canvas'), wctx = world.getContext('2d');
 function draw() {
@@ -271,7 +303,8 @@ function draw() {
   if (world.width !== layer.width || world.height !== layer.height) { world.width = layer.width; world.height = layer.height; }
   wctx.drawImage(layer, 0, 0);
   drawDynamicCells(wctx);
-  for (const n of st.npcs) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
+  for (const n of st.npcs) if (visibleCell(n.x, n.y)) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
+  for (const e of st.enemies || []) drawEnemy(wctx, e);
   drawPlayer(wctx, ax * CELL, ay * CELL, st.player.dir, st.player.sailing);
   const [bs,bx,by]=st.bomb_preview||[0,-1,-1];
   if(bs && bx>=0 && by>=0) {
@@ -329,6 +362,10 @@ function renderHud(s) {
   $('hud').innerHTML = h;
   let it = '';
   if (s.boat) it += chip('⛵', '', 'Båt');
+  if (s.suction) it += chip('⊙', '', s.lang === 1 ? 'Suction · Pull on device' : 'Sugkopp · Dra på enheten');
+  if (s.skates) it += chip('⛸', '', s.lang === 1 ? 'Skates' : 'Skridskor');
+  if (s.flashlight) it += chip('🔦', s.flashlight, s.lang === 1 ? 'Flashlight' : 'Ficklampa');
+  if (s.pogo) it += chip('↟', s.pogo, s.lang === 1 ? 'Pogo' : 'Hoppstav');
   if (s.suit > 0) it += chip('🦺', s.suit, 'dräktladdningar');
   for (const i of s.items) it += chip('🎒', esc(i.name), i.count > 1 ? '× ' + i.count : '');
   $('items').innerHTML = it ? '<span class="muted" style="align-self:center">Föremål:</span>' + it : '<span class="muted">Föremål: inga</span>';

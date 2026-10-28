@@ -96,7 +96,8 @@ struct Loaded {
     Otr::Treasure treasures[MAX_TREASURES];
     int treasureCount;
 
-    // @enemies: explicit bounded patrol/chaser definitions, never map glyphs.
+    // @enemies: patrol X Y loop|pingpong [area X0 Y0 X1 Y1] route X,Y ...
+    //           chaser X Y [area X0 Y0 X1 Y1]
     Otr::EnemyDef enemies[Otr::MAX_ENEMIES];
     int enemyCount;
 

@@ -219,6 +219,85 @@ void testFog()
     delete w;
 }
 
+void testSuctionEnemiesDarkness()
+{
+    using namespace Otr;
+    const char *rows[] = {"########", "#S.....#", "#......#", "#......#", "########"};
+    EnemyDef foes[] = {{EnemyKind::PATROL, 4, 2}, {EnemyKind::CHASER, 5, 2}};
+    foes[0].routeCount = 1; foes[0].route[0] = {4, 2};
+    const DarkRect dark{4, 2, 5, 2};
+    MapDef def{91, rows, 5, CLASSIC_RULES, nullptr, 0, &dark, 1};
+    def.enemies = foes; def.enemyCount = 2;
+    World w;
+    CHECK(w.load(def));
+    w.setSuction(true);
+    Source src = source(w, "Pull", nullptr, nullptr, nullptr);
+    auto *snap = new Snapshot{};
+    fillMap(*snap, src); fillState(*snap, src);
+    CHECK(snap->suction && snap->enemyCount == 0);
+    CHECK(snap->terrain[2][4] == '#' && snap->obj[2][4] == '.');
+    publish(src);
+    CHECK(writeJson(0, g_buf, sizeof(g_buf)) > 0 && has("\"suction\":true") && has("\"enemies\":[]"));
+    const uint32_t mr = jsonUint("map_rev");
+    // Lighting changes without a world edit must invalidate the cached darkness map.
+    w.setFlashlight(3);
+    publish(src);
+    CHECK(writeJson(mr, g_buf, sizeof(g_buf)) > 0 && has("\"map\":"));
+    CHECK(jsonUint("map_rev") > mr);
+    const uint32_t litRev = jsonUint("map_rev");
+    publish(src);
+    CHECK(writeJson(litRev, g_buf, sizeof(g_buf)) > 0 && !has("\"map\":"));
+    w.move(Dir::RIGHT);
+    publish(src);
+    CHECK(writeJson(0, g_buf, sizeof(g_buf)) > 0);
+    const uint32_t facingRev = jsonUint("map_rev");
+    const uint32_t worldRev = w.revision();
+    w.move(Dir::UP);   // Wall: only the flashlight direction changes.
+    CHECK(w.revision() == worldRev);
+    publish(src);
+    CHECK(writeJson(facingRev, g_buf, sizeof(g_buf)) > 0 && has("\"map\":"));
+    CHECK(jsonUint("map_rev") > facingRev);
+    // Actor kinds are dynamic state, not object glyphs.
+    def.darks = nullptr; def.darkCount = 0;
+    CHECK(w.load(def));
+    invalidateMap(); publish(src);
+    CHECK(writeJson(0, g_buf, sizeof(g_buf)) > 0);
+    CHECK(has("\"enemies\":[{\"x\":4,\"y\":2,\"kind\":\"patrol\"},{\"x\":5,\"y\":2,\"kind\":\"chaser\"}]"));
+    CHECK(wellFormed(g_buf));
+    w.move(Dir::RIGHT);
+    fillState(*snap, src);
+    CHECK(snap->enemyCount == 2 && snap->enemies[1].chaser);
+    CHECK(snap->enemies[1].x != 5 || snap->enemies[1].y != 2);
+    const char *fogRows[] = {"########", "#Sm....#", "#......#", "#......#", "########"};
+    def.rows = fogRows; def.rules.fog = true;
+    CHECK(w.load(def));
+    fillState(*snap, src);
+    CHECK(snap->enemyCount == 0);
+    const char pickup[] = {'S', char(SUCTION_GLYPH), char(COLORED_DOOR_GLYPH + 3), 0};
+    const char *pickupRows[] = {pickup};
+    CHECK(w.load(pickupRows, 1));
+    fillMap(*snap, src);
+    CHECK(snap->obj[0][1] == 'A' + int(Obj::SUCTION));
+    snap->active = true; snap->mapRev = 1;
+    CHECK(toJson(*snap, 0, g_buf, sizeof(g_buf)) > 0 && wellFormed(g_buf));
+    CHECK(has("\\\\"));   // Coloured-door glyph backslash must be escaped in JSON.
+    const char plate[] = {'S', char(COLORED_PLATE_GLYPH + 4), '.', 0};
+    const char *plateRows[] = {plate};
+    EnemyDef plateFoes[] = {{EnemyKind::PATROL, 1, 0}, {EnemyKind::CHASER, 2, 0}};
+    plateFoes[0].routeCount = 1; plateFoes[0].route[0] = {1, 0};
+    const DarkRect plateDark{2, 0, 2, 0};
+    MapDef plateDef{92, plateRows, 1, CLASSIC_RULES, nullptr, 0, &plateDark, 1};
+    plateDef.enemies = plateFoes; plateDef.enemyCount = 2;
+    CHECK(w.load(plateDef));
+    fillMap(*snap, src); fillState(*snap, src);
+    CHECK(snap->terrain[0][1] == '~' && snap->terrain[0][2] == '#');
+    CHECK(snap->enemyCount == 1 && snap->enemies[0].x == 1 && !snap->enemies[0].chaser);
+    CHECK(toJson(*snap, 0, g_buf, sizeof(g_buf)) > 0 && has("\"a~#\""));
+    CHECK(has("\"enemies\":[{\"x\":1,\"y\":0,\"kind\":\"patrol\"}]"));
+    delete snap;
+    setInactive();
+}
+
 void testGroupedGates()
 {
     using namespace Otr;
@@ -289,6 +368,7 @@ int main()
     testInactive();
     testVillage();
     testFog();
+    testSuctionEnemiesDarkness();
     testGroupedGates();
     testWorstCase();
     CHECK_DONE();

@@ -1,6 +1,21 @@
 # MyEsp-OnTheRoad – Roadmap
 
-Status per 2026-10-27. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat, ➡️ = flyttat till annat repo.
+Status per 2026-10-28. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat, ➡️ = flyttat till annat repo.
+
+### v0.21.1 – Sugpropp och turbaserade fiender 🔧
+- Sugpropp som kartpickup eller dold skatt; explicit **Dra** via **Byt** och
+  handlingsknappen. Sten/färglåda kan dras bakåt utan generell undo.
+- Patruller med ordnade raka segment (slinga/fram–tillbaka) och BFS-jagare;
+  valfria områden, dynamiska objektspärrar, en fiendetur efter hela spelarhandlingen.
+  Gränser: åtta fiender, sexton ruttpunkter, delad sökarbetsyta 25 600 byte.
+- Motorformat 6 sparar utrustning och fiendeposition/målindex/riktning;
+  format 1–5 får testade standardvärden. SD-containern är fortsatt version 1.
+- [Extern SD-demo med exakt lösning](docs/adventures/s4_demo/README.md),
+  produktionsloader-/motortester, UI/HUD och faktisk webblivevy.
+  [Syntax och turordning](docs/AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211).
+- Ägaren bekräftar föregående 0.21.0-block. För 0.21.1 återstår fysisk
+  ESP32-/touch-/SD-verifiering; lokalt firmwarebygge saknar ESP-IDF.
+  Ingen editor, karaokeändring, releaseworkflowändring eller tag/release-publicering.
 
 ### Projektets omfattning (beslut 2026-10-27)
 Detta repo bygger **motorn och uppspelaren** – spelmekaniken, `.adv`-laddaren på enheten, rendering, HUD, sparning och SD-läsning. **Själva äventyrsskapandet flyttas till ett separat repo:** äventyrsinnehåll (`.adv`-filer, Josef-kapitlen, MineSweeper-banor, demos), författarverktyg (host-parsern `tools/adv_parse`, sprite-export, exempelfiler) och författardokumentationen. `.adv`-formatspecifikationen är gränssnittet mellan de två repona och underhålls där motorn kräver det. Poster märkta ➡️ nedan hör till innehållsrepot.

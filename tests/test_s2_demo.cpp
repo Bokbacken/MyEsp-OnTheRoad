@@ -56,7 +56,7 @@ static Otr::Dir direction(char c)
 
 static bool checkSave(const Otr::World &world, const Otr::MapDef &map)
 {
-    CHECK(Otr::World::SAVE_VERSION == 5);
+    CHECK(Otr::World::SAVE_VERSION == 6);
     std::vector<uint8_t> bytes(world.saveSize());
     CHECK(world.save(bytes.data(), bytes.size()) == bytes.size());
     Otr::World restored;
@@ -250,8 +250,8 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
     CHECK(world.exitReached() && world.playerX() == 18 && world.playerY() == 7);
     CHECK(world.steps() == 56 && world.par() == 56 && world.parMet());
     CHECK(world.gateOpenForGroup(1) && !world.gateOpenForGroup(2));
-    world.move(Otr::Dir::LEFT);
-    CHECK(world.steps() == 57 && !world.parMet());
+    CHECK(world.move(Otr::Dir::LEFT) == Otr::EV_NONE);
+    CHECK(world.steps() == 56 && world.parMet());
     return true;
 }
 

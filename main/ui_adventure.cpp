@@ -73,6 +73,7 @@ enum Spr : uint8_t {
     S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
     S_FLASH, S_POGO, S_DARK,                  // v0.18.0: flashlight / pogo pickups + unlit dark cell
     S_POISON, S_SWAMP, S_SHARP, S_SKATES, S_BOX, S_COLOR_PLATE,
+    S_SUCTION, S_PATROL, S_CHASER,
     S_NPC0,                                   // v0.11.0: people, NPC_LOOKS looks x 4 directions (Dir order)
     S_NPC_LAST = S_NPC0 + 3 * 4 - 1,
     S_COUNT
@@ -85,11 +86,11 @@ enum HudIcon : uint8_t {
     H_LIFE, H_SUIT, H_KEY, H_GEM,   // Left column: counters
     H_BOAT,                         // Right column: carried items (on/off)
     H_FLASH, H_POGO,                // v0.18.0 permanent abilities, shown as image + level digit
-    H_SKATES,
+    H_SKATES, H_SUCTION,
     H_COUNT
 };
 // Lives use the extra-life heart (green, +) so the counter matches the pickup that raises it.
-static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT, S_FLASH, S_POGO, S_SKATES};
+static constexpr uint8_t HUD_SPRITE[H_COUNT] = {S_LIFE, S_SUIT, S_KEY, S_GEM, S_BOAT, S_FLASH, S_POGO, S_SKATES, S_SUCTION};
 
 static constexpr int NPC_LOOKS = 3;           // Npc::look 0..2 (baker, shepherd, old man)
 static constexpr int PORTRAIT_PX = 48;        // Dialogue portrait: head + shoulders of the sprite, 2x
@@ -749,6 +750,30 @@ static void makeArt(Sprites *sp)
         line(b[S_POGO], 18, yy + 1, 13, yy + 2, rgb(190, 190, 200), 2);
     }
     rect(b[S_POGO], 14, 30, 17, 31, rgb(40, 40, 50));    // tip
+    fillKey(b[S_SUCTION]);
+    rect(b[S_SUCTION], 12, 4, 19, 17, rgb(55, 205, 215));
+    rect(b[S_SUCTION], 9, 15, 22, 19, rgb(215, 245, 250));
+    disc(b[S_SUCTION], 16, 23, 8, rgb(45, 160, 185));
+    disc(b[S_SUCTION], 16, 23, 4, rgb(20, 45, 65));
+    for (int i = S_PATROL; i <= S_CHASER; ++i) {
+        fillKey(b[i]);
+        const bool chase = i == S_CHASER;
+        const uint16_t color = chase ? rgb(235, 65, 75) : rgb(165, 100, 235);
+        disc(b[i], 16, 17, 11, color);
+        if (chase) {
+            line(b[i], 6, 8, 8, 2, color, 3);
+            line(b[i], 24, 2, 26, 8, color, 3);
+        } else {
+            rect(b[i], 8, 5, 23, 8, rgb(230, 205, 255));
+            rect(b[i], 6, 25, 11, 29, color);
+            rect(b[i], 20, 25, 25, 29, color);
+        }
+        rect(b[i], 8, 12, 13, 17, rgb(255, 255, 255));
+        rect(b[i], 19, 12, 24, 17, rgb(255, 255, 255));
+        rect(b[i], 10, 14, 12, 17, rgb(20, 20, 30));
+        rect(b[i], 20, 14, 22, 17, rgb(20, 20, 30));
+        line(b[i], 12, 23, 20, 23, rgb(20, 20, 30), 2);
+    }
     // Dark cell: opaque near-black fill used for an unlit cell inside a @dark area.
     rect(b[S_DARK], 0, 0, 31, 31, rgb(6, 6, 12));
 
@@ -840,6 +865,7 @@ static int objSprite(Obj o)
     case Obj::FLASH: return S_FLASH;
     case Obj::POGO: return S_POGO;
     case Obj::SKATES: return S_SKATES;
+    case Obj::SUCTION: return S_SUCTION;
     default: return -1;
     }
 }
@@ -1045,6 +1071,12 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
         if (color >= 0) coloredObject(S_BOX, color, rx - camX, ry - camY);
         else blit(S_ROCK, rx - camX, ry - camY, true);
     }
+    for (int i = 0; i < w.enemyCount(); ++i) {
+        const auto &e = w.enemy(i);
+        if ((fog && !w.revealed(e.x, e.y)) || w.darkHidden(e.x, e.y)) continue;
+        blit(w.enemyDef(i).kind == Otr::EnemyKind::CHASER ? S_CHASER : S_PATROL,
+             e.x * ts - camX, e.y * ts - camY, true);
+    }
     if (w.sailing()) blit(S_BOAT, ppx - camX, ppy - camY + ts / 8, true);
     blit(S_PL_UP + (int)w.facing(), ppx - camX, ppy - camY - (w.sailing() ? ts / 8 : 0), true);
     if(s_bombSize && s_bombX>=0) {
@@ -1125,6 +1157,7 @@ static void updateStats()
     // Right column: carried items, shown only while owned.
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     if (s_item[H_SKATES]) lv_obj_set_hidden(s_item[H_SKATES], !w.hasSkates());
+    if (s_item[H_SUCTION]) lv_obj_set_hidden(s_item[H_SUCTION], !w.hasSuction());
     // Permanent abilities: show the item image + its level digit only while owned.
     if (s_flashCell) {
         if (w.flashlight() > 0) {
@@ -1771,8 +1804,31 @@ static void finishMovement(uint32_t now, bool snap = false)
     if (events & Otr::EV_TALK) startTalk(s_world->talkNpc());
 }
 
+static void handleActionDeath(uint32_t ev, int tx, int ty, uint32_t now)
+{
+    stopPath();
+    s_joy.cancel();
+    joyShow(false, 0, 0);
+    snapPlayer();
+    if (ev & Otr::EV_MINE) {
+        s_fxX = tx;
+        s_fxY = ty;
+        s_fxT0 = now;
+    }
+    if (s_world->livesLeft() == Otr::LIVES_INFINITE || (ev & Otr::EV_GAME_OVER)) {
+        toast(tr(Str::ADV_DIED), Theme::RED, 3000);
+    } else {
+        char buf[80];
+        snprintf(buf, sizeof(buf), tr(Str::ADV_DIED_LEFT), s_world->livesLeft());
+        toast(buf, Theme::RED, 3000);
+    }
+    Rgb::effectFlash(255, 30, 20, 900);
+    updateStats();
+    if (ev & Otr::EV_GAME_OVER) showGameOver();
+}
+
 // One step. Returns the world events (0 if the previous step is still animating).
-static uint32_t doMove(Dir d, bool vault = false)
+static uint32_t doMove(Dir d, bool vault = false, bool pull = false)
 {
     const uint32_t now = nowMs();
     if (s_bombSize || busy(now) || s_world->gameOver() || s_world->exitReached()) return 0;
@@ -1783,7 +1839,8 @@ static uint32_t doMove(Dir d, bool vault = false)
     const Tile targetTile = s_world->tile(tx, ty);
     // v0.18.3: a manual pogo jump lands beyond the obstacle(s); the rest of the handling (animation
     // glide from the take-off cell, events, toasts) is identical to a normal step.
-    const uint32_t ev = vault ? s_world->vault(&s_moveTrace) : s_world->move(d, &s_moveTrace);
+    const uint32_t ev = pull ? s_world->pull(&s_moveTrace) :
+        vault ? s_world->vault(&s_moveTrace) : s_world->move(d, &s_moveTrace);
     s_dirty = true;
     playEvents(ev);
     if (ev & (Otr::EV_DIED | Otr::EV_GAME_OVER | Otr::EV_EXIT)) {
@@ -1793,22 +1850,7 @@ static uint32_t doMove(Dir d, bool vault = false)
     }
     char buf[80];
     if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
-        snapPlayer();
-        if (ev & Otr::EV_MINE) {
-            s_fxX = tx;
-            s_fxY = ty;
-            s_fxT0 = now;
-        }
-        if (s_world->livesLeft() == Otr::LIVES_INFINITE || (ev & Otr::EV_GAME_OVER)) {
-            toast(tr(Str::ADV_DIED), Theme::RED, 3000);
-        } else {
-            snprintf(buf, sizeof(buf), tr(Str::ADV_DIED_LEFT), s_world->livesLeft());
-            toast(buf, Theme::RED, 3000);
-        }
-        Rgb::effectFlash(255, 30, 20, 900);
-        updateStats();
-        stopPath();
-        if (ev & Otr::EV_GAME_OVER) showGameOver();
+        handleActionDeath(ev, tx, ty, now);
         return ev;
     }
     if (ev & Otr::EV_MOVED) {
@@ -1823,7 +1865,7 @@ static uint32_t doMove(Dir d, bool vault = false)
             const uint32_t fit = iv > TICK_MS ? iv - TICK_MS / 2 : iv;
             s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit > WALK_MS_MAX ? WALK_MS_MAX : fit;
         }
-        s_rockAnim = s_moveTrace.count == 1 && wasPushable && (ev & Otr::EV_PUSHED) &&
+        s_rockAnim = !pull && s_moveTrace.count == 1 && wasPushable && (ev & Otr::EV_PUSHED) &&
             !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
         if (s_rockAnim) {
             s_rockFromX = tx;
@@ -1867,13 +1909,14 @@ static uint32_t doMove(Dir d, bool vault = false)
 
 // v0.18.4: the split action button. The player picks the action with "Byt" (top 1/3)
 // instead of it switching automatically; add new actions here as features arrive.
-enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_LEVER = 3, ACT_N = 4 };
+enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_LEVER = 3, ACT_PULL = 4, ACT_N = 5 };
 static bool actAvail(int a)
 {
     switch (a) {
         case ACT_HIT:  return true;                    // Slå always works (bumps empty cells too)
         case ACT_TALK: return s_world->facingNpc() != 0;
         case ACT_JUMP: return s_world->canVault();
+        case ACT_PULL: return s_world->hasSuction() && s_world->canPull();
         case ACT_LEVER: return s_world->tile(s_world->playerX() + Otr::dirX(s_world->facing()),
                                             s_world->playerY() + Otr::dirY(s_world->facing())) == Tile::LEVER;
         default:       return false;
@@ -1891,10 +1934,11 @@ static void refreshActBtn()
     if (s_actSel != s_actShown) {
         s_actShown = s_actSel;
         lv_label_set_text(lv_obj_get_child(s_hitBtn, 0),
+            s_actSel == ACT_PULL ? (langIdx() ? "Pull" : "Dra") :
             s_actSel == ACT_LEVER ? (langIdx() ? "Lever" : "Spak") :
             tr(s_actSel == ACT_JUMP ? Str::ADV_JUMP : s_actSel == ACT_TALK ? Str::ADV_TALK : Str::ADV_HIT));
         const auto col = s_actSel == ACT_TALK || s_actSel == ACT_LEVER ? Theme::TEAL :
-            s_actSel == ACT_JUMP ? Theme::GOLD : Theme::ACCENT;
+            s_actSel == ACT_JUMP || s_actSel == ACT_PULL ? Theme::GOLD : Theme::ACCENT;
         lv_obj_set_style_bg_color(s_hitBtn, Theme::c(col), 0);
         lv_obj_set_style_border_color(s_hitBtn, Theme::c(col), 0);
     }
@@ -1915,6 +1959,14 @@ static void doHit()
     const uint32_t now = nowMs();
     if (s_world->mineLevel()) { bombAction(); return; }
     if (busy(now) || s_world->gameOver() || s_world->exitReached()) return;
+    if (s_actSel == ACT_PULL) {
+        stopPath();
+        s_joy.cancel();
+        joyShow(false, 0, 0);
+        if (actAvail(ACT_PULL)) doMove(s_world->facing(), false, true);
+        else refreshActBtn();
+        return;
+    }
     if (s_actSel == ACT_LEVER) {
         s_joy.cancel();
         joyShow(false, 0, 0);
@@ -1922,7 +1974,9 @@ static void doHit()
             const uint32_t ev = s_world->activate();
             playEvents(ev);
             eventToasts(ev);
-            updateStats();
+            if (ev & Otr::EV_DIED) {
+                handleActionDeath(ev, s_world->playerX(), s_world->playerY(), now);
+            } else updateStats();
             s_dirty = true;
         }
         return;
@@ -2874,7 +2928,7 @@ static void buildControls()
     // Compact level badges keep the boat and levelled abilities above the keys.
     s_itemBox = lv_obj_create(pan);
     lv_obj_remove_style_all(s_itemBox);
-    lv_obj_set_pos(s_itemBox, COL_R_X, px(96));
+    lv_obj_set_pos(s_itemBox, COL_R_X, px(94));
     lv_obj_set_size(s_itemBox, COL_R_W, HUD_PX + 2);
     lv_obj_set_flex_flow(s_itemBox, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(s_itemBox, 4, 0);
@@ -2905,6 +2959,9 @@ static void buildControls()
     s_item[H_SKATES] = hudIcon(pan, H_SKATES);
     lv_obj_set_pos(s_item[H_SKATES], COL_R_X, s_layout.controls.h - px(4) - HUD_PX);
     lv_obj_set_hidden(s_item[H_SKATES], true);
+    s_item[H_SUCTION] = hudIcon(pan, H_SUCTION);
+    lv_obj_set_pos(s_item[H_SUCTION], COL_R_X, s_layout.controls.h - px(4) - 2 * HUD_PX);
+    lv_obj_set_hidden(s_item[H_SUCTION], true);
     buildKeyIcons(pan, COL_R_X, COL_R_W);
 
     s_bombCancel=Theme::button(pan,tr(Str::BTN_CANCEL),COL_R_W,px(36),Theme::LINE);

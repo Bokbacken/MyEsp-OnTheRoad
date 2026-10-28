@@ -691,7 +691,7 @@ static void testLegacyGroupZeroSave()
     static const char *const rows[] = {"So="};
     const MapDef def = {77, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0};
     CHECK_EQ(World::SAVE_MAGIC, 0x5352544F);
-    CHECK_EQ(World::SAVE_VERSION, 5);
+    CHECK_EQ(World::SAVE_VERSION, 6);
     CHECK(W.load(def));
     CHECK(W.restore(legacy, sizeof(legacy)));
     CHECK(W.gatesOpen());
@@ -914,7 +914,7 @@ static void testSaveLoad()
     CHECK(W.load(WORLDS[1]));
     CHECK_EQ(W.mapId(), WORLD_MINES);
     const size_t n = W.saveSize();
-    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 6 + 8 + 2 * PLATE_GROUPS + 1 + 4);
+    CHECK_EQ((long)n, 16 + 32 + 7 * 40 * 30 + 6 + 8 + 2 * PLATE_GROUPS + 1 + 6 + 4);
     CHECK_EQ((long)W.save(SAVEBUF, n - 1), 0);
     // Play a little: flag, walk, step on a mine
     int fx = -1, fy = -1;
@@ -1627,7 +1627,7 @@ static void testS2Forced()
     CHECK(ev & EV_EXIT); CHECK_EQ(W.playerX(), 4); CHECK_EQ(W.steps(), 3);
     CHECK_EQ(trace.count, 3);
     CHECK_EQ(trace.cells[0].x, 2); CHECK_EQ(trace.cells[1].x, 3); CHECK_EQ(trace.cells[2].x, 4);
-    CHECK(W.vault(&trace) == EV_BLOCKED); CHECK_EQ(trace.count, 0);
+    CHECK(W.vault(&trace) == EV_NONE); CHECK_EQ(trace.count, 0);
 
     // Rocks stay put on forced terrain.
     char rockRow[] = {'S', 'R', (char)ICE_GLYPH, '.', 0};

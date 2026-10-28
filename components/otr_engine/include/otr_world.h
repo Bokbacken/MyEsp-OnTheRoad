@@ -20,8 +20,9 @@
 //   hit       Hits the facing cell: crates and bushes break at once, cracked walls after CRACK_HITS.
 //   plates    A gate group opens when every plate in that group carries a rock; groups are independent.
 //
-// Maps are ASCII rows (see otr_maps.h for the legend). The world is trivially constructible and
-// ~29 kB, so the UI allocates it in PSRAM. Planner (A*) is separate and also ~70 kB (PSRAM).
+// Maps are ASCII rows (see otr_maps.h for the legend). World is about 70 KiB (host:
+// 71,056 bytes), including one shared 25,600-byte enemy BFS workspace; allocate in
+// PSRAM. No per-enemy map arrays. Planner (A*) is separate.
 #pragma once
 
 #include <stddef.h>
@@ -158,6 +159,8 @@ struct DarkRect { uint8_t x0, y0, x1, y1; };
 struct GroupControl { uint8_t group; uint16_t steps; bool requireBoth = false; };
 enum class EnemyKind : uint8_t { PATROL, CHASER };
 struct EnemyPoint { uint8_t x, y; };
+// Patrol segments are axis-aligned; a blocked next cell waits without a detour.
+// Bounds are inclusive; a chaser waits while its target is outside its rectangle.
 struct EnemyDef {
     EnemyKind kind;
     uint8_t x, y;
@@ -268,6 +271,11 @@ public:
     int pogo() const { return pogo_; }
     bool hasSkates() const { return skates_; }
     bool hasSuction() const { return suction_; }
+    // Enemies take one step after each successful public action, not each forced
+    // landing. Chasers use U/R/D/L BFS; patrols follow ordered cardinal segments.
+    // Both avoid hazards/water/mines and ignore ice/belt forcing.
+    // Player entry is allowed; contact costs 2 energy at most once per action.
+    // An enemy attempting to enter the player cell waits instead.
     int enemyCount() const { return enemyCount_; }
     const EnemyDef &enemyDef(int i) const { return enemyDefs_[i]; }
     const EnemyState &enemy(int i) const { return enemies_[i]; }
@@ -294,6 +302,9 @@ public:
     bool forcedMotion(Dir &direction) const; // Current ice/belt direction, without moving.
     bool canVault() const;  // v0.18.3: owns a pogo stick AND faces a jumpable run -> UI shows "Hoppa"
     uint32_t vault(MoveTrace *trace = nullptr);       // Manual pogo jump in the facing direction
+    // Pull retreats to an enemy-free cell; object placement forbids water/lava as well
+    // as gates, checkpoints and exits. Ice follows retreat/belt motion, preserving facing.
+    // A retreat gate must remain open after the resulting object/plate changes.
     bool canPull() const;
     uint32_t pull(MoveTrace *trace = nullptr);
     void revive();          // After game over ("continue"): one life, full energy, at the checkpoint
@@ -344,7 +355,7 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 6;   // v6: suction, count, four bytes per enemy
+    static constexpr uint16_t SAVE_VERSION = 6;   // v6: suction, count, definition hash, enemy states
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
@@ -358,12 +369,14 @@ private:
     // landing cell in (lx, ly). False = no valid vault (run too wide / landing blocked / OOB).
     bool pogoLand(Dir d, int &lx, int &ly) const;
     uint32_t landOn(int destX, int destY, uint32_t ev, MoveTrace *trace);
-    uint32_t resolveForced(uint32_t ev, MoveTrace *trace);
+    uint32_t resolveForced(uint32_t ev, MoveTrace *trace, bool retreat = false);
     uint32_t finishAction(uint32_t ev);
     void enemyContact(uint32_t &ev);
     bool enemyTerrain(int x, int y) const;
+    bool patrolSegment(EnemyPoint a, EnemyPoint b) const;
     bool enemyCanEnter(int i, int x, int y) const;
     bool enemyStep(int i, int tx, int ty, int &nx, int &ny);
+    uint32_t enemySignature() const;
     void tickTimers(uint32_t &ev);
     void activatePlate(int x, int y, uint32_t &ev);
     void updateGates(uint32_t &ev);
