@@ -169,8 +169,11 @@ efter parsning före datakontrollerna: ägarskapsregressionen passerar inom **10
 `idf.py build` kunde inte köras lokalt (ESP-IDF saknas); CI **40664764225**
 för **a8f91ae** **FAIL** vid `ui_karaoke.cpp:41/43/52`, där `std::clamp` inte
 kan deducera samma typ för Xtensas `int32_t` (`long`) och `int`-literaler.
-Alla tre anrop är lokalt korrigerade till `std::clamp<int32_t>`;
-ny commit/CI-körning återstår. Inget godkänt firmwarebygge påstås.
+Alla tre anrop är korrigerade till `std::clamp<int32_t>` i **18586b0**.
+[Kodcommitens CI 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561)
+kräver godkännande (`action_required`); inget godkänt firmwarebygge påstås.
+Slutlig hostomkörning av Karaoke/MIDI/index/stream/språk passerar.
+CodeQL: **0 larm** i C++/Python; hemlighetsskanning: inga fynd.
 
 **Fysisk verifiering återstår:** hela D-checklistan på båda logiska storlekarna,
 inklusive rotation/retur till meny/Äventyr/Yatzy, lång lista/sök/bank, alla

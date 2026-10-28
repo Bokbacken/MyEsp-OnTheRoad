@@ -469,7 +469,8 @@ ignorerade `managed_components`; Karaokehosttestet använder produktionsheapen
 | `python3 tests/test_yatzy_layout.py /tmp/karaoke-regression-yatzy` | **FAIL**, oförändrade berörda källor: containment `277,74..332,89` mot förälder `5,54..314,413`. |
 | `python3 tests/test_adv_setup.py /tmp/karaoke-regression-adv-setup` | **FAIL**, oförändrade berörda källor: listans `x == AdvUi::scale(6)`. |
 | `python3 tests/test_mine_dialog.py /tmp/karaoke-regression-mine` | **FAIL**, oförändrade berörda källor: kontroll `32,11304..287,11346` utanför 320×480. |
-| `idf.py build` / firmware-CI | **Kunde inte byggas lokalt**: command not found, ESP-IDF saknas. CI-workflow **40664764225** för **a8f91ae** **FAIL** vid `ui_karaoke.cpp:41/43/52`: `std::clamp`-typdeduktion misslyckas eftersom Xtensas `int32_t` är `long` men literalerna är `int`. Alla tre anrop är lokalt korrigerade till `std::clamp<int32_t>`; ny commit/CI-körning återstår. Inget lyckat firmwarebygge påstås. |
+| `idf.py build` / firmware-CI | **Kunde inte byggas lokalt**: command not found, ESP-IDF saknas. CI-workflow **40664764225** för **a8f91ae** **FAIL** vid `ui_karaoke.cpp:41/43/52`: `std::clamp`-typdeduktion misslyckas eftersom Xtensas `int32_t` är `long` men literalerna är `int`. Alla tre anrop är korrigerade till `std::clamp<int32_t>` i **18586b0**. [Kodcommitens CI 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561) kräver godkännande (`action_required`); inget lyckat firmwarebygge påstås. |
+| Slutverifiering efter kodcommit/CodeQL | Karaokehosttestet samt MIDI/index/stream/språk kördes om och **PASS**. CodeQL **0 C++/Python-larm**, hemlighetsskanning utan fynd och läsande kodgranskning utan betydande fynd. |
 
 Exakta C++-kommandon från reporoten, med körda binärer i `/tmp/karaoke-regression`:
 

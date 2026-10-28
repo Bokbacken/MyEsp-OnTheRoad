@@ -22,7 +22,9 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 > Local firmware build was blocked by missing ESP-IDF. CI run `40664764225` for `a8f91ae`
 > failed at `ui_karaoke.cpp:41/43/52`: Xtensa `int32_t` (`long`) versus integer literals
 > prevented `std::clamp` type deduction. All three calls now use `std::clamp<int32_t>`;
-> the corrected source awaits a new commit/CI run. **No firmware build success claimed; all physical tests remain.**
+> corrected code commit `18586b0` now awaits approval of [CI run 40665654561](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40665654561)
+> (`action_required`). CodeQL reports zero C++/Python alerts; secret scanning found none.
+> **No firmware build success claimed; all physical tests remain.**
 > 800×480 is a logical layout target, not a verified physical P4 resolution.
 > See [UI migration acceptance](docs/ui-migration-inventory.md#fas-d--karaoke-layout-och-minnesdiagnostik)
 > and the [karaoke plan](docs/MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
