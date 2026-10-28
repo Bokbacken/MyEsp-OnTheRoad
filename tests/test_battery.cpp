@@ -76,6 +76,10 @@ int main()
     CHECK(BatteryMath::filterRaw(-1, 1000) == 1000);
     CHECK(BatteryMath::filterRaw(1000, 1200) == 1050);
     CHECK(BatteryMath::filterRaw(1050, 4000) == 1788);
+    CHECK(!BatteryMath::batteryLogDue(false, BatteryMath::LOG_INTERVAL_MS, 0));
+    CHECK(!BatteryMath::batteryLogDue(true, BatteryMath::LOG_INTERVAL_MS - 1, 0));
+    CHECK(BatteryMath::batteryLogDue(true, BatteryMath::LOG_INTERVAL_MS, 0));
+    CHECK(BatteryMath::batteryLogDue(true, 200000, UINT32_MAX - 100000));
 
     std::printf("Battery math: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

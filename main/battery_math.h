@@ -15,6 +15,7 @@ constexpr uint16_t BATTERY_FULL_DEFAULT_MV = 4200;
 constexpr int32_t ADC_MIN_MV = 200;
 constexpr int32_t ADC_MAX_MV = 3100;
 constexpr uint32_t LOW_BATTERY_ALERT_INTERVAL_MS = 30000;
+constexpr uint32_t LOG_INTERVAL_MS = 5UL * 60 * 1000;
 
 struct ChargePoint {
     uint16_t millivolts;
@@ -119,6 +120,11 @@ constexpr bool lowBatteryAlertDue(bool percentValid, uint8_t percent, bool sound
 constexpr bool supportsS3BatteryAdc(bool s3Target, bool s3Profile)
 {
     return s3Target && s3Profile;
+}
+
+constexpr bool batteryLogDue(bool voltageValid, uint32_t nowMs, uint32_t lastLogMs)
+{
+    return voltageValid && static_cast<uint32_t>(nowMs - lastLogMs) >= LOG_INTERVAL_MS;
 }
 
 constexpr int32_t filterRaw(int32_t previous, int32_t current)

@@ -111,7 +111,7 @@ extern "C" void app_main(void)
     otr_log_init();   // v0.13.7: 64 KB byte ring + SD rotation, chained after MyLog
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
     const bool fsOk = MyFat::mount("ffat", "/ffat", false);   // Never erase profiles on a mount failure.
-    if (fsOk) MyLog::setEventFile("/ffat/events.log");
+    if (fsOk) MyLog::setEventFile("/ffat/events.log", 256 * 1024);
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
     Theme::setBatteryIndicatorReader(batteryIndicator);
@@ -294,10 +294,23 @@ extern "C" void app_main(void)
 
     uint32_t lastRtcCheck = MySys::millis();
     uint32_t lastBatteryAlertCheck = lastRtcCheck;
+    uint32_t lastBatteryLog = lastRtcCheck;
     for (;;) {
         MyWifi::loop();
         MyTime::loop();
         const uint32_t now = MySys::millis();
+        const BoardBattery::Status battery = BoardBattery::status();
+        uint16_t batteryMv = 0;
+        const AppConfig &currentConfig = Config::get();
+        const bool batteryVoltageValid =
+            battery.supported && battery.sampleValid && battery.adcCalibrated &&
+            BatteryMath::batteryMillivolts(battery.adcMillivolts, currentConfig.batteryScalePermille, batteryMv);
+        if (BatteryMath::batteryLogDue(batteryVoltageValid, now, lastBatteryLog)) {
+            lastBatteryLog = now;
+            MyLog::event("battery", "battery_mV=%u adc_mV=%u raw=%ld scale_permille=%u",
+                         static_cast<unsigned>(batteryMv), static_cast<unsigned>(battery.adcMillivolts),
+                         static_cast<long>(battery.raw), static_cast<unsigned>(currentConfig.batteryScalePermille));
+        }
         if (static_cast<uint32_t>(now - lastBatteryAlertCheck) >= 1000) {
             lastBatteryAlertCheck = now;
             checkLowBatteryAlert(now);
