@@ -218,11 +218,43 @@ static void fixCrc(std::vector<uint8_t> &data)
 }
 static void saves()
 {
-    CHECK(load("@map\nS..\n"));
+    CHECK(load("@legend\ni = ice\n@map\n.iiiSR\n"));
+    w.setSuction(true);
+    CHECK(w.move(Dir::RIGHT) & EV_BLOCKED);
+    MoveTrace trace;
+    CHECK(w.canPull());
+    CHECK(w.pull(&trace) & EV_MOVED);
+    CHECK(w.playerX() == 0 && w.facing() == Dir::RIGHT);
+    CHECK(trace.count == 4);
+
+    CHECK(load("@map\nS....\n.....\n"));
+    EnemyDef enemy{};
+    enemy.kind = EnemyKind::PATROL;
+    enemy.x = 2;
+    enemy.y = 0;
+    enemy.routeCount = 2;
+    enemy.route[0] = {2, 0};
+    enemy.route[1] = {3, 0};
+    const char *rows[] = {"S....", "....."};
+    MapDef def{91, rows, 2, CLASSIC_RULES, nullptr, 0, nullptr, 0, nullptr, 0, 0,
+               nullptr, &enemy, 1};
+    CHECK(w.load(def));
+    w.setSuction(true);
+    CHECK(w.move(Dir::RIGHT) & EV_MOVED);
+    CHECK(w.enemy(0).x == 3 && w.enemy(0).index == 1);
     w.setSkates(true);
     std::vector<uint8_t> saved(w.saveSize());
     CHECK(w.save(saved.data(), saved.size()) == saved.size());
+    CHECK(saved[4] == 6 && w.saveSize() == 16 + 32 + 7 * 10 + 6 + 8 + 2 * PLATE_GROUPS +
+                                                    1 + 2 + 4 + 4);
+    w.setSuction(false);
+    CHECK(w.move(Dir::LEFT) & EV_MOVED);
+    CHECK(w.enemy(0).x == 2 && w.enemy(0).index == 0);
+    CHECK(w.restore(saved.data(), saved.size()));
+    CHECK(w.hasSuction() && w.hasSkates());
+    CHECK(w.enemy(0).x == 3 && w.enemy(0).index == 1);
     w.setSkates(false);
+    w.setSuction(false);
     CHECK(w.restore(saved.data(), saved.size()) && w.hasSkates());
     for (int fault = 0; fault < 4; ++fault) {
         auto bad = saved;
@@ -236,14 +268,16 @@ static void saves()
         CHECK(w.save(unchanged.data(), unchanged.size()) == unchanged.size());
         CHECK(unchanged == saved);
     }
-    for (int version = 1; version <= 4; ++version) {
+    for (int version = 1; version <= 5; ++version) {
         auto old = saved;
-        const size_t extension = version < 4 ? 6 + 8 + 2 * PLATE_GROUPS + 1 : 1;
+        const size_t extension = (version < 4 ? 6 + 8 + 2 * PLATE_GROUPS : 0) +
+                                 (version < 5 ? 1 : 0) + (version < 6 ? 2 + 4 : 0);
         old.resize(old.size() - extension);
         old[4] = (uint8_t)version;
         fixCrc(old);
         CHECK(w.restore(old.data(), old.size()));
-        CHECK(!w.hasSkates());
+        CHECK(w.hasSkates() == (version >= 5) && !w.hasSuction());
+        CHECK(w.enemy(0).x == 2 && w.enemy(0).index == 0);
     }
 }
 

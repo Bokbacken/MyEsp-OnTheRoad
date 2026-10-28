@@ -344,7 +344,7 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 6;   // v6: suction, count, four bytes per enemy
+    static constexpr uint16_t SAVE_VERSION = 6;   // v6: suction, enemy count and four bytes per enemy
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
@@ -358,7 +358,7 @@ private:
     // landing cell in (lx, ly). False = no valid vault (run too wide / landing blocked / OOB).
     bool pogoLand(Dir d, int &lx, int &ly) const;
     uint32_t landOn(int destX, int destY, uint32_t ev, MoveTrace *trace);
-    uint32_t resolveForced(uint32_t ev, MoveTrace *trace);
+    uint32_t resolveForced(uint32_t ev, MoveTrace *trace, Dir direction, bool preserveFacing = false);
     uint32_t finishAction(uint32_t ev);
     void enemyContact(uint32_t &ev);
     bool enemyTerrain(int x, int y) const;

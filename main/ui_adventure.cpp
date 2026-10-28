@@ -72,7 +72,7 @@ enum Spr : uint8_t {
     S_CHECK, S_CHECK_ON, S_EXIT, S_CRATER, S_FOG, S_FLAG, S_BUSH, S_POTION, S_HEART, S_SUIT, S_LIFE,
     S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
     S_FLASH, S_POGO, S_DARK,                  // v0.18.0: flashlight / pogo pickups + unlit dark cell
-    S_POISON, S_SWAMP, S_SHARP, S_SKATES, S_BOX, S_COLOR_PLATE,
+    S_POISON, S_SWAMP, S_SHARP, S_SKATES, S_SUCTION, S_ENEMY, S_BOX, S_COLOR_PLATE,
     S_NPC0,                                   // v0.11.0: people, NPC_LOOKS looks x 4 directions (Dir order)
     S_NPC_LAST = S_NPC0 + 3 * 4 - 1,
     S_COUNT
@@ -574,6 +574,21 @@ static void makeArt(Sprites *sp)
         rect(b[S_SKATES], x + 3, 22, x + 4, 25, rgb(230, 240, 250));
         line(b[S_SKATES], x, 27, x + 12, 27, rgb(230, 240, 250), 2);
     }
+    fillKey(b[S_SUCTION]);
+    disc(b[S_SUCTION], 16.f, 18.f, 11.f, rgb(45, 70, 90));
+    disc(b[S_SUCTION], 16.f, 16.f, 9.f, rgb(230, 70, 64));
+    rect(b[S_SUCTION], 8, 15, 23, 18, rgb(230, 70, 64));
+    rect(b[S_SUCTION], 12, 6, 19, 13, rgb(235, 238, 242));
+    rect(b[S_SUCTION], 14, 3, 17, 7, rgb(235, 238, 242));
+    line(b[S_SUCTION], 10, 22, 21, 22, rgb(255, 160, 145), 2);
+    fillKey(b[S_ENEMY]);
+    disc(b[S_ENEMY], 16.f, 24.f, 10.f, rgb(25, 30, 40));
+    disc(b[S_ENEMY], 16.f, 16.f, 11.f, rgb(170, 48, 56));
+    disc(b[S_ENEMY], 16.f, 12.f, 7.f, rgb(205, 68, 72));
+    rect(b[S_ENEMY], 10, 15, 12, 18, rgb(255, 230, 160));
+    rect(b[S_ENEMY], 20, 15, 22, 18, rgb(255, 230, 160));
+    disc(b[S_ENEMY], 11.f, 16.f, 1.5f, rgb(25, 20, 25));
+    disc(b[S_ENEMY], 21.f, 16.f, 1.5f, rgb(25, 20, 25));
     fillKey(b[S_KEY]);
     disc(b[S_KEY], 11.f, 16.f, 6.f, rgb(214, 160, 30));
     disc(b[S_KEY], 11.f, 16.f, 2.5f, KEY);
@@ -840,6 +855,7 @@ static int objSprite(Obj o)
     case Obj::FLASH: return S_FLASH;
     case Obj::POGO: return S_POGO;
     case Obj::SKATES: return S_SKATES;
+    case Obj::SUCTION: return S_SUCTION;
     default: return -1;
     }
 }
@@ -1031,6 +1047,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             const int color = keyColorId(ob);
             if (color >= 0) coloredObject(o, color, sx, sy);
             else if (o >= 0) blit(o, sx, sy, o != S_DOOR);
+            if (w.enemyAt(tx, ty) >= 0) blit(S_ENEMY, sx, sy, true);
             if(ob==Obj::BOMB3||ob==Obj::BOMB4) {
                 blit(S_CRATE,sx,sy,true);
                 blit(S_NUM1+(ob==Obj::BOMB3?2:3),sx,sy,true);
@@ -1771,8 +1788,34 @@ static void finishMovement(uint32_t now, bool snap = false)
     if (events & Otr::EV_TALK) startTalk(s_world->talkNpc());
 }
 
+static bool handleDeath(uint32_t ev, int tx, int ty, uint32_t now)
+{
+    if (!(ev & Otr::EV_DIED)) return false;
+    stopPath();
+    s_joy.cancel();
+    joyShow(false, 0, 0);
+    snapPlayer();
+    if (ev & Otr::EV_MINE) {
+        s_fxX = tx;
+        s_fxY = ty;
+        s_fxT0 = now;
+    }
+    char buf[80];
+    if (s_world->livesLeft() == Otr::LIVES_INFINITE || (ev & Otr::EV_GAME_OVER)) {
+        toast(tr(Str::ADV_DIED), Theme::RED, 3000);
+    } else {
+        snprintf(buf, sizeof(buf), tr(Str::ADV_DIED_LEFT), s_world->livesLeft());
+        toast(buf, Theme::RED, 3000);
+    }
+    Rgb::effectFlash(255, 30, 20, 900);
+    updateStats();
+    if (ev & Otr::EV_GAME_OVER) showGameOver();
+    s_dirty = true;
+    return true;
+}
+
 // One step. Returns the world events (0 if the previous step is still animating).
-static uint32_t doMove(Dir d, bool vault = false)
+static uint32_t doMove(Dir d, bool vault = false, bool pull = false)
 {
     const uint32_t now = nowMs();
     if (s_bombSize || busy(now) || s_world->gameOver() || s_world->exitReached()) return 0;
@@ -1783,34 +1826,17 @@ static uint32_t doMove(Dir d, bool vault = false)
     const Tile targetTile = s_world->tile(tx, ty);
     // v0.18.3: a manual pogo jump lands beyond the obstacle(s); the rest of the handling (animation
     // glide from the take-off cell, events, toasts) is identical to a normal step.
-    const uint32_t ev = vault ? s_world->vault(&s_moveTrace) : s_world->move(d, &s_moveTrace);
+    const uint32_t ev = vault ? s_world->vault(&s_moveTrace) :
+                        pull ? s_world->pull(&s_moveTrace) : s_world->move(d, &s_moveTrace);
     s_dirty = true;
     playEvents(ev);
+    if (handleDeath(ev, tx, ty, now)) return ev;
     if (ev & (Otr::EV_DIED | Otr::EV_GAME_OVER | Otr::EV_EXIT)) {
         stopPath();
         s_joy.cancel();
         joyShow(false, 0, 0);
     }
     char buf[80];
-    if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
-        snapPlayer();
-        if (ev & Otr::EV_MINE) {
-            s_fxX = tx;
-            s_fxY = ty;
-            s_fxT0 = now;
-        }
-        if (s_world->livesLeft() == Otr::LIVES_INFINITE || (ev & Otr::EV_GAME_OVER)) {
-            toast(tr(Str::ADV_DIED), Theme::RED, 3000);
-        } else {
-            snprintf(buf, sizeof(buf), tr(Str::ADV_DIED_LEFT), s_world->livesLeft());
-            toast(buf, Theme::RED, 3000);
-        }
-        Rgb::effectFlash(255, 30, 20, 900);
-        updateStats();
-        stopPath();
-        if (ev & Otr::EV_GAME_OVER) showGameOver();
-        return ev;
-    }
     if (ev & Otr::EV_MOVED) {
         s_fromX = fx;
         s_fromY = fy;
@@ -1823,7 +1849,7 @@ static uint32_t doMove(Dir d, bool vault = false)
             const uint32_t fit = iv > TICK_MS ? iv - TICK_MS / 2 : iv;
             s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit > WALK_MS_MAX ? WALK_MS_MAX : fit;
         }
-        s_rockAnim = s_moveTrace.count == 1 && wasPushable && (ev & Otr::EV_PUSHED) &&
+        s_rockAnim = !pull && s_moveTrace.count == 1 && wasPushable && (ev & Otr::EV_PUSHED) &&
             !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
         if (s_rockAnim) {
             s_rockFromX = tx;
@@ -1867,13 +1893,14 @@ static uint32_t doMove(Dir d, bool vault = false)
 
 // v0.18.4: the split action button. The player picks the action with "Byt" (top 1/3)
 // instead of it switching automatically; add new actions here as features arrive.
-enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_LEVER = 3, ACT_N = 4 };
+enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_LEVER = 3, ACT_PULL = 4, ACT_N = 5 };
 static bool actAvail(int a)
 {
     switch (a) {
         case ACT_HIT:  return true;                    // Slå always works (bumps empty cells too)
         case ACT_TALK: return s_world->facingNpc() != 0;
         case ACT_JUMP: return s_world->canVault();
+        case ACT_PULL: return s_world->canPull();
         case ACT_LEVER: return s_world->tile(s_world->playerX() + Otr::dirX(s_world->facing()),
                                             s_world->playerY() + Otr::dirY(s_world->facing())) == Tile::LEVER;
         default:       return false;
@@ -1892,8 +1919,9 @@ static void refreshActBtn()
         s_actShown = s_actSel;
         lv_label_set_text(lv_obj_get_child(s_hitBtn, 0),
             s_actSel == ACT_LEVER ? (langIdx() ? "Lever" : "Spak") :
+            s_actSel == ACT_PULL ? (langIdx() ? "Pull" : "Dra") :
             tr(s_actSel == ACT_JUMP ? Str::ADV_JUMP : s_actSel == ACT_TALK ? Str::ADV_TALK : Str::ADV_HIT));
-        const auto col = s_actSel == ACT_TALK || s_actSel == ACT_LEVER ? Theme::TEAL :
+        const auto col = s_actSel == ACT_TALK || s_actSel == ACT_LEVER || s_actSel == ACT_PULL ? Theme::TEAL :
             s_actSel == ACT_JUMP ? Theme::GOLD : Theme::ACCENT;
         lv_obj_set_style_bg_color(s_hitBtn, Theme::c(col), 0);
         lv_obj_set_style_border_color(s_hitBtn, Theme::c(col), 0);
@@ -1919,14 +1947,18 @@ static void doHit()
         s_joy.cancel();
         joyShow(false, 0, 0);
         if (actAvail(ACT_LEVER)) {
+            const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
+            const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
             const uint32_t ev = s_world->activate();
             playEvents(ev);
+            if (handleDeath(ev, tx, ty, now)) return;
             eventToasts(ev);
             updateStats();
             s_dirty = true;
         }
         return;
     }
+    if (s_actSel == ACT_PULL && s_world->canPull()) { doMove(s_world->facing(), false, true); return; }
     if (s_actSel == ACT_JUMP && s_world->canVault()) { doMove(s_world->facing(), true); return; }
     if (s_actSel == ACT_TALK && s_world->facingNpc()) { startTalk(s_world->facingNpc()); return; }
     // Slå (also the fallback): swing at the facing cell. People can't be hurt, so a swing at

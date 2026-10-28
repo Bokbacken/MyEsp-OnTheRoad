@@ -82,6 +82,16 @@ void fillState(Snapshot &s, const Source &src)
     s.bomb3=w.bombs(3); s.bomb4=w.bombs(4); s.safeLeft=w.safeLeft(); s.lang=src.lang;
     s.bombSize=src.bombSize; s.bombX=src.bombX; s.bombY=src.bombY;
 
+    s.enemyCount = 0;
+    for (int i = 0; i < w.enemyCount(); ++i) {
+        const Otr::EnemyState &state = w.enemy(i);
+        if ((w.fog() && !w.revealed(state.x, state.y)) || w.darkHidden(state.x, state.y)) continue;
+        EnemyInfo &enemy = s.enemies[s.enemyCount++];
+        enemy.x = state.x;
+        enemy.y = state.y;
+        enemy.kind = (uint8_t)w.enemyDef(i).kind;
+    }
+
     // People: map numbers 1..9 that stand somewhere
     s.npcCount = 0;
     for (int num = 1; num <= MAX_NPCS; num++) {
@@ -262,7 +272,14 @@ size_t toJson(const Snapshot &s, uint32_t clientMapRev, char *buf, size_t cap)
     o.boolean(s.gameOver);
     o.put(",\"exit\":");
     o.boolean(s.exitReached);
-    o.fmt(",\"checkpoint\":[%u,%u],\"steps\":%u,\"npcs\":[", (unsigned)s.cpX, (unsigned)s.cpY, (unsigned)s.steps);
+    o.fmt(",\"checkpoint\":[%u,%u],\"steps\":%u,\"enemies\":[", (unsigned)s.cpX, (unsigned)s.cpY, (unsigned)s.steps);
+    for (int i = 0; i < s.enemyCount; i++) {
+        const EnemyInfo &enemy = s.enemies[i];
+        if (i) o.put(",");
+        o.fmt("{\"x\":%u,\"y\":%u,\"kind\":%u}", (unsigned)enemy.x, (unsigned)enemy.y,
+              (unsigned)enemy.kind);
+    }
+    o.put("],\"npcs\":[");
     for (int i = 0; i < s.npcCount; i++) {
         const NpcInfo &n = s.npcs[i];
         if (i) o.put(",");

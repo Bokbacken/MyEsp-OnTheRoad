@@ -238,6 +238,55 @@ void testGroupedGates()
     CHECK(!w.gatesOpen());   // The compatibility query remains group 0.
 }
 
+void testEnemyVisibility()
+{
+    using namespace Otr;
+    const char *rows[] = {"S....", "....."};
+    EnemyDef enemy{};
+    enemy.kind = EnemyKind::PATROL;
+    enemy.x = 2;
+    enemy.y = 0;
+    enemy.routeCount = 1;
+    enemy.route[0] = {2, 0};
+    DarkRect dark = {2, 0, 2, 0};
+    MapDef darkMap{92, rows, 2, CLASSIC_RULES, nullptr, 0, &dark, 1, nullptr, 0, 0,
+                   nullptr, &enemy, 1};
+    World darkWorld;
+    CHECK(darkWorld.load(darkMap));
+    Snapshot snapshot{};
+    Source src = source(darkWorld, "Dark", nullptr, nullptr, nullptr);
+    fillMap(snapshot, src);
+    fillState(snapshot, src);
+    snapshot.active = true;
+    CHECK(snapshot.enemyCount == 0);
+    CHECK(toJson(snapshot, 0, g_buf, sizeof(g_buf)) > 0 && has("\"enemies\":[]"));
+
+    darkWorld.setFlashlight(3);
+    darkWorld.move(Dir::RIGHT);
+    CHECK(!darkWorld.darkHidden(2, 0));
+    fillState(snapshot, src);
+    CHECK(snapshot.enemyCount == 1 && snapshot.enemies[0].x == 2 && snapshot.enemies[0].kind == 0);
+    CHECK(toJson(snapshot, 0, g_buf, sizeof(g_buf)) > 0 &&
+          has("\"enemies\":[{\"x\":2,\"y\":0,\"kind\":0}]"));
+
+    const char *fogRows[] = {"Sm....", "......"};
+    Rules fogRules = CLASSIC_RULES;
+    fogRules.fog = true;
+    EnemyDef hiddenEnemy{};
+    hiddenEnemy.kind = EnemyKind::CHASER;
+    hiddenEnemy.x = 5;
+    hiddenEnemy.y = 1;
+    MapDef fogMap{93, fogRows, 2, fogRules, nullptr, 0, nullptr, 0, nullptr, 0, 0,
+                  nullptr, &hiddenEnemy, 1};
+    World fogWorld;
+    CHECK(fogWorld.load(fogMap));
+    src = source(fogWorld, "Fog", nullptr, nullptr, nullptr);
+    fillMap(snapshot, src);
+    fillState(snapshot, src);
+    CHECK(!fogWorld.revealed(5, 1) && snapshot.enemyCount == 0);
+    CHECK(toJson(snapshot, 0, g_buf, sizeof(g_buf)) > 0 && has("\"enemies\":[]"));
+}
+
 // Worst case size: 64 x 64 fog map + every text at its maximum, all characters needing escapes.
 void testWorstCase()
 {
@@ -290,6 +339,7 @@ int main()
     testVillage();
     testFog();
     testGroupedGates();
+    testEnemyVisibility();
     testWorstCase();
     CHECK_DONE();
 }

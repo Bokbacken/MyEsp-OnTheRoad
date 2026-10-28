@@ -260,6 +260,16 @@ function drawPlayer(c, px, py, dir, sailing) {
   poly(c, [13, 0, 6, -5, 6, 5], '#fff'); c.restore();
   circ(c, px + 12, py + 12, 2.2, '#fff');
 }
+function drawEnemy(c, px, py, kind) {
+  const color = kind === 1 ? '#c94745' : '#9a6ac2';
+  circ(c, px + 12, py + 21, 8, 'rgba(0,0,0,.3)');
+  circ(c, px + 12, py + 13, 9, color);
+  circ(c, px + 12, py + 9, 6, color);
+  circ(c, px + 9, py + 12, 1.8, '#fff1b0');
+  circ(c, px + 15, py + 12, 1.8, '#fff1b0');
+  circ(c, px + 9, py + 12, .8, '#251c22');
+  circ(c, px + 15, py + 12, .8, '#251c22');
+}
 
 // Renders the full world into the world canvas (1 cell = CELL px), then scales / crops to the screen.
 const world = document.createElement('canvas'), wctx = world.getContext('2d');
@@ -271,6 +281,7 @@ function draw() {
   if (world.width !== layer.width || world.height !== layer.height) { world.width = layer.width; world.height = layer.height; }
   wctx.drawImage(layer, 0, 0);
   drawDynamicCells(wctx);
+  for (const e of (st.enemies || [])) drawEnemy(wctx, e.x * CELL, e.y * CELL, e.kind);
   for (const n of st.npcs) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
   drawPlayer(wctx, ax * CELL, ay * CELL, st.player.dir, st.player.sailing);
   const [bs,bx,by]=st.bomb_preview||[0,-1,-1];

@@ -30,6 +30,7 @@
 //              G gem, H bush, I potion, J heart, K suit, L life, M mine), '!' = flagged fog cell.
 //              People are not in the map (they move): see "npcs".
 //     hint     fog worlds only ('hint' is [] otherwise): '0'..'8' mines around a revealed cell.
+//   "enemies":[{"x":..,"y":..,"kind":0|1}] are listed only when their cell is visible.
 #pragma once
 
 #include <stddef.h>
@@ -59,6 +60,10 @@ struct NpcInfo {
 struct ItemInfo {
     char name[NAME_CAP];
     uint8_t count;
+};
+
+struct EnemyInfo {
+    uint8_t x, y, kind;
 };
 
 struct ChoiceInfo {
@@ -101,6 +106,8 @@ struct Snapshot {
     int safeLeft, bombSize, bombX, bombY;
     uint8_t npcCount;
     NpcInfo npcs[MAX_NPCS];
+    uint8_t enemyCount;
+    EnemyInfo enemies[Otr::MAX_ENEMIES];
     uint8_t itemCount;
     ItemInfo items[MAX_ITEMS];
     DialogInfo dialog;

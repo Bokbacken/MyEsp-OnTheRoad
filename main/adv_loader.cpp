@@ -737,7 +737,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 if (nt < 3 || nt > 4) { setErr(err, errCap, lineNo, "treasure needs 'x y item [amount]'"); return false; }
                 uint8_t x, y, amount = 1;
                 if (!byteNumber(tok[0], x) || !byteNumber(tok[1], y) ||
-                    (nt == 4 && (!byteNumber(tok[3], amount) || !amount))) {
+                    (nt == 4 && !byteNumber(tok[3], amount))) {
                     setErr(err, errCap, lineNo, "invalid treasure coordinates/amount"); return false;
                 }
                 const Otr::Obj item = objFromName(tok[2]);

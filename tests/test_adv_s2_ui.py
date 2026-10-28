@@ -234,6 +234,24 @@ static void actionTests() {
     assert(world.leverOnAt(1,2) && Audio::heard.empty()); Audio::s_sfxGain=256;
     // Holding/turning the joystick does not use the selected action.
     doMove(Dir::DOWN); assert(world.leverOnAt(1,2));
+
+    load(); rows[1]="##.SR#........"; reload();
+    assert(world.move(Dir::RIGHT)&Otr::EV_BLOCKED);
+    world.setSuction(true); refreshActBtn(); doSwap();
+    assert(s_actSel==ACT_PULL && world.canPull());
+    const int stepsBefore=world.steps();
+    doHit();
+    assert(world.playerX()==2 && world.rawObj(3,1)==Obj::ROCK && world.steps()==stepsBefore+1);
+
+    load(); rows[2][1]=char(Otr::GROUPED_LEVER_GLYPH);
+    const char *ptr[10]; for(int y=0;y<10;++y) ptr[y]=rows[y].c_str();
+    Otr::EnemyDef enemy{}; enemy.kind=Otr::EnemyKind::CHASER; enemy.x=2; enemy.y=1;
+    Otr::MapDef lethal{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,nullptr,0,0,nullptr,&enemy,1};
+    assert(world.load(lethal)); snapPlayer(); refreshActBtn();
+    world.setEnergy(2); world.setLives(1,0);
+    s_actSel=ACT_LEVER; s_pathPos=4;
+    doHit();
+    assert(world.gameOver() && deaths==1 && s_pathPos==-1);
 }
 static void movementTests() {
     // Both held joystick and tap-planned steps may stop and turn on skated ice.
@@ -604,13 +622,15 @@ static void rendererTests() {
         load();
         rows[3][2]=char(Otr::POISON_GLYPH); rows[3][3]=char(Otr::SWAMP_GLYPH);
         rows[3][4]=char(Otr::SHARP_ROCKS_GLYPH); rows[3][5]=char(Otr::SKATES_GLYPH);
+        rows[3][6]=char(Otr::SUCTION_GLYPH);
         for (int c=0;c<6;++c) {
             rows[5][2+c]=char(Otr::BOX_GLYPH+c);
             rows[7][2+c]=char(Otr::COLORED_PLATE_GLYPH+c);
         }
         reload(); draw();
         assert(terrainSprite(2,3,0)==S_POISON && terrainSprite(3,3,0)==S_SWAMP &&
-               terrainSprite(4,3,0)==S_SHARP && objSprite(Obj::SKATES)==S_SKATES);
+               terrainSprite(4,3,0)==S_SHARP && objSprite(Obj::SKATES)==S_SKATES &&
+               objSprite(Obj::SUCTION)==S_SUCTION);
         std::set<std::vector<uint8_t>> shapes;
         for (int x=2;x<5;++x) {
             std::vector<uint8_t> shape;
@@ -623,6 +643,7 @@ static void rendererTests() {
         }
         assert(shapes.size()==3); // Skull, reeds and spikes survive monochrome at both zooms.
         assert(cell(5,3)!=cell(6,3));
+        assert(cell(6,3)!=cell(7,3));
         std::set<std::vector<uint16_t>> boxes,plates,boxBadges;
         for (int c=0;c<6;++c) {
             assert(objSprite(Obj(int(Obj::BOX_RED)+c))==S_BOX);
@@ -637,7 +658,13 @@ static void rendererTests() {
             boxBadges.insert(badge);
         }
         assert(boxes.size()==6 && plates.size()==6 && boxBadges==badges);
-        for (int c=0;c<6;++c) {
+        Otr::EnemyDef enemy{}; enemy.kind=Otr::EnemyKind::CHASER; enemy.x=8; enemy.y=3;
+        const char *mapRows[10]; for(int y=0;y<10;++y) mapRows[y]=rows[y].c_str();
+        Otr::MapDef enemyMap{90,mapRows,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,nullptr,0,0,
+                             nullptr,&enemy,1};
+        assert(world.load(enemyMap)); snapPlayer(); draw();
+        assert(world.enemyAt(8,3)==0 && cell(8,3)!=cell(9,3));
+        for(int c=0;c<6;++c) {
             load(); rows[1][2]=char(Otr::BOX_GLYPH+c); reload(); draw();
             const auto before=cell(2,1);
             const auto ev=doMove(Dir::RIGHT);

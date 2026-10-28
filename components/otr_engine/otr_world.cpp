@@ -784,7 +784,7 @@ uint32_t World::move(Dir d, MoveTrace *trace)
     if (!playerCanEnter(tx, ty)) return ev | EV_BLOCKED;   // v0.18.3: pogo vault is now manual (vault())
     ev = landOn(tx, ty, ev, trace);
     if (plateX >= 0) activatePlate(plateX, plateY, ev);
-    return finishAction(resolveForced(ev, trace));
+    return finishAction(resolveForced(ev, trace, facing_));
 }
 
 // v0.18.3: shared landing sequence for a normal step and a manual pogo vault. Moves the player onto
@@ -865,7 +865,7 @@ uint32_t World::vault(MoveTrace *trace)
     int lx, ly;
     if (!pogoLand(facing_, lx, ly)) return EV_BLOCKED;
     enemyContact_ = false;
-    return finishAction(resolveForced(landOn(lx, ly, 0, trace), trace));
+    return finishAction(resolveForced(landOn(lx, ly, 0, trace), trace, facing_));
 }
 
 bool World::canPull() const
@@ -898,7 +898,7 @@ uint32_t World::pull(MoveTrace *trace)
     updateGates(ev);
     ev = landOn(ox - dx, oy - dy, ev, trace);
     if (!(ev & EV_DIED)) activatePlate(ox, oy, ev);
-    return finishAction(resolveForced(ev, trace));
+    return finishAction(resolveForced(ev, trace, Dir((int)facing_ ^ 2), true));
 }
 
 bool World::forcedMotion(Dir &direction) const
@@ -912,17 +912,21 @@ bool World::forcedMotion(Dir &direction) const
     return false;
 }
 
-uint32_t World::resolveForced(uint32_t ev, MoveTrace *trace)
+uint32_t World::resolveForced(uint32_t ev, MoveTrace *trace, Dir direction, bool preserveFacing)
 {
     for (int n = 0; n < 128 && !(ev & (EV_DIED | EV_EXIT | EV_MINE | EV_BURNED)); ++n) {
+        const Tile t = tile(px_, py_);
         Dir d;
-        if (!forcedMotion(d)) break;
+        if (t == Tile::ICE && !skates_) d = direction;
+        else if (t >= Tile::BELT_UP && t <= Tile::BELT_LEFT) d = (Dir)((int)t - (int)Tile::BELT_UP);
+        else break;
         const int x = px_ + dirX(d), y = py_ + dirY(d);
         if (!playerCanEnter(x, y) || (mineLevel_ && flagged(x, y))) {
             ev |= EV_BLOCKED;
             break;
         }
-        facing_ = d;
+        if (!preserveFacing) facing_ = d;
+        direction = d;
         ev = landOn(x, y, ev, trace);
     }
     return ev;
@@ -1108,13 +1112,15 @@ void World::carryFrom(const World &w)
 //                reserved u16.
 // Body: player block (PLAYER_BYTES) + per cell 7 bytes (terrain, obj, val, hid, hidVal, flags,
 //       dmg) for w * h cells, row major. v4 appends 6 color counts, a u64 group latch,
-//       and 36 u16 remaining timers; v5 adds a boolean skates byte. The old player block's
-//       reserved tail is unchanged, and v1-v4 restore without skates.
+//       and 36 u16 remaining timers; v5 adds a boolean skates byte. v6 adds suction ownership,
+//       enemy count, then 4 bytes per enemy (x, y, route index, direction). The old player block's
+//       reserved tail is unchanged, and v1-v5 restore without suction or enemy progress.
 //       Trailer: CRC32 of header + body.
 
 namespace {
 constexpr size_t HEADER_BYTES = 16, PLAYER_BYTES = 32, CELL_BYTES = 7;
 constexpr size_t S2_BYTES = (size_t)KeyColor::COUNT + 8 + 2 * PLATE_GROUPS;
+constexpr size_t V6_HEADER_BYTES = 2;
 
 struct Writer {
     uint8_t *p;
@@ -1131,7 +1137,11 @@ struct Reader {
 };
 }  // namespace
 
-size_t World::saveSize() const { return HEADER_BYTES + PLAYER_BYTES + CELL_BYTES * (size_t)(w_ * h_) + S2_BYTES + 1 + 4; }
+size_t World::saveSize() const
+{
+    return HEADER_BYTES + PLAYER_BYTES + CELL_BYTES * (size_t)(w_ * h_) +
+           S2_BYTES + 1 + V6_HEADER_BYTES + 4 * (size_t)enemyCount_ + 4;
+}
 
 size_t World::save(uint8_t *buf, size_t cap) const
 {
@@ -1166,6 +1176,14 @@ size_t World::save(uint8_t *buf, size_t cap) const
     o.u32((uint32_t)leverGroups_); o.u32((uint32_t)(leverGroups_ >> 32));
     for (uint16_t timer : timers_) o.u16(timer);
     o.u8(skates_ ? 1 : 0);
+    o.u8(suction_ ? 1 : 0);
+    o.u8(enemyCount_);
+    for (int i = 0; i < enemyCount_; ++i) {
+        o.u8(enemies_[i].x);
+        o.u8(enemies_[i].y);
+        o.u8(enemies_[i].index);
+        o.u8((uint8_t)enemies_[i].direction);
+    }
     o.u32(crc32(buf, n - 4));
     return n;
 }
@@ -1178,7 +1196,9 @@ bool World::restore(const uint8_t *buf, size_t n)
     const int version = r.u16();
     if (version < 1 || version > SAVE_VERSION || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
         return false;
-    if (n != saveSize() - (version < 4 ? S2_BYTES : 0) - (version < 5 ? 1 : 0)) return false;
+    const size_t oldExtension = (version < 4 ? S2_BYTES : 0) + (version < 5 ? 1 : 0) +
+                                (version < 6 ? V6_HEADER_BYTES + 4 * (size_t)enemyCount_ : 0);
+    if (n != saveSize() - oldExtension) return false;
     r.u8();
     if (r.u32() != n - HEADER_BYTES - 4) return false;
     r.u16();
@@ -1206,6 +1226,10 @@ bool World::restore(const uint8_t *buf, size_t n)
     uint16_t timers[PLATE_GROUPS] = {};
     uint64_t latches = 0;
     int skates = 0;
+    int suction = 0;
+    EnemyState enemyStates[MAX_ENEMIES];
+    for (int i = 0; i < enemyCount_; ++i)
+        enemyStates[i] = {enemyDefs_[i].x, enemyDefs_[i].y, 0, 1};
     if (version >= 4) {
         Reader ext{cells + size_t(w_) * size_t(h_) * CELL_BYTES};
         for (uint8_t &color : colors) color = (uint8_t)ext.u8();
@@ -1219,6 +1243,28 @@ bool World::restore(const uint8_t *buf, size_t n)
         }
         if (version >= 5) skates = ext.u8();
         if (skates > 1) return false;
+        if (version >= 6) {
+            suction = ext.u8();
+            const int savedEnemyCount = ext.u8();
+            if (suction > 1 || savedEnemyCount != enemyCount_) return false;
+            for (int i = 0; i < savedEnemyCount; ++i) {
+                enemyStates[i].x = (uint8_t)ext.u8();
+                enemyStates[i].y = (uint8_t)ext.u8();
+                enemyStates[i].index = (uint8_t)ext.u8();
+                enemyStates[i].direction = (int8_t)ext.s8();
+                const EnemyDef &def = enemyDefs_[i];
+                if (!inside(enemyStates[i].x, enemyStates[i].y) ||
+                    (enemyStates[i].direction != -1 && enemyStates[i].direction != 1) ||
+                    (def.kind == EnemyKind::PATROL ?
+                        enemyStates[i].index >= def.routeCount : enemyStates[i].index != 0) ||
+                    (def.bounded && (enemyStates[i].x < def.x0 || enemyStates[i].x > def.x1 ||
+                                     enemyStates[i].y < def.y0 || enemyStates[i].y > def.y1)))
+                    return false;
+                for (int j = 0; j < i; ++j)
+                    if (enemyStates[j].x == enemyStates[i].x && enemyStates[j].y == enemyStates[i].y)
+                        return false;
+            }
+        }
     }
     bool hasPlate[PLATE_GROUPS] = {};
     uint64_t hasLever = 0;
@@ -1258,10 +1304,20 @@ bool World::restore(const uint8_t *buf, size_t n)
             (t == Tile::GATE && (pos == py * w_ + px ||
                                (savedOpenGroups & (uint64_t(1) << c[2])))))) return false;
     }
+    for (int i = 0; i < enemyCount_; ++i) {
+        const EnemyState &state = enemyStates[i];
+        const uint8_t *c = cells + (state.y * w_ + state.x) * CELL_BYTES;
+        const Tile t = (Tile)c[0];
+        const bool enemyGround = !blocksWalk((Obj)c[1]) && c[1] != (uint8_t)Obj::MINE &&
+            ((isGround(t) && t != Tile::POISON && t != Tile::SWAMP && t != Tile::SHARP_ROCKS) ||
+             t == Tile::GATE);
+        if (!enemyGround) return false;
+    }
     if (level && ((lives == 0) != bool(bits & 4) || suit > 1 || b3 > 1 || b4 > 1)) return false;
     // Apply
     bomb3_ = b3; bomb4_ = b4; flash_ = (uint8_t)flash; pogo_ = (uint8_t)pogo;
     skates_ = skates != 0;
+    suction_ = suction != 0;
     px_ = px; py_ = py; cpX_ = cpx; cpY_ = cpy; facing_ = (Dir)facing;
     keys_ = keys; gems_ = gems; steps_ = (int)steps;
     energy_ = energy; maxEnergy_ = maxE; livesLeft_ = lives; livesUsed_ = livesUsed; suit_ = suit;
@@ -1275,6 +1331,7 @@ bool World::restore(const uint8_t *buf, size_t n)
             terrain_[y][x] = c[0]; obj_[y][x] = c[1]; val_[y][x] = c[2]; hid_[y][x] = c[3];
             hidVal_[y][x] = c[4]; flags_[y][x] = c[5]; dmg_[y][x] = c[6];
         }
+    for (int i = 0; i < enemyCount_; ++i) enemies_[i] = enemyStates[i];
     gateOpenGroups_ = savedOpenGroups;
     uint32_t ev = 0;
     updateGates(ev);
