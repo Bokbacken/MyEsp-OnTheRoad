@@ -1,5 +1,9 @@
 # Skriva egna äventyr i ASCII (.adv)
 
+Vill du snabbt se vilka tecken och mekaniker som finns? Börja med
+[snabbguiden](ADVENTURE_AUTHORING_QUICKSTART.md). Den här sidan är den
+fullständiga referensen för formatet och alla avsnitt.
+
 Det här dokumentet visar hur du skriver ett helt äventyr till MyEsp-OnTheRoad
 i ett enkelt, läsbart textformat. Tanken är att man ska kunna **skapa och
 redigera egna äventyr direkt på SD-kortet** utan att röra C++-koden: du ritar

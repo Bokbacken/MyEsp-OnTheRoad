@@ -9,7 +9,8 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 > and par scoring. The S2 `.adv` example is in
 > [`docs/adventures/s2_demo/`](docs/adventures/s2_demo/); the four-room grouped
 > Sokoban example is in `sdcard_bundle/otr/adventure/sokoban/`. See
-> [adventure authoring](docs/AUTHORING_ADVENTURES.md) for syntax and limitations.
+> Start with the [adventure authoring quick guide](docs/ADVENTURE_AUTHORING_QUICKSTART.md);
+> see the [full authoring reference](docs/AUTHORING_ADVENTURES.md) for details.
 > S2 uses engine save format 4; formats 1–3 migrate, while the SD-session container
 > remains version 1. `tools/adv_parse.*` is still S1-only; S2 is validated by the
 > production loader. The owner has tested PR #11 on hardware and reports that it
