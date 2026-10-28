@@ -78,8 +78,11 @@ Status: v0.7.0 innehåller ett första **proof of concept** ("Testvärld", 60 ×
   den lika mycket. Laddningarna visas bredvid energistapeln.
 - **Skatter** är data i kartan (`MapDef::treasures`): dryck, hjärta, dräkt, extraliv, nyckel, ädelsten
   under låda, buske, sprucken vägg, sten eller dörr – avslöjas när objektet försvinner/flyttas.
-- **Minfältet** (40 × 30, 95 minor, dimma): besökt mark visar antalet minor runt omkring med klassiska
-  siffror, nollor flood-avslöjas, flaggor med långt tryck, mål = utgången. Minorna visas vid game over.
+- **Minfältet** (inbyggt, 40 × 30, 95 minor, dimma): besökt mark visar antalet minor runt omkring med
+  klassiska siffror, nollor flood-avslöjas, flaggor med långt tryck, mål = utgången. Minorna visas vid
+  game over. **Obs:** den inbyggda minsvepar-världen och 1→12-kampanjen är **vilande** (dormant) – menyn
+  kör enbart SD-banor. Minsvepare aktiveras numera per `.adv`-fil med `mine_level` – se
+  [`Minesweep_design.md`](Minesweep_design.md).
 - **Spara:** `/ffat/adv_<spelar-id>_<värld-id>.sav`, skrivs atomärt (tmp + rename). Format: 16 B header
   ("OTRS", version 1, kart-id, b, h, längd) + 32 B spelarblock (position, energi, max, liv, dräkt, nycklar,
   båt, ädelstenar, checkpoint, steg) + 7 B per ruta (terräng, objekt, skatt, dimma/flagga) + CRC32.

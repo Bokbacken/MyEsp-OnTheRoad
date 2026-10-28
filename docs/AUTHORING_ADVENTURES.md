@@ -243,6 +243,11 @@ minesweeper: true        # även "yes" / "1" accepteras
   energi / ett liv).
 - **Nivåtalet** `N` (1..12) ger HUD-indikatorn och startremsan samma beteende som
   den inbyggda kampanjen; värden utanför 0..12 ger ett parse-fel.
+- **Siffran placerar INTE minorna.** På en SD-karta är det glyfen `m` du ritar ut
+  som är minorna – `mine_level` genererar inga minor och ändrar inte deras
+  placering. Siffran är ett läges-/etikettval (HUD `N/12` + svårighetsparitet).
+  All svårighet styr du med planens storlek och antal `m`. Se
+  [`Minesweep_design.md`](Minesweep_design.md) för hela resonemanget.
 
 **Teckenlegend i en minsveparkarta** (samma glyfer som vanligt, avsnitt 5):
 
@@ -258,9 +263,14 @@ minesweeper: true        # även "yes" / "1" accepteras
 (`01_...`, `02_...`, ...) precis som vilket annat SD-äventyr som helst. När
 spelaren **vinner** en minsveparbana går sessionen vidare till nästa fil i
 ordningen – samma mekanism som att nå en `X`-utgång i ett vanligt äventyr – och
-på sista banan markeras äventyret som klarat. Ge varje fil sitt eget
-`mine_level` (t.ex. stigande 1→12). Förlust (game over) startar om den aktuella
-banan som vanligt.
+på sista banan markeras äventyret som klarat. Progressionen styrs alltså av
+**filordningen**, inte av `mine_level`-talet. Ge varje fil ett `mine_level` som
+passar den HUD-etikett du vill visa (t.ex. stigande 1→12, eller samma tal i
+klumpar). Förlust (game over) startar om den aktuella banan som vanligt.
+
+> **Obs `mine_level: 12`:** vinsttexten vid `12` är kampanjvinst-texten i stället
+> för den vanliga. Sätt `12` först på din **sista** bana (annars får spelaren fel
+> vinsttext mitt i serien). Detaljer i [`Minesweep_design.md`](Minesweep_design.md).
 
 **Rekommenderade regler** (vänliga och testbara, används av `minkampanj`):
 
