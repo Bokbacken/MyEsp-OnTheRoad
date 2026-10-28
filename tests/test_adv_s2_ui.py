@@ -2,15 +2,18 @@
 """Host-check production Adventure art, framebuffer, actions, movement and sound dispatch.
 
 No LVGL/ESP-IDF needed: only LVGL labels/hardware are stubbed. Uses the real World.
-Run: python3 tests/test_adv_s2_ui.py [repository-relative build directory]
+Run: python3 tests/test_adv_s2_ui.py [existing workspace parent directory]
 """
+import atexit
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-WORK = ROOT / (sys.argv[1] if len(sys.argv) > 1 else "build-adv-s2-ui")
-WORK.mkdir(parents=True, exist_ok=True)
+WORK = pathlib.Path(tempfile.mkdtemp(prefix="adv-s2-ui-", dir=sys.argv[1] if len(sys.argv) > 1 else None))
+atexit.register(shutil.rmtree, WORK)
 source = (ROOT / "main/ui_adventure.cpp").read_text()
 
 
@@ -182,10 +185,13 @@ static void movementTests() {
     auto ev=doMove(Dir::RIGHT);
     assert((ev&Otr::EV_MOVED) && world.steps()==4 && world.playerX()==2 && world.playerY()==2);
     assert(s_moveMs==0 && Audio::heard.size()==1);
-    assert(s_progressLabel->text.find("4")!=std::string::npos);
+    assert(s_progressLabel->text==(langIdx() ? "Steps:4  Par:4" : "Steg:4  Par:4"));
     char text[96]; performanceText(text,sizeof text); assert(strstr(text,"Equal")||strstr(text,"Lika"));
     // Check an ordinary single step keeps animation; forced chains never shortcut through walls.
     load(); doMove(Dir::DOWN); assert(s_moveMs>0);
+    assert(s_progressLabel->text==(langIdx() ? "Steps:1  Par:-" : "Steg:1  Par:-"));
+    clockMs+=1000; doMove(Dir::DOWN);
+    assert(s_progressLabel->text==(langIdx() ? "Steps:2  Par:-" : "Steg:2  Par:-"));
     load(); rows[1][2]=char(Otr::ICE_GLYPH); rows[1][3]='X'; reload();
     s_pathPos=3; s_joy.press(clockMs,70,0);
     ev=doMove(Dir::RIGHT);
@@ -202,6 +208,11 @@ static void movementTests() {
     load(1); rows[1][3]='X'; reload(1);
     world.move(Dir::RIGHT); ev=doMove(Dir::RIGHT);
     assert((ev&Otr::EV_EXIT) && results==1 && !world.parMet());
+    // Built-in true-minesweeper exits belong to tick()/mineResult(), not the generic result.
+    const char *mineRows[]={"#####","#SX.#","#####"};
+    auto mineRules=Otr::CLASSIC_RULES; mineRules.mineLevel=1;
+    assert(world.load(mineRows,3,mineRules)); snapPlayer(); results=0;
+    ev=doMove(Dir::RIGHT); assert((ev&Otr::EV_EXIT) && results==0);
     load(); performanceText(text,sizeof text); assert(strstr(text,"Par: -"));
     for (int c=0;c<6;++c) world.setKeys(Otr::KeyColor(c),10+c);
     inventoryMenu(); assert(Theme::inventoryCount==6);

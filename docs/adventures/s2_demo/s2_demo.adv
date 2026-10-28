@@ -37,7 +37,7 @@ O = door purple
 e = key cyan
 V = door cyan
 
-@timedgate 2: 24
+@timedgate 2: 36
 
 @map
 #####################
@@ -57,6 +57,6 @@ num: 1
 
 @node guide.start
 speaker: guide
-text.sv: Vänd mot spaken; tryck Aktivera. Plattan öppnar grinden i 24 steg. Is/pilar flyttar dig. Matcha nyckelns färg och siffra med dörren. Gå igen efter upplåsning.
-text.en: Face the lever; press Activate. Plate: gate open for 24 steps. Ice/arrows move you. Match key/door color and number. After unlocking, move again.
+text.sv: Vänd mot spaken; välj Spak med Byt och tryck nedanför. Plattan öppnar grinden i 36 steg. Is/pilar flyttar dig. Matcha nyckelns färg och siffra med dörren. Gå igen efter upplåsning.
+text.en: Face lever; choose Lever with Swap, then tap the lower button. Plate: 36 steps. Ice/arrows move you. Match key/door color and number. Move again after unlocking.
 choice: Jag provar! | Let me try! => END

@@ -2,6 +2,7 @@
 // Run from the repo root:
 //   g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include
 //   -Icomponents/otr_story/include tests/test_s2_demo.cpp main/adv_loader.cpp
+//   main/adv_catalog.cpp main/adv_sd_session.cpp
 //   components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp
 //   -o tests/test_s2_demo && ./tests/test_s2_demo
 #include <cctype>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "adv_loader.h"
+#include "adv_sd_session.h"
 #include "otr_world.h"
 
 #define CHECK(c) do { if (!(c)) { \
@@ -186,7 +188,7 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
         if (entered == Otr::Tile::PLATE) {
             ++timedOpened;
             CHECK((event & Otr::EV_GATE_OPEN) != 0);
-            CHECK(world.gateOpenForGroup(2) && world.timerRemaining(2) == 24);
+            CHECK(world.gateOpenForGroup(2) && world.timerRemaining(2) == 36);
         } else {
             const int expected = timer > delta ? timer - delta : 0;
             CHECK(world.timerRemaining(2) == expected);
@@ -199,7 +201,7 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
         if (entered == Otr::Tile::GATE && world.objAmount(tx, ty) == 2) {
             ++crossed;
             CHECK(world.playerX() == tx && world.playerY() == ty);
-            CHECK(world.timerRemaining(2) == 21);
+            CHECK(world.timerRemaining(2) == 33);
         }
         if (event & Otr::EV_EXIT) ++exits;
 
@@ -237,6 +239,102 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
     return true;
 }
 
+static bool sessionResume(const std::string &commands)
+{
+    const char *root = "sdcard_bundle/otr/adventure";
+    auto catalog = std::make_unique<Adv::Catalog>();
+    CHECK(Adv::scanCatalog(root, *catalog) > 0);
+    const Adv::CatalogEntry *entry = nullptr;
+    for (int i = 0; i < catalog->count; ++i)
+        if (std::string(catalog->items[i].folder) == "s2_demo") entry = &catalog->items[i];
+    CHECK(entry && entry->mapCount == 1 && entry->headerOk);
+
+    auto loaded = std::make_unique<Adv::Loaded>();
+    Adv::SdSession session;
+    Otr::World world;
+    Otr::Story::StoryState story;
+    const Otr::Story::Script *script = nullptr;
+    char err[2048] = {};
+    CHECK(session.start(root, *entry, *loaded, world, story, script, err, sizeof err));
+    CHECK(script == &loaded->script && script->validate(err, sizeof err) == 0);
+
+    size_t cursor = 0;
+    for (; cursor < commands.size(); ++cursor) {
+        const char c = commands[cursor];
+        const uint32_t event = c == 'A' ? world.activate() : world.move(direction(c));
+        if ((event & Otr::EV_KEY) && world.keys(Otr::KeyColor::GREEN) == 1) {
+            ++cursor;
+            break;
+        }
+    }
+    CHECK(cursor < commands.size());
+    CHECK(world.steps() == 30 && world.timerRemaining(2) == 11);
+    CHECK(world.rawObj(12, 5) == Otr::Obj::NONE); // Red door was actually unlocked.
+    CHECK(world.keys(Otr::KeyColor::RED) == 0 && world.keys(Otr::KeyColor::GREEN) == 1);
+    CHECK(world.rawObj(6, 5) == Otr::Obj::KEY_BLUE);
+    CHECK(world.rawObj(4, 7) == Otr::Obj::KEY_YELLOW);
+    CHECK(world.rawObj(8, 7) == Otr::Obj::KEY_PURPLE);
+    CHECK(world.rawObj(12, 7) == Otr::Obj::KEY_CYAN);
+    CHECK(world.leverOnAt(2, 1) && world.gateOpenForGroup(2));
+
+    std::vector<uint8_t> bytes(world.saveSize() + Otr::Story::StoryState::SAVE_BYTES + 1024);
+    const size_t written = session.save(world, story, bytes.data(), bytes.size());
+    CHECK(written > 0 && written <= bytes.size());
+    bytes.resize(written);
+
+    // A genuinely fresh session loads the real file again before overlaying the save.
+    auto freshLoaded = std::make_unique<Adv::Loaded>();
+    Adv::SdSession freshSession;
+    Otr::World freshWorld;
+    Otr::Story::StoryState freshStory;
+    const Otr::Story::Script *freshScript = nullptr;
+    CHECK(freshSession.start(root, *entry, *freshLoaded, freshWorld, freshStory,
+                             freshScript, err, sizeof err));
+    CHECK(freshWorld.steps() == 0 && freshWorld.timerRemaining(2) == 0);
+    CHECK(!freshWorld.leverOnAt(2, 1) && !freshWorld.gateOpenForGroup(2));
+    CHECK(freshWorld.rawObj(12, 5) == Otr::Obj::DOOR_RED);
+    CHECK(freshWorld.keys(Otr::KeyColor::GREEN) == 0);
+
+    CHECK(freshSession.restore(bytes.data(), bytes.size(), *freshLoaded, freshWorld,
+                               freshStory, freshScript, err, sizeof err));
+    CHECK(freshSession.active() && freshSession.mapIndex() == 0);
+    CHECK(freshSession.mapCount() == 1 && !freshSession.hasNext());
+    CHECK(std::string(freshSession.folder()) == "s2_demo");
+    CHECK(freshScript == &freshLoaded->script && freshScript->validate(err, sizeof err) == 0);
+    CHECK(freshWorld.playerX() == world.playerX() && freshWorld.playerY() == world.playerY());
+    CHECK(freshWorld.facing() == world.facing());
+    CHECK(freshWorld.steps() == 30 && freshWorld.par() == 56 && freshWorld.parMet());
+    CHECK(freshWorld.timerRemaining(2) == 11);
+    CHECK(freshWorld.leverOnAt(2, 1) && freshWorld.gateOpenForGroup(1));
+    CHECK(freshWorld.gateOpenForGroup(2));
+    for (int color = 0; color < 6; ++color) {
+        const auto key = static_cast<Otr::KeyColor>(color);
+        CHECK(freshWorld.keys(key) == world.keys(key));
+    }
+    for (int y = 0; y < world.height(); ++y)
+        for (int x = 0; x < world.width(); ++x) {
+            CHECK(freshWorld.tile(x, y) == world.tile(x, y));
+            CHECK(freshWorld.rawObj(x, y) == world.rawObj(x, y));
+            CHECK(freshWorld.objAmount(x, y) == world.objAmount(x, y));
+        }
+
+    int doors = 0, exits = 0;
+    for (; cursor < commands.size(); ++cursor) {
+        const char c = commands[cursor];
+        const uint32_t event = c == 'A' ? freshWorld.activate() : freshWorld.move(direction(c));
+        CHECK((event & (Otr::EV_NEED_KEY | Otr::EV_BLOCKED | Otr::EV_GAME_OVER)) == 0);
+        if (event & Otr::EV_DOOR) ++doors;
+        if (event & Otr::EV_EXIT) ++exits;
+    }
+    CHECK(doors == 5 && exits == 1 && freshWorld.exitReached());
+    CHECK(freshWorld.playerX() == 18 && freshWorld.playerY() == 7);
+    CHECK(freshWorld.steps() == 56 && freshWorld.parMet());
+    CHECK(freshWorld.timerRemaining(2) == 0 && !freshWorld.gateOpenForGroup(2));
+    for (int color = 0; color < 6; ++color)
+        CHECK(freshWorld.keys(static_cast<Otr::KeyColor>(color)) == 0);
+    return true;
+}
+
 int main()
 {
     const char *docs = "docs/adventures/s2_demo/s2_demo.adv";
@@ -248,7 +346,7 @@ int main()
     }
     std::string commands;
     if (!solutionFromReadme(commands) || !playFile(docs, commands, false) ||
-        !playFile(bundle, commands, true)) return 1;
-    std::puts("S2 external demo: both files parsed and solved; all mechanics verified");
+        !playFile(bundle, commands, true) || !sessionResume(commands)) return 1;
+    std::puts("S2 external demo: both files solved; all mechanics and SD session resume verified");
     return 0;
 }

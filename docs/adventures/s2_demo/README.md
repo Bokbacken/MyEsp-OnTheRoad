@@ -14,12 +14,18 @@ each key precedes its matching door; the exit is at the bottom right.
 
 Use the **joystick** for ice/belts: A* tap-to-walk excludes ice and belt cells
 from its route, so it cannot plan through them, even to a destination beyond them.
-Face a lever and use **Activate**; walking into it only turns/blocks.
+It can detour around them or leave a stopped player already on one; it does
+not simulate automatic chains.
+Face a lever; use **Byt / Swap** (upper button) to choose **Spak / Lever**, then
+press the lower action button to activate it. Walking into it only turns/blocks.
 An unlock consumes the matching key **without moving**: repeat the direction
 to enter the cleared door cell.
 
 Exact solution from a fresh start: `R/U/L/D` are single right/up/left/down
-joystick inputs; `A` is Activate. Ignore whitespace, do not repeat held inputs.
+joystick inputs; for `A`, use **Byt / Swap → Spak / Lever** if needed, then
+tap the **lower action button once**. The selection persists for `AAA`, so
+those are three lower-button taps, not three selector taps.
+Ignore whitespace, do not repeat held inputs.
 The initial `U` deliberately faces the lever without moving; three activations
 demonstrate on/off/on. Automatic motion needs no extra inputs.
 
@@ -60,27 +66,59 @@ Color **and number** identify each pair; generic legacy keys do not substitute.
 `i` is ice and `{ > v <` are up/right/down/left belts.
 
 `@timedgate <group>: <N>` accepts `N` from 1 to 65535.
-`@timedgate 2: 24` opens group 2 for 24 subsequent successful cell
+`@timedgate 2: 36` opens group 2 for 36 subsequent successful cell
 displacements after player entry onto the plate (rock entry also triggers).
 Old timers tick before a newly entered plate starts its timer. The gate is
-three steps beyond the plate: a 21-step margin. Blocking, unlocking,
+three steps beyond the plate: a 33-step margin. Blocking, unlocking,
 Activate and Hit never tick timers. A timed group has exactly one plate
 **or** one lever. Non-timed groups may share toggle levers, but may not mix
-plates with levers. Ice continues in the entry direction until non-ice or an
-obstacle; belts force their arrow direction. Ice/belts force only the player, never automatic pushing,
-unlocking or talking; automatic movement is capped at 128 steps per input.
-`@rules` → `par: 56` is a displacement target, not a command count.
+plates with levers. Entering the timed plate again restarts the full timer;
+a timed lever activation likewise restarts its timer rather than toggling off.
+An ordinary grouped plate still needs a rock, not just the player.
+
+A timer reaching zero closes its gates **even if the player occupies one**.
+Closure does not crush or relocate the player: leaving is allowed, but
+re-entry is blocked until the group opens again. Saving/reloading while
+standing on that closed gate is supported.
+
+Ice continues in the entry direction until non-ice or an obstacle; belts
+force their arrow direction. Ice/belts force only the player. A wall,
+closed gate, rock, locked door or NPC stops automatic motion at the last
+reachable cell: it never automatically pushes, unlocks, vaults or starts dialogue.
+Use a fresh manual input/action for those interactions. Every displaced
+cell, including automatic movement, counts as a step and ticks timers;
+the failed automatic attempt adds neither. Automatic movement is capped at
+128 extra steps per input.
+
+`@rules` → `par: N` accepts 1–65535; omit it for no target.
+`par: 56` is a displacement target, not a command count:
+56 or fewer steps meets it, 57 does not. It does not prevent completion.
+
+New saves use **engine save format 4**, preserving colored inventory, lever
+latches and remaining timers (the enclosing SD-session container remains
+version 1). The engine still reads legacy formats 1–3
+for legacy state; their generic keys and existing grouped plates/gates retain
+their meaning, with new colored inventories, lever latches and timers initially
+empty/off. Loading a legacy save does not invent S2 progress; the next save
+writes format 4. Older firmware cannot read format 4. Keep the adventure folder
+and map ID stable when retaining saves.
 
 ## Validation
 
 Run the compile command at the top of `tests/test_s2_demo.cpp` from repo root.
 It parses both real files, checks byte equality and executes the solution.
+It also starts a real SD session, saves with the red door open, a green key
+held and 11 timer steps remaining, then restores into a fresh session/world
+and completes the same README solution at 56 steps.
+Use the production `Adv::parseFile` loader for S2; the older reference parser
+in `tools/adv_parse.*` remains S1-only and is not an S2 validator.
 
 Manual device checklist — **not hardware-tested here**. Repeat on **320×480**
 and **480×800**, in SV and EN:
 
 - Find the SD adventure; read the instructor without clipped controls/text.
-- Face the lever; verify Activate toggles its lamp/gate, not a movement attempt.
+- Face the lever; select Spak/Lever with Byt/Swap, then verify the lower button
+  toggles its lamp/gate. Walking into the lever must not activate it.
 - Cross the timed gate; check timer feedback and eventual closure.
 - Use the joystick across ice and all four arrows; verify camera/controls remain usable.
 - Match all six key/door colors **and 1–6 markers**, including HUD counts;

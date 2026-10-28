@@ -268,6 +268,7 @@ bool SdSession::restore(const uint8_t *data, size_t n, Loaded &scratch, Otr::Wor
         return false;
     }
     story = tmp;
+    completed_ = w.exitReached() && !hasNext();
     return true;
 }
 

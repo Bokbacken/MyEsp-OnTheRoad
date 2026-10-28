@@ -926,7 +926,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             const int sx = tx * ts - camX, sy = ty * ts - camY;
             if (over && w.rawObj(tx, ty) == Obj::MINE) {   // Game over: show where the mines were
                 blit(terrainSprite(tx, ty, frame), sx, sy, false);
-                    terrainOverlay(w.tile(tx, ty), tx, ty, sx, sy);
+                terrainOverlay(w.tile(tx, ty), tx, ty, sx, sy);
                 blit(S_MINE, sx, sy, true);
                 continue;
             }
@@ -1747,7 +1747,7 @@ static uint32_t doMove(Dir d, bool vault = false)
     }
     if (ev & (Otr::EV_MINE | Otr::EV_BURNED)) eventToasts(ev & (Otr::EV_CHECKPOINT));
     updateStats();
-    if ((ev & Otr::EV_EXIT) && !s_sd.active()) adventureResult();
+    if ((ev & Otr::EV_EXIT) && !s_sd.active() && !s_world->mineLevel()) adventureResult();
     if (ev & Otr::EV_TALK) startTalk(s_world->talkNpc());
     return ev;
 }
@@ -2813,7 +2813,7 @@ static void buildGame(bool loadFailed)
     Theme::loadScreen(s_scr);
     Audio::music(Sound::Music::ADVENTURE);
     if (s_world->gameOver()) showGameOver();
-    else if (s_world->exitReached() && (!s_sd.active() || s_sd.completed())) adventureResult();
+    else if (!s_world->mineLevel() && s_world->exitReached() && (!s_sd.active() || s_sd.completed())) adventureResult();
 }
 
 static void startGame(bool cont)

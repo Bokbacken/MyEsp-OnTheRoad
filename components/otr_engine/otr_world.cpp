@@ -65,7 +65,7 @@ bool isGround(Tile t)
     case Tile::GRASS: case Tile::SAND: case Tile::FLOOR: case Tile::RUBBLE:
     case Tile::BRIDGE: case Tile::BASALT: case Tile::PLATE: case Tile::CHECKPOINT:
     case Tile::EXIT: case Tile::CRATER:
-    case Tile::LEVER: case Tile::ICE: case Tile::BELT_UP: case Tile::BELT_RIGHT:
+    case Tile::ICE: case Tile::BELT_UP: case Tile::BELT_RIGHT:
     case Tile::BELT_DOWN: case Tile::BELT_LEFT:
         return true;
     default:
@@ -76,6 +76,7 @@ bool isGround(Tile t)
 bool coloredKey(Obj o) { return o >= Obj::KEY_RED && o <= Obj::KEY_CYAN; }
 bool coloredDoor(Obj o) { return o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN; }
 bool forcedTile(Tile t) { return t >= Tile::ICE && t <= Tile::BELT_LEFT; }
+bool groupedTile(Tile t) { return t == Tile::PLATE || t == Tile::GATE || t == Tile::LEVER; }
 bool blocksWalk(Obj o) { return o == Obj::ROCK || o == Obj::CRATE || o == Obj::DOOR || o == Obj::BUSH || o == Obj::NPC || coloredDoor(o); }
 bool isItem(Obj o)
 {
@@ -204,7 +205,8 @@ bool World::load(const MapDef &def)
     updateGates(gateEvents);
     for (int i = 0; i < def.treasureCount && def.treasures; i++) {
         const Treasure &t = def.treasures[i];
-        if (!inside(t.x, t.y) || !isItem(t.item) || hid_[t.y][t.x]) return false;
+        if (!inside(t.x, t.y) || !isItem(t.item) || hid_[t.y][t.x] || groupedTile(tile(t.x, t.y)))
+            return false; // Group ids and item amounts share val_; they cannot occupy the same cell.
         // v0.18.5: @treasures takes precedence over a map-glyph PICKUP on the same cell, so a
         // higher pogo / flashlight level (or any treasure) wins over the bare glyph (e.g. j, f).
         // Only item glyphs are cleared — containers (crate, rock, bush, door, cracked wall) still
@@ -269,6 +271,7 @@ uint32_t World::activate()
     const int x = px_ + dirX(facing_), y = py_ + dirY(facing_);
     if (!inside(x, y) || tile(x, y) != Tile::LEVER) return EV_NONE;
     const int group = val_[y][x];
+    if (group >= PLATE_GROUPS) return EV_NONE;
     if (controlSteps_[group]) timers_[group] = controlSteps_[group];
     else leverGroups_ ^= uint64_t(1) << group;
     uint32_t ev = EV_LEVER;
@@ -288,6 +291,7 @@ void World::activatePlate(int x, int y, uint32_t &ev)
 {
     if (tile(x, y) != Tile::PLATE) return;
     const int group = val_[y][x];
+    if (group >= PLATE_GROUPS) return;
     if (controlSteps_[group]) {
         timers_[group] = controlSteps_[group];
         ++rev_;
@@ -395,6 +399,7 @@ void World::updateGates(uint32_t &ev)
         for (int x = 0; x < w_; x++)
             if (terrain_[y][x] == (uint8_t)Tile::PLATE) {
                 const int group = val_[y][x];
+                if (group >= PLATE_GROUPS) continue;
                 hasPlate[group] = true;
                 if (obj_[y][x] != (uint8_t)Obj::ROCK) allCovered[group] = false;
             }
@@ -701,7 +706,7 @@ bool World::forcedMotion(Dir &direction) const
 
 uint32_t World::resolveForced(uint32_t ev)
 {
-    for (int n = 0; n < 128 && !(ev & (EV_DIED | EV_EXIT | EV_MINE)); ++n) {
+    for (int n = 0; n < 128 && !(ev & (EV_DIED | EV_EXIT | EV_MINE | EV_BURNED)); ++n) {
         Dir d;
         if (!forcedMotion(d)) break;
         const int x = px_ + dirX(d), y = py_ + dirY(d);
@@ -766,7 +771,8 @@ bool World::moveNpc(int num, int x, int y)
     int ox, oy;
     if (!findNpc(num, ox, oy)) return false;
     if (ox == x && oy == y) return true;
-    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || (x == px_ && y == py_) || !isGround(tile(x, y))) return false;
+    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || (x == px_ && y == py_) ||
+        !isGround(tile(x, y)) || groupedTile(tile(x, y))) return false;
     obj_[oy][ox] = (uint8_t)Obj::NONE;
     val_[oy][ox] = 0;
     obj_[y][x] = (uint8_t)Obj::NPC;

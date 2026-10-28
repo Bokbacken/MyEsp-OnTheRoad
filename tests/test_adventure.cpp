@@ -1374,11 +1374,15 @@ static void testS2Controls()
     CHECK_EQ(W.activate(), EV_LEVER | EV_GATE_OPEN);
     CHECK(W.leverOnAt(0, 1)); CHECK(W.leverOnAt(1, 1));
     CHECK(!W.leverOnAt(99, 0));
+    CHECK_EQ(W.move(Dir::DOWN), EV_BLOCKED); // Facing a lever does not enter or toggle it.
+    CHECK_EQ(W.steps(), 0);
+    CHECK(!W.playerCanEnter(0, 1));
+    CHECK(!Planner::targetable(W, 0, 1));
     CHECK_EQ(W.steps(), 0);
     CHECK_EQ(W.par(), 3); CHECK(W.parMet());
     W.move(Dir::RIGHT);
-    W.move(Dir::DOWN);
     W.move(Dir::RIGHT);
+    W.move(Dir::DOWN);
     CHECK_EQ(W.steps(), 3); CHECK(W.parMet());
     W.move(Dir::RIGHT); W.move(Dir::LEFT);     // Face the second lever from the gate.
     CHECK_EQ(W.activate(), EV_LEVER | EV_GATE_CLOSE);
@@ -1402,9 +1406,9 @@ static void testS2Controls()
     CHECK_EQ(W.timerRemaining(4), 2);
     W.hit();
     CHECK_EQ(W.timerRemaining(4), 2);
-    W.move(Dir::DOWN);
+    W.move(Dir::RIGHT);
     CHECK_EQ(W.timerRemaining(4), 1);
-    CHECK(W.move(Dir::RIGHT) & EV_GATE_CLOSE); // Last open step can enter the gate.
+    CHECK(W.move(Dir::DOWN) & EV_GATE_CLOSE); // Last open step can enter the gate.
     CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.playerY(), 1);
     CHECK_EQ(W.timerRemaining(4), 0);
     CHECK(!W.playerCanEnter(1, 1));
@@ -1473,6 +1477,35 @@ static void testS2Controls()
     CHECK(!W.load(timed));
     timed.controls = nullptr;
     CHECK(!W.load(timed));
+
+    char solidLeverRow[] = {'S', 'R', (char)LEVER_GLYPH, '.', 0};
+    const char *solidLeverRows[] = {solidLeverRow};
+    CHECK(W.load(solidLeverRows, 1));
+    CHECK_EQ(W.move(Dir::RIGHT), EV_BLOCKED);
+    CHECK_EQ(W.rawObj(1, 0), Obj::ROCK);
+    CHECK_EQ(W.steps(), 0);
+    solidLeverRow[1] = (char)ICE_GLYPH;
+    CHECK(W.load(solidLeverRows, 1));
+    CHECK_EQ(W.move(Dir::RIGHT), EV_MOVED | EV_BLOCKED);
+    CHECK_EQ(W.playerX(), 1);
+    CHECK_EQ(W.steps(), 1);                   // Forced movement also cannot enter a lever.
+
+    // Group ids share val_ with object amounts: reject overlays before uncover can replace
+    // a valid group with an item amount such as 255.
+    for (uint8_t glyph : {GROUPED_PLATE_GLYPH, GROUPED_GATE_GLYPH, LEVER_GLYPH}) {
+        char overlayRow[] = {'S', (char)(glyph + 35), '.', '1', 0};
+        const char *overlayRows[] = {overlayRow};
+        Treasure treasure{1, 0, Obj::POTION, 255};
+        MapDef overlay{96, overlayRows, 1, CLASSIC_RULES, &treasure, 1, nullptr, 0};
+        CHECK(!W.load(overlay));
+        overlay.treasures = nullptr; overlay.treasureCount = 0;
+        CHECK(W.load(overlay));
+        CHECK(!W.moveNpc(1, 1, 0));
+        CHECK_EQ(W.objAmount(1, 0), 35);
+        treasure.item = Obj::KEY_CYAN; treasure.amount = 0;
+        overlay.treasures = &treasure; overlay.treasureCount = 1;
+        CHECK(!W.load(overlay));
+    }
 }
 
 static void testS2Forced()
@@ -1530,17 +1563,34 @@ static void testS2Forced()
     uint32_t ev = W.move(Dir::RIGHT);
     CHECK(ev & EV_MINE); CHECK_EQ(W.playerX(), 2); CHECK_EQ(W.steps(), 2);
     CHECK(!(ev & EV_DIED));
+    char lavaRow[] = {'S', (char)ICE_GLYPH, '^', (char)(BELT_UP_GLYPH + 1), '.', 0};
+    const char *lava[] = {lavaRow};
+    CHECK(W.load(lava, 1, R8));
+    const int energy = W.energy();
+    ev = W.move(Dir::RIGHT);
+    CHECK(ev & EV_BURNED); CHECK(!(ev & EV_DIED));
+    CHECK_EQ(W.playerX(), 2); CHECK_EQ(W.steps(), 2);
+    CHECK_EQ(W.energy(), energy - R8.lavaDamage);
 
     // Death must not continue from the respawn/checkpoint position.
-    char deathRow[] = {'S', 'Q', (char)ICE_GLYPH, '^', '.', 0};
+    char deathRow[] = {'S', '.', '.', '.', '.', '.', '.', 'Q', (char)ICE_GLYPH, '^', '.', 0};
+    for (int c = 0; c < 6; ++c) deathRow[c + 1] = (char)(COLOR_DOOR_GLYPH + c);
     const char *deaths[] = {deathRow};
     CHECK(W.load(deaths, 1));
+    for (int c = 0; c < 6; ++c) W.setKeys((KeyColor)c, 11 + c * 7);
+    for (int c = 0; c < 6; ++c) {
+        CHECK_EQ(W.move(Dir::RIGHT), EV_DOOR);
+        CHECK(W.move(Dir::RIGHT) & EV_MOVED);
+    }
     CHECK(W.move(Dir::RIGHT) & EV_CHECKPOINT);
-    W.setKeys(KeyColor::CYAN, 4);
     ev = W.move(Dir::RIGHT);
     CHECK(ev & EV_DIED);
-    CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.checkpointX(), 1);
-    CHECK_EQ(W.steps(), 3); CHECK_EQ(W.keys(KeyColor::CYAN), 4);
+    CHECK_EQ(W.playerX(), 7); CHECK_EQ(W.checkpointX(), 7);
+    CHECK_EQ(W.steps(), 9);
+    for (int c = 0; c < 6; ++c) {
+        CHECK_EQ(W.keys((KeyColor)c), 10 + c * 7);
+        CHECK_EQ(W.rawObj(c + 1, 0), Obj::NONE);
+    }
 
     // Manual vault uses the same forced resolver, and is one displacement itself.
     char vaultRow[] = {'S', '#', (char)ICE_GLYPH, (char)(BELT_UP_GLYPH + 1), 'X', '.', 0};
@@ -1579,7 +1629,7 @@ static void testS2Forced()
     MapDef timed{93, timerRows, 2, CLASSIC_RULES, nullptr, 0, nullptr, 0, &control, 1, 0};
     CHECK(W.load(timed));
     CHECK(W.activate() & EV_LEVER);
-    W.move(Dir::DOWN); W.move(Dir::RIGHT);
+    W.move(Dir::RIGHT); W.move(Dir::DOWN);
     W.move(Dir::RIGHT);                       // Three more displacements through ice to x4.
     CHECK_EQ(W.steps(), 5); CHECK_EQ(W.timerRemaining(3), 0);
     CHECK(!W.parMet());
@@ -1597,21 +1647,21 @@ static void testS2Forced()
 
 static void testS2Save()
 {
-    char bottom[] = {(char)(GROUPED_LEVER_GLYPH + 35), '.', '.', '.', 0};
+    char top[] = {'S', '.', (char)(GROUPED_LEVER_GLYPH + 35), '.', 0};
     GroupControl control{4, 9};
     char timedBottom[] = {(char)(GROUPED_LEVER_GLYPH + 4), '.', '.', '.', 0};
-    const char *timedRows[] = {"S...", timedBottom, bottom};
+    const char *timedRows[] = {top, timedBottom, "...."};
     MapDef def{94, timedRows, 3, CLASSIC_RULES, nullptr, 0, nullptr, 0, &control, 1, 20};
     CHECK(W.load(def));
     CHECK(W.activate() & EV_LEVER);
-    W.move(Dir::DOWN);
+    W.move(Dir::RIGHT);
     CHECK(W.activate() & EV_LEVER);           // Toggle group 35 while timed group 4 is active.
     for (int c = 0; c < 6; ++c) W.setKeys((KeyColor)c, c * 40 + 1);
     W.setFlashlight(2); W.setPogo(3); W.setKeys(17);
     const size_t n = W.save(SAVEBUF, sizeof(SAVEBUF));
     CHECK(n > 0);
     CHECK(W.load(def)); CHECK(W.restore(SAVEBUF, n));
-    CHECK(W.leverOnAt(0, 2)); CHECK_EQ(W.timerRemaining(4), 8);
+    CHECK(W.leverOnAt(2, 0)); CHECK_EQ(W.timerRemaining(4), 8);
     CHECK_EQ(W.par(), 20); CHECK_EQ(W.steps(), 1);
     CHECK_EQ(W.keys(), 17); CHECK_EQ(W.flashlight(), 2); CHECK_EQ(W.pogo(), 3);
     for (int c = 0; c < 6; ++c) CHECK_EQ(W.keys((KeyColor)c), c * 40 + 1);
