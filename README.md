@@ -557,6 +557,9 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o test
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine
 g++ -std=c++17 -Wall -Wextra -Imain -Imain/lang tests/test_lang.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o tests/test_lang && ./tests/test_lang   # string tables
+g++ -std=c++17 -Wall -Wextra -Imain tests/test_battery.cpp -o tests/test_battery && ./tests/test_battery   # battery scaling, estimated charge, alert timing/filter/gating
+g++ -std=c++17 -Wall -Wextra -Werror -Itests/battery_stubs -Imain -Icomponents/my_wifi/include -Imain/lang tests/test_battery_config.cpp main/app_config.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o tests/test_battery_config && ./tests/test_battery_config   # battery and karaoke NVS defaults/sanitizing
+g++ -std=c++17 -Wall -Wextra -Imain tests/test_karaoke_geometry.cpp -o tests/test_karaoke_geometry && ./tests/test_karaoke_geometry   # volume rail bounds
 g++ -std=c++17 -Wall -Wextra -Imain -Itests/stub tests/test_live.cpp main/game_live.cpp main/game_yatzy.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_live && ./tests/test_live   # web seat release
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
@@ -573,7 +576,8 @@ for the production Karaoke UI, real TextInput and MIDI/index at logical 480×320
 in Swedish/English, using the production 256 KiB LVGL heap (engine/hardware stubbed).
 It covers flip, page next/back, scrolling to the last A–Ö key (minimum 44×42 px targets),
 modal-hit search, real keyboard CANCEL/READY callbacks and all keyboard child bounds,
-minus/plus on all steppers, last track, long messages, lyrics/no lyrics and actual-font label fit.
+minus/plus on all steppers, battery status/navigation bounds, drag/debounce volume persistence, lyrics/seek/button separation,
+last track, long messages, lyrics/no lyrics and actual-font label fit.
 See the [Phase D results](docs/ui-migration-inventory.md#körda-d-kontroller-och-verifieringsgräns)
 for exact recorded commands, results and remaining physical checks.
 

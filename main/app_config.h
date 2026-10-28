@@ -52,6 +52,12 @@ struct AppConfig {
     // v0.13.5: web karaoke stream /ws/karaoke (default 1; NVS "kara_webstream", no UI). 0 = the
     // endpoint is never registered (limited bandwidth)
     uint8_t karaWebStream;
+    // Karaoke master synth output (0..100); not the amplifier enable or game/SFX level.
+    uint8_t karaVolume;
+    // Battery divider calibration: battery mV / ADC mV in permille; 0 = not calibrated.
+    uint16_t batteryScalePermille;
+    // Approximate battery-full point for the generic LiPo percentage curve (mV).
+    uint16_t batteryFullMv;
 };
 
 // Joystick limits shared by the UI and the web API.

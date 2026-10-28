@@ -17,6 +17,25 @@ inte en leverans i denna version.
 
 Karaoke är en egen modul (`main/karaoke.*`, `main/ui_karaoke.*`) och ersätter inget av tärningsspelen eller äventyret.
 
+### Karaokevolym och batteristatus
+
+Volymreglaget använder befintliga `Karaoke::setVolume()` / `Audio::setExternalVolume()` och påverkar den
+gemensamma externa karaoke-syntutgången (alla MIDI-kanaler tillsammans), inte en analog förstärkargain.
+Det bevarar kanalernas relativa mix och ändrar inte GPIO1:ans förstärkar-enable, mute eller sound-on-policy.
+Mixerns befintliga volymkurva går upp till 2×; SoundFont-renderingen har redan -14 dB headroom. Reglaget
+och inställningspanelens stegreglage delar samma värde, som sparas till NVS efter släpp/debounce.
+
+Batteriindikeringen kan bara visa spänning efter att både ADC-fabriks/eFuse-kalibrering finns och användaren
+har sparat en engångsskala från en multimetermätning. GPIO8:s spänningsdelare är inte verifierad; utan
+kalibrering visas okänt, aldrig en uppskattad procent eller laddsymbol. Se
+[hårdvarureferensens batteriavsnitt](hardware_reference.md#10-battery-and-power) för mätsteg och fysiska tester.
+
+Återstående hårdvarutest: på S3-kortet, kontrollera reglagets touchyta och separation från text/knappar i
+90° och 270° Karaoke-läge; ändra volym både med reglaget och stegreglaget, verifiera omedelbart ljud,
+sound-on/mute och webbljudets policy samt lyssna efter överstyrning. Upprepa batteriets multimetermätning
+och kontrollera ADC/volymstabilitet med ljud aktivt och USB ansluten/frånkopplad. P4-layouten är hosttestad
+som 800×480 logisk yta, inte fysiskt verifierad eller portad.
+
 ## 2. Arkitektur (v0.13.0, selektiv laddning och effekter v0.13.2)
 
 ```

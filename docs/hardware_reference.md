@@ -453,11 +453,21 @@ This order helps avoid startup pops and unexpectedly loud output.
 | Board input | 5 V through USB-C |
 | Battery type | Single-cell 3.7 V LiPo |
 | Charger | TP4054 |
-| Battery measurement | GPIO8 ADC through an onboard divider |
+| Battery measurement | GPIO8 / ADC1 channel 7 through an onboard divider (ratio unverified) |
 | Manufacturer-stated actual charge current | approximately 290 mA |
 | Manufacturer-stated full-system current example | approximately 401 mA with display, speaker, and charging active |
 
-Do not calculate battery voltage from GPIO8 until the divider ratio and ADC calibration are confirmed. Never connect a battery solely by connector shape; confirm polarity first.
+The firmware samples GPIO8 on the ES3C35P only, using ESP-IDF ADC oneshot at 12 dB attenuation and curve-fitting/eFuse ADC calibration when available. It takes eight readings and filters them in a low-priority task at 10-second intervals. Raw ADC counts remain available without ADC calibration; calibrated pin millivolts require the ADC calibration scheme. The P4 profile reports battery measurement as unsupported and never configures the S3 ADC pin.
+
+The divider ratio is still unverified: no matching schematic or manufacturer value has been confirmed. Battery voltage therefore stays **unknown** until an explicit one-point calibration is saved from a multimeter reading across the battery connector. That calibration is an empirical scale factor, not proof of the resistor values or board revision. The on-device settings and web settings accept a measured reference from 2500–4500 mV; the web diagnostics also expose raw ADC counts, calibrated ADC millivolts, and the estimated battery voltage. Never connect a battery directly to GPIO8.
+
+After voltage calibration, the firmware records one `battery` event every five minutes in `/ffat/events.log`, containing timestamped battery millivolts, ADC pin millivolts, raw ADC count, and divider scale. The standard event-log timestamp is local time when the clock is anchored, otherwise uptime; uncalibrated or invalid samples are omitted rather than logged as battery voltage. Download the file from the internal Flash-FAT (`/ffat`) in the web file browser. The log is bounded to 256 KiB plus one rotated backup (`events.log.1`), shared with other persistent events.
+
+After divider calibration, the UI shows a **rough** percentage based on a generic single-cell Li-ion/LiPo resting-voltage curve. The implementation uses interpolated points from about 3.0 V (0%) to a configurable full point (default 4.2 V, 3.9–4.3 V allowed), with most percentage change across the broad 3.65–3.8 V plateau and only a small estimated change from 4.2 V to 4.0 V (100% to about 97%). This follows the broad shape in [Ufine's typical Li-ion discharge curve](https://www.ufinebattery.com/blog/lithium-ion-battery-voltage-chart/); the chart is illustrative, not a per-cell characterization. The web settings can adjust that battery-specific full point separately from the ADC divider scale; use the cell's specified full voltage, and leave the default if unknown. The estimate is not a capacity measurement: cell chemistry, age, temperature, recent charging, audio load, and board cutoff behavior all change the voltage-to-capacity relationship, and voltage alone cannot accurately resolve state of charge across a flat plateau. Indicator colors are green above 30%, orange at 10–30%, and red below 10%; below 5% it blinks and plays a short click every 30 seconds when sound is enabled. No low-battery shutdown is performed.
+
+The TP4054 is listed in board material, but the firmware has no verified charge-status input. A rising battery voltage can also result from audio/load changes, and a reading above 4.15 V is not proof of active charging. The UI therefore does **not** show a charging/USB icon or infer charging from voltage trends.
+
+For manual validation, compare the displayed raw ADC and calibrated ADC pin voltage with a meter/known voltage, then calibrate against the voltage measured at BAT+ and BAT−. Repeat with audio idle and playing, and with USB disconnected/connected. Check the reading over several samples and after a reboot. The divider, absolute accuracy, and stability under load have **not** been physically verified. Never connect a battery directly to GPIO8 or attach a battery solely by connector shape; confirm polarity first.
 
 ---
 
@@ -526,7 +536,7 @@ A community hardware reference reports a working ST77922 panel and touch configu
 12. Mount microSD in 4-bit mode and perform a write/read test.
 13. Initialize ES8311 while the speaker amplifier remains disabled.
 14. Test low-volume playback, then microphone capture.
-15. Add battery ADC only after the divider ratio has been verified.
+15. Read raw battery ADC only on a verified S3 profile; show voltage only after ADC and one-point divider calibration, and verify the actual divider before treating it as hardware-confirmed.
 
 ---
 

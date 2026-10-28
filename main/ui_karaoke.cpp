@@ -12,6 +12,7 @@
 #include "board_audio.h"
 #include "board_display.h"
 #include "kara_web.h"
+#include "karaoke_layout.h"
 #include "karaoke.h"
 #include "lang.h"
 #include "my_lvgl.h"
@@ -30,7 +31,8 @@ constexpr uint32_t TICK_MS = 40;
 constexpr uint32_t DEBOUNCE_MS = 500;
 struct Layout {
     int32_t w, h, inset, gap, buttonH, headerH, infoY, lyricsY, lyricsH;
-    int32_t seekY, seekH, bottomY, bottomW, listY, listW, jumpW, toolbarY, toolbarW;
+    int32_t lyricsW, seekY, seekH, seekW, timeX, bottomY, bottomW, listY, listW, jumpW, toolbarY, toolbarW;
+    int32_t volumeX, volumeW, volumeLabelY, volumeSliderY, volumeH;
 };
 
 Layout layout()
@@ -49,6 +51,18 @@ Layout layout()
     l.seekH = std::max<int32_t>(28, my_font_14.line_height + 12);
     l.seekY = l.bottomY - l.gap - l.seekH;
     l.lyricsH = l.seekY - l.gap - l.lyricsY;
+    constexpr int32_t timeW = 124;
+    const KaraokeLayout::VolumeRail rail = KaraokeLayout::volumeRail(
+        l.w, l.inset, l.gap, l.buttonH, l.infoY, l.bottomY, my_font_14.line_height,
+        UiMetrics::buttonWMin(), timeW);
+    l.volumeX = rail.x;
+    l.volumeW = rail.width;
+    l.volumeLabelY = rail.labelY;
+    l.volumeSliderY = rail.sliderY;
+    l.volumeH = rail.height;
+    l.lyricsW = rail.lyricsWidth;
+    l.seekW = rail.seekWidth;
+    l.timeX = rail.timeX;
     l.jumpW = std::clamp<int32_t>(l.w / 12, 44, 52);
     l.toolbarY = l.headerH + l.gap;
     l.toolbarW = l.w - l.jumpW - 2 * l.inset - l.gap;
@@ -79,7 +93,8 @@ bool s_fontForSong = false;
 
 // Player screen
 struct Player {
-    lv_obj_t *scr, *lyrics, *prev, *cur, *next, *next2, *slider, *timeLbl, *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
+    lv_obj_t *scr, *lyrics, *prev, *cur, *next, *next2, *slider, *volumeTrack, *volumeSlider, *volumeValue, *timeLbl,
+        *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
     lv_span_t *spSung, *spRest;
     lv_obj_t *cdRow;                                // v0.13.6 countdown dots (hidden outside pauses)
     lv_obj_t *cdDot[Karaoke::COUNTDOWN_MAX];
@@ -88,9 +103,44 @@ struct Player {
     lv_timer_t *timer;
     int line, syl;
     uint32_t lastSec;
-    bool dragging, finished;
+    bool dragging, volumeDragging, volumeUpdating, volumeChanged, finished;
 };
 Player P{};
+lv_timer_t *s_volumeSaveTimer = nullptr;
+
+void persistVolume(lv_timer_t *timer)
+{
+    if (timer) {
+        if (timer != s_volumeSaveTimer) return;
+        s_volumeSaveTimer = nullptr;  // A one-shot timer deletes itself after this callback.
+    } else if (s_volumeSaveTimer) {
+        lv_timer_delete(s_volumeSaveTimer);
+        s_volumeSaveTimer = nullptr;
+    }
+    P.volumeChanged = false;
+    Config::save();
+}
+
+void scheduleVolumeSave()
+{
+    if (!s_volumeSaveTimer) s_volumeSaveTimer = lv_timer_create(persistVolume, 700, nullptr);
+    if (s_volumeSaveTimer) {
+        lv_timer_set_repeat_count(s_volumeSaveTimer, 1);
+        lv_timer_reset(s_volumeSaveTimer);
+    } else Config::save();
+}
+
+void syncVolumeControls()
+{
+    if (!P.volumeSlider) return;
+    const uint8_t volume = Karaoke::volume();
+    if (!P.volumeDragging && lv_slider_get_value(P.volumeSlider) != volume) {
+        P.volumeUpdating = true;
+        lv_slider_set_value(P.volumeSlider, volume, LV_ANIM_OFF);
+        P.volumeUpdating = false;
+    }
+    if (P.volumeValue) lv_label_set_text_fmt(P.volumeValue, "%u%%", (unsigned)volume);
+}
 
 void showPlayer();
 void showFonts(bool forSong);
@@ -125,7 +175,7 @@ lv_obj_t *backButton(lv_obj_t *scr)
 {
     const auto l = layout();
     lv_obj_t *b = Theme::button(scr, LV_SYMBOL_LEFT, l.buttonH, l.buttonH, Theme::LINE);
-    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -l.inset, 0);
+    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -l.inset - l.gap - Theme::BATTERY_STATUS_WIDTH, 0);
     return b;
 }
 
@@ -562,7 +612,8 @@ void showList()
     lv_obj_t *scr = s_listScr = Theme::screen();
     lv_obj_t *header = Theme::header(scr, tr(Str::MENU_KARAOKE));
     lv_obj_set_height(header, l.headerH);
-    singleLine(lv_obj_get_child(header, 0), l.w - l.buttonH - 2 * l.inset);
+    singleLine(lv_obj_get_child(header, 0),
+               l.w - l.buttonH - Theme::BATTERY_STATUS_WIDTH - 3 * l.inset - l.gap);
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
         if (!Theme::debounce(backLast, DEBOUNCE_MS)) return;
@@ -806,6 +857,7 @@ void tick(lv_timer_t *)
         P.line = -3;
     }
     const Karaoke::View v = Karaoke::view();
+    syncVolumeControls();
     updateLyrics(v, false);
     onCountdown(v.cdDots, v.cdLit);
     const uint32_t sec = v.posUs / 1000000;
@@ -837,6 +889,7 @@ void playerDeleted(lv_event_t *e)
 {
     if (lv_event_get_target(e) != P.scr) return;
     if (P.timer) lv_timer_delete(P.timer);
+    if (s_volumeSaveTimer || P.volumeChanged) persistVolume(nullptr);
     P = Player{};
 }
 
@@ -897,9 +950,9 @@ lv_obj_t *sheetBase(const char *title, int32_t h)
 
 struct Stepper {
     lv_obj_t *value;
-    int kind;   // 0 tempo, 1 key, 2 volume
+    int kind;   // 0 tempo, 1 key
 };
-Stepper s_steps[3];
+Stepper s_steps[2];
 
 void refreshSteppers()
 {
@@ -908,24 +961,18 @@ void refreshSteppers()
     if (s_steps[0].value) lv_label_set_text(s_steps[0].value, buf);
     snprintf(buf, sizeof(buf), "%+d", Karaoke::transpose());
     if (s_steps[1].value) lv_label_set_text(s_steps[1].value, buf);
-    snprintf(buf, sizeof(buf), "%u", (unsigned)Karaoke::volume());
-    if (s_steps[2].value) lv_label_set_text(s_steps[2].value, buf);
+    syncVolumeControls();
 }
 
 void stepCb(lv_event_t *e)
 {
-    static uint32_t last[6] = {};
+    static uint32_t last[4] = {};
     const int code = (int)(intptr_t)lv_event_get_user_data(e);   // kind * 2 + (0 = minus, 1 = plus)
     if (!Theme::debounce(last[code], 200)) return;
     const int dir = (code & 1) ? 1 : -1;
     switch (code / 2) {
     case 0: Karaoke::setTempo(Karaoke::tempo() + dir * 5); break;
     case 1: Karaoke::setTranspose(Karaoke::transpose() + dir); break;
-    case 2: {
-        int v = Karaoke::volume() + dir * 10;
-        Karaoke::setVolume((uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v));
-        break;
-    }
     }
     refreshSteppers();
 }
@@ -933,9 +980,9 @@ void stepCb(lv_event_t *e)
 void showSettings()
 {
     const auto l = layout();
-    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 262);
-    const Str names[3] = {Str::KARA_TEMPO, Str::KARA_KEY, Str::KARA_VOLUME};
-    for (int k = 0; k < 3; k++) {
+    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 220);
+    const Str names[2] = {Str::KARA_TEMPO, Str::KARA_KEY};
+    for (int k = 0; k < 2; k++) {
         lv_obj_t *row = lv_obj_create(c);
         lv_obj_remove_style_all(row);
         lv_obj_set_size(row, LV_PCT(100), l.buttonH);
@@ -1145,6 +1192,7 @@ void showPlayer()
 {
     const Midi::Song *song = Karaoke::song();
     if (!song) return;
+    Karaoke::setVolume(Config::get().karaVolume);
     closeSheet();
     const auto l = layout();
     if (s_listTimer) lv_timer_pause(s_listTimer);
@@ -1160,8 +1208,9 @@ void showPlayer()
     lv_obj_set_height(hdr, l.headerH);
     lv_obj_t *title = lv_obj_get_child(hdr, 0);
     lv_label_set_text(title, f.title.c_str());
-    singleLine(title, l.w - 2 * l.buttonH - 3 * l.inset);
-    ctlButton(scr, LV_SYMBOL_LIST, l.w - 2 * l.buttonH - l.inset - l.gap, 0,
+    singleLine(title, l.w - 2 * l.buttonH - Theme::BATTERY_STATUS_WIDTH - 3 * l.inset - 3 * l.gap);
+    ctlButton(scr, LV_SYMBOL_LIST,
+              l.w - 2 * l.buttonH - Theme::BATTERY_STATUS_WIDTH - l.inset - 2 * l.gap, 0,
               l.buttonH, l.buttonH, Theme::TEAL, [](lv_event_t *) { showPlayerMenu(); });
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
@@ -1187,7 +1236,7 @@ void showPlayer()
     P.lyrics = lv_obj_create(scr);
     lv_obj_remove_style_all(P.lyrics);
     lv_obj_set_pos(P.lyrics, l.inset, l.lyricsY);
-    lv_obj_set_size(P.lyrics, infoW, l.lyricsH);
+    lv_obj_set_size(P.lyrics, l.lyricsW, l.lyricsH);
     lv_obj_set_flex_flow(P.lyrics, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(P.lyrics, l.gap, 0);
@@ -1203,7 +1252,7 @@ void showPlayer()
     };
     P.prev = lyricLabel(&my_font_18, Theme::LINE);
     P.cur = lv_spangroup_create(P.lyrics);
-    lv_obj_set_width(P.cur, infoW);
+    lv_obj_set_width(P.cur, l.lyricsW);
     lv_obj_set_height(P.cur, LV_SIZE_CONTENT);
     lv_spangroup_set_max_lines(P.cur, -1);
     lv_spangroup_set_overflow(P.cur, LV_SPAN_OVERFLOW_CLIP);
@@ -1237,7 +1286,7 @@ void showPlayer()
 
     P.slider = lv_slider_create(scr);
     const int32_t timeW = 124;
-    lv_obj_set_size(P.slider, infoW - timeW - 2 * l.inset, 8);
+    lv_obj_set_size(P.slider, l.seekW, 8);
     lv_obj_set_pos(P.slider, 2 * l.inset, l.seekY + l.seekH / 2 - 4);
     lv_slider_set_range(P.slider, 0, (int32_t)(song->lengthUs / 100000 > 0 ? song->lengthUs / 100000 : 1));
     lv_obj_set_style_bg_color(P.slider, Theme::c(Theme::LINE), LV_PART_MAIN);
@@ -1254,7 +1303,61 @@ void showPlayer()
     P.timeLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
     singleLine(P.timeLbl, timeW);
     lv_obj_set_style_text_align(P.timeLbl, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_pos(P.timeLbl, l.w - l.inset - timeW, l.seekY + (l.seekH - my_font_14.line_height) / 2);
+    lv_obj_set_pos(P.timeLbl, l.timeX, l.seekY + (l.seekH - my_font_14.line_height) / 2);
+
+    P.volumeValue = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+    lv_obj_set_width(P.volumeValue, l.volumeW);
+    lv_obj_set_style_text_align(P.volumeValue, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(P.volumeValue, l.volumeX, l.volumeLabelY);
+    P.volumeTrack = lv_obj_create(scr);
+    lv_obj_remove_style_all(P.volumeTrack);
+    lv_obj_set_size(P.volumeTrack, 12, l.volumeH);
+    lv_obj_set_pos(P.volumeTrack, l.volumeX + (l.volumeW - 12) / 2, l.volumeSliderY);
+    lv_obj_set_style_radius(P.volumeTrack, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(P.volumeTrack, Theme::c(Theme::LINE), 0);
+    lv_obj_set_style_bg_opa(P.volumeTrack, LV_OPA_30, 0);
+    lv_obj_set_clickable(P.volumeTrack, false);
+    lv_obj_set_scrollable(P.volumeTrack, false);
+    P.volumeSlider = lv_slider_create(scr);
+    lv_obj_remove_style_all(P.volumeSlider);
+    lv_obj_set_size(P.volumeSlider, l.volumeW, l.volumeH);
+    lv_obj_set_pos(P.volumeSlider, l.volumeX, l.volumeSliderY);
+    lv_slider_set_orientation(P.volumeSlider, LV_SLIDER_ORIENTATION_VERTICAL);
+    lv_slider_set_range(P.volumeSlider, 0, 100);
+    lv_slider_set_value(P.volumeSlider, Karaoke::volume(), LV_ANIM_OFF);
+    lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(P.volumeSlider, (l.volumeW - 12) / 2, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(P.volumeSlider, (l.volumeW - 12) / 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_40, LV_PART_INDICATOR);
+    lv_obj_set_style_border_width(P.volumeSlider, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(P.volumeSlider, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(P.volumeSlider, Theme::c(Theme::TEXT), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_border_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_KNOB);
+    lv_obj_set_style_border_width(P.volumeSlider, 2, LV_PART_KNOB);
+    lv_obj_set_style_radius(P.volumeSlider, 3, LV_PART_KNOB);
+    lv_obj_set_style_width(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_WIDTH, LV_PART_KNOB);
+    lv_obj_set_style_height(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_HEIGHT, LV_PART_KNOB);
+    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
+        P.volumeDragging = true;
+        P.volumeChanged = false;
+    }, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *e) {
+        if (P.volumeUpdating) return;
+        Karaoke::setVolume((uint8_t)lv_slider_get_value(lv_event_get_target_obj(e)));
+        P.volumeChanged = true;
+        syncVolumeControls();
+        if (!P.volumeDragging) scheduleVolumeSave();
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
+        P.volumeDragging = false;
+        if (P.volumeChanged) {
+            scheduleVolumeSave();
+            P.volumeChanged = false;
+        }
+    }, LV_EVENT_RELEASED, nullptr);
+    syncVolumeControls();
 
     // Five primary controls fit both supported landscape formats without a second row.
     const int32_t BW = l.bottomW, BH = l.buttonH, X0 = l.inset, DX = BW + l.gap, Y1 = l.bottomY;

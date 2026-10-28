@@ -3,6 +3,8 @@
 // secondary accent for the game screens.
 #pragma once
 
+#include <stdio.h>
+
 #include "lvgl.h"
 
 // Fonts generated with lv_font_conv: Montserrat Medium (ASCII + Latin-1, so å/ä/ö work)
@@ -14,24 +16,74 @@ LV_FONT_DECLARE(my_font_36);
 
 namespace Theme {
 
+constexpr int32_t BATTERY_STATUS_WIDTH = 62;
+constexpr uint32_t ACCENT      = 0xFF9C3D;
+constexpr uint32_t GREEN       = 0x62D28A;
+constexpr uint32_t RED         = 0xFF7373;
+constexpr uint32_t MUTED       = 0xA9B8CA;
+inline lv_color_t c(uint32_t hex);
+
+struct BatteryIndicator {
+    bool percentValid;
+    uint8_t percent;
+};
+
+using BatteryIndicatorReader = BatteryIndicator (*)();
+
+inline BatteryIndicatorReader &batteryIndicatorReader()
+{
+    static BatteryIndicatorReader reader = nullptr;
+    return reader;
+}
+
+inline void setBatteryIndicatorReader(BatteryIndicatorReader reader)
+{
+    batteryIndicatorReader() = reader;
+}
+
+inline void refreshBatteryIndicator(lv_timer_t *timer)
+{
+    if (!timer) return;
+    auto *battery = static_cast<lv_obj_t *>(lv_timer_get_user_data(timer));
+    if (!battery || !lv_obj_is_valid(battery) || lv_obj_get_child_count(battery) < 3) return;
+    const BatteryIndicatorReader reader = batteryIndicatorReader();
+    const BatteryIndicator state = reader ? reader() : BatteryIndicator{};
+    auto *body = lv_obj_get_child(battery, 0);
+    auto *terminal = lv_obj_get_child(battery, 1);
+    auto *label = lv_obj_get_child(battery, 2);
+    if (!body || !terminal || !label || lv_obj_get_child_count(body) == 0) return;
+    auto *fill = lv_obj_get_child(body, 0);
+    const bool known = state.percentValid && state.percent <= 100;
+    const bool critical = known && state.percent < 5;
+    const bool blinkOff = critical && ((lv_tick_get() / 500) & 1);
+    const uint32_t color = !known ? MUTED : state.percent > 30 ? GREEN : state.percent >= 10 ? ACCENT : RED;
+    lv_obj_set_style_border_color(body, c(color), 0);
+    lv_obj_set_style_bg_color(terminal, c(color), 0);
+    lv_obj_set_style_bg_color(fill, c(color), 0);
+    const int32_t fillWidth = (10 * state.percent + 50) / 100;
+    lv_obj_set_width(fill, known && state.percent ? (fillWidth ? fillWidth : 1) : 0);
+    lv_obj_set_style_bg_opa(fill, known && !blinkOff ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_opa(body, blinkOff ? LV_OPA_40 : LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(terminal, blinkOff ? LV_OPA_40 : LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(label, c(color), 0);
+    lv_obj_set_style_text_opa(label, blinkOff ? LV_OPA_40 : LV_OPA_COVER, 0);
+    if (known) lv_label_set_text_fmt(label, "~%u%%", state.percent);
+    else lv_label_set_text(label, "?");
+}
+
 // --- Palette (0xRRGGBB) ---
 constexpr uint32_t BG          = 0x101B2B;   // Navy page background
 constexpr uint32_t PANEL       = 0x17263A;
 constexpr uint32_t PANEL_RAISED= 0x1D3048;
 constexpr uint32_t LINE        = 0x34465D;
 constexpr uint32_t TEXT        = 0xEDF2F8;
-constexpr uint32_t MUTED       = 0xA9B8CA;
-constexpr uint32_t ACCENT      = 0xFF9C3D;   // Orange (primary actions, focus)
 constexpr uint32_t ACCENT_DARK = 0x4A2E12;
 constexpr uint32_t TEAL        = 0x00B4D8;   // Secondary accent (game)
-constexpr uint32_t GREEN       = 0x62D28A;
-constexpr uint32_t RED         = 0xFF7373;
 constexpr uint32_t BLUE        = 0x80BAFF;
 constexpr uint32_t GOLD        = 0xFFD45C;
 constexpr uint32_t DIE_FACE    = 0xF7F4EC;   // Ivory dice
 constexpr uint32_t DIE_PIP     = 0x1A1F2B;
 constexpr uint32_t NEST_BG     = 0x0B1420;   // Darker "nest" for held dice
-
 inline lv_color_t c(uint32_t hex) { return lv_color_hex(hex); }
 
 // Double-tap guard for toggle-type actions: returns true if the action may run, false when it
@@ -119,6 +171,52 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title)
     lv_obj_set_scrollable(h, false);
     lv_obj_t *t = label(h, title, &my_font_24);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_obj_set_width(t, LV_PCT(76));
+    lv_obj_set_height(t, lv_font_get_line_height(&my_font_24));
+    lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
+
+    lv_obj_t *battery = lv_obj_create(h);
+    lv_obj_remove_style_all(battery);
+    lv_obj_set_size(battery, BATTERY_STATUS_WIDTH, 32);
+    lv_obj_align(battery, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_add_flag(battery, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_scrollable(battery, false);
+    lv_obj_set_clickable(battery, false);
+
+    lv_obj_t *body = lv_obj_create(battery);
+    lv_obj_remove_style_all(body);
+    lv_obj_set_size(body, 18, 12);
+    lv_obj_set_pos(body, 0, 10);
+    lv_obj_set_style_radius(body, 2, 0);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(body, c(ACCENT), 0);
+    lv_obj_set_style_border_width(body, 2, 0);
+    lv_obj_set_clickable(body, false);
+    lv_obj_t *fill = lv_obj_create(body);
+    lv_obj_remove_style_all(fill);
+    lv_obj_set_size(fill, 0, 6);
+    lv_obj_set_pos(fill, 3, 3);
+    lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(fill, false);
+    lv_obj_t *terminal = lv_obj_create(battery);
+    lv_obj_remove_style_all(terminal);
+    lv_obj_set_size(terminal, 3, 6);
+    lv_obj_set_pos(terminal, 18, 13);
+    lv_obj_set_style_bg_color(terminal, c(ACCENT), 0);
+    lv_obj_set_style_bg_opa(terminal, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(terminal, false);
+    lv_obj_t *voltage = label(battery, "?", &my_font_14, MUTED);
+    lv_obj_set_size(voltage, 38, lv_font_get_line_height(&my_font_14));
+    lv_obj_set_pos(voltage, 24, 8);
+    lv_obj_set_clickable(voltage, false);
+    lv_timer_t *timer = lv_timer_create(refreshBatteryIndicator, 500, battery);
+    refreshBatteryIndicator(timer);
+    if (timer) {
+        lv_obj_add_event_cb(h, [](lv_event_t *e) {
+            if (lv_event_get_target(e) == lv_event_get_current_target(e))
+                lv_timer_delete(static_cast<lv_timer_t *>(lv_event_get_user_data(e)));
+        }, LV_EVENT_DELETE, timer);
+    }
     return h;
 }
 

@@ -13,6 +13,7 @@
 #include "app_players.h"
 #include "app_web.h"
 #include "board_audio.h"
+#include "board_battery.h"
 #include "board_sd.h"
 #include "otr_log.h"
 #include "lang.h"
@@ -20,6 +21,7 @@
 #include "board_display.h"
 #include "board_rgb.h"
 #include "board_touch.h"
+#include "battery_math.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "my_diag.h"
@@ -35,6 +37,8 @@
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
+#include "my_theme.h"
+#include "karaoke.h"
 
 static const char *TAG = "main";
 
@@ -80,6 +84,25 @@ static void colourTest(bool displayOk)
 
 static bool otaBusy() { return MyOta::busy(); }
 
+static Theme::BatteryIndicator batteryIndicator()
+{
+    const BoardBattery::Status status = BoardBattery::status();
+    uint16_t batteryMv = 0;
+    uint8_t percent = 0;
+    const uint16_t scale = Config::get().batteryScalePermille;
+    const bool voltageValid = status.supported && status.sampleValid && status.adcCalibrated &&
+                              BatteryMath::batteryMillivolts(status.adcMillivolts, scale, batteryMv);
+    return {voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent), percent};
+}
+
+static void checkLowBatteryAlert(uint32_t now)
+{
+    static uint32_t lastBeep = 0;
+    const Theme::BatteryIndicator battery = batteryIndicator();
+    if (BatteryMath::lowBatteryAlertDue(battery.percentValid, battery.percent, Config::get().soundOn, now, lastBeep))
+        Audio::play(Sound::Sfx::CLICK);
+}
+
 extern "C" void app_main(void)
 {
     // --- Core services: NVS, log capture, filesystem, settings, clock, diagnostics ---
@@ -88,9 +111,11 @@ extern "C" void app_main(void)
     otr_log_init();   // v0.13.7: 64 KB byte ring + SD rotation, chained after MyLog
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
     const bool fsOk = MyFat::mount("ffat", "/ffat", false);   // Never erase profiles on a mount failure.
-    if (fsOk) MyLog::setEventFile("/ffat/events.log");
+    if (fsOk) MyLog::setEventFile("/ffat/events.log", 256 * 1024);
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
+    Theme::setBatteryIndicatorReader(batteryIndicator);
+    BoardBattery::begin();
     const AppConfig &cfg = Config::get();
     Lang::setLang(cfg.lang);
     MyTime::begin(CFG_NVS_NS, "clk_t", cfg.tz);   // Same key as the Arduino builds
@@ -199,6 +224,7 @@ extern "C" void app_main(void)
     {
         const bool audioOk = Audio::begin(Touch::bus());
         Audio::setVolumes(cfg.soundOn, cfg.sfxVol, cfg.musicOn, cfg.musicVol);
+        Karaoke::setVolume(cfg.karaVolume);
         ESP_LOGI(TAG, "audio %s", audioOk ? "ok" : "not available");
     }
     UiBoot::setProgress(50);
@@ -267,10 +293,29 @@ extern "C" void app_main(void)
     }
 
     uint32_t lastRtcCheck = MySys::millis();
+    uint32_t lastBatteryAlertCheck = lastRtcCheck;
+    uint32_t lastBatteryLog = lastRtcCheck;
     for (;;) {
         MyWifi::loop();
         MyTime::loop();
-        BoardSd::poll(MySys::millis());   // Card removed / inserted
+        const uint32_t now = MySys::millis();
+        const BoardBattery::Status battery = BoardBattery::status();
+        uint16_t batteryMv = 0;
+        const AppConfig &currentConfig = Config::get();
+        const bool batteryVoltageValid =
+            battery.supported && battery.sampleValid && battery.adcCalibrated &&
+            BatteryMath::batteryMillivolts(battery.adcMillivolts, currentConfig.batteryScalePermille, batteryMv);
+        if (BatteryMath::batteryLogDue(batteryVoltageValid, now, lastBatteryLog)) {
+            lastBatteryLog = now;
+            MyLog::event("battery", "battery_mV=%u adc_mV=%u raw=%ld scale_permille=%u",
+                         static_cast<unsigned>(batteryMv), static_cast<unsigned>(battery.adcMillivolts),
+                         static_cast<long>(battery.raw), static_cast<unsigned>(currentConfig.batteryScalePermille));
+        }
+        if (static_cast<uint32_t>(now - lastBatteryAlertCheck) >= 1000) {
+            lastBatteryAlertCheck = now;
+            checkLowBatteryAlert(now);
+        }
+        BoardSd::poll(now);   // Card removed / inserted
         // Keep the RTC in step with a certain clock: right after each NTP sync / manual set, otherwise every
         // 10 minutes (covers manual sets; writes only when the drift is >= 1 s).
         const bool changed = MyTime::takeClockChanged();

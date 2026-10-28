@@ -11,9 +11,11 @@
 #include "app_players.h"
 #include "app_web_files.h"
 #include "board_audio.h"
+#include "board_battery.h"
 #include "board_sd.h"
 #include "board_display.h"
 #include "board_touch.h"
+#include "battery_math.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -228,6 +230,29 @@ static void diagAudio(cJSON *o)
     cJSON_AddStringToObject(o, "error", s.error ? s.error : "");
 }
 
+static void diagBattery(cJSON *o)
+{
+    const BoardBattery::Status s = BoardBattery::status();
+    cJSON_AddBoolToObject(o, "supported", s.supported);
+    cJSON_AddBoolToObject(o, "initialized", s.initialized);
+    cJSON_AddBoolToObject(o, "sample_valid", s.sampleValid);
+    cJSON_AddBoolToObject(o, "adc_calibrated", s.adcCalibrated);
+    cJSON_AddNumberToObject(o, "raw_adc", s.sampleValid ? s.raw : -1);
+    cJSON_AddNumberToObject(o, "adc_mv", s.adcCalibrated ? s.adcMillivolts : -1);
+    cJSON_AddNumberToObject(o, "scale_permille", Config::get().batteryScalePermille);
+    cJSON_AddNumberToObject(o, "full_reference_mv", Config::get().batteryFullMv);
+    uint16_t batteryMv = 0;
+    const bool voltageValid = s.supported && s.sampleValid && s.adcCalibrated &&
+                              BatteryMath::batteryMillivolts(s.adcMillivolts, Config::get().batteryScalePermille,
+                                                             batteryMv);
+    uint8_t percent = 0;
+    const bool percentValid =
+        voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent);
+    cJSON_AddNumberToObject(o, "battery_mv", voltageValid ? batteryMv : -1);
+    cJSON_AddNumberToObject(o, "estimated_percent", percentValid ? percent : -1);
+    cJSON_AddNumberToObject(o, "errors", s.errors);
+}
+
 void registerDiag()
 {
     MyDiag::add("wifi", diagWifi);
@@ -239,6 +264,7 @@ void registerDiag()
     MyDiag::add("storage", diagStorage);
     MyDiag::add("sd", diagSd);
     MyDiag::add("audio", diagAudio);
+    MyDiag::add("battery", diagBattery);
     MyDiag::add("boot", diagBoot);
 }
 
@@ -284,6 +310,9 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "sfx_vol", c.sfxVol);
     cJSON_AddBoolToObject(o, "music_on", c.musicOn);
     cJSON_AddNumberToObject(o, "music_vol", c.musicVol);
+    cJSON_AddNumberToObject(o, "kara_volume", c.karaVolume);
+    cJSON_AddNumberToObject(o, "battery_scale_permille", c.batteryScalePermille);
+    cJSON_AddNumberToObject(o, "battery_full_mv", c.batteryFullMv);
     cJSON_AddNumberToObject(o, "joy_zones", c.joyZones);
     cJSON_AddNumberToObject(o, "joy_slow_ms", c.joySlowMs);
     cJSON_AddNumberToObject(o, "joy_fast_ms", c.joyFastMs);
@@ -319,11 +348,33 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     }
     if (q.getInt("sfx_vol", 0, 100, v, bad)) next.sfxVol = (uint8_t)v;
     if (q.getInt("music_vol", 0, 100, v, bad)) next.musicVol = (uint8_t)v;
+    if (q.getInt("kara_volume", 0, 100, v, bad)) next.karaVolume = (uint8_t)v;
+    if (q.getInt("battery_scale_permille", 0, BatteryMath::SCALE_MAX_PERMILLE, v, bad)) {
+        if (!BatteryMath::validScale(static_cast<uint16_t>(v))) bad = true;
+        else next.batteryScalePermille = static_cast<uint16_t>(v);
+    }
+    if (q.getInt("battery_full_mv", BatteryMath::BATTERY_FULL_MIN_MV, BatteryMath::BATTERY_FULL_MAX_MV, v, bad))
+        next.batteryFullMv = static_cast<uint16_t>(v);
+    bool batteryCalibrationFailed = false;
+    if (q.has("battery_reference_mv")) {
+        if (q.getInt("battery_reference_mv", BatteryMath::BATTERY_MIN_MV, BatteryMath::BATTERY_MAX_MV, v, bad)) {
+            const BoardBattery::Status bs = BoardBattery::status();
+            uint16_t scale = 0;
+            if (!bs.supported || !bs.sampleValid || !bs.adcCalibrated ||
+                !BatteryMath::scaleFromReference(static_cast<int32_t>(v), bs.adcMillivolts, scale))
+                batteryCalibrationFailed = true;
+            else
+                next.batteryScalePermille = scale;
+        } else {
+            batteryCalibrationFailed = true;
+        }
+    }
     if (q.getInt("joy_zones", 1, 4, v, bad)) next.joyZones = (uint8_t)v;
     if (q.getInt("joy_slow_ms", JOY_MS_MIN, JOY_MS_MAX, v, bad)) next.joySlowMs = (uint16_t)v;
     if (q.getInt("joy_fast_ms", JOY_MS_MIN, JOY_MS_MAX, v, bad)) next.joyFastMs = (uint16_t)v;
     if (q.getInt("joy_hold_ms", JOY_HOLD_MIN, JOY_HOLD_MAX, v, bad)) next.joyHoldMs = (uint16_t)v;
     if (q.getInt("joy_diag", 0, 1, v, bad)) next.joyDiag = (uint8_t)v;
+    if (batteryCalibrationFailed) return MyWeb::sendError(r, 400, tr(Str::BATTERY_CALIBRATION_FAILED));
     if (bad) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NUMBER));
     if (q.getBool("led_enabled", b)) next.ledEnabled = b;
     if (q.getBool("sound_on", b)) next.soundOn = b;

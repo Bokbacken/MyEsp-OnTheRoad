@@ -2,6 +2,7 @@
 #include "ui_settings.h"
 
 #include "my_sys.h"
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -11,9 +12,13 @@
 #include "board_display.h"
 #include "app_config.h"
 #include "board_rgb.h"
+#include "board_battery.h"
 #include "board_touch.h"
+#include "battery_math.h"
+#include "karaoke.h"
 #include "my_wifi.h"
 #include "ui_clock.h"
+#include "ui_numpad.h"
 #include "lang.h"
 #include "my_theme.h"
 #include "ui_wifi.h"
@@ -22,7 +27,7 @@
 namespace UiSettings {
 
 static AppConfig s_edit;            // Working copy, committed on "Spara"
-static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo;
+static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo, *s_batteryInfo;
 static lv_obj_t *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
 static lv_obj_t *s_slowSl, *s_fastSl;
 static lv_timer_t *s_timer = nullptr;
@@ -44,6 +49,7 @@ void applyHardware()
     Rgb::setBrightness(c.ledBrightness);
     applyRotation(c.rotation == 180);
     Audio::setVolumes(c.soundOn, c.sfxVol, c.musicOn, c.musicVol);
+    Karaoke::setVolume(c.karaVolume);
 }
 
 static void previewSound() { Audio::setVolumes(s_edit.soundOn, s_edit.sfxVol, s_edit.musicOn, s_edit.musicVol); }
@@ -74,6 +80,75 @@ static void refreshInfo(lv_timer_t *)
         snprintf(buf + n, sizeof(buf) - n, tr(Str::SET_AUDIO_INFO), as.running ? "OK" : tr(Str::SET_MISSING));
     }
     lv_label_set_text(s_sdInfo, buf);
+
+    char batteryText[180];
+    const BoardBattery::Status bs = BoardBattery::status();
+    if (!bs.supported) {
+        snprintf(batteryText, sizeof(batteryText), "%s", tr(Str::BATTERY_UNSUPPORTED));
+    } else if (!bs.initialized) {
+        snprintf(batteryText, sizeof(batteryText), "%s", tr(Str::BATTERY_ADC_FAILED));
+    } else if (!bs.sampleValid) {
+        snprintf(batteryText, sizeof(batteryText), "%s", tr(Str::BATTERY_WAIT));
+    } else if (!bs.adcCalibrated) {
+        char raw[48];
+        snprintf(raw, sizeof(raw), tr(Str::BATTERY_RAW_FMT), (long)bs.raw);
+        snprintf(batteryText, sizeof(batteryText), "%s\n%s\n%s", tr(Str::BATTERY_ADC_CAL_MISSING),
+                 raw, tr(Str::BATTERY_UNKNOWN));
+    } else {
+        uint16_t batteryMv = 0;
+        const bool calibrated = BatteryMath::batteryMillivolts(bs.adcMillivolts, s_edit.batteryScalePermille,
+                                                                batteryMv);
+        char raw[48], adc[48], voltage[48];
+        snprintf(raw, sizeof(raw), tr(Str::BATTERY_RAW_FMT), (long)bs.raw);
+        snprintf(adc, sizeof(adc), tr(Str::BATTERY_ADC_MV_FMT), (unsigned)bs.adcMillivolts);
+        if (calibrated) {
+            snprintf(voltage, sizeof(voltage), tr(Str::BATTERY_VOLTAGE_FMT),
+                     (unsigned)(batteryMv / 1000), (unsigned)(batteryMv % 1000));
+            snprintf(batteryText, sizeof(batteryText), "%s\n%s\n%s", raw, adc, voltage);
+        } else {
+            snprintf(batteryText, sizeof(batteryText), "%s\n%s\n%s", raw, adc, tr(Str::BATTERY_UNKNOWN));
+        }
+    }
+    lv_label_set_text(s_batteryInfo, batteryText);
+}
+
+static bool batteryCalibrationDone(const char *reference, bool ok, void *pad)
+{
+    if (!ok) return true;
+    const BoardBattery::Status bs = BoardBattery::status();
+    uint16_t scale = 0;
+    const long batteryMv = reference ? strtol(reference, nullptr, 10) : 0;
+    if (!bs.supported || !bs.sampleValid || !bs.adcCalibrated ||
+        !BatteryMath::scaleFromReference((int32_t)batteryMv, bs.adcMillivolts, scale)) {
+        UiNumpad::setHint((lv_obj_t *)pad, tr(Str::BATTERY_CALIBRATION_FAILED), true);
+        return false;
+    }
+
+    AppConfig &c = Config::get();
+    const uint16_t previous = c.batteryScalePermille;
+    c.batteryScalePermille = scale;
+    if (!Config::save()) {
+        c.batteryScalePermille = previous;
+        UiNumpad::setHint((lv_obj_t *)pad, tr(Str::BATTERY_SAVE_FAILED), true);
+        return false;
+    }
+    s_edit.batteryScalePermille = scale;
+    refreshInfo(nullptr);
+    return true;
+}
+
+static void resetBatteryCalibration()
+{
+    AppConfig &c = Config::get();
+    const uint16_t previous = c.batteryScalePermille;
+    if (previous == 0) return;
+    c.batteryScalePermille = 0;
+    if (!Config::save()) {
+        c.batteryScalePermille = previous;
+        return;
+    }
+    s_edit.batteryScalePermille = 0;
+    refreshInfo(nullptr);
 }
 
 static lv_obj_t *sliderRow(lv_obj_t *parent, const char *title, int min, int max, int value, lv_obj_t **valLabel,
@@ -188,6 +263,7 @@ static void leave(bool save)
         Config::get().sfxVol = s_edit.sfxVol;
         Config::get().musicOn = s_edit.musicOn;
         Config::get().musicVol = s_edit.musicVol;
+        Config::get().batteryScalePermille = s_edit.batteryScalePermille;
         Config::get().joyZones = s_edit.joyZones;
         Config::get().joySlowMs = s_edit.joySlowMs;
         Config::get().joyFastMs = s_edit.joyFastMs;
@@ -366,6 +442,23 @@ void show()
         applyHardware();   // Discard unsaved live previews
         UiClock::showSetter(show);
     }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *battery = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(battery, LV_FLEX_FLOW_COLUMN);
+    Theme::label(battery, tr(Str::SET_BATTERY), &my_font_14, Theme::ACCENT);
+    lv_obj_t *help = Theme::label(battery, tr(Str::BATTERY_HELP), &my_font_14, Theme::MUTED);
+    lv_label_set_long_mode(help, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_width(help, LV_PCT(100));
+    s_batteryInfo = Theme::label(battery, "", &my_font_14);
+    lv_label_set_long_mode(s_batteryInfo, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_width(s_batteryInfo, LV_PCT(100));
+    lv_obj_t *calibrate = Theme::button(battery, tr(Str::BATTERY_CALIBRATE), LV_PCT(100), 40, Theme::TEAL);
+    lv_obj_add_event_cb(calibrate, [](lv_event_t *) {
+        UiNumpad::open(tr(Str::BATTERY_CALIBRATE), tr(Str::BATTERY_ENTER_MV),
+                       batteryCalibrationDone, nullptr, tr(Str::BTN_CANCEL));
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *reset = Theme::button(battery, tr(Str::BATTERY_RESET), LV_PCT(100), 40, Theme::MUTED);
+    lv_obj_add_event_cb(reset, [](lv_event_t *) { resetBatteryCalibration(); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *net = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(net, LV_FLEX_FLOW_COLUMN);

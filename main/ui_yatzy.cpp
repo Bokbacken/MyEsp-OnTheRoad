@@ -93,7 +93,7 @@ static const GameChoice GAMES[4] = {
     {GameType::SCC, Str::GAME_NAME_SCC, Str::MENU_SUB_GAME_SCC, Theme::BLUE},
 };
 
-// Name of the selected game + variant (player screen header, results).
+// Name of the selected game + variant (results).
 static const char *gameTitle()
 {
     switch (s_gameType) {
@@ -169,13 +169,14 @@ void showMenu()
     hookClickSound();
     Audio::music(Sound::Music::DICE);   // Dice music loops in the menus and the dice games
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, "OnTheRoad");
+    lv_obj_t *header = Theme::header(scr, "OnTheRoad");
+    lv_obj_set_width(lv_obj_get_child(header, 0), LV_PCT(40));
 
     lv_obj_t *gear = Theme::button(scr, LV_SYMBOL_SETTINGS, 52, 36, Theme::LINE);
-    lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -6, 4);
+    lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -6 - Theme::BATTERY_STATUS_WIDTH - 4, 4);
     lv_obj_add_event_cb(gear, [](lv_event_t *) { UiSettings::show(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *wifi = Theme::button(scr, LV_SYMBOL_WIFI, 52, 36, Theme::LINE);
-    lv_obj_align(wifi, LV_ALIGN_TOP_RIGHT, -64, 4);
+    lv_obj_align(wifi, LV_ALIGN_TOP_RIGHT, -64 - Theme::BATTERY_STATUS_WIDTH - 4, 4);
     lv_obj_add_event_cb(wifi, [](lv_event_t *) { UiWifi::showNetworks(); }, LV_EVENT_CLICKED, nullptr);
 
     const int32_t mN = UiMetrics::marginNormal();
@@ -234,6 +235,7 @@ static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *d
     lv_obj_t *header = Theme::header(scr, title);
     lv_obj_set_height(header, UiMetrics::titleH());
     lv_obj_set_style_pad_hor(header, UiMetrics::marginNormal(), 0);
+    lv_obj_set_style_pad_right(header, Theme::BATTERY_STATUS_WIDTH + UiMetrics::marginSmall(), 0);
     lv_obj_set_style_pad_column(header, UiMetrics::marginSmall(), 0);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -540,7 +542,7 @@ static void showPlayers()
         s_nameCount = 2;
     }
     lv_obj_t *scr = Theme::screen();
-    selectionHeader(scr, tr(Str::PL_TITLE), gameTitle());
+    selectionHeader(scr, tr(Str::PL_TITLE));
     lv_obj_t *body = selectionBody(scr, UiMetrics::titleH() + 2 * UiMetrics::marginSmall());
 
     lv_obj_t *card = Theme::card(body, LV_PCT(100), 0);
@@ -2449,16 +2451,16 @@ static void showGame()
     // Header: player, round, menu
     lv_obj_t *h = Theme::header(scr, "");
     lv_obj_set_height(h, s_layout.titleH);
-    lv_obj_clean(h);
+    lv_obj_delete(lv_obj_get_child(h, 0));
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_playerLabel, s_layout.w - 150);
+    lv_obj_set_width(s_playerLabel, s_layout.w - 150 - Theme::BATTERY_STATUS_WIDTH - 4);
     lv_obj_set_height(s_playerLabel, lv_font_get_line_height(&my_font_24));
     lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10, 0);
     s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
-    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62, 0);
+    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
     lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48, 34, Theme::LINE);
-    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6, 0);
+    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
     lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
 
     // Felt dice area
@@ -2638,7 +2640,9 @@ static void showResults()
     const ResultLayout layout = resultLayout();
     lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode(), s_game.savedRollsRule()), &my_font_14, Theme::TEAL);
     lv_obj_set_width(var, layout.variantW);
-    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12 * layout.scale / 100, 14 * layout.scale / 100);
+    lv_obj_align(var, LV_ALIGN_TOP_RIGHT,
+                 -12 * layout.scale / 100 - Theme::BATTERY_STATUS_WIDTH - UiMetrics::marginSmall(),
+                 14 * layout.scale / 100);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
     int n = s_game.ranking(order, places);
@@ -3279,16 +3283,19 @@ static void showMini()
 
     lv_obj_t *scr = Theme::screen();
     lv_obj_t *h = Theme::header(scr, "");
-    lv_obj_clean(h);
+    lv_obj_delete(lv_obj_get_child(h, 0));
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_playerLabel, s_mLayout.w - 160 * s_mLayout.scale / 100);
+    lv_obj_set_width(s_playerLabel,
+                     s_mLayout.w - (160 + Theme::BATTERY_STATUS_WIDTH) * s_mLayout.scale / 100);
     lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10 * s_mLayout.scale / 100, 0);
     s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
-    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62 * s_mLayout.scale / 100, 0);
+    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID,
+                 (-62 - Theme::BATTERY_STATUS_WIDTH - 4) * s_mLayout.scale / 100, 0);
     lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48 * s_mLayout.scale / 100,
                                    34 * s_mLayout.scale / 100, Theme::LINE);
-    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6 * s_mLayout.scale / 100, 0);
+    lv_obj_align(menu, LV_ALIGN_RIGHT_MID,
+                 (-6 - Theme::BATTERY_STATUS_WIDTH - 4) * s_mLayout.scale / 100, 0);
     lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
 
     // Scoreboard: one column up to 4 players, two columns above
@@ -3435,7 +3442,9 @@ static void showMiniResults()
     lv_label_set_long_mode(var, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(var, layout.variantW);
     lv_obj_set_style_text_align(var, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(var, LV_ALIGN_TOP_RIGHT, -12 * layout.scale / 100, 14 * layout.scale / 100);
+    lv_obj_align(var, LV_ALIGN_TOP_RIGHT,
+                 -12 * layout.scale / 100 - Theme::BATTERY_STATUS_WIDTH - UiMetrics::marginSmall(),
+                 14 * layout.scale / 100);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
     int n;
