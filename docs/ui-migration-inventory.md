@@ -2,7 +2,8 @@
 
 Inventeringsdatum: **27 oktober 2026**. Avsedd som arbets- och testunderlag inför **28 oktober**.
 Inventeringen är en källkodsgranskning; Fas B2/C och historiska verifieringsgränser bevaras nedan.
-Aktuell firmwareversion **0.19.3**, Fas D. Faktiska hostresultat och byggbegränsning
+Vid inventeringen var firmwareversionen **0.19.3** och planeringsläget Fas D.
+Faktiska hostresultat och byggbegränsning
 redovisas i D-avsnittet; inga fysiska D-tester är utförda eller godkända här.
 
 ## Fas B2 – genomfört 28 oktober 2026
@@ -387,8 +388,9 @@ Ingen anledning att ändra motorerna
 
 ## Fas D – Karaoke-layout och minnesdiagnostik
 
-Aktuellt arbete 28 oktober 2026, **v0.19.3**. Detta ersätter Fas A:s uppskjutna
-Karaoke-layoutbeslut, inte B/C eller deras historiska resultat. Minneskarta och
+Arbetsläget nedan dokumenterades 28 oktober 2026 utifrån **v0.19.3**. Detta
+ersätter Fas A:s uppskjutna Karaoke-layoutbeslut, inte B/C eller deras historiska
+resultat. Minneskarta och
 avgränsningar finns i [befintliga Karaokeplanen](MUSIC_KARAOKE_PLAN.md#25-fas-d--responsiv-karaoke-och-minneskartläggning-v0193).
 Tabellen under ”Historisk Fas A-baslinje” nedan beskriver läget vid inventeringen,
 inte ett påstående om dagens fasta mått.

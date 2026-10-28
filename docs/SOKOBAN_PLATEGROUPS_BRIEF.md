@@ -1,5 +1,10 @@
 # Uppdrag: Grupperade tryckplattor & grindar (Sokoban), Steg 1
 
+> **Status:** Implementerat i PR #10, firmware v0.20.0. Detta dokument är det
+> historiska kravunderlaget; aktuell `.adv`-syntax finns i
+> [författarguiden](AUTHORING_ADVENTURES.md). Färgnycklar och S2-mekanismer
+> tillkom separat i PR #11.
+
 **Repo:** `MyEsp-OnTheRoad` (ESP-IDF 6.1, LVGL 9.6). Motor/uppspelare-repot.
 **Mål:** Låt en enda `.adv`-värld innehålla flera oberoende Sokoban-rum genom att
 koppla tryckplattor till specifika grindar via ett **grupp-id**. Idag är all
