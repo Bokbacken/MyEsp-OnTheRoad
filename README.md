@@ -407,13 +407,16 @@ executes the README sequence; it also checks the SD-bundle copy. See
 [the demo checklist](docs/adventures/s4_demo/README.md) for physical checks.
 
 Verification for this change: S4 engine **658**, S4 loader **373**, legacy
-engine **1,826**, legacy loader **1,259**, catalog **226**, S3 **325**, live JSON **116** checks
+engine **1,826**, legacy loader **1,267**, catalog **226**, S3 **325**, live JSON **116** checks
 passed. Engine/loader/UI extraction also passed ASan/UBSan. S2 and S3 external
 demo regressions passed; the S4 solution finishes both delivered copies in
 **179 inputs / 175 steps**, with **58/64 energy** and no lives lost.
 The web canvas was checked in a browser at desktop/mobile sizes, and the
 production LVGL layout passed three screen sizes. Firmware is not
 locally build-tested here (no ESP-IDF); physical device verification remains open.
+CodeQL found no C++/Python alerts. Its `js/bad-tag-filter` alert in the local
+web test is a false positive: the regex extracts trusted, versioned JavaScript
+for tests; it does not sanitize HTML or process user input.
 
 Adventure v0.21.0 checks (run from the repository root; binaries stay in `/tmp`):
 
