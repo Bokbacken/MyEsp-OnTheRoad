@@ -1,4 +1,5 @@
 #include "adv_setup_ui.h"
+#include "adv_game_ui.h"
 #include "lang/lang_game.h"
 // ui_adventure.cpp - OnTheRoad Engine test world (see header).
 #include "ui_adventure.h"
@@ -42,6 +43,7 @@ static const char *TAG = "adv";
 using Otr::Dir;
 using Otr::Obj;
 using Otr::Tile;
+namespace Game = AdvUi::Game;
 
 // ----------------------------------------------------------------------------------------
 // Layout
@@ -49,20 +51,19 @@ using Otr::Tile;
 // v0.10.0: no top status bar. The viewport starts at y = 0 and the whole bottom strip
 // (160 px) is the control panel: status + menu (left) | joystick (centre) | Slå, energy,
 // gems, suit (right).
-static constexpr int32_t VIEW_Y = 0, VIEW_W = 320, VIEW_H = 320;
-static constexpr int32_t CTRL_Y = VIEW_Y + VIEW_H;               // 320
-static constexpr int32_t CTRL_H = 480 - CTRL_Y;                  // 160
+static constexpr int32_t VIEW_Y = Game::VIEW.y, VIEW_W = Game::VIEW.w, VIEW_H = Game::VIEW.h;
+static constexpr int32_t CTRL_Y = Game::CONTROLS.y, CTRL_H = Game::CONTROLS.h;
 static constexpr uint32_t TICK_MS = 15;
 static constexpr uint32_t WALK_MS_32 = 150, WALK_MS_16 = 115, BUMP_MS = 110, FX_MS = 220;
 static constexpr uint32_t WALK_MS_MIN = 55;                      // Fastest walk animation (joystick)
 static constexpr uint32_t WALK_MS_MAX = 260;                     // Slowest (stretched to the joystick pace)
 // Control panel columns
-static constexpr int32_t COL_L_W = 80;                           // Left: counters + menu/mute
-static constexpr int32_t COL_R_X = 240, COL_R_W = 320 - COL_R_X - 4;   // Right: 76 px
+static constexpr int32_t COL_L_W = Game::JOYSTICK.x;              // Left: counters + menu/mute
+static constexpr int32_t COL_R_X = Game::JOYSTICK.x + Game::JOYSTICK.w, COL_R_W = Game::WIDTH - COL_R_X - 4;
 // Joystick (centre column): pad centre (relative to the touch area), outer radius, stop zone, knob
-static constexpr int32_t JOY_AREA_X = COL_L_W, JOY_AREA_W = COL_R_X - COL_L_W, JOY_AREA_H = CTRL_H;
-static constexpr int32_t JOY_CX = JOY_AREA_W / 2, JOY_CY = JOY_AREA_H / 2, JOY_R = 74;
-static constexpr int32_t JOY_STOP_R = JOY_R * 17 / 53, JOY_KNOB_R = JOY_R * 15 / 53;   // Same proportions as v0.9.0
+static constexpr int32_t JOY_AREA_X = Game::JOYSTICK.x, JOY_AREA_W = Game::JOYSTICK.w, JOY_AREA_H = Game::JOYSTICK.h;
+static constexpr int32_t JOY_CX = Game::JOY_CX, JOY_CY = Game::JOY_CY, JOY_R = Game::JOY_R;
+static constexpr int32_t JOY_STOP_R = Game::JOY_STOP_R, JOY_KNOB_R = Game::JOY_KNOB_R;
 static constexpr uint32_t TOAST_MS = 2200, ANIM_FRAME_MS = 420;
 static constexpr int SPR = 32;                                   // Art is drawn at 32 px
 static constexpr uint16_t KEY = 0xF81F;                          // Transparent (magenta)
@@ -114,7 +115,7 @@ static uint8_t *s_saveBuf = nullptr;         // Save file image
 static constexpr size_t SAVE_CAP = Adventure::Session::SAVE_CAP;   // >= World::saveSize() for 64 x 64
 
 // Screen objects
-static lv_obj_t *s_scr, *s_canvas, *s_toast, *s_dialog;
+static lv_obj_t *s_scr, *s_gameRoot, *s_canvas, *s_toast, *s_dialog;
 static lv_obj_t *s_activeScr;                // Screen that owns the PSRAM buffers (freed on its delete)
 static lv_obj_t *s_bar, *s_barLbl, *s_muteBtn;
 // HUD left column: one counter label per row (lives, suit, keys, gems)
@@ -1448,7 +1449,7 @@ static void talkShowNode()
 
 static void talkBuild()
 {
-    s_talkBox = lv_obj_create(s_scr);
+    s_talkBox = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(s_talkBox);
     lv_obj_set_style_bg_color(s_talkBox, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(s_talkBox, 242, 0);
@@ -1470,9 +1471,9 @@ static void talkBuild()
     lv_label_set_long_mode(s_talkText, LV_LABEL_LONG_MODE_WRAP);
     s_talkRef = Theme::label(s_talkBox, "", &my_font_14, Theme::TEAL);
 
-    s_talkPanel = lv_obj_create(s_scr);
+    s_talkPanel = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(s_talkPanel);
-    lv_obj_set_size(s_talkPanel, 320, CTRL_H);
+    lv_obj_set_size(s_talkPanel, Game::CONTROLS.w, CTRL_H);
     lv_obj_set_pos(s_talkPanel, 0, CTRL_Y);
     lv_obj_set_style_bg_color(s_talkPanel, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(s_talkPanel, LV_OPA_COVER, 0);
@@ -2131,9 +2132,8 @@ static void joyEvent(lv_event_t *e)
     lv_obj_t *area = (lv_obj_t *)lv_event_get_current_target(e);
     lv_point_t pt;
     lv_indev_get_point(lv_indev_active(), &pt);
-    lv_area_t a;
-    lv_obj_get_coords(area, &a);
-    const int dx = pt.x - (a.x1 + JOY_CX), dy = pt.y - (a.y1 + JOY_CY);
+    const auto delta = Game::joyDelta(AdvUi::gameBounds(area), {pt.x, pt.y});
+    const int dx = delta.x, dy = delta.y;
     const uint32_t now = nowMs();
     if (code == LV_EVENT_PRESSED) {
         stopPath();   // Any touch on the joystick also stops tap-to-walk (the old STOP button)
@@ -2183,7 +2183,7 @@ static void buildJoystick(lv_obj_t *scr)
     lv_obj_t *area = lv_obj_create(scr);
     lv_obj_remove_style_all(area);
     lv_obj_set_size(area, JOY_AREA_W, JOY_AREA_H);
-    lv_obj_set_pos(area, JOY_AREA_X, CTRL_Y);
+    lv_obj_set_pos(area, JOY_AREA_X, Game::JOYSTICK.y);
     lv_obj_set_clickable(area, true);
     lv_obj_set_scrollable(area, false);
     lv_obj_set_gesture_bubble(area, false);
@@ -2227,7 +2227,8 @@ static void viewEvent(lv_event_t *e)
     lv_indev_get_point(lv_indev_active(), &p);
     int32_t camX, camY;
     currentCamera(camX, camY);
-    const float fx = (float)(p.x + camX) / s_ts, fy = (float)(p.y - VIEW_Y + camY) / s_ts;
+    float fx, fy;
+    if (!Game::worldPoint(AdvUi::gameBounds(s_canvas), {p.x, p.y}, camX, camY, s_ts, fx, fy)) return;
     if (code == LV_EVENT_LONG_PRESSED) {
         if (s_bombSize || !s_world->fog()) return;
         s_longDone = true;
@@ -2293,6 +2294,7 @@ static void freeAll()
     s_adv = nullptr;
     s_activeScr = nullptr;
     s_scr = nullptr;
+    s_gameRoot = nullptr;
     s_joyKnob = nullptr;
     s_muteBtn = nullptr;
     s_hitBtn = nullptr;
@@ -2481,9 +2483,9 @@ static lv_obj_t *hudIcon(lv_obj_t *parent, HudIcon i)
 //   right  Slå box, red energy bar, icons of carried items (boat, later knife/sword ...; 2 rows)
 static void buildControls()
 {
-    lv_obj_t *pan = lv_obj_create(s_scr);
+    lv_obj_t *pan = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(pan);
-    lv_obj_set_size(pan, 320, CTRL_H);
+    lv_obj_set_size(pan, Game::CONTROLS.w, CTRL_H);
     lv_obj_set_pos(pan, 0, CTRL_Y);
     lv_obj_set_style_bg_color(pan, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(pan, LV_OPA_COVER, 0);
@@ -2600,7 +2602,7 @@ static void buildControls()
     lv_obj_add_event_cb(s_bombCancel,[](lv_event_t*) {
         if(Theme::debounce(s_actionTapMs)) cancelBomb();
     },LV_EVENT_CLICKED,nullptr);
-    buildJoystick(s_scr);
+    buildJoystick(s_gameRoot);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -2611,15 +2613,16 @@ static void buildGame(bool loadFailed)
     s_scr = Theme::screen();
     s_activeScr = s_scr;
     lv_obj_add_event_cb(s_scr, screenDeleted, LV_EVENT_DELETE, nullptr);
+    s_gameRoot = AdvUi::gameRoot(s_scr);
 
     // Viewport canvas
-    s_canvas = lv_canvas_create(s_scr);
+    s_canvas = lv_canvas_create(s_gameRoot);
     lv_canvas_set_buffer(s_canvas, s_fb, VIEW_W, VIEW_H, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(s_canvas, 0, VIEW_Y);
+    lv_obj_set_pos(s_canvas, Game::VIEW.x, VIEW_Y);
     lv_obj_set_clickable(s_canvas, true);
     lv_obj_add_event_cb(s_canvas, viewEvent, LV_EVENT_ALL, nullptr);
 
-    s_toast = Theme::label(s_scr, "", &my_font_14);
+    s_toast = Theme::label(s_gameRoot, "", &my_font_14);
     lv_label_set_long_mode(s_toast, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(s_toast, VIEW_W - 24);
     lv_obj_set_style_text_align(s_toast, LV_TEXT_ALIGN_CENTER, 0);
@@ -2631,7 +2634,7 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
-    s_stageLabel=Theme::label(s_scr,"",&my_font_14,Theme::TEXT);
+    s_stageLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_stageLabel,4,4);
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_stageLabel,210,0);
