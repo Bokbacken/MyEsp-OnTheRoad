@@ -699,8 +699,9 @@ Alternativt kan gruppen anges för redan placerade `o`-/`=`-rutor med koordinate
 Om en koordinat inte pekar på rätt ruttyp rapporteras ett fel med radnummer.
 Ett spelbart exempel med fyra sekventiella rum i samma `.adv`-fil finns i
 [`docs/adventures/sokoban/sokoban.adv`](adventures/sokoban/sokoban.adv).
-Varje rum har två plattor och två stenar; grinden öppnas först när båda plattorna
-i dess grupp täcks. SD-kortsversionen finns i
+Rum 1–2 använder `@legend`; rum 3–4 använder standardtecknen `o`/`=` med
+`@plategroup` och `@gategroup`. Varje rum har två plattor och två stenar;
+grinden öppnas först när båda plattorna i dess grupp täcks. SD-kortsversionen finns i
 `/otr/adventure/sokoban/sokoban.adv`.
 
 ---
