@@ -8,6 +8,7 @@
 #include "adv_catalog.h"
 #include "adv_sd_session.h"
 
+#include <algorithm>
 #include <errno.h>
 #include <math.h>
 #include <new>
@@ -94,6 +95,7 @@ struct Sprites {
     uint16_t big[S_COUNT][SPR * SPR];
     uint16_t small[S_COUNT][(SPR / 2) * (SPR / 2)];
     uint16_t hud[H_COUNT][HUD_PX * HUD_PX];
+    uint16_t coloredKeys[6][16 * 16];
     uint16_t portrait[NPC_LOOKS][PORTRAIT_PX * PORTRAIT_PX];
 };
 
@@ -161,6 +163,8 @@ static constexpr const char *SD_ADV_ROOT = "/sdcard/otr/adventure";
 static int s_bombSize=0, s_bombX=-1, s_bombY=-1;
 static bool s_resultShown=false;
 static lv_obj_t *s_stageLabel, *s_progressLabel, *s_timerLabel, *s_bombCancel;
+static bool s_extraHud = false;
+static lv_obj_t *s_keyBox, *s_keyIcons[6];
 // v0.18.0: HUD indicators for the permanent abilities (shown only while owned) and the
 // previous ability levels, used to raise the pickup toast on a level increase (no event bit left).
 static lv_obj_t *s_flashCell, *s_pogoCell;    // v0.18.0: ability image + level digit (icon in s_item[])
@@ -835,27 +839,34 @@ static void terrainOverlay(Tile tile, int tx, int ty, int sx, int sy)
     }
 }
 
-static void coloredObject(int sprite, int id, int sx, int sy)
+template<typename Pixel>
+static void coloredSprite(const uint16_t *src, int size, int id, Pixel pixel)
 {
     const uint32_t col = KEY_COLORS[id];
     const int r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255;
-    const uint16_t *src = spr(sprite);
-    for (int y = 0; y < s_ts; ++y) for (int x = 0; x < s_ts; ++x) {
-        const uint16_t p = src[y * s_ts + x];
+    for (int y = 0; y < size; ++y) for (int x = 0; x < size; ++x) {
+        const uint16_t p = src[y * size + x];
         if (p == KEY) continue;
         // Retain the original key silhouette / door planks and lock shading.
         const int light = 80 + (((p >> 11) & 31) * 175 / 31);
-        framePixel(sx + x, sy + y, rgb(r * light / 255, g * light / 255, b * light / 255));
+        pixel(x, y, rgb(r * light / 255, g * light / 255, b * light / 255));
     }
     static constexpr uint16_t DIGITS[6] = {0x2492, 0x73e7, 0x73cf, 0x5bc9, 0x79cf, 0x79ef};
-    const int scale = s_ts / 16;
+    const int scale = size / 16;
     for (int y = 0; y < 7; ++y) for (int x = 0; x < 5; ++x) {
         const bool ink = x > 0 && x < 4 && y > 0 && y < 6 &&
             (DIGITS[id] & (1u << (14 - ((y - 1) * 3 + x - 1))));
         for (int j = 0; j < scale; ++j) for (int i = 0; i < scale; ++i)
-            framePixel(sx + (11 + x) * scale + i, sy + y * scale + j,
+            pixel((11 + x) * scale + i, y * scale + j,
                        ink ? rgb(255, 255, 255) : rgb(15, 20, 25));
     }
+}
+
+static void coloredObject(int sprite, int id, int sx, int sy)
+{
+    coloredSprite(spr(sprite), s_ts, id, [=](int x, int y, uint16_t c) {
+        framePixel(sx + x, sy + y, c);
+    });
 }
 
 // A person looks at the hero when they are close (dominant axis), otherwise it looks around now
@@ -1028,6 +1039,7 @@ static void updateStats()
         strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps(), w.par());
     else lv_label_set_text_fmt(s_progressLabel, "%s:%d  Par:-",
         strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps());
+    lv_obj_set_hidden(s_progressLabel, !s_extraHud);
     char timers[384];
     snprintf(timers, sizeof timers, "%s:",
         strcmp(Lang::currentLang(), "en") == 0 ? "Gate steps" : "Portsteg");
@@ -1041,7 +1053,14 @@ static void updateStats()
             group < 10 ? '0' + group : 'A' + group - 10, w.timerRemaining(group));
     }
     lv_label_set_text(s_timerLabel, timers);
-    lv_obj_set_hidden(s_timerLabel, !timed);
+    lv_obj_set_hidden(s_timerLabel, !s_extraHud || !timed);
+    bool anyKey = false;
+    for (int i = 0; i < 6; ++i) {
+        const bool owned = w.keys(Otr::KeyColor(i)) > 0;
+        lv_obj_set_hidden(s_keyIcons[i], !owned);
+        anyKey |= owned;
+    }
+    lv_obj_set_hidden(s_keyBox, !anyKey);
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     // Permanent abilities: show the item image + its level digit only while owned.
@@ -2436,6 +2455,8 @@ static void freeAll()
     s_moveTrace.count = 0;
     s_rockAnim = false;
     s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_progressLabel=s_timerLabel=s_bombCancel=nullptr;
+    s_keyBox = nullptr;
+    for (auto &icon : s_keyIcons) icon = nullptr;
     s_flashCell=s_pogoCell=s_flashLvl=s_pogoLvl=nullptr; s_prevFlash=s_prevPogo=0;
     liveStop();   // Before the world memory goes
     closeDialog();
@@ -2553,6 +2574,19 @@ static void toggleZoom()
     s_dirty = true;
 }
 
+static const char *extraHudText()
+{
+    if (langIdx()) return s_extraHud ? "Extra HUD info: ON" : "Extra HUD info: OFF";
+    return s_extraHud ? "Extra HUD-info: PÅ" : "Extra HUD-info: AV";
+}
+
+static void toggleExtraHud(lv_event_t *e)
+{
+    s_extraHud = !s_extraHud;
+    updateStats();
+    lv_label_set_text(lv_obj_get_child(lv_event_get_target_obj(e), 0), extraHudText());
+}
+
 static void showMenu()
 {
     if (s_dialog || talking()) return;   // Already open (double tap on the hamburger) / talking
@@ -2568,13 +2602,7 @@ static void showMenu()
     lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(c, 8, 0);
-    static const char *namesEn[6] = {"Red", "Green", "Blue", "Yellow", "Purple", "Cyan"};
-    static const char *namesSv[6] = {"Röd", "Grön", "Blå", "Gul", "Lila", "Cyan"};
-    for (int i = 0; i < 6; ++i) {
-        auto *key = Theme::label(c, "", &my_font_14, KEY_COLORS[i]);
-        lv_label_set_text_fmt(key, "%s %d (%s): %d", langIdx() ? "Key" : "Nyckel", i + 1,
-                             langIdx() ? namesEn[i] : namesSv[i], s_world->keys(Otr::KeyColor(i)));
-    }
+    menuButton(c, extraHudText(), Theme::LINE, toggleExtraHud);
     menuButton(c, soundText(), Theme::LINE, [](lv_event_t *e) {
         if (toggleSound()) lv_label_set_text(lv_obj_get_child(lv_event_get_target_obj(e), 0), soundText());
     });
@@ -2652,6 +2680,41 @@ static lv_obj_t *hudIcon(lv_obj_t *parent, HudIcon i)
     lv_canvas_set_buffer(cv, s_spr->hud[i], HUD_PX, HUD_PX, LV_COLOR_FORMAT_RGB565);
     lv_obj_set_clickable(cv, false);
     return cv;
+}
+
+static void makeColoredKeyIcons()
+{
+    for (int i = 0; i < 6; ++i) {
+        auto *pixels = s_spr->coloredKeys[i];
+        std::fill(pixels, pixels + 16 * 16, rgb(Theme::PANEL >> 16,
+                  (Theme::PANEL >> 8) & 255, Theme::PANEL & 255));
+        coloredSprite(s_spr->small[S_KEY], 16, i, [=](int x, int y, uint16_t c) {
+            pixels[y * 16 + x] = c;
+        });
+    }
+}
+
+static void buildKeyIcons()
+{
+    makeColoredKeyIcons();
+    s_keyBox = lv_obj_create(s_gameRoot);
+    lv_obj_remove_style_all(s_keyBox);
+    lv_obj_set_size(s_keyBox, LV_SIZE_CONTENT, 20);
+    lv_obj_set_style_bg_color(s_keyBox, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(s_keyBox, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(s_keyBox, 2, 0);
+    lv_obj_set_style_pad_column(s_keyBox, 4, 0);
+    lv_obj_set_flex_flow(s_keyBox, LV_FLEX_FLOW_ROW);
+    lv_obj_align(s_keyBox, LV_ALIGN_TOP_RIGHT, -4, s_layout.view.h - 24);
+    lv_obj_set_scrollable(s_keyBox, false);
+    lv_obj_set_clickable(s_keyBox, false);
+    for (int i = 0; i < 6; ++i) {
+        auto *icon = s_keyIcons[i] = lv_canvas_create(s_keyBox);
+        lv_canvas_set_buffer(icon, s_spr->coloredKeys[i], 16, 16, LV_COLOR_FORMAT_RGB565);
+        lv_obj_set_clickable(icon, false);
+        lv_obj_set_hidden(icon, true);
+    }
+    lv_obj_set_hidden(s_keyBox, true);
 }
 
 // Bottom control panel (Kent's v0.10.x sketch):
@@ -2818,7 +2881,8 @@ static void buildGame(bool loadFailed)
 
     s_stageLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_stageLabel,4,4);
-    lv_obj_set_width(s_stageLabel, s_layout.view.w - 8);
+    lv_obj_set_width(s_stageLabel, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_width(s_stageLabel, s_layout.view.w - 8, 0);
     lv_obj_set_height(s_stageLabel, 20);
     lv_label_set_long_mode(s_stageLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
@@ -2832,6 +2896,7 @@ static void buildGame(bool loadFailed)
     lv_obj_set_style_bg_color(s_progressLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_progressLabel,210,0);
     lv_obj_set_clickable(s_progressLabel,false);
+    lv_obj_set_hidden(s_progressLabel,!s_extraHud);
     s_timerLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_timerLabel,4,44);
     lv_obj_set_width(s_timerLabel, s_layout.view.w - 8);
@@ -2842,6 +2907,7 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_timerLabel,false);
     lv_obj_set_hidden(s_timerLabel,true);
     buildControls();
+    buildKeyIcons();
     snapPlayer();
     s_fxX = -1;
     s_bumpT0 = 0;

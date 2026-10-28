@@ -61,15 +61,11 @@ static void lv_bar_set_value(lv_obj_t *, int, int) {}
 enum { LV_STATE_DISABLED, LV_ANIM_OFF, LV_PART_MAIN };
 namespace Theme {
 constexpr uint32_t TEXT=1, MUTED=2, ACCENT=3, GOLD=4, TEAL=5, GREEN=6, RED=7, BLUE=8, LINE=9;
+constexpr uint32_t PANEL=0x17263A;
 static uint32_t c(uint32_t n) { return n; }
-static lv_obj_t inventory[6];
-static int inventoryCount;
-static lv_obj_t *label(lv_obj_t *, const char *, const int *, uint32_t color) {
-    assert(inventoryCount<6);
-    auto *o=&inventory[inventoryCount++]; o->color=color; return o;
 }
-}
-static int my_font_14;
+struct lv_event_t { lv_obj_t *target; };
+static lv_obj_t *lv_event_get_target_obj(lv_event_t *e) { return e->target; }
 namespace Rgb { static void effectFlash(int, int, int, int) {} }
 static uint32_t clockMs=1000;
 static uint32_t nowMs() { return clockMs; }
@@ -98,6 +94,10 @@ enum HudCount { C_LIVES, C_SUIT, C_KEYS, C_GEMS, C_COUNT };
 static lv_obj_t *s_count[C_COUNT]={labelObjects,labelObjects+1,labelObjects+2,labelObjects+3};
 static lv_obj_t *s_stageLabel=labelObjects+4, *s_progressLabel=labelObjects+5;
 static lv_obj_t *s_timerLabel=labelObjects+21;
+/*EXTRA_STATE*/
+static lv_obj_t *s_keyBox=labelObjects+22;
+static lv_obj_t *s_keyIcons[6]={labelObjects+23,labelObjects+24,labelObjects+25,
+                              labelObjects+26,labelObjects+27,labelObjects+28};
 static lv_obj_t *s_item[H_COUNT]={labelObjects+6,labelObjects+7,labelObjects+8,labelObjects+9,
                                 labelObjects+10,labelObjects+11,labelObjects+12};
 static lv_obj_t *s_flashCell=labelObjects+13, *s_pogoCell=labelObjects+14;
@@ -118,6 +118,8 @@ static bool busy(uint32_t now) { return s_moveMs && now-s_moveT0<s_moveMs; }
 /*ART*/
 /*RENDER*/
 /*HUD*/
+/*EXTRA_TOGGLE*/
+/*KEY_ART*/
 static void toast(const char *, uint32_t=Theme::TEXT, uint32_t=2200) {}
 static void eventToasts(uint32_t) {}
 static void bombAction() {}
@@ -142,11 +144,6 @@ static void menuPause() {
 /*DIALOG*/
 /*ACTION*/
 /*PERFORMANCE*/
-static void inventoryMenu() {
-    lv_obj_t *c=nullptr; Theme::inventoryCount=0;
-/*INVENTORY*/
-}
-
 static std::vector<std::string> rows;
 static void load(int par=0) {
     rows.assign(10,std::string(14,'.'));
@@ -298,18 +295,58 @@ static void movementTests() {
     assert(world.load(mineRows,3,mineRules)); snapPlayer(); results=0;
     ev=doMove(Dir::RIGHT); assert((ev&Otr::EV_EXIT) && results==0);
     load(); performanceText(text,sizeof text); assert(strstr(text,"Par: -"));
-    for (int c=0;c<6;++c) world.setKeys(Otr::KeyColor(c),10+c);
-    inventoryMenu(); assert(Theme::inventoryCount==6);
-    for (int c=0;c<6;++c) {
-        char expected[32]; snprintf(expected,sizeof expected,"): %d",10+c);
-        assert(Theme::inventory[c].text.find(expected)!=std::string::npos);
-        snprintf(expected,sizeof expected," %d (",c+1);
-        assert(Theme::inventory[c].text.find(expected)!=std::string::npos);
-        assert(Theme::inventory[c].color==KEY_COLORS[c]);
+}
+static void inventoryTests() {
+    makeArt(s_spr); makeColoredKeyIcons();
+    std::set<std::vector<uint16_t>> images, badges;
+    for (int i=0;i<6;++i) {
+        images.emplace(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256);
+        std::vector<uint16_t> badge;
+        for (int y=0;y<7;++y) for (int x=11;x<16;++x) badge.push_back(s_spr->coloredKeys[i][y*16+x]);
+        badges.insert(badge);
     }
+    assert(images.size()==6 && badges.size()==6);
+    load(); updateStats();
+    assert(s_keyBox->hidden);
+    for (auto *icon : s_keyIcons) assert(icon->hidden);
+    // Quantity is not rendered: one owned key and 42 owned keys have identical indicators.
+    for (int count : {1,42}) {
+        world.setKeys(Otr::KeyColor::RED,count); updateStats();
+        makeColoredKeyIcons();
+        for (int i=0;i<6;++i)
+            assert(images.count(std::vector<uint16_t>(s_spr->coloredKeys[i],s_spr->coloredKeys[i]+256))==1);
+        assert(!s_keyBox->hidden && !s_keyIcons[0]->hidden);
+        for (int i=1;i<6;++i) assert(s_keyIcons[i]->hidden);
+    }
+    for (int c : {2,5}) world.setKeys(Otr::KeyColor(c),3);
+    updateStats();
+    for (int i=0;i<6;++i) assert(s_keyIcons[i]->hidden != (i==0||i==2||i==5));
+    for (int c=0;c<6;++c) world.setKeys(Otr::KeyColor(c),10+c);
+    world.setBoat(true); world.setFlashlight(3); world.setPogo(3);
+    updateStats(); for (auto *icon : s_keyIcons) assert(!icon->hidden && icon->text.empty());
+    assert(!s_item[H_BOAT]->hidden && !s_flashCell->hidden && !s_pogoCell->hidden);
+    assert(s_flashLvl->text=="3" && s_pogoLvl->text=="3");
+    // Consuming the last key at a real matching door removes the icon immediately.
+    load(); rows[1][2]=rows[1][3]=char(Otr::COLORED_DOOR_GLYPH); reload();
+    world.setKeys(Otr::KeyColor::RED,2); updateStats();
+    assert(!s_keyIcons[0]->hidden);
+    doMove(Dir::RIGHT); menuPause(); assert(world.keys(Otr::KeyColor::RED)==1);
+    assert(!s_keyIcons[0]->hidden);
+    doMove(Dir::RIGHT); menuPause(); // Enter the now-open first door's cell.
+    doMove(Dir::RIGHT); menuPause();
+    assert(world.keys(Otr::KeyColor::RED)==0 && s_keyIcons[0]->hidden && s_keyBox->hidden);
 }
 static void timerTests() {
     load();
+    s_extraHud=false; updateStats();
+    assert(s_progressLabel->hidden && s_timerLabel->hidden);
+    lv_obj_t button; lv_event_t click{&button};
+    assert(std::string(extraHudText())==(langIdx() ? "Extra HUD info: OFF" : "Extra HUD-info: AV"));
+    toggleExtraHud(&click);
+    assert(s_extraHud && !s_progressLabel->hidden && s_timerLabel->hidden);
+    assert(button.text==(langIdx() ? "Extra HUD info: ON" : "Extra HUD-info: PÅ"));
+    toggleExtraHud(&click);
+    assert(!s_extraHud && s_progressLabel->hidden && s_timerLabel->hidden);
     rows[2][1]=char(Otr::GROUPED_LEVER_GLYPH+10);
     rows[1][2]=rows[1][3]=char(Otr::ICE_GLYPH);
     const char *ptr[10]; for (int y=0;y<10;++y) ptr[y]=rows[y].c_str();
@@ -317,7 +354,12 @@ static void timerTests() {
     Otr::MapDef def{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,controls,3,0};
     assert(world.load(def)); snapPlayer(); updateStats();
     const bool en=langIdx();
-    assert(!s_timerLabel->hidden);
+    assert(s_progressLabel->hidden && s_timerLabel->hidden);
+    toggleExtraHud(&click);
+    assert(!s_progressLabel->hidden && !s_timerLabel->hidden);
+    toggleExtraHud(&click);
+    assert(s_progressLabel->hidden && s_timerLabel->hidden);
+    toggleExtraHud(&click);
     assert(s_timerLabel->text==(en ? "Gate steps: 0:0 A:0 Z:0" : "Portsteg: 0:0 A:0 Z:0"));
     doSwap(); assert(s_actSel==ACT_LEVER); doHit();
     assert(world.timerRemaining(10)==5 && s_timerLabel->text.find("A:5")!=std::string::npos);
@@ -358,11 +400,13 @@ static void timerTests() {
     assert(world.save(saved.data(),saved.size())==saved.size());
     assert(world.load(many) && world.restore(saved.data(),saved.size()));
     snapPlayer(); updateStats(); assert(s_timerLabel->text==active);
-    load(); updateStats(); assert(s_timerLabel->hidden);
+    load(); updateStats(); assert(s_timerLabel->hidden && !s_progressLabel->hidden && s_extraHud);
+    toggleExtraHud(&click);
+    assert(s_progressLabel->hidden && s_timerLabel->hidden);
     }
 static void rendererTests() {
     makeArt(s_spr);
-    for (auto size : {Game::Point{320,480},Game::Point{480,800}}) for (int ts : {16,32}) {
+    for (auto size : {Game::Point{320,480},Game::Point{480,800},Game::Point{481,801}}) for (int ts : {16,32}) {
         s_layout=Game::layout(size.x,size.y); s_ts=ts; s_fbStride=size.x+3;
         const size_t count=s_fbStride*s_layout.view.h;
         std::vector<uint16_t> fb(count+2,0xbeef); s_fb=fb.data()+1;
@@ -419,12 +463,13 @@ static void rendererTests() {
 }
 int main() {
     soundTests();
+    assert(!s_extraHud);
     for (const char *language : {"sv","en"}) {
         assert(Lang::setLang(language));
-        actionTests(); movementTests(); timerTests();
+        actionTests(); movementTests(); inventoryTests(); timerTests();
     }
     rendererTests();
-    puts("S2 production UI: renderer (2 sizes/2 zooms), action, forced movement, HUD/par, muted SFX OK");
+    puts("S2 production UI: renderer (3 sizes/2 zooms), action, forced movement, optional HUD, owned-key icons, muted SFX OK");
 }
 '''
 replacements = {
@@ -441,8 +486,14 @@ replacements = {
     "DIALOG": section("static lv_obj_t *dialog(const char *text)", "static void performanceText("),
     "ACTION": section("enum { ACT_HIT", "// Tap-to-walk"),
     "PERFORMANCE": section("static void performanceText(", "static void addPerformance("),
-    "INVENTORY": section("    static const char *namesEn[6]", "    menuButton(c, soundText()"),
+    "EXTRA_STATE": section("static bool s_extraHud", "static lv_obj_t *s_keyBox"),
+    "EXTRA_TOGGLE": section("static const char *extraHudText()", "static void showMenu()"),
+    "KEY_ART": section("static void makeColoredKeyIcons()", "static void buildKeyIcons()"),
 }
+menu = section("static void showMenu()", "// 32 px sprite")
+assert "menuButton(c, extraHudText(), Theme::LINE, toggleExtraHud)" in menu
+assert "namesEn" not in menu and "namesSv" not in menu
+assert "s_world->keys(" not in menu and "KEY_COLORS" not in menu
 audio = (ROOT / "main/board_audio.cpp").read_text()
 replacements["AUDIO_PLAY"] = audio[audio.index("void play(Sound::Sfx s)"):audio.index("void music(Sound::Music m)")]
 for marker, replacement in replacements.items():

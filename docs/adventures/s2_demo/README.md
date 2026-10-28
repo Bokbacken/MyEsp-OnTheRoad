@@ -109,10 +109,15 @@ animation frames do not spend extra steps or advance timers. Further movement
 waits for the glide to finish; releasing the joystick does not cancel forced
 motion. Opening the menu snaps to the resolved endpoint before pausing.
 
-Timed groups have a separate HUD line, **Portsteg / Gate steps**.
+The standard HUD keeps the map clear. In the hamburger menu, turn on
+**Extra HUD-info / Extra HUD info** to show steps/par and the timed-group line,
+**Portsteg / Gate steps**; turn it off again to hide those extra lines.
 For example `2:33` means group 2 has 33 successful displacements remaining;
 `2:0` means closed, not zero seconds. The line remains visible after expiry,
-updates on reactivation and scrolls horizontally if several groups need space.
+while extra info is enabled, updates on reactivation and scrolls horizontally
+if several groups need space. Owned colored keys appear as key symbols at the
+bottom right, one per owned color regardless of quantity, and disappear when
+the last key of that color is spent. The 1–6 marks identify colors, not counts.
 
 `@rules` → `par: N` accepts 1–65535; omit it for no target.
 `par: 56` is a displacement target, not a command count:
@@ -146,11 +151,14 @@ and **480×800**, in SV and EN:
 - Find the SD adventure; read the instructor without clipped controls/text.
 - Face the lever; select Spak/Lever with Byt/Swap, then verify the lower button
   toggles its lamp/gate. Walking into the lever must not activate it.
-- Cross the timed gate; verify the HUD's group-2 step countdown, expiry at
+- Check that extra HUD info starts off and the top map row is visible. Toggle
+  extra info on/off in the hamburger menu in both languages.
+- With extra info on, cross the timed gate; verify the group-2 countdown, expiry at
   `2:0`, and that waiting or pausing does not decrement it.
 - Use the joystick across ice and all four arrows; verify visible gliding
   through the cells/corners at both zooms, release/STOP, and menu interruption.
-- Match all six key/door colors **and 1–6 markers**, including HUD counts;
+- Match all six key/door colors **and 1–6 markers**, including the bottom-right
+  owned-key symbols (no quantity labels; no symbol for an unowned color);
   try the green side door with the red key as above, and verify unlocking
   requires another movement input.
 - Reach the exit at 56/par 56; restart and make a detour to exceed par.
