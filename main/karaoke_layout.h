@@ -4,7 +4,8 @@
 
 namespace KaraokeLayout {
 
-constexpr int32_t VOLUME_KNOB_SIZE = 24;
+constexpr int32_t VOLUME_KNOB_WIDTH = 30;
+constexpr int32_t VOLUME_KNOB_HEIGHT = 14;
 
 struct VolumeRail {
     int32_t x, width, labelY, sliderY, height;
@@ -17,7 +18,7 @@ constexpr VolumeRail volumeRail(int32_t screenWidth, int32_t inset, int32_t gap,
 {
     const int32_t touchWidth = minTouchWidth > 52 ? minTouchWidth : 52;
     const int32_t labelY = infoY + lineHeight + gap;
-    const int32_t sliderY = labelY + lineHeight + (gap > VOLUME_KNOB_SIZE / 2 ? gap : VOLUME_KNOB_SIZE / 2);
+    const int32_t sliderY = labelY + lineHeight + (gap > VOLUME_KNOB_HEIGHT / 2 ? gap : VOLUME_KNOB_HEIGHT / 2);
     return {
         screenWidth - inset - touchWidth,
         touchWidth,

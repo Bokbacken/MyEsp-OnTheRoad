@@ -63,6 +63,7 @@ bool webStream() { return false; }
 }
 namespace KaraWeb { int clients() { return 0; } }
 static int menus;
+static Theme::BatteryIndicator sampleBatteryIndicator() { return {true, 50}; }
 namespace UiYatzy { void showMenu() { ++menus; Theme::loadScreen(Theme::screen()); } }
 static bool rotateOK = true;
 namespace Display {
@@ -241,6 +242,9 @@ static void checkPlayer() {
     inside(lv_obj_get_child(header, 0), header);
     auto *battery = lv_obj_get_child(header, 1);
     inside(battery, header);
+    auto *batteryBody = lv_obj_get_child(battery, 0);
+    assert(lv_obj_get_width(lv_obj_get_child(batteryBody, 0)) == 5);
+    assert(!strcmp(lv_label_get_text(lv_obj_get_child(battery, 2)), "~50%"));
     lv_area_t titleArea, batteryArea, volumeArea, lyricsArea, timeArea;
     lv_obj_get_coords(lv_obj_get_child(header, 0), &titleArea);
     lv_obj_get_coords(battery, &batteryArea);
@@ -256,6 +260,9 @@ static void checkPlayer() {
     inside(P.volumeValue, P.scr);
     inside(P.volumeTrack, P.scr);
     assert(lv_obj_get_width(P.volumeSlider) >= 52 && lv_obj_get_height(P.volumeSlider) >= 100);
+    assert(lv_obj_get_style_width(P.volumeSlider, LV_PART_KNOB) == KaraokeLayout::VOLUME_KNOB_WIDTH);
+    assert(lv_obj_get_style_height(P.volumeSlider, LV_PART_KNOB) == KaraokeLayout::VOLUME_KNOB_HEIGHT);
+    assert(lv_obj_get_style_radius(P.volumeSlider, LV_PART_KNOB) == 3);
     lv_obj_get_coords(P.volumeSlider, &volumeArea);
     lv_obj_get_coords(P.lyrics, &lyricsArea);
     lv_obj_get_coords(P.timeLbl, &timeArea);
@@ -305,7 +312,7 @@ static void checkPlayer() {
     click(button(P.scr, LV_SYMBOL_LIST));
     click(button(s_sheet, tr(Str::KARA_BTN_SETTINGS), true));
     body = sheetBody();
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < 2; ++k) {
         auto *row = lv_obj_get_child(body, k);
         lv_obj_scroll_to_view(row, LV_ANIM_OFF); settle(); inside(row, body);
         for (int j : {1, 3}) fitsText(lv_obj_get_child(row, j));
@@ -313,9 +320,10 @@ static void checkPlayer() {
         click(lv_obj_get_child(row, 1));
         click(lv_obj_get_child(row, 3));
     }
-    assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::volume() == 90);
-    assert(lv_slider_get_value(P.volumeSlider) == 90);
-    assert(std::string(lv_label_get_text(P.volumeValue)) == "90%");
+    assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::volume() == 80);
+    assert(!button(s_sheet, tr(Str::KARA_VOLUME)));
+    assert(lv_slider_get_value(P.volumeSlider) == 80);
+    assert(std::string(lv_label_get_text(P.volumeValue)) == "80%");
     lv_tick_inc(800); settle(); // Flush any preceding stepper change before checking drag debounce.
     const int savesBeforeDrag = Config::saveCalls;
     lv_obj_send_event(P.volumeSlider, LV_EVENT_PRESSED, nullptr);
@@ -354,6 +362,7 @@ static void checkPlayer() {
 }
 int main() {
     lv_init();
+    Theme::setBatteryIndicatorReader(sampleBatteryIndicator);
     auto *display = lv_display_create(320,480);
     for (auto size : {lv_point_t{320,480}, lv_point_t{480,800}}) {
         for (bool flip : {false,true}) for (const char *language : {"sv","en"}) {

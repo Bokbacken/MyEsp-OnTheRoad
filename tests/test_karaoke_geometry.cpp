@@ -13,12 +13,13 @@ static void check(int32_t screenWidth, int32_t screenHeight, int32_t inset, int3
     const int32_t seekRight = 2 * inset + rail.seekWidth;
 
     assert(rail.width >= 52 && rail.height > 100);
+    assert(KaraokeLayout::VOLUME_KNOB_WIDTH > KaraokeLayout::VOLUME_KNOB_HEIGHT);
     assert(rail.x + rail.width == screenWidth - inset);
     assert(lyricsRight + gap <= rail.x);
     assert(seekRight <= rail.timeX);
     assert(rail.timeX + timeWidth + gap <= rail.x);
     assert(rail.labelY >= infoY + lineHeight + gap);
-    assert(rail.sliderY >= rail.labelY + lineHeight + KaraokeLayout::VOLUME_KNOB_SIZE / 2);
+    assert(rail.sliderY >= rail.labelY + lineHeight + KaraokeLayout::VOLUME_KNOB_HEIGHT / 2);
     assert(rail.sliderY + rail.height <= bottomY - gap - buttonHeight / 3);
     assert(rail.sliderY + rail.height + buttonHeight / 3 < bottomY);
     assert(bottomY < screenHeight);

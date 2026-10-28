@@ -950,9 +950,9 @@ lv_obj_t *sheetBase(const char *title, int32_t h)
 
 struct Stepper {
     lv_obj_t *value;
-    int kind;   // 0 tempo, 1 key, 2 volume
+    int kind;   // 0 tempo, 1 key
 };
-Stepper s_steps[3];
+Stepper s_steps[2];
 
 void refreshSteppers()
 {
@@ -961,26 +961,18 @@ void refreshSteppers()
     if (s_steps[0].value) lv_label_set_text(s_steps[0].value, buf);
     snprintf(buf, sizeof(buf), "%+d", Karaoke::transpose());
     if (s_steps[1].value) lv_label_set_text(s_steps[1].value, buf);
-    snprintf(buf, sizeof(buf), "%u", (unsigned)Karaoke::volume());
-    if (s_steps[2].value) lv_label_set_text(s_steps[2].value, buf);
     syncVolumeControls();
 }
 
 void stepCb(lv_event_t *e)
 {
-    static uint32_t last[6] = {};
+    static uint32_t last[4] = {};
     const int code = (int)(intptr_t)lv_event_get_user_data(e);   // kind * 2 + (0 = minus, 1 = plus)
     if (!Theme::debounce(last[code], 200)) return;
     const int dir = (code & 1) ? 1 : -1;
     switch (code / 2) {
     case 0: Karaoke::setTempo(Karaoke::tempo() + dir * 5); break;
     case 1: Karaoke::setTranspose(Karaoke::transpose() + dir); break;
-    case 2: {
-        int v = Karaoke::volume() + dir * 10;
-        Karaoke::setVolume((uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v));
-        scheduleVolumeSave();
-        break;
-    }
     }
     refreshSteppers();
 }
@@ -988,9 +980,9 @@ void stepCb(lv_event_t *e)
 void showSettings()
 {
     const auto l = layout();
-    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 262);
-    const Str names[3] = {Str::KARA_TEMPO, Str::KARA_KEY, Str::KARA_VOLUME};
-    for (int k = 0; k < 3; k++) {
+    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 220);
+    const Str names[2] = {Str::KARA_TEMPO, Str::KARA_KEY};
+    for (int k = 0; k < 2; k++) {
         lv_obj_t *row = lv_obj_create(c);
         lv_obj_remove_style_all(row);
         lv_obj_set_size(row, LV_PCT(100), l.buttonH);
@@ -1344,9 +1336,9 @@ void showPlayer()
     lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_COVER, LV_PART_KNOB);
     lv_obj_set_style_border_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_KNOB);
     lv_obj_set_style_border_width(P.volumeSlider, 2, LV_PART_KNOB);
-    lv_obj_set_style_radius(P.volumeSlider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_width(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_SIZE, LV_PART_KNOB);
-    lv_obj_set_style_height(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_SIZE, LV_PART_KNOB);
+    lv_obj_set_style_radius(P.volumeSlider, 3, LV_PART_KNOB);
+    lv_obj_set_style_width(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_WIDTH, LV_PART_KNOB);
+    lv_obj_set_style_height(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_HEIGHT, LV_PART_KNOB);
     lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
         P.volumeDragging = true;
         P.volumeChanged = false;

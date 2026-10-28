@@ -88,10 +88,19 @@ static Theme::BatteryIndicator batteryIndicator()
 {
     const BoardBattery::Status status = BoardBattery::status();
     uint16_t batteryMv = 0;
+    uint8_t percent = 0;
     const uint16_t scale = Config::get().batteryScalePermille;
-    return {status.supported && status.sampleValid && status.adcCalibrated &&
-                BatteryMath::batteryMillivolts(status.adcMillivolts, scale, batteryMv),
-            batteryMv};
+    const bool voltageValid = status.supported && status.sampleValid && status.adcCalibrated &&
+                              BatteryMath::batteryMillivolts(status.adcMillivolts, scale, batteryMv);
+    return {voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent), percent};
+}
+
+static void checkLowBatteryAlert(uint32_t now)
+{
+    static uint32_t lastBeep = 0;
+    const Theme::BatteryIndicator battery = batteryIndicator();
+    if (BatteryMath::lowBatteryAlertDue(battery.percentValid, battery.percent, Config::get().soundOn, now, lastBeep))
+        Audio::play(Sound::Sfx::CLICK);
 }
 
 extern "C" void app_main(void)
@@ -284,10 +293,16 @@ extern "C" void app_main(void)
     }
 
     uint32_t lastRtcCheck = MySys::millis();
+    uint32_t lastBatteryAlertCheck = lastRtcCheck;
     for (;;) {
         MyWifi::loop();
         MyTime::loop();
-        BoardSd::poll(MySys::millis());   // Card removed / inserted
+        const uint32_t now = MySys::millis();
+        if (static_cast<uint32_t>(now - lastBatteryAlertCheck) >= 1000) {
+            lastBatteryAlertCheck = now;
+            checkLowBatteryAlert(now);
+        }
+        BoardSd::poll(now);   // Card removed / inserted
         // Keep the RTC in step with a certain clock: right after each NTP sync / manual set, otherwise every
         // 10 minutes (covers manual sets; writes only when the drift is >= 1 s).
         const bool changed = MyTime::takeClockChanged();

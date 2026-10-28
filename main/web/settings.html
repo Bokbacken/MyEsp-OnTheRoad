@@ -77,6 +77,28 @@
   <div class="row"><button type="button" class="secondary" id="time-btn">Sätt tid från den här enheten</button></div>
 </div>
 
+<h2>Batteri</h2>
+<div class="card">
+  <p class="muted">ADC-ingångens spänningsdelare är inte verifierad. Spänningen och den ungefärliga LiPo-procenten visas
+  först efter kalibrering mot en multimeter. Anslut aldrig batteriet direkt till ADC-ingången. Laddning kan inte detekteras.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Mätvärden</th><td id="battery-info">–</td></tr>
+  </table></div>
+  <form id="battery-form">
+    <label for="battery-reference-mv">Uppmätt batterispänning (mV), mät medan enheten är på</label>
+    <input type="number" id="battery-reference-mv" min="2500" max="4500" step="1" required>
+    <div class="row">
+      <button type="submit" class="secondary">Kalibrera mot multimeter</button>
+      <button type="button" class="secondary" id="battery-reset">Återställ batterikalibrering</button>
+    </div>
+  </form>
+  <form id="battery-full-form">
+    <label for="battery-full-mv">Fullpunkt för ungefärlig procent (mV, standard 4200)</label>
+    <input type="number" id="battery-full-mv" min="3900" max="4300" step="10" required>
+    <button type="submit" class="secondary">Spara fullpunkt</button>
+  </form>
+</div>
+
 <h2>Enhet</h2>
 <form id="cfg-form">
   <fieldset>
@@ -223,6 +245,7 @@ function fill(c) {
   $('host-link').textContent = c.hostname + '.local';
   $('pass').value = '';
   $('tz').value = c.tz;
+  $('battery-full-mv').value = c.battery_full_mv ?? 4200;
   $('pin-state').textContent = c.admin_pin_set ? '(satt)' : '(ingen – öppen åtkomst)';
   $('pin-old').disabled = !c.admin_pin_set;
   $('brightness').value = c.brightness; updB();
@@ -271,6 +294,15 @@ async function status() {
       const c = info.clock;
       $('c-now').textContent = c.epoch ? new Date(c.epoch * 1000).toLocaleString('sv-SE') : 'ej satt';
       $('c-src').innerHTML = '<span class="' + (c.certain ? 'ok' : 'warn') + '">' + c.source + '</span>';
+    }
+    if (info.battery) {
+      const b = info.battery;
+      $('battery-info').textContent = !b.supported ? 'Mätning saknas på detta kort' :
+        !b.sample_valid ? 'Väntar på giltig ADC-mätning' :
+        'ADC ' + b.raw_adc + (b.adc_calibrated ? ' · ' + b.adc_mv + ' mV' : ' · fabrikskalibrering saknas') +
+        (b.battery_mv >= 0 ? ' · batteri ' + b.battery_mv + ' mV · ungefär ' + b.estimated_percent + '%' :
+          ' · batterispänning okänd · skala ' + b.scale_permille + ' ‰') +
+        ' · fullpunkt ' + b.full_reference_mv + ' mV';
     }
     return w;
   } catch (e) { $('wifi-dot').className = 'dot bad'; $('wifi-text').textContent = 'ingen kontakt'; return null; }
@@ -348,6 +380,40 @@ $('save-only-btn').addEventListener('click', async () => {
 $('time-btn').addEventListener('click', async () => {
   try { await post('/api/time', {epoch: Math.floor(Date.now() / 1000)}); toast('Tiden satt'); status(); }
   catch (err) { toast(err.message, false); }
+});
+
+$('battery-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const reference = Number($('battery-reference-mv').value);
+  if (!Number.isInteger(reference) || reference < 2500 || reference > 4500)
+    return toast('Ange en batterispänning mellan 2500 och 4500 mV', false);
+  try {
+    const j = await post('/api/config', {battery_reference_mv: String(reference)});
+    fill(j.config);
+    $('battery-reference-mv').value = '';
+    await status();
+    toast('Batterimätningen kalibrerad');
+  } catch (err) { toast(err.message, false); }
+});
+$('battery-reset').addEventListener('click', async () => {
+  try {
+    const j = await post('/api/config', {battery_scale_permille: '0', battery_full_mv: '4200'});
+    fill(j.config);
+    await status();
+    toast('Batterikalibrering återställd');
+  } catch (err) { toast(err.message, false); }
+});
+$('battery-full-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fullMv = Number($('battery-full-mv').value);
+  if (!Number.isInteger(fullMv) || fullMv < 3900 || fullMv > 4300)
+    return toast('Fullpunkten måste vara 3900–4300 mV', false);
+  try {
+    const j = await post('/api/config', {battery_full_mv: String(fullMv)});
+    fill(j.config);
+    await status();
+    toast('Fullpunkt sparad; procenten är fortfarande ungefärlig');
+  } catch (err) { toast(err.message, false); }
 });
 
 $('admin-form').addEventListener('submit', async e => {

@@ -44,6 +44,9 @@
 <h2>Wi-Fi</h2>
 <div class="card table-wrap"><table id="wifi"></table></div>
 
+<h2>Batteri</h2>
+<div class="card table-wrap"><table id="battery"></table></div>
+
 <h2>Loggar</h2>
 <div class="card">
   <div class="row" style="margin-top:0;flex-wrap:wrap;gap:.4rem">
@@ -155,6 +158,15 @@ async function refresh() {
       ['MAC', esc(w.mac)],
       ['Anslutningar / avbrott / roaming', w.connects + ' / ' + w.disconnects + ' / ' + w.roams],
       ['mDNS', w.mdns ? esc(w.hostname) + '.local' : '<span class="bad">inaktiv</span>'],
+    ]);
+    const b = i.battery || {};
+    rows('battery', [
+      ['Mätstöd / sampling', b.supported ? (b.initialized ? 'tillgänglig' : 'initieringsfel') : 'saknas'],
+      ['Rå ADC / ADC-kalibrering', (b.raw_adc >= 0 ? b.raw_adc : '–') + ' / ' + (b.adc_calibrated ? b.adc_mv + ' mV' : 'saknas')],
+      ['Batterispänning', b.battery_mv >= 0 ? b.battery_mv + ' mV' : 'okänd (ej kalibrerad)'],
+      ['Ungefärlig LiPo-nivå', b.estimated_percent >= 0 ? b.estimated_percent + '%' : 'okänd'],
+      ['Divider / fullpunkt', b.scale_permille + ' ‰ / ' + b.full_reference_mv + ' mV'],
+      ['ADC-fel', b.errors],
     ]);
     $('raw').textContent = JSON.stringify(i, null, 2);
   } catch (e) {

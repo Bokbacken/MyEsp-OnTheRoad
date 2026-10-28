@@ -41,6 +41,31 @@ int main()
     CHECK(!BatteryMath::batteryMillivolts(1200, 4000, batteryMv));
     CHECK(!BatteryMath::batteryMillivolts(600, 4000, batteryMv));
 
+    uint8_t percent = 0;
+    CHECK(BatteryMath::estimatePercent(3000, 4200, percent) && percent == 0);
+    CHECK(BatteryMath::estimatePercent(3300, 4200, percent) && percent == 5);
+    CHECK(BatteryMath::estimatePercent(3600, 4200, percent) && percent == 10);
+    CHECK(BatteryMath::estimatePercent(3820, 4200, percent) && percent == 50);
+    CHECK(BatteryMath::estimatePercent(4200, 4200, percent) && percent == 100);
+    CHECK(BatteryMath::estimatePercent(4500, 4200, percent) && percent == 100);
+    CHECK(BatteryMath::estimatePercent(4100, 4100, percent) && percent == 100);
+    CHECK(BatteryMath::estimatePercent(3000, 4100, percent) && percent == 0);
+    CHECK(!BatteryMath::estimatePercent(2499, 4200, percent));
+    CHECK(!BatteryMath::estimatePercent(4000, 3899, percent));
+    CHECK(BatteryMath::validFullVoltage(4200));
+    CHECK(!BatteryMath::validFullVoltage(3899));
+    CHECK(BatteryMath::sanitizeFullVoltage(4301) == 4200);
+
+    uint32_t lastBeep = 0;
+    CHECK(!BatteryMath::lowBatteryAlertDue(true, 4, true, 1000, lastBeep));
+    CHECK(lastBeep == 1000);
+    CHECK(!BatteryMath::lowBatteryAlertDue(true, 4, true, 30999, lastBeep));
+    CHECK(BatteryMath::lowBatteryAlertDue(true, 4, true, 31000, lastBeep));
+    CHECK(!BatteryMath::lowBatteryAlertDue(true, 4, true, 60999, lastBeep));
+    CHECK(BatteryMath::lowBatteryAlertDue(true, 4, true, 61000, lastBeep));
+    CHECK(!BatteryMath::lowBatteryAlertDue(true, 5, true, 62000, lastBeep) && lastBeep == 0);
+    CHECK(!BatteryMath::lowBatteryAlertDue(true, 4, false, 63000, lastBeep));
+
     CHECK(BatteryMath::supportsS3BatteryAdc(true, true));
     CHECK(!BatteryMath::supportsS3BatteryAdc(false, true));
     CHECK(!BatteryMath::supportsS3BatteryAdc(true, false));

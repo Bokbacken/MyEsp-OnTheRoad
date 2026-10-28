@@ -56,6 +56,8 @@ struct AppConfig {
     uint8_t karaVolume;
     // Battery divider calibration: battery mV / ADC mV in permille; 0 = not calibrated.
     uint16_t batteryScalePermille;
+    // Approximate battery-full point for the generic LiPo percentage curve (mV).
+    uint16_t batteryFullMv;
 };
 
 // Joystick limits shared by the UI and the web API.
