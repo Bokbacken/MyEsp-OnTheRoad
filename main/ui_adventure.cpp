@@ -1852,6 +1852,7 @@ static lv_obj_t *dialog(const char *text)
     closeDialog();
     s_dialog = lv_msgbox_create(nullptr);
     if (text) lv_msgbox_add_text(s_dialog, text);
+    AdvUi::dialogLayout(s_dialog);
     return s_dialog;
 }
 
@@ -2747,13 +2748,22 @@ static void addPlayerRow(const char *name, uint16_t id)
 {
     char text[64];
     snprintf(text, sizeof(text), "%s%s", name, hasSave(id, curFolder()) ? tr(Str::ADV_HAS_SAVE) : "");
-    lv_obj_t *b = Theme::button(s_playerList, text, 296, 42, id ? Theme::TEAL : Theme::LINE);
+    const int width = AdvUi::rowWidth();
+    const int height = AdvUi::scale(42);
+    lv_obj_t *b = Theme::button(s_playerList, text, width, height, id ? Theme::TEAL : Theme::LINE);
+    auto *label = lv_obj_get_child(b, 0);
+    lv_obj_set_width(label, width - 2 * AdvUi::scale(12));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_update_layout(b);
+    const int textHeight = lv_obj_get_height(label);
+    if (textHeight + 2 * AdvUi::scale(8) > height)
+        lv_obj_set_height(b, textHeight + 2 * AdvUi::scale(8));
     if (id && id == s_playerId) {
         lv_obj_set_style_border_color(b, Theme::c(Theme::GOLD), 0);
         lv_obj_set_style_border_width(b, 3, 0);
         lv_obj_scroll_to_view(b, LV_ANIM_OFF);
     }
-    lv_obj_align(lv_obj_get_child(b, 0), LV_ALIGN_LEFT_MID, 12, 0);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, AdvUi::scale(12), 0);
     lv_obj_add_event_cb(b, playerChosen, LV_EVENT_CLICKED, (void *)(uintptr_t)id);
 }
 
@@ -2783,19 +2793,29 @@ static void worldChosen(lv_event_t *e)
     buildPlayerPick();
 }
 
-// One wide (296 px) stacked adventure button: bold name on top, wrapped description below, so the
-// text can never overflow the button. The shape (stacked, 296 px wide, labels within the button
-// bounds) is pinned by tests/test_adv_setup.py.
+// One wide stacked adventure button: bold name on top, wrapped description below.
 static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)
 {
-    lv_obj_t *b = Theme::button(list, name, 296, 62, Theme::LINE);
+    const int width = AdvUi::rowWidth();
+    const int rowHeight = AdvUi::scale(62);
+    lv_obj_t *b = Theme::button(list, name, width, rowHeight, Theme::LINE);
     lv_obj_t *nm = lv_obj_get_child(b, 0);
     lv_obj_set_style_text_color(nm, Theme::c(Theme::GOLD), 0);
-    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, 10, 7);
+    lv_obj_set_width(nm, width - 2 * AdvUi::scale(10));
+    lv_label_set_long_mode(nm, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_t *d = Theme::label(b, desc, &my_font_14, Theme::MUTED);
     lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(d, 272);
-    lv_obj_align(d, LV_ALIGN_BOTTOM_LEFT, 10, -7);
+    lv_obj_set_width(d, width - 2 * AdvUi::scale(12));
+    const bool hasDescription = desc && desc[0];
+    if (!hasDescription) lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_update_layout(b);
+    const int nameHeight = lv_obj_get_height(nm);
+    const int descriptionHeight = hasDescription ? lv_obj_get_height(d) : 0;
+    const int requiredHeight = AdvUi::scale(14) + nameHeight + descriptionHeight +
+                              (hasDescription ? AdvUi::scale(4) : 0);
+    if (requiredHeight > rowHeight) lv_obj_set_height(b, requiredHeight);
+    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, AdvUi::scale(10), AdvUi::scale(7));
+    lv_obj_align(d, LV_ALIGN_BOTTOM_LEFT, AdvUi::scale(10), -AdvUi::scale(7));
     lv_obj_add_event_cb(b, worldChosen, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     return b;
 }
@@ -2814,23 +2834,19 @@ static void buildPlayerPick()
         buildWorldPick();   // back to the adventure chooser
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *mode = Theme::button(scr, modeText(), 308, 40, Theme::TEAL);
-    lv_obj_set_pos(mode, 6, 52);
+    const int pickerWidth = UiMetrics::screenW() - 2 * AdvUi::scale(6);
+    lv_obj_t *mode = Theme::button(scr, modeText(), pickerWidth, AdvUi::scale(40), Theme::TEAL);
+    lv_obj_set_pos(mode, AdvUi::scale(6), AdvUi::scale(52));
     lv_obj_add_event_cb(mode, toggleMode, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *who = Theme::label(scr, tr(Str::ADV_WHO), &my_font_18, Theme::GOLD);
-    lv_obj_set_pos(who, 10, 102);
+    lv_obj_set_pos(who, AdvUi::scale(10), AdvUi::scale(102));
 
-    s_playerList = lv_obj_create(scr);
-    lv_obj_remove_style_all(s_playerList);
-    lv_obj_set_pos(s_playerList, 6, 128);
-    lv_obj_set_size(s_playerList, 308, 288);
-    lv_obj_set_flex_flow(s_playerList, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(s_playerList, 6, 0);
-    lv_obj_set_scroll_dir(s_playerList, LV_DIR_VER);
+    s_playerList = AdvUi::scrollColumn(scr, 128, 64, 6);
 
-    auto *add = Theme::button(scr, tr(Str::PICK_NEW), 296, 48, Theme::GREEN);
-    lv_obj_set_pos(add, 12, 424);
+    auto *add = Theme::button(scr, tr(Str::PICK_NEW),
+                              UiMetrics::screenW() - 2 * AdvUi::scale(12), AdvUi::scale(48), Theme::GREEN);
+    AdvUi::bottomButton(add, 48, 12, 8);
     lv_obj_add_event_cb(add, newPlayer, LV_EVENT_CLICKED, nullptr);
     fillPlayerList();
     Theme::loadScreen(scr);
@@ -2856,24 +2872,18 @@ static void buildWorldPick()
     if (!s_cat || s_cat->count == 0) {
         lv_obj_t *msg = Theme::label(scr, tr(Str::ADV_NO_ADVENTURES), &my_font_18, Theme::GOLD);
         lv_label_set_long_mode(msg, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_width(msg, 296);
-        lv_obj_align(msg, LV_ALIGN_TOP_MID, 0, 90);
+        lv_obj_set_width(msg, UiMetrics::screenW() - 2 * AdvUi::scale(12));
+        lv_obj_align(msg, LV_ALIGN_TOP_MID, 0, AdvUi::scale(90));
         lv_obj_t *help = Theme::label(scr, tr(Str::ADV_NO_ADVENTURES_HELP), &my_font_14, Theme::MUTED);
         lv_label_set_long_mode(help, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_width(help, 296);
-        lv_obj_align(help, LV_ALIGN_TOP_MID, 0, 170);
+        lv_obj_set_width(help, UiMetrics::screenW() - 2 * AdvUi::scale(12));
+        lv_obj_align(help, LV_ALIGN_TOP_MID, 0, AdvUi::scale(170));
         Theme::loadScreen(scr);
         return;
     }
 
     const bool en = strcmp(Lang::currentLang(), "en") == 0;
-    lv_obj_t *list = lv_obj_create(scr);
-    lv_obj_remove_style_all(list);
-    lv_obj_set_pos(list, 6, 50);
-    lv_obj_set_size(list, 308, 424);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list, 8, 0);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_t *list = AdvUi::scrollColumn(scr, 50, 6, 8);
     for (int i = 0; i < s_cat->count; i++) {
         const Adv::CatalogEntry &e = s_cat->items[i];
         const char *name = e.headerOk ? (en && e.header.titleEn[0] ? e.header.titleEn : e.header.titleSv) : "";
