@@ -1398,6 +1398,8 @@ static void testS2Controls()
     const char *vertical[] = {"S...", top};
     MapDef timed{91, vertical, 2, CLASSIC_RULES, nullptr, 0, nullptr, 0, &control, 1, 2};
     CHECK(W.load(timed));
+    CHECK(W.isTimedGroup(4)); CHECK(!W.isTimedGroup(0));
+    CHECK(!W.isTimedGroup(-1)); CHECK(!W.isTimedGroup(36));
     CHECK_EQ(W.activate(), EV_LEVER | EV_GATE_OPEN);
     CHECK_EQ(W.timerRemaining(4), 2);
     CHECK_EQ(W.activate(), EV_LEVER);
@@ -1411,6 +1413,7 @@ static void testS2Controls()
     CHECK(W.move(Dir::DOWN) & EV_GATE_CLOSE); // Last open step can enter the gate.
     CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.playerY(), 1);
     CHECK_EQ(W.timerRemaining(4), 0);
+    CHECK(W.isTimedGroup(4));
     CHECK(!W.playerCanEnter(1, 1));
     const size_t n = W.save(SAVEBUF, sizeof(SAVEBUF));
     CHECK(W.load(timed)); CHECK(W.restore(SAVEBUF, n));
@@ -1510,13 +1513,26 @@ static void testS2Controls()
 
 static void testS2Forced()
 {
+    static_assert(sizeof(MoveTrace) <= 512, "Movement trace must stay caller-owned and small");
+    MoveTrace trace;
     char row[] = "S....X";
     row[1] = row[2] = (char)ICE_GLYPH;
     row[3] = (char)(BELT_UP_GLYPH + (int)Dir::RIGHT);
     const char *rows[] = {row};
     MapDef def{92, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0, nullptr, 0, 4};
     CHECK(W.load(def));
-    CHECK(W.move(Dir::RIGHT) & EV_MOVED);
+    const uint32_t firstEvents = W.move(Dir::RIGHT, &trace);
+    CHECK(firstEvents & EV_MOVED);
+    CHECK_EQ(trace.count, 4);
+    for (int i = 0; i < trace.count; ++i) {
+        CHECK_EQ(trace.cells[i].x, i + 1); CHECK_EQ(trace.cells[i].y, 0);
+    }
+    const size_t tracedSize = W.save(SAVEBUF, sizeof SAVEBUF);
+    CHECK(W.load(def));
+    CHECK_EQ(W.move(Dir::RIGHT), firstEvents);
+    static uint8_t plainSave[sizeof SAVEBUF];
+    CHECK_EQ(W.save(plainSave, sizeof plainSave), tracedSize);
+    CHECK(!memcmp(SAVEBUF, plainSave, tracedSize)); // Trace cannot change rules, events or saves.
     CHECK_EQ(W.playerX(), 4); CHECK_EQ(W.steps(), 4); CHECK(W.parMet());
     CHECK_EQ(W.move(Dir::RIGHT), EV_MOVED | EV_EXIT);
     CHECK_EQ(W.steps(), 5); CHECK(!W.parMet());
@@ -1546,13 +1562,20 @@ static void testS2Forced()
     char beltBottom[] = {(char)(BELT_UP_GLYPH), (char)(BELT_UP_GLYPH + 3), 0};
     const char *turns[] = {beltTop, beltBottom};
     CHECK(W.load(turns, 2));
-    W.move(Dir::RIGHT);                      // Down, left, up; stops on ordinary start.
+    W.move(Dir::RIGHT, &trace);              // Down, left, up; stops on ordinary start.
+    CHECK_EQ(trace.count, 4);
+    const int route[][2] = {{1,0},{1,1},{0,1},{0,0}};
+    for (int i = 0; i < 4; ++i) {
+        CHECK_EQ(trace.cells[i].x, route[i][0]); CHECK_EQ(trace.cells[i].y, route[i][1]);
+    }
     CHECK_EQ(W.playerX(), 0); CHECK_EQ(W.playerY(), 0); CHECK_EQ(W.steps(), 4);
     char loopTop[] = {'S', (char)(BELT_UP_GLYPH + 1), (char)(BELT_UP_GLYPH + 2), 0};
     char loopBottom[] = {'.', (char)BELT_UP_GLYPH, (char)(BELT_UP_GLYPH + 3), 0};
     const char *loops[] = {loopTop, loopBottom};
     CHECK(W.load(loops, 2));
-    W.move(Dir::RIGHT);
+    W.move(Dir::RIGHT, &trace);
+    CHECK_EQ(trace.count, 129);
+    CHECK_EQ(trace.cells[128].x, W.playerX()); CHECK_EQ(trace.cells[128].y, W.playerY());
     CHECK_EQ(W.steps(), 129);                // One manual + at most 128 forced displacements.
     CHECK_EQ(W.playerX(), 1); CHECK_EQ(W.playerY(), 0);
 
@@ -1583,8 +1606,10 @@ static void testS2Forced()
         CHECK(W.move(Dir::RIGHT) & EV_MOVED);
     }
     CHECK(W.move(Dir::RIGHT) & EV_CHECKPOINT);
-    ev = W.move(Dir::RIGHT);
+    ev = W.move(Dir::RIGHT, &trace);
     CHECK(ev & EV_DIED);
+    CHECK_EQ(trace.count, 2);
+    CHECK_EQ(trace.cells[0].x, 8); CHECK_EQ(trace.cells[1].x, 9); // No respawn in the route.
     CHECK_EQ(W.playerX(), 7); CHECK_EQ(W.checkpointX(), 7);
     CHECK_EQ(W.steps(), 9);
     for (int c = 0; c < 6; ++c) {
@@ -1598,8 +1623,11 @@ static void testS2Forced()
     CHECK(W.load(vaults, 1));
     W.setPogo(1);
     CHECK_EQ(W.move(Dir::RIGHT), EV_BLOCKED);
-    ev = W.vault();
+    ev = W.vault(&trace);
     CHECK(ev & EV_EXIT); CHECK_EQ(W.playerX(), 4); CHECK_EQ(W.steps(), 3);
+    CHECK_EQ(trace.count, 3);
+    CHECK_EQ(trace.cells[0].x, 2); CHECK_EQ(trace.cells[1].x, 3); CHECK_EQ(trace.cells[2].x, 4);
+    CHECK(W.vault(&trace) == EV_BLOCKED); CHECK_EQ(trace.count, 0);
 
     // Rocks stay put on forced terrain.
     char rockRow[] = {'S', 'R', (char)ICE_GLYPH, '.', 0};

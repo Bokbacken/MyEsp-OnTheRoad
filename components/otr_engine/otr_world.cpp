@@ -565,8 +565,9 @@ uint32_t World::pickup(uint32_t ev)
     return ev;
 }
 
-uint32_t World::move(Dir d)
+uint32_t World::move(Dir d, MoveTrace *trace)
 {
+    if (trace) trace->count = 0;
     if (gameOver_ || (mineLevel_ && exitReached_)) return EV_NONE;
     facing_ = d;
     const int tx = px_ + dirX(d), ty = py_ + dirY(d);
@@ -621,15 +622,17 @@ uint32_t World::move(Dir d)
     }
 
     if (!playerCanEnter(tx, ty)) return ev | EV_BLOCKED;   // v0.18.3: pogo vault is now manual (vault())
-    ev = landOn(tx, ty, ev);
+    ev = landOn(tx, ty, ev, trace);
     if (plateX >= 0) activatePlate(plateX, plateY, ev);
-    return resolveForced(ev);
+    return resolveForced(ev, trace);
 }
 
 // v0.18.3: shared landing sequence for a normal step and a manual pogo vault. Moves the player onto
 // (destX, destY), then resolves mines, fog, lava, water, checkpoints, the exit and pickups.
-uint32_t World::landOn(int destX, int destY, uint32_t ev)
+uint32_t World::landOn(int destX, int destY, uint32_t ev, MoveTrace *trace)
 {
+    if (trace && trace->count < 129)
+        trace->cells[trace->count++] = {(uint8_t)destX, (uint8_t)destY};
     tickTimers(ev);
     px_ = destX;
     py_ = destY;
@@ -685,12 +688,13 @@ bool World::canVault() const
     return pogoLand(facing_, lx, ly);
 }
 
-uint32_t World::vault()
+uint32_t World::vault(MoveTrace *trace)
 {
+    if (trace) trace->count = 0;
     if (gameOver_ || (mineLevel_ && exitReached_) || pogo_ <= 0) return EV_NONE;
     int lx, ly;
     if (!pogoLand(facing_, lx, ly)) return EV_BLOCKED;
-    return resolveForced(landOn(lx, ly, 0));
+    return resolveForced(landOn(lx, ly, 0, trace), trace);
 }
 
 bool World::forcedMotion(Dir &direction) const
@@ -704,7 +708,7 @@ bool World::forcedMotion(Dir &direction) const
     return false;
 }
 
-uint32_t World::resolveForced(uint32_t ev)
+uint32_t World::resolveForced(uint32_t ev, MoveTrace *trace)
 {
     for (int n = 0; n < 128 && !(ev & (EV_DIED | EV_EXIT | EV_MINE | EV_BURNED)); ++n) {
         Dir d;
@@ -715,7 +719,7 @@ uint32_t World::resolveForced(uint32_t ev)
             break;
         }
         facing_ = d;
-        ev = landOn(x, y, ev);
+        ev = landOn(x, y, ev, trace);
     }
     return ev;
 }

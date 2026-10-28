@@ -143,6 +143,14 @@ struct Treasure {
 struct DarkRect { uint8_t x0, y0, x1, y1; };
 struct GroupControl { uint8_t group; uint16_t steps; };
 
+// Optional caller-owned output: one manual landing plus at most 128 forced landings.
+// Respawns are not displacements. The trace is never stored in World or saves.
+struct MoveTrace {
+    struct Cell { uint8_t x, y; };
+    Cell cells[129];
+    uint16_t count = 0;
+};
+
 struct MapDef {
     uint8_t id;                     // Stable id (save files)
     const char *const *rows;
@@ -213,6 +221,10 @@ public:
     bool parMet() const { return par_ > 0 && steps_ <= par_; }
     bool leverOnAt(int x, int y) const;
     int timerRemaining(int group) const;
+    bool isTimedGroup(int group) const
+    {
+        return group >= 0 && group < PLATE_GROUPS && controlSteps_[group] != 0;
+    }
     uint32_t revision() const { return rev_; }   // Bumped on every terrain / object / fog change
 
     int energy() const { return energy_; }
@@ -240,12 +252,12 @@ public:
     int checkpointX() const { return cpX_; }
     int checkpointY() const { return cpY_; }
 
-    uint32_t move(Dir d);   // Turns to d, then walks / pushes / opens
+    uint32_t move(Dir d, MoveTrace *trace = nullptr);   // Turns to d, then walks / pushes / opens
     uint32_t hit();         // Hits the facing cell
     uint32_t activate();    // Explicit action on the facing lever; never a movement step.
     bool forcedMotion(Dir &direction) const; // Current ice/belt direction, without moving.
     bool canVault() const;  // v0.18.3: owns a pogo stick AND faces a jumpable run -> UI shows "Hoppa"
-    uint32_t vault();       // v0.18.3: manual pogo jump in the facing direction (see canVault())
+    uint32_t vault(MoveTrace *trace = nullptr);       // Manual pogo jump in the facing direction
     void revive();          // After game over ("continue"): one life, full energy, at the checkpoint
 
     bool playerCanEnter(int x, int y) const;     // Terrain + object check (no side effects)
@@ -305,8 +317,8 @@ private:
     // direction d; if a walkable, in-bounds cell lies just beyond the run, returns true with the
     // landing cell in (lx, ly). False = no valid vault (run too wide / landing blocked / OOB).
     bool pogoLand(Dir d, int &lx, int &ly) const;
-    uint32_t landOn(int destX, int destY, uint32_t ev);   // v0.18.3: shared step/vault landing sequence
-    uint32_t resolveForced(uint32_t ev);
+    uint32_t landOn(int destX, int destY, uint32_t ev, MoveTrace *trace);
+    uint32_t resolveForced(uint32_t ev, MoveTrace *trace);
     void tickTimers(uint32_t &ev);
     void activatePlate(int x, int y, uint32_t &ev);
     void updateGates(uint32_t &ev);

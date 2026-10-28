@@ -122,6 +122,8 @@ static lv_timer_t *s_timer;
 static int s_ts = 32;                         // Tile size on screen (32 or 16)
 static int s_fromX, s_fromY;                  // Player animation start cell
 static uint32_t s_moveT0, s_moveMs;           // 0 ms = not moving
+static Otr::MoveTrace s_moveTrace;
+static uint32_t s_moveEvents;
 static bool s_rockAnim;                       // A pushed rock slides with the player
 static int s_rockFromX, s_rockFromY, s_rockToX, s_rockToY;
 static int s_bumpDx, s_bumpDy;
@@ -158,7 +160,7 @@ static int s_advIdx = 0;                      // Chosen catalog entry index
 static constexpr const char *SD_ADV_ROOT = "/sdcard/otr/adventure";
 static int s_bombSize=0, s_bombX=-1, s_bombY=-1;
 static bool s_resultShown=false;
-static lv_obj_t *s_stageLabel, *s_progressLabel, *s_bombCancel;
+static lv_obj_t *s_stageLabel, *s_progressLabel, *s_timerLabel, *s_bombCancel;
 // v0.18.0: HUD indicators for the permanent abilities (shown only while owned) and the
 // previous ability levels, used to raise the pickup toast on a level increase (no event bit left).
 static lv_obj_t *s_flashCell, *s_pogoCell;    // v0.18.0: ability image + level digit (icon in s_item[])
@@ -888,6 +890,15 @@ static void playerPixel(uint32_t now, int &x, int &y)
     const int ts = s_ts;
     x = (int)lroundf((s_fromX + (s_world->playerX() - s_fromX) * t) * ts);
     y = (int)lroundf((s_fromY + (s_world->playerY() - s_fromY) * t) * ts);
+    if (s_moveTrace.count && t < 1.f) {
+        const float progress = t * s_moveTrace.count;
+        const int segment = (int)progress;
+        const auto to = s_moveTrace.cells[segment];
+        const int fx = segment ? s_moveTrace.cells[segment - 1].x : s_fromX;
+        const int fy = segment ? s_moveTrace.cells[segment - 1].y : s_fromY;
+        x = (int)lroundf((fx + (to.x - fx) * (progress - segment)) * ts);
+        y = (int)lroundf((fy + (to.y - fy) * (progress - segment)) * ts);
+    }
     if (s_bumpT0 && now - s_bumpT0 < BUMP_MS) {
         const float k = sinf((float)(now - s_bumpT0) / BUMP_MS * 3.14159f) * ts * 0.12f;
         x += (int)(s_bumpDx * k);
@@ -1017,6 +1028,18 @@ static void updateStats()
         strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps(), w.par());
     else lv_label_set_text_fmt(s_progressLabel, "%s:%d  Par:-",
         strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps());
+    char timers[384];
+    size_t used = (size_t)snprintf(timers, sizeof timers, "%s:",
+        strcmp(Lang::currentLang(), "en") == 0 ? "Gate steps" : "Portsteg");
+    bool timed = false;
+    for (int group = 0; group < Otr::PLATE_GROUPS; ++group) {
+        if (!w.isTimedGroup(group)) continue;
+        timed = true;
+        used += (size_t)snprintf(timers + used, sizeof timers - used, " %c:%d",
+            group < 10 ? '0' + group : 'A' + group - 10, w.timerRemaining(group));
+    }
+    lv_label_set_text(s_timerLabel, timers);
+    lv_obj_set_hidden(s_timerLabel, !timed);
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     // Permanent abilities: show the item image + its level digit only while owned.
@@ -1218,6 +1241,8 @@ static void snapPlayer()
     s_fromX = s_world->playerX();
     s_fromY = s_world->playerY();
     s_moveMs = 0;
+    s_moveTrace.count = 0;
+    s_moveEvents = 0;
     s_rockAnim = false;
 }
 
@@ -1649,19 +1674,32 @@ static void sdExitAdvance()
     }
 }
 
+static void finishMovement(uint32_t now, bool snap = false)
+{
+    if ((!s_moveMs && !s_moveEvents) || (!snap && busy(now))) return;
+    const uint32_t events = s_moveEvents;
+    snapPlayer();
+    s_dirty = true;
+    if (events & Otr::EV_EXIT) {
+        closeDialog();
+        if (s_sd.active()) sdExitAdvance();
+        else if (!s_world->mineLevel()) adventureResult();
+    }
+    if (events & Otr::EV_TALK) startTalk(s_world->talkNpc());
+}
+
 // One step. Returns the world events (0 if the previous step is still animating).
 static uint32_t doMove(Dir d, bool vault = false)
 {
     const uint32_t now = nowMs();
     if (s_bombSize || busy(now) || s_world->gameOver() || s_world->exitReached()) return 0;
     const int fx = s_world->playerX(), fy = s_world->playerY();
-    const int stepsBefore = s_world->steps();
     const int tx = fx + Otr::dirX(d), ty = fy + Otr::dirY(d);
     const bool wasRock = s_world->obj(tx, ty) == Obj::ROCK;
     const Tile targetTile = s_world->tile(tx, ty);
     // v0.18.3: a manual pogo jump lands beyond the obstacle(s); the rest of the handling (animation
     // glide from the take-off cell, events, toasts) is identical to a normal step.
-    const uint32_t ev = vault ? s_world->vault() : s_world->move(d);
+    const uint32_t ev = vault ? s_world->vault(&s_moveTrace) : s_world->move(d, &s_moveTrace);
     s_dirty = true;
     playEvents(ev);
     if (ev & (Otr::EV_DIED | Otr::EV_GAME_OVER | Otr::EV_EXIT)) {
@@ -1670,13 +1708,6 @@ static uint32_t doMove(Dir d, bool vault = false)
         joyShow(false, 0, 0);
     }
     char buf[80];
-    if ((ev & Otr::EV_EXIT) && s_sd.active()) {
-        // SD adventure: an exit (X tile, or a true-minesweeper win returned as EV_EXIT) advances to
-        // the next ordered map or finishes the adventure on the last map.
-        sdExitAdvance();
-        return ev;
-    }
-
     if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
         snapPlayer();
         if (ev & Otr::EV_MINE) {
@@ -1708,7 +1739,8 @@ static uint32_t doMove(Dir d, bool vault = false)
             const uint32_t fit = iv > TICK_MS ? iv - TICK_MS / 2 : iv;
             s_moveMs = fit < WALK_MS_MIN ? WALK_MS_MIN : fit > WALK_MS_MAX ? WALK_MS_MAX : fit;
         }
-        s_rockAnim = wasRock && (ev & Otr::EV_PUSHED) && !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
+        s_rockAnim = s_moveTrace.count == 1 && wasRock && (ev & Otr::EV_PUSHED) &&
+            !(ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE));
         if (s_rockAnim) {
             s_rockFromX = tx;
             s_rockFromY = ty;
@@ -1716,10 +1748,8 @@ static uint32_t doMove(Dir d, bool vault = false)
             s_rockToY = ty + Otr::dirY(d);
             s_moveMs += 40;   // Pushing is a little slower
         }
-        // A synchronous belt/ice chain may turn or even loop back beside its origin.
-        // Its intermediate cells are not available to the renderer: never draw a shortcut.
-        if (s_world->steps() - stepsBefore > 1 ||
-            (s_world->playerX() != fx && s_world->playerY() != fy)) snapPlayer();
+        if (s_moveTrace.count > 1) s_moveMs = 130 * s_moveTrace.count;
+        s_moveEvents = ev & (Otr::EV_EXIT | Otr::EV_TALK);
     } else if (!(ev & Otr::EV_TALK)) {
         s_bumpDx = Otr::dirX(d);
         s_bumpDy = Otr::dirY(d);
@@ -1747,8 +1777,7 @@ static uint32_t doMove(Dir d, bool vault = false)
     }
     if (ev & (Otr::EV_MINE | Otr::EV_BURNED)) eventToasts(ev & (Otr::EV_CHECKPOINT));
     updateStats();
-    if ((ev & Otr::EV_EXIT) && !s_sd.active() && !s_world->mineLevel()) adventureResult();
-    if (ev & Otr::EV_TALK) startTalk(s_world->talkNpc());
+    if ((ev & Otr::EV_TALK) && !(ev & Otr::EV_MOVED)) startTalk(s_world->talkNpc());
     return ev;
 }
 
@@ -1945,6 +1974,9 @@ static void resetWorld(bool showHelp = true)
 
 static lv_obj_t *dialog(const char *text)
 {
+    const uint32_t events = s_moveEvents;
+    snapPlayer();
+    s_moveEvents = events; // Snapping a modal to the endpoint must not discard its terminal result.
     closeDialog();
     s_dialog = lv_msgbox_create(nullptr);
     if (text) lv_msgbox_add_text(s_dialog, text);
@@ -2148,8 +2180,9 @@ static void liveStop()
 static void tick(lv_timer_t *)
 {
     const uint32_t now = nowMs();
+    finishMovement(now);
     talkTick(now);
-    if(s_world->mineLevel() && !s_resultShown) {
+    if(s_world->mineLevel() && !s_resultShown && !busy(now)) {
         if(s_world->exitReached() && !s_world->gameOver() && s_sd.active()) {
             // True-minesweeper win on an SD map: advance like an X exit (catches bomb-cleared wins;
             // move-cleared wins already advanced in doMove). Never run the built-in 1..12 chaining.
@@ -2194,13 +2227,6 @@ static void tick(lv_timer_t *)
         s_renders++;
         s_renderAccUs += s_renderUs;
     }
-    if (s_moveMs && !busy(now)) {   // Walk finished
-        s_moveMs = 0;
-        s_rockAnim = false;
-        s_fromX = s_world->playerX();
-        s_fromY = s_world->playerY();
-    }
-
     // Autosave when idle: after a checkpoint, and every minute if anything changed
     const bool idle = !busy(now) && s_pathPos < 0 && !s_joy.held() && !s_dialog && !talking();
     // v0.18.4: keep the player's chosen action, falling back only when it is no longer
@@ -2404,7 +2430,10 @@ static void viewEvent(lv_event_t *e)
 
 static void freeAll()
 {
-    s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_progressLabel=s_bombCancel=nullptr;
+    s_moveMs = s_moveEvents = 0;
+    s_moveTrace.count = 0;
+    s_rockAnim = false;
+    s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_progressLabel=s_timerLabel=s_bombCancel=nullptr;
     s_flashCell=s_pogoCell=s_flashLvl=s_pogoLvl=nullptr; s_prevFlash=s_prevPogo=0;
     liveStop();   // Before the world memory goes
     closeDialog();
@@ -2454,6 +2483,7 @@ static void screenDeleted(lv_event_t *e)
 
 static void leave()
 {
+    snapPlayer();
     stopPath();
     closeDialog();
     if (s_timer) lv_timer_pause(s_timer);
@@ -2515,6 +2545,7 @@ static bool toggleSound()
 static void toggleZoom()
 {
     if (!Theme::debounce(s_zoomTapMs)) return;
+    if (s_moveEvents) { finishMovement(nowMs(), true); return; }
     s_ts = s_ts == 32 ? 16 : 32;
     snapPlayer();
     s_dirty = true;
@@ -2523,6 +2554,8 @@ static void toggleZoom()
 static void showMenu()
 {
     if (s_dialog || talking()) return;   // Already open (double tap on the hamburger) / talking
+    if (s_moveEvents) { finishMovement(nowMs(), true); return; }
+    snapPlayer();
     stopPath();
     s_joy.cancel();
     joyShow(false, 0, 0);
@@ -2784,15 +2817,28 @@ static void buildGame(bool loadFailed)
     s_stageLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_stageLabel,4,4);
     lv_obj_set_width(s_stageLabel, s_layout.view.w - 8);
+    lv_obj_set_height(s_stageLabel, 20);
     lv_label_set_long_mode(s_stageLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_stageLabel,210,0);
     lv_obj_set_clickable(s_stageLabel,false);
     s_progressLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_progressLabel,4,24);
+    lv_obj_set_width(s_progressLabel, s_layout.view.w - 8);
+    lv_obj_set_height(s_progressLabel, 20);
+    lv_label_set_long_mode(s_progressLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_progressLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_progressLabel,210,0);
     lv_obj_set_clickable(s_progressLabel,false);
+    s_timerLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
+    lv_obj_set_pos(s_timerLabel,4,44);
+    lv_obj_set_width(s_timerLabel, s_layout.view.w - 8);
+    lv_obj_set_height(s_timerLabel, 20);
+    lv_label_set_long_mode(s_timerLabel, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    lv_obj_set_style_bg_color(s_timerLabel,Theme::c(Theme::BG),0);
+    lv_obj_set_style_bg_opa(s_timerLabel,210,0);
+    lv_obj_set_clickable(s_timerLabel,false);
+    lv_obj_set_hidden(s_timerLabel,true);
     buildControls();
     snapPlayer();
     s_fxX = -1;

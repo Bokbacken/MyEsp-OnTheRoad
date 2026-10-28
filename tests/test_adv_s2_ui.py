@@ -3,8 +3,10 @@
 
 No LVGL/ESP-IDF needed: only LVGL labels/hardware are stubbed. Uses the real World.
 Run: python3 tests/test_adv_s2_ui.py [existing workspace parent directory]
+Set ADV_UI_SANITIZE=0 for a non-sanitized build (sanitizers are enabled by default).
 """
 import atexit
+import os
 import pathlib
 import shutil
 import subprocess
@@ -79,16 +81,23 @@ static Otr::World world, *s_world=&world;
 static uint16_t *s_fb;
 static int s_ts=32, s_fromX, s_fromY;
 static uint32_t s_moveMs, s_moveT0, s_bumpT0, s_fxT0, s_renderUs;
+/*MOVE_STATE*/
 static bool s_rockAnim, s_dirty;
 static int s_rockFromX, s_rockFromY, s_rockToX, s_rockToY, s_bumpDx, s_bumpDy, s_fxX=-1, s_fxY=-1;
 static int s_bombSize, s_bombX=-1, s_bombY=-1, s_talkNum, s_pathPos=-1, s_walkTalkNum;
 static Otr::JoyController s_joy;
 static const Otr::Story::Script *s_story;
 static lv_obj_t *s_talkPanel;
+static lv_obj_t *s_dialog;
+static void closeDialog() { s_dialog=nullptr; }
+static lv_obj_t *lv_msgbox_create(lv_obj_t *) { static lv_obj_t popup; return &popup; }
+static void lv_msgbox_add_text(lv_obj_t *o, const char *text) { o->text=text; }
+namespace AdvUi { static void dialogLayout(lv_obj_t *) {} }
 static lv_obj_t labelObjects[32];
 enum HudCount { C_LIVES, C_SUIT, C_KEYS, C_GEMS, C_COUNT };
 static lv_obj_t *s_count[C_COUNT]={labelObjects,labelObjects+1,labelObjects+2,labelObjects+3};
 static lv_obj_t *s_stageLabel=labelObjects+4, *s_progressLabel=labelObjects+5;
+static lv_obj_t *s_timerLabel=labelObjects+21;
 static lv_obj_t *s_item[H_COUNT]={labelObjects+6,labelObjects+7,labelObjects+8,labelObjects+9,
                                 labelObjects+10,labelObjects+11,labelObjects+12};
 static lv_obj_t *s_flashCell=labelObjects+13, *s_pogoCell=labelObjects+14;
@@ -122,9 +131,15 @@ static void post(int command, uint8_t sound) {
 /*AUDIO_PLAY*/
 }
 /*SOUND*/
-static struct SdStub { bool active() const { return false; } } s_sd;
-static void sdExitAdvance() { assert(false); }
+static struct SdStub { bool enabled=false; bool active() const { return enabled; } } s_sd;
+static int travels;
+static void sdExitAdvance() { ++travels; }
 /*MOVE*/
+static bool talking() { return false; }
+static void menuPause() {
+/*MENU_PAUSE*/
+}
+/*DIALOG*/
 /*ACTION*/
 /*PERFORMANCE*/
 static void inventoryMenu() {
@@ -141,12 +156,13 @@ static void load(int par=0) {
     const char *ptr[10];
     for (int y=0;y<10;++y) ptr[y]=rows[y].c_str();
     assert(world.load(Otr::MapDef{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,nullptr,0,par}));
-    snapPlayer(); s_pathPos=-1; s_joy.cancel(); Audio::heard.clear(); results=deaths=talks=0;
+    snapPlayer(); s_bumpT0=0; s_pathPos=-1; s_joy.cancel(); Audio::heard.clear(); results=deaths=talks=0;
+    s_actSel=ACT_HIT; s_actShown=-1;
 }
 static void reload(int par=0) {
     const char *ptr[10]; for (int y=0;y<10;++y) ptr[y]=rows[y].c_str();
     assert(world.load(Otr::MapDef{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,nullptr,0,par}));
-    snapPlayer(); Audio::heard.clear();
+    snapPlayer(); s_bumpT0=0; Audio::heard.clear();
 }
 static void soundTests() {
     using Sound::Sfx;
@@ -181,13 +197,53 @@ static void movementTests() {
     load(4);
     rows[1][2]=char(Otr::BELT_UP_GLYPH+1); // right, down, left: final cell diagonally from origin
     rows[1][3]=char(Otr::BELT_UP_GLYPH+2);
-    rows[2][3]=char(Otr::BELT_UP_GLYPH+3); reload(4);
+    rows[2][3]=char(Otr::BELT_UP_GLYPH+3);
+    rows[2][1]='#'; // The inside corner cannot be cut diagonally.
+    reload(4);
     auto ev=doMove(Dir::RIGHT);
     assert((ev&Otr::EV_MOVED) && world.steps()==4 && world.playerX()==2 && world.playerY()==2);
-    assert(s_moveMs==0 && Audio::heard.size()==1);
+    assert(s_moveMs==520 && Audio::heard.size()==1);
+    assert(results==0);
+    const uint32_t start=clockMs;
+    for (int ts : {16,32}) {
+        s_ts=ts;
+        const int expected[][2]={{24,16},{40,16},{48,24},{40,32}};
+        for (int i=0;i<4;++i) {
+            int x,y; playerPixel(start+65+130*i,x,y);
+            assert(x==expected[i][0]*ts/16 && y==expected[i][1]*ts/16);
+            assert(busy(start+65+130*i));
+        }
+    }
+    // Busy is the production joystick poll gate, including while held.
+    s_joy.press(clockMs,70,0);
+    for (int elapsed=0;elapsed<520;elapsed+=20) {
+        clockMs=start+elapsed;
+        Dir dir;
+        assert(!s_joy.poll(start+elapsed,!busy(start+elapsed),dir));
+        assert(doMove(Dir::DOWN)==0 && world.steps()==4 && Audio::heard.size()==1);
+    }
+    s_joy.release(clockMs); clockMs=start+520; finishMovement(clockMs);
+    assert(!busy(clockMs) && s_moveTrace.count==0);
     assert(s_progressLabel->text==(langIdx() ? "Steps:4  Par:4" : "Steg:4  Par:4"));
     char text[96]; performanceText(text,sizeof text); assert(strstr(text,"Equal")||strstr(text,"Lika"));
-    // Check an ordinary single step keeps animation; forced chains never shortcut through walls.
+    // Straight ice visits each cell; visual ticks never advance the synchronous model.
+    load(); rows[1][2]=rows[1][3]=rows[1][4]=char(Otr::ICE_GLYPH); reload();
+    doMove(Dir::RIGHT);
+    const int iceSteps=world.steps();
+    for (int ts : {16,32}) for (int elapsed=0;elapsed<=520;elapsed+=65) {
+        s_ts=ts; int x,y; playerPixel(clockMs+elapsed,x,y);
+        assert(x==int(lround((1.f+elapsed/130.f)*ts)) && y==ts);
+        assert(world.steps()==iceSteps && Audio::heard.size()==1);
+    }
+    // Release/STOP do not discard the remaining route or lock subsequent input.
+    s_joy.cancel(); stopPath(); assert(busy(clockMs+200));
+    clockMs+=520; finishMovement(clockMs); doMove(Dir::DOWN);
+    assert(world.steps()==iceSteps+1);
+    // Menu pause snaps to the model endpoint and cancels the visual queue.
+    menuPause(); assert(!busy(clockMs) && s_moveTrace.count==0);
+    clockMs+=1000; assert(doMove(Dir::DOWN)&Otr::EV_MOVED);
+    menuPause();
+    // Check an ordinary single step keeps animation.
     load(); doMove(Dir::DOWN); assert(s_moveMs>0);
     assert(s_progressLabel->text==(langIdx() ? "Steps:1  Par:-" : "Steg:1  Par:-"));
     clockMs+=1000; doMove(Dir::DOWN);
@@ -195,19 +251,47 @@ static void movementTests() {
     load(); rows[1][2]=char(Otr::ICE_GLYPH); rows[1][3]='X'; reload();
     s_pathPos=3; s_joy.press(clockMs,70,0);
     ev=doMove(Dir::RIGHT);
-    assert(ev&Otr::EV_EXIT); assert(s_pathPos==-1 && !s_joy.held() && results==1 && s_moveMs==0);
+    assert(ev&Otr::EV_EXIT); assert(s_pathPos==-1 && !s_joy.held() && results==0 && s_moveMs==260);
+    finishMovement(clockMs+259); assert(results==0);
+    clockMs+=260; finishMovement(clockMs); assert(results==1 && s_moveMs==0);
     const int steps=world.steps(); doMove(Dir::LEFT); doHit(); assert(world.steps()==steps);
     load(); rows[1][2]=char(Otr::BELT_UP_GLYPH+1); rows[1][3]='^'; reload();
     s_pathPos=2; s_joy.press(clockMs,70,0);
     ev=doMove(Dir::RIGHT);
     assert(ev&Otr::EV_DIED); assert(s_pathPos==-1 && !s_joy.held() && s_moveMs==0);
+    assert(s_moveTrace.count==0 && !s_moveEvents);
+    // A surviving danger landing still animates its real route without replaying damage.
+    load(); rows[1][2]=char(Otr::BELT_UP_GLYPH+1); rows[1][3]='m'; reload();
+    ev=doMove(Dir::RIGHT); assert((ev&Otr::EV_MINE) && !(ev&Otr::EV_DIED));
+    const int energy=world.energy(); clockMs+=260; finishMovement(clockMs);
+    assert(world.energy()==energy && Audio::heard.size()==1);
+    // SD travel is deferred too; opening a menu safely snaps/delivers terminal events once.
+    load(); rows[1][2]=char(Otr::ICE_GLYPH); rows[1][3]='X'; reload(); s_sd.enabled=true;
+    travels=0; doMove(Dir::RIGHT); assert(travels==0);
+    finishMovement(clockMs+259); assert(travels==0);
+    menuPause(); assert(travels==1 && !s_moveEvents && !s_moveMs);
+    finishMovement(clockMs+1000); assert(travels==1); s_sd.enabled=false;
+    // Generic modal cancellation preserves pending terminal delivery even without a visual queue.
+    for (bool sd : {false,true}) {
+        load(); rows[1][2]=char(Otr::ICE_GLYPH); rows[1][3]='X'; reload();
+        s_sd.enabled=sd; travels=0;
+        doMove(Dir::RIGHT); dialog("Pause");
+        assert(!s_moveMs && (s_moveEvents&Otr::EV_EXIT) && s_dialog);
+        assert(results==0 && travels==0);
+        finishMovement(clockMs);
+        assert(!s_moveEvents && !s_dialog && results==int(!sd) && travels==int(sd));
+        finishMovement(clockMs+1000);
+        assert(results==int(!sd) && travels==int(sd));
+    }
+    s_sd.enabled=false;
     load(5); doMove(Dir::DOWN); performanceText(text,sizeof text); assert(strstr(text,"Under"));
     load(1); world.move(Dir::DOWN); world.move(Dir::DOWN);
     performanceText(text,sizeof text); assert(strstr(text,"Over")||strstr(text,"Över"));
     // Exceeding par is an assessment, never a win gate.
     load(1); rows[1][3]='X'; reload(1);
     world.move(Dir::RIGHT); ev=doMove(Dir::RIGHT);
-    assert((ev&Otr::EV_EXIT) && results==1 && !world.parMet());
+    assert((ev&Otr::EV_EXIT) && results==0 && !world.parMet());
+    clockMs+=s_moveMs; finishMovement(clockMs); assert(results==1);
     // Built-in true-minesweeper exits belong to tick()/mineResult(), not the generic result.
     const char *mineRows[]={"#####","#SX.#","#####"};
     auto mineRules=Otr::CLASSIC_RULES; mineRules.mineLevel=1;
@@ -224,6 +308,58 @@ static void movementTests() {
         assert(Theme::inventory[c].color==KEY_COLORS[c]);
     }
 }
+static void timerTests() {
+    load();
+    rows[2][1]=char(Otr::GROUPED_LEVER_GLYPH+10);
+    rows[1][2]=rows[1][3]=char(Otr::ICE_GLYPH);
+    const char *ptr[10]; for (int y=0;y<10;++y) ptr[y]=rows[y].c_str();
+    Otr::GroupControl controls[]={{10,5},{0,65535},{35,9}};
+    Otr::MapDef def{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,controls,3,0};
+    assert(world.load(def)); snapPlayer(); updateStats();
+    const bool en=langIdx();
+    assert(!s_timerLabel->hidden);
+    assert(s_timerLabel->text==(en ? "Gate steps: 0:0 A:0 Z:0" : "Portsteg: 0:0 A:0 Z:0"));
+    doSwap(); assert(s_actSel==ACT_LEVER); doHit();
+    assert(world.timerRemaining(10)==5 && s_timerLabel->text.find("A:5")!=std::string::npos);
+    doMove(Dir::RIGHT); assert(world.steps()==3 && world.timerRemaining(10)==2);
+    const auto text=s_timerLabel->text;
+    for (int t=0;t<390;t+=20) {
+        int x,y; playerPixel(clockMs+t,x,y); updateStats();
+        assert(world.timerRemaining(10)==2 && s_timerLabel->text==text);
+    }
+    menuPause(); assert(world.timerRemaining(10)==2);
+    doMove(Dir::DOWN); menuPause(); doMove(Dir::DOWN); menuPause();
+    assert(world.timerRemaining(10)==0 && s_timerLabel->text.find("A:0")!=std::string::npos);
+    // Configuration, not a nonzero countdown, determines visibility (including expired groups).
+    for (int g=0;g<Otr::PLATE_GROUPS;++g)
+        assert(world.isTimedGroup(g)==(g==0||g==10||g==35));
+    assert(world.spawnAt(1,1)); snapPlayer(); updateStats();
+    refreshActBtn();
+    if (s_actSel!=ACT_LEVER) doSwap();
+    doHit(); // Re-arm the expired lever from its original facing.
+    assert(world.timerRemaining(10)==5 && s_timerLabel->text.find("A:5")!=std::string::npos);
+
+    // Maximum configured groups and counter width remain bounded, sorted and save-restorable.
+    std::string plates(38,'.'); plates[0]='S';
+    Otr::GroupControl all[Otr::PLATE_GROUPS];
+    for (int g=0;g<Otr::PLATE_GROUPS;++g) {
+        plates[g+1]=char(Otr::GROUPED_PLATE_GLYPH+g);
+        all[g]={(uint8_t)g,65535};
+    }
+    const char *plateRows[]={plates.c_str()};
+    Otr::MapDef many{91,plateRows,1,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,all,Otr::PLATE_GROUPS,0};
+    assert(world.load(many));
+    for (int g=0;g<Otr::PLATE_GROUPS;++g) assert(world.move(Dir::RIGHT)&Otr::EV_MOVED);
+    snapPlayer(); updateStats();
+    const auto active=s_timerLabel->text;
+    assert(active.size()<384 && active.find("0:65500")!=std::string::npos &&
+           active.find("Z:65535")!=std::string::npos);
+    std::vector<uint8_t> saved(world.saveSize());
+    assert(world.save(saved.data(),saved.size())==saved.size());
+    assert(world.load(many) && world.restore(saved.data(),saved.size()));
+    snapPlayer(); updateStats(); assert(s_timerLabel->text==active);
+    load(); updateStats(); assert(s_timerLabel->hidden);
+    }
 static void rendererTests() {
     makeArt(s_spr);
     for (auto size : {Game::Point{320,480},Game::Point{480,800}}) for (int ts : {16,32}) {
@@ -282,7 +418,12 @@ static void rendererTests() {
     }
 }
 int main() {
-    soundTests(); actionTests(); movementTests(); rendererTests();
+    soundTests();
+    for (const char *language : {"sv","en"}) {
+        assert(Lang::setLang(language));
+        actionTests(); movementTests(); timerTests();
+    }
+    rendererTests();
     puts("S2 production UI: renderer (2 sizes/2 zooms), action, forced movement, HUD/par, muted SFX OK");
 }
 '''
@@ -293,8 +434,11 @@ replacements = {
     "RENDER": section("static const uint16_t *spr(", "// HUD").rsplit("// -----", 1)[0],
     "HUD": section("static void setCount(", "static void toast("),
     "SNAP": section("static void snapPlayer()", "// Feedback for"),
+    "MOVE_STATE": section("static Otr::MoveTrace s_moveTrace", "static bool s_rockAnim"),
     "SOUND": section("static void playEvents(", "// Dialogue").rsplit("// -----", 1)[0],
-    "MOVE": section("static uint32_t doMove(", "// v0.18.4: the split"),
+    "MOVE": section("static void finishMovement(", "// v0.18.4: the split"),
+    "MENU_PAUSE": section("    if (s_dialog || talking()) return;   // Already open", "    lv_obj_t *mb = dialog(nullptr);"),
+    "DIALOG": section("static lv_obj_t *dialog(const char *text)", "static void performanceText("),
     "ACTION": section("enum { ACT_HIT", "// Tap-to-walk"),
     "PERFORMANCE": section("static void performanceText(", "static void addPerformance("),
     "INVENTORY": section("    static const char *namesEn[6]", "    menuButton(c, soundText()"),
@@ -306,7 +450,8 @@ for marker, replacement in replacements.items():
 (WORK / "test.cpp").write_text(code)
 subprocess.run([
     "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
-    "-Wno-unused-variable", "-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+    "-Wno-unused-variable", "-g", "-fno-omit-frame-pointer",
+    *(["-fsanitize=address,undefined"] if os.environ.get("ADV_UI_SANITIZE", "1") != "0" else []),
     "-Imain", "-Icomponents/otr_engine/include", "-Icomponents/otr_story/include",
     str(WORK / "test.cpp"), "components/otr_engine/otr_world.cpp", "components/otr_story/otr_story.cpp",
     "main/lang/lang.cpp", "main/lang/lang_sv.cpp", "main/lang/lang_en.cpp",

@@ -2,8 +2,10 @@
 """Exercise production Adventure root, joystick drawing/input and talk overlays with host LVGL.
 Run: python3 tests/test_adv_game_layout.py [external build directory].
 Requires managed_components/lvgl__lvgl, like the existing setup/dialog layout tests.
+Set ADV_UI_SANITIZE=1 to enable address/undefined sanitizers.
 """
 import pathlib
+import os
 import subprocess
 import sys
 import tempfile
@@ -43,7 +45,7 @@ code = r'''
 namespace Game = AdvUi::Game;
 using Otr::Dir;
 /*GEOMETRY*/
-static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stageLabel, *s_progressLabel;
+static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stageLabel, *s_progressLabel, *s_timerLabel;
 static lv_obj_t *s_joyKnob, *s_joyArrow[4];
 static int s_joyLit = -1;
 static Otr::JoyController s_joy;
@@ -181,6 +183,14 @@ int main() {
             assert(progress.x == 4 && progress.y == 24);
             assert(progress.x + progress.w <= size.x && progress.y + progress.h < canvas.h);
             assert(lv_obj_get_y(s_stageLabel) + lv_obj_get_height(s_stageLabel) <= progress.y);
+            lv_obj_set_hidden(s_timerLabel, false);
+            lv_label_set_text(s_timerLabel, "Gate steps: 0:65535 A:0 Z:65535");
+            lv_obj_update_layout(s_scr);
+            const auto timer = AdvUi::gameBounds(s_timerLabel);
+            assert(timer.x == 4 && timer.y == 44 && timer.w == size.x - 8);
+            assert(timer.x + timer.w <= size.x && timer.y + timer.h < canvas.h);
+            assert(progress.y + progress.h <= timer.y);
+            assert(lv_label_get_long_mode(s_timerLabel) == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
             assert(lv_obj_get_parent(s_toast) == s_gameRoot);
             assert(lv_obj_get_y(s_toast) == canvas.h - 64);
             assert(lv_obj_get_width(s_toast) == canvas.w - 24);
@@ -271,6 +281,8 @@ target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/components/my_ui/incl
  "{ROOT}/components/otr_engine/include")
 target_link_libraries(layout PRIVATE lvgl m)
 ''')
-subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja", "-DCMAKE_CXX_FLAGS="], check=True)
+flags = "-fsanitize=address,undefined -fno-omit-frame-pointer" if os.environ.get("ADV_UI_SANITIZE") == "1" else ""
+subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja",
+                f"-DCMAKE_CXX_FLAGS={flags}", f"-DCMAKE_C_FLAGS={flags}"], check=True)
 subprocess.run(["cmake", "--build", str(WORK / "build"), "--target", "layout", "-j", "2"], check=True)
 subprocess.run([str(WORK / "build/layout")], check=True)
