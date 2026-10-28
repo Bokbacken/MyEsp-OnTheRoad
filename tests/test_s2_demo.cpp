@@ -257,6 +257,7 @@ static bool sessionResume(const std::string &commands)
     char err[2048] = {};
     CHECK(session.start(root, *entry, *loaded, world, story, script, err, sizeof err));
     CHECK(script == &loaded->script && script->validate(err, sizeof err) == 0);
+    CHECK(!session.completed());
 
     size_t cursor = 0;
     for (; cursor < commands.size(); ++cursor) {
@@ -276,6 +277,7 @@ static bool sessionResume(const std::string &commands)
     CHECK(world.rawObj(8, 7) == Otr::Obj::KEY_PURPLE);
     CHECK(world.rawObj(12, 7) == Otr::Obj::KEY_CYAN);
     CHECK(world.leverOnAt(2, 1) && world.gateOpenForGroup(2));
+    CHECK(!session.completed());
 
     std::vector<uint8_t> bytes(world.saveSize() + Otr::Story::StoryState::SAVE_BYTES + 1024);
     const size_t written = session.save(world, story, bytes.data(), bytes.size());
@@ -294,10 +296,12 @@ static bool sessionResume(const std::string &commands)
     CHECK(!freshWorld.leverOnAt(2, 1) && !freshWorld.gateOpenForGroup(2));
     CHECK(freshWorld.rawObj(12, 5) == Otr::Obj::DOOR_RED);
     CHECK(freshWorld.keys(Otr::KeyColor::GREEN) == 0);
+    CHECK(!freshSession.completed());
 
     CHECK(freshSession.restore(bytes.data(), bytes.size(), *freshLoaded, freshWorld,
                                freshStory, freshScript, err, sizeof err));
     CHECK(freshSession.active() && freshSession.mapIndex() == 0);
+    CHECK(!freshSession.completed());
     CHECK(freshSession.mapCount() == 1 && !freshSession.hasNext());
     CHECK(std::string(freshSession.folder()) == "s2_demo");
     CHECK(freshScript == &freshLoaded->script && freshScript->validate(err, sizeof err) == 0);
@@ -319,10 +323,15 @@ static bool sessionResume(const std::string &commands)
         }
 
     int doors = 0, exits = 0;
+    const size_t resumeAt = cursor;
     for (; cursor < commands.size(); ++cursor) {
         const char c = commands[cursor];
         const uint32_t event = c == 'A' ? freshWorld.activate() : freshWorld.move(direction(c));
         CHECK((event & (Otr::EV_NEED_KEY | Otr::EV_BLOCKED | Otr::EV_GAME_OVER)) == 0);
+        if (cursor == resumeAt) {
+            CHECK(freshWorld.steps() == 31 && freshWorld.timerRemaining(2) == 10);
+            CHECK(!freshSession.completed());
+        }
         if (event & Otr::EV_DOOR) ++doors;
         if (event & Otr::EV_EXIT) ++exits;
     }
@@ -332,6 +341,32 @@ static bool sessionResume(const std::string &commands)
     CHECK(freshWorld.timerRemaining(2) == 0 && !freshWorld.gateOpenForGroup(2));
     for (int color = 0; color < 6; ++color)
         CHECK(freshWorld.keys(static_cast<Otr::KeyColor>(color)) == 0);
+
+    freshSession.markCompleted();
+    CHECK(freshSession.completed());
+    std::vector<uint8_t> finalBytes(freshWorld.saveSize() + Otr::Story::StoryState::SAVE_BYTES + 1024);
+    const size_t finalWritten = freshSession.save(freshWorld, freshStory,
+                                                finalBytes.data(), finalBytes.size());
+    CHECK(finalWritten > 0 && finalWritten <= finalBytes.size());
+    finalBytes.resize(finalWritten);
+
+    auto finalLoaded = std::make_unique<Adv::Loaded>();
+    Adv::SdSession finalSession;
+    Otr::World finalWorld;
+    Otr::Story::StoryState finalStory;
+    const Otr::Story::Script *finalScript = nullptr;
+    CHECK(finalSession.start(root, *entry, *finalLoaded, finalWorld, finalStory,
+                             finalScript, err, sizeof err));
+    CHECK(!finalSession.completed() && !finalWorld.exitReached());
+    CHECK(finalSession.restore(finalBytes.data(), finalBytes.size(), *finalLoaded,
+                               finalWorld, finalStory, finalScript, err, sizeof err));
+    CHECK(finalSession.completed() && finalWorld.exitReached() && !finalSession.hasNext());
+    CHECK(finalWorld.steps() == 56 && finalWorld.parMet());
+    CHECK(finalWorld.timerRemaining(2) == 0 && !finalWorld.gateOpenForGroup(2));
+    CHECK(finalWorld.playerX() == 18 && finalWorld.playerY() == 7);
+    CHECK(finalScript == &finalLoaded->script && finalScript->validate(err, sizeof err) == 0);
+    for (int color = 0; color < 6; ++color)
+        CHECK(finalWorld.keys(static_cast<Otr::KeyColor>(color)) == 0);
     return true;
 }
 

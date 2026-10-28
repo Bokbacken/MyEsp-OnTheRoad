@@ -101,7 +101,9 @@ for legacy state; their generic keys and existing grouped plates/gates retain
 their meaning, with new colored inventories, lever latches and timers initially
 empty/off. Loading a legacy save does not invent S2 progress; the next save
 writes format 4. Older firmware cannot read format 4. Keep the adventure folder
-and map ID stable when retaining saves.
+and map ID/dimensions stable when retaining saves. Par and configured timer
+durations come from the freshly loaded `.adv`, not from the save. Legacy saves
+restore their old terrain/object snapshot; they cannot preserve new S2 content.
 
 ## Validation
 
@@ -109,7 +111,8 @@ Run the compile command at the top of `tests/test_s2_demo.cpp` from repo root.
 It parses both real files, checks byte equality and executes the solution.
 It also starts a real SD session, saves with the red door open, a green key
 held and 11 timer steps remaining, then restores into a fresh session/world
-and completes the same README solution at 56 steps.
+and completes the same README solution at 56 steps. An intermediate restore
+must remain incomplete; restoring the final exit save must restore completion.
 Use the production `Adv::parseFile` loader for S2; the older reference parser
 in `tools/adv_parse.*` remains S1-only and is not an S2 validator.
 
