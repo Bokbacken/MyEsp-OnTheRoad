@@ -41,8 +41,8 @@ static int folderIndex(const Adv::Catalog &c, const char *name)
 static void testCatalog(const Adv::Catalog &c)
 {
     // The bundle also ships resources, minesweeper, dark/pogo and four-room Sokoban demos.
-    CHECK(c.count == 9, "catalog found 9 adventures");
-    // Alphabetical order: byn, darkdemo, josef, minfaltet, minkampanj, resdemo, s2_demo, sokoban, testvarlden.
+    CHECK(c.count == 10, "catalog found 10 adventures");
+    // Alphabetical order: byn, darkdemo, josef, minfaltet, minkampanj, resdemo, s2_demo, s3_demo, sokoban, testvarlden.
     CHECK(folderIndex(c, "byn") == 0, "byn sorts first");
     CHECK(folderIndex(c, "darkdemo") == 1, "darkdemo sorts second");
     CHECK(folderIndex(c, "josef") == 2, "josef sorts third");
@@ -53,11 +53,12 @@ static void testCatalog(const Adv::Catalog &c)
     int s2 = folderIndex(c, "s2_demo");
     CHECK(s2 == 6, "s2_demo sorts seventh");
     CHECK(s2 >= 0 && c.items[s2].mapCount == 1, "s2_demo has one standalone map");
-    CHECK(si == 7, "sokoban sorts eighth");
+    CHECK(folderIndex(c, "s3_demo") == 7, "s3_demo sorts eighth");
+    CHECK(si == 8, "sokoban sorts ninth");
     CHECK(si >= 0 && c.items[si].mapCount == 1, "sokoban has one four-room map");
     CHECK(si >= 0 && strcmp(c.items[si].maps[0], "sokoban.adv") == 0,
           "sokoban map is the combined demo");
-    CHECK(folderIndex(c, "testvarlden") == 8, "testvarlden sorts ninth");
+    CHECK(folderIndex(c, "testvarlden") == 9, "testvarlden sorts tenth");
 
     // minkampanj is the true minesweeper campaign: 12 ordered maps.
     int mi = folderIndex(c, "minkampanj");

@@ -224,11 +224,18 @@ static void saves()
     CHECK(w.save(saved.data(), saved.size()) == saved.size());
     w.setSkates(false);
     CHECK(w.restore(saved.data(), saved.size()) && w.hasSkates());
-    auto bad = saved;
-    bad[bad.size() - 5] = 2;
-    fixCrc(bad);
-    CHECK(!w.restore(bad.data(), bad.size()));
-    CHECK(w.hasSkates());
+    for (int fault = 0; fault < 4; ++fault) {
+        auto bad = saved;
+        if (fault == 0) bad[bad.size() - 5] = 2;
+        if (fault == 1) bad[48] = (uint8_t)Tile::COUNT;
+        if (fault == 2) bad[49] = (uint8_t)Obj::COUNT;
+        if (fault == 3) bad[51] = (uint8_t)Obj::COUNT;
+        fixCrc(bad);
+        CHECK(!w.restore(bad.data(), bad.size()));
+        std::vector<uint8_t> unchanged(w.saveSize());
+        CHECK(w.save(unchanged.data(), unchanged.size()) == unchanged.size());
+        CHECK(unchanged == saved);
+    }
     for (int version = 1; version <= 4; ++version) {
         auto old = saved;
         const size_t extension = version < 4 ? 6 + 8 + 2 * PLATE_GROUPS + 1 : 1;
