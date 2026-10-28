@@ -2,7 +2,7 @@
 
 Inventeringsdatum: **27 oktober 2026**. Avsedd som arbets- och testunderlag inför **28 oktober**.
 Inventeringen är en källkodsgranskning; aktuell Fas B2-status och verifieringsgräns följer nedan.
-Firmwareversion **0.19.1** bevaras.
+Firmwareversion **0.19.2** efter uttrycklig begäran i B2-review.
 
 ## Fas B2 – genomfört 28 oktober 2026
 
