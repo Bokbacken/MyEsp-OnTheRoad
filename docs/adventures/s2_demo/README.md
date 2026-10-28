@@ -1,5 +1,9 @@
 # S2 workshop demo
 
+PR #11 is hardware-tested by the owner and reported to work well. The checklist
+below is a reference for additional checks; it does not claim that every listed
+case was part of that hardware test.
+
 Copy `s2_demo.adv` to **`/otr/adventure/s2_demo/s2_demo.adv`** on SD
 (the ready-to-copy mirror is in `sdcard_bundle/otr/adventure/s2_demo/`).
 Select “Workshop training circuit” / “Verkstadens provbana”. Start a new game.
@@ -148,8 +152,8 @@ must remain incomplete; restoring the final exit save must restore completion.
 Use the production `Adv::parseFile` loader for S2; the older reference parser
 in `tools/adv_parse.*` remains S1-only and is not an S2 validator.
 
-Manual device checklist — **not hardware-tested here**. Repeat on **320×480**
-and **480×800**, in SV and EN:
+Additional manual-check reference. Repeat on **320×480** and **480×800**, in
+SV and EN:
 
 - Find the SD adventure; read the instructor without clipped controls/text.
 - Face the lever; select Spak/Lever with Byt/Swap, then verify the lower button

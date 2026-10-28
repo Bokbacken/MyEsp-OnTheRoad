@@ -24,6 +24,9 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 > - **Hoppstylta** (`j` / `@treasures ... pogo N`) – studsar automatiskt över hinder
 >
 > **Nytt i v0.20.0:** oberoende grupper av Sokoban-tryckplattor och grindar — avsnitt 10d.
+>
+> **Nytt i v0.20.1 (Fas S2):** spakar, tidsgrindar, is, transportband, färgade
+> nycklar/dörrar och par-bedömning — avsnitt 10e.
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -37,9 +40,10 @@ realistiskt importbart:
 | `@resources`       | `Adv::Resource` + föremålssystemet | `main/adv_loader.h` |
 | `@flags/@counters/@items/@quests/@npc/@node` | `struct Script` m.fl. | `components/otr_story/include/otr_story.h` |
 
-> Två kompletta, fungerande exempel finns att utgå från:
+> Kompletta, fungerande exempel finns att utgå från:
 > - [`docs/adventures/example_joseph_hebron.adv`](adventures/example_joseph_hebron.adv) – den verkliga Hebron-kartan ur Josef-kapitlet (1 Mosebok 37).
 > - [`docs/adventures/example_resources_demo.adv`](adventures/example_resources_demo.adv) – ett litet demoäventyr som visar **alla** nyheter i v0.17.0 (`@about`, `@treasures`, `@resources`, carry/reset och gångbar ram).
+> - [S2-demot](adventures/s2_demo/README.md) och [dess karta](adventures/s2_demo/s2_demo.adv) – alla S2-mekanismer tillsammans.
 >
 > Dessutom finns alla fyra inbyggda äventyr exporterade till `.adv` under
 > [`docs/adventures/generated/`](adventures/generated/) – kopiera en av dem som
@@ -90,7 +94,7 @@ Sektionerna, i ordning:
 ```
 @meta        id, värld-id, kart-id
 @about       titel, beskrivning, författare, omslag (det SD-menyn visar)
-@rules       spelregler (energi, liv, lava, dimma) + carry/reset
+@rules       spelregler (energi, liv, lava, dimma, par) + carry/reset
 @map         själva kartan, ritad med ASCII-tecken
 @dark        mörka områden som ficklampan lyser upp (valfri, v0.18.0)
 @treasures   dolda skatter under täckande objekt (valfri)
@@ -101,7 +105,8 @@ Sektionerna, i ordning:
 @quests      deklarera uppdrag (id + namn SV/EN)
 @npc <id>    en person (upprepas per person)
 @node <id>   en dialograd (upprepas många gånger)
-@legend      teckenmappning för grupperade plattor/grindar (valfri)
+@legend      glyph-mappning för grupperade tiles, S2-terräng och färgnycklar
+@timedgate   tidsgräns för en grupp (valfri, S2)
 @plategroup  grupp-id på tryckplattor via koordinater
 @gategroup   grupp-id på grindar via koordinater
 ```
@@ -706,6 +711,105 @@ grinden öppnas först när båda plattorna i dess grupp täcks. SD-kortsversion
 
 ---
 
+### 10e. S2: spakar, tidsgrindar, rörelseterräng och färgnycklar (v0.20.1)
+
+`@legend` kan även mappa S2-glyfer. Grupp-id skrivs som `0`–`9` eller `A`–`Z`
+(`A`=10, `Z`=35; bokstäver är skiftlägesokänsliga). Glyfen till vänster om `=`
+är däremot skiftlägeskänslig.
+
+| `@legend`-värde / direktiv | Betydelse |
+|---|---|
+| `plate <grupp>` / `gate <grupp>` | Tryckplatta/grind i grupp 0–35; se 10d |
+| `lever <grupp>` | Solid spak i grupp 0–35 |
+| `ice` | Is |
+| `belt up`, `belt right`, `belt down`, `belt left` | Transportband som tvingar spelaren i pilens riktning |
+| `key <färg>` / `door <färg>` | Färgnyckel/färgdörr: röd (`red`), grön (`green`), blå (`blue`), gul (`yellow`), lila (`purple`) eller cyan (`cyan`) |
+| `@timedgate <grupp>: N` | Tidsgrupp, `N`=1–65535 steg |
+| `@rules` → `par: N` | Par-mål, `N`=1–65535 steg |
+
+Ett kort, komplett syntaxexempel:
+
+```text
+@meta
+id: s2_syntax
+world: 90
+map_id: 90
+
+@rules
+par: 20
+
+@legend
+a = plate 1
+A = gate 1
+! = lever 2
+i = ice
+> = belt right
+r = key red
+d = door red
+@timedgate 1: 12
+
+@map
+##############
+#S.RaA!i>rd.X#
+##############
+```
+
+Demot med alla S2-mekanismer finns i
+[`docs/adventures/s2_demo/README.md`](adventures/s2_demo/README.md) och
+[`s2_demo.adv`](adventures/s2_demo/s2_demo.adv).
+
+#### Spakar och tidsgrindar
+
+En spak är solid och aktiveras bara med en uttrycklig handling; att gå in i den
+aktiverar den inte. Flera vanliga toggle-spakar i samma grupp delar latch och
+växlar gruppens tillstånd. En grupp får inte blanda plattor och spakar; laddaren
+avvisar blandningen med radnummer. På enheten väljer **Byt / Swap** handlingen
+**Spak / Lever**; den nedre delen av utförandeknappen aktiverar spaken.
+
+`@timedgate <grupp>: N` konfigurerar en grupp med `N` steg (1–65535). En sådan
+grupp måste ha minst en grind och exakt en styrmekanism: en platta **eller** en
+spak. Varje lyckad förflyttning tickar timern; när styrmekanismen aktiveras
+återställs den till hela `N`. Blockerad rörelse, upplåsning av dörr, **Slå** och
+spakhandlingen tickar inte timern. Timergränsen är alltså steg, inte sekunder.
+Ingen realtid tickar under paus eller dialog.
+
+#### Is, band och rörelseplanering
+
+Is fortsätter i spelarens ingångsriktning; band tvingar sin angivna riktning.
+Bara spelaren påverkas, inte stenar. En input kan ge högst **128 extra**
+automatiska steg. Varje förflyttad ruta räknas som ett steg och tickar tidsgrindar.
+Blockeringar stoppar kedjan utan att flytta spelaren in i hindret. A*-planeraren
+undviker is- och bandrutor i sina rutter; använd styrplattan för att styra genom
+sådana områden.
+
+#### Färgnycklar och `par`
+
+Varje färg har en separat nyckelräknare på **0–255**. En färgad dörr förbrukar
+bara en nyckel av samma färg och står sedan öppen. De äldre generiska tecknen
+`k`/`K` och `D` behåller sin betydelse, liksom storynycklar.
+
+I `@rules` kan `par: N` sätta ett stegsmål, där `N` är 1–65535. Par är en
+bedömning, inte ett vinstvillkor: `N` steg eller färre möter par, men spelaren
+kan klara banan även över par. Steg räknas per förflyttad ruta, inte per input.
+HUD och resultat visar stegen i förhållande till par.
+
+Nycklar förs över mellan kartor med `carry: keys`; `reset: keys` nollställer
+dem, och **reset vinner** om samma nyckel finns i båda listorna.
+
+#### Skatter och sparningar
+
+En `@treasures`-rad får inte ligga på en gruppbärande platta, grind eller spak;
+laddaren avvisar det med radnummer eftersom cellen använder sitt värde för
+grupp-id.
+
+Nya spelsparningar använder motorformat **SAVE_VERSION=4**. Efter rutdatan finns
+ett separat **86-byte S2-tillägg** med färgnycklar, spak-latches och återstående
+grindtider. Motorformat v1/v2/v3 migreras vid läsning; de nya S2-tillstånden
+börjar då tomma/av. SD-sessionens yttre container är fortsatt version 1. Äldre
+firmware kan inte läsa format 4.
+
+---
+
 ## 11. Egna sprites – 32×32 PNG (nytt i v0.17.0)
 
 Du kan ge föremål, resurser och omslag egna bilder. Lägg **32×32 PNG med
@@ -752,15 +856,16 @@ ett `S`.
 
 ## 13. Import/export-status
 
-`.adv`-formatet **läses nu både på värddator och direkt på enheten.**
+`.adv`-formatet läses på enheten med produktionsladdaren. Hostens
+referensparser är inte funktionellt likvärdig för alla formatversioner.
 
 - **På enheten:** `main/adv_loader.{h,cpp}` är en firmware-säker parser (inga
   dynamiska allokeringar, `Adv::Loaded` ligger i PSRAM) som läser `.adv` rakt in
   i motorns strukturer. `main/adv_catalog.{h,cpp}` skannar `/otr/adventure/` och
   bygger menyn; `main/adv_sd_session.{h,cpp}` sköter spara-per-mapp och
   carry/reset. Detta ingår i firmware-bygget (`idf.py build`).
-- **På värddator:** `tools/adv_parse.{h,cpp}` läser samma format för
-  test/generering utanför enheten.
+- **På värddator:** `tools/adv_parse.{h,cpp}` är fortfarande en S1-parser och
+  validerar inte S2-syntax. Använd produktionsladdaren `Adv::parseFile` för S2.
 
 Host-tester bevisar att formatet importeras till den **faktiska** motorn (inte
 en leksaksmodell):
@@ -778,12 +883,17 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itools -Icomponents/otr_engine/include \
     main/adv_sd_session.cpp main/adv_loader.cpp tools/adv_parse.cpp \
     components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp \
     -o tests/test_adv_catalog && ./tests/test_adv_catalog
+
+# S2-demo: produktionsladdare, motor, lösning och sparning/återläsning
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
+    -Icomponents/otr_story/include tests/test_s2_demo.cpp main/adv_loader.cpp \
+    main/adv_catalog.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp \
+    components/otr_story/otr_story.cpp -o tests/test_s2_demo && ./tests/test_s2_demo
 ```
 
-> **Hårdvarustatus:** SD-skanning, meny och spara-logik är verifierade via
-> host-tester och `idf.py build`, men är **ännu inte testade på fysisk
-> hårdvara**. Lägg SD-paketet (`sdcard_bundle/`) på ett riktigt kort för att
-> prova på enheten.
+> **Hårdvarustatus:** Ägaren har testat PR #11 på hårdvara och rapporterat att
+> det fungerar bra. Det påståendet innebär inte att alla format eller samtliga
+> kontroller i den här guiden har verifierats fysiskt.
 
 ---
 
@@ -797,6 +907,10 @@ g++ -std=c++17 -Wall -Wextra -Imain -Itools -Icomponents/otr_engine/include \
   [`docs/adventures/example_resources_demo.adv`](adventures/example_resources_demo.adv)
   – `@about`, `@treasures`, `@resources`, carry/reset och gångbar ram i ett kort,
   körbart äventyr.
+- **S2-verkstadsbanan (v0.20.1):**
+  [`docs/adventures/s2_demo/README.md`](adventures/s2_demo/README.md) och
+  [`docs/adventures/s2_demo/s2_demo.adv`](adventures/s2_demo/s2_demo.adv) –
+  spakar, tidsgrind, is, band, färgnycklar och par.
 - **Alla inbyggda äventyr som `.adv`:**
   [`docs/adventures/generated/`](adventures/generated/) – byn, josef (2 kartor),
   minfaltet och testvarlden, exporterade direkt från den kompilerade

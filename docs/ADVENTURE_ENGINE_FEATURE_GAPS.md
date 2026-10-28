@@ -10,11 +10,11 @@ upp sådant motorn *inte* redan har.
 system. `5` = stort, ny delsystemsarkitektur (t.ex. realtid/AI).
 
 ## Motorn har redan
-Rutnätsgång, skjuta sten (sokoban), sten→bro/basalt, tryckplattor+grind, nyckel+dörr,
-dimma/minsvepare, minor, bomber, båt/vatten, lava, skyddsdräkt, energi/liv/checkpoints,
-dolda skatter, mörker+ficklampa, hoppstylta (pogo-vault), NPC-dialog med
-flaggor/räknare/quests/villkor/effekter, utgång. (Grupperade plattor + färgade nycklar
-är redan beslutade, så de står inte nedan.)
+Rutnätsgång, skjuta sten (sokoban), sten→bro/basalt, grupperade tryckplattor/grindar,
+spakar och tidsgrindar, is och transportband, generiska och färgade nycklar/dörrar,
+par-bedömning, dimma/minsvepare, minor, bomber, båt/vatten, lava, skyddsdräkt,
+energi/liv/checkpoints, dolda skatter, mörker+ficklampa, hoppstylta (pogo-vault),
+NPC-dialog med flaggor/räknare/quests/villkor/effekter och utgång.
 
 ---
 
@@ -22,8 +22,6 @@ flaggor/räknare/quests/villkor/effekter, utgång. (Grupperade plattor + färgad
 
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
-| 1 | **Is / halkmark** | Spelaren glider tills en vägg/hinder stoppar (Chip's Challenge-klassiker, grymt till pussel) | 2 |
-| 2 | **Transportband / pilrutor** | Ruta tvingar förflyttning i en riktning; bygger rörelsepussel | 2 |
 | 3 | **Enkelriktade rutor / hål** | Kan bara passeras åt ett håll, eller faller ned (nivåskifte/fälla) | 2 |
 | 4 | **Teleport-par (portaler)** | Två rutor som länkar ihop; redan nära `@legend`-tänket (id-par) | 3 |
 | 5 | **Rörlig plattform på vatten/lava** | Flytande yta som bär spelaren – mer dynamik än statisk bro | 4 |
@@ -32,8 +30,6 @@ flaggor/räknare/quests/villkor/effekter, utgång. (Grupperade plattor + färgad
 
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
-| 6 | **Spak / brytare (toggle)** | Växlar grind/bro av–på; faller direkt in i grupp-id-systemet från Steg 1 | 2 |
-| 7 | **Tidsbegränsad grind** | Platta/spak öppnar grind i N steg, stänger sedan – skapar tempo | 2 |
 | 8 | **Räknardörr** | Dörr som kräver N ädelstenar/föremål istället för nyckel | 2 |
 | 9 | **Riktade/tyngdstyrda block** | Boulder Dash-stenar som faller när stödet tas bort | 4 |
 | 10 | **Färgkodade block+mål** | Skjut rätt färgs låda till rätt färgs mål (sokoban-variant) | 2 |
@@ -66,7 +62,7 @@ flaggor/räknare/quests/villkor/effekter, utgång. (Grupperade plattor + färgad
 | 22 | **Namngivna checkpoints / varp** | Hoppa till utpekad checkpoint via effekt (story-driven) | 2 |
 | 23 | **Villkorliga rutor** | Ruta ändras när en flagga sätts (t.ex. bro byggs av story) – `world VERB` finns redan | 3 |
 | 24 | **Slumpmässig utplacering** | Markera ett område, motorn strösslar föremål/fiender – rejält omspelsvärde | 3 |
-| 25 | **Legend för alla rutor/objekt** | Utöka Steg 1-legend till all terräng/objekt + id (naturlig fortsättning) | 2 |
+| 25 | **Legend för alla rutor/objekt** | Utöka S2-legendens begränsade urval till all terräng/objekt + id | 2 |
 
 ## Presentation & känsla
 
@@ -82,7 +78,6 @@ flaggor/räknare/quests/villkor/effekter, utgång. (Grupperade plattor + färgad
 
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
-| 31 | **Stegräknare/par-mål per bana** | "Klara på X drag" – sokoban-standard, `steps()` finns redan | 1 |
 | 32 | **Tidtagning/bestatid** | Spara bästa tid per bana | 2 |
 | 33 | **Samlarmål / bonusstjärnor** | Hitta alla skatter = stjärna; delmål utöver utgången | 2 |
 | 34 | **Ångra drag (undo)** | Sokoban-must för svåra pussel; kräver tillståndsstack (PSRAM finns) | 4 |
@@ -91,12 +86,10 @@ flaggor/räknare/quests/villkor/effekter, utgång. (Grupperade plattor + färgad
 ---
 
 ## Mina topp-rekommendationer (bäst värde för insatsen)
-- **Spak/brytare (#6)** och **tidsgrind (#7)** – återanvänder grupp-id från Steg 1,
-  mångdubblar pusselmöjligheterna till svårighet 2.
-- **Is/halkmark (#1)** och **pilrutor (#2)** – klassiska, billiga, helt nya pusseltyper.
 - **Ångra drag (#34)** – det enskilt mest efterfrågade i seriösa sokoban-banor; dyrare
   men lyfter hela pusseldelen.
 - **Patrull/jagande fiende (#11/#12)** – A*-plannern finns redan att luta sig mot, ger
   motorn en helt ny dimension (action/stealth).
+- **Teleport-par (#4)** – bygger vidare på grupp-id-tänket och kan ge nya pussel.
 
 Allt ovan är host-testbart utan hårdvara, i linje med "minimal ändring, kompilera, testa".

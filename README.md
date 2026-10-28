@@ -4,13 +4,16 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.20.1 – **Phase S1: grouped Sokoban pressure plates and gates**.
-> The adventure engine and `.adv` loader support 36 independent plate/gate groups
-> without changing the save format. A four-room playable demo in one `.adv` file
-> is included under `sdcard_bundle/otr/adventure/sokoban/`; see
-> [adventure authoring](docs/AUTHORING_ADVENTURES.md).
-> Host engine and loader tests cover group behavior, legacy saves and grouped maps.
-> Firmware build and physical verification remain pending.
+> **Status:** v0.20.1 – the adventure engine includes S1 grouped Sokoban plates/gates
+> (introduced in v0.20.0) and S2 levers, timed gates, ice, belts, colored keys/doors
+> and par scoring. The S2 `.adv` example is in
+> [`docs/adventures/s2_demo/`](docs/adventures/s2_demo/); the four-room grouped
+> Sokoban example is in `sdcard_bundle/otr/adventure/sokoban/`. See
+> [adventure authoring](docs/AUTHORING_ADVENTURES.md) for syntax and limitations.
+> S2 uses engine save format 4; formats 1–3 migrate, while the SD-session container
+> remains version 1. `tools/adv_parse.*` is still S1-only; S2 is validated by the
+> production loader. The owner has tested PR #11 on hardware and reports that it
+> works well.
 >
 > Previous: v0.18.5 – **SD-card adventures with darkness, flashlight and pogo stick**.
 > Adventures now load as `.adv` text files from the SD card (`/otr/adventure`); see
@@ -30,7 +33,8 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 > Previous: v0.17.0 – **adventures moved to the SD card** (`.adv` format) with a catalog
 > (folders = adventures, `NN_` prefix = order, up to 16 maps each), chained maps with carry/reset,
 > an exported 12-stage MineSweeper campaign, and data-driven true minesweeper (`mine_level`).
-> The on-device and host parsers are twins (`main/adv_loader` / `tools/adv_parse`). **Not hardware-tested** at release.
+> At v0.17.0 the on-device and host reference parsers were twins
+> (`main/adv_loader` / `tools/adv_parse`). **Not hardware-tested** at that release.
 >
 > Previous: v0.16.1 – **Joseph, chapter 1** (Genesis 37–50): two maps, six characters, bilingual
 > SV/EN dialogue, with UTF-8 (åäö) and map/choice-flow fixes. Hardware-tested by Kent ("the game works").
