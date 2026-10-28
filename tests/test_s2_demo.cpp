@@ -102,6 +102,7 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
 
     int ice = 0, belts[4] = {}, picked[6] = {}, unlocked[6] = {};
     int activations = 0, timedOpened = 0, timedClosed = 0, crossed = 0, exits = 0;
+    int playableWrongAttempts = 0;
     for (char command : commands) {
         const int x = world.playerX(), y = world.playerY(), steps = world.steps();
         const int timer = world.timerRemaining(2);
@@ -115,6 +116,20 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
             object = world.rawObj(tx, ty);
         }
         const int doorColor = int(object) - int(Otr::Obj::DOOR_RED);
+        if (x == 13 && y == 5 && object == Otr::Obj::DOOR_RED) {
+            // The README's optional attempt uses only keys collected through ordinary play.
+            CHECK(world.keys(Otr::KeyColor::RED) == 1);
+            CHECK(world.keys(Otr::KeyColor::GREEN) == 0);
+            CHECK(world.rawObj(13, 4) == Otr::Obj::DOOR_GREEN);
+            CHECK(world.rawObj(13, 3) == Otr::Obj::KEY_GREEN);
+            CHECK(world.move(Otr::Dir::UP) == (Otr::EV_BLOCKED | Otr::EV_NEED_KEY));
+            CHECK(world.playerX() == x && world.playerY() == y);
+            CHECK(world.steps() == steps && world.timerRemaining(2) == timer);
+            CHECK(world.keys(Otr::KeyColor::RED) == 1);
+            CHECK(world.keys(Otr::KeyColor::GREEN) == 0);
+            CHECK(world.rawObj(13, 4) == Otr::Obj::DOOR_GREEN);
+            ++playableWrongAttempts;
+        }
         if (doorColor >= 0 && doorColor < 6 && wrongKeys) {
             // Use the real door and live world, changing only the controlled inventory.
             const auto matching = static_cast<Otr::KeyColor>(doorColor);
@@ -224,6 +239,7 @@ static bool playFile(const char *path, const std::string &commands, bool wrongKe
         }
     }
     CHECK(activations == 3 && ice == 1);
+    CHECK(playableWrongAttempts == 1);
     CHECK(timedOpened == 1 && timedClosed == 1 && crossed == 1 && exits == 1);
     for (int n : belts) CHECK(n == 1);
     for (int color = 0; color < 6; ++color) {
@@ -370,6 +386,45 @@ static bool sessionResume(const std::string &commands)
     return true;
 }
 
+static bool optionalKeyNiche(const char *path, const std::string &commands)
+{
+    auto loaded = std::make_unique<Adv::Loaded>();
+    char err[2048] = {};
+    CHECK(Adv::parseFile(path, *loaded, err, sizeof err));
+    Otr::World world;
+    CHECK(world.load(loaded->map));
+    size_t cursor = 0;
+    for (; cursor < commands.size(); ++cursor) {
+        const char c = commands[cursor];
+        const uint32_t event = c == 'A' ? world.activate() : world.move(direction(c));
+        if ((event & Otr::EV_KEY) && world.keys(Otr::KeyColor::GREEN) == 1) {
+            ++cursor;
+            break;
+        }
+    }
+    CHECK(cursor < commands.size() && world.playerX() == 10 && world.playerY() == 5);
+    for (int i = 0; i < 3; ++i) CHECK(world.move(Otr::Dir::RIGHT) == Otr::EV_MOVED);
+    const int steps = world.steps(), timer = world.timerRemaining(2);
+    CHECK(world.move(Otr::Dir::UP) == Otr::EV_DOOR);
+    CHECK(world.steps() == steps && world.timerRemaining(2) == timer);
+    CHECK(world.keys(Otr::KeyColor::GREEN) == 0);
+    CHECK(world.move(Otr::Dir::UP) == Otr::EV_MOVED);
+    CHECK(world.move(Otr::Dir::UP) == (Otr::EV_MOVED | Otr::EV_KEY));
+    CHECK(world.keys(Otr::KeyColor::GREEN) == 1);
+    CHECK(world.move(Otr::Dir::DOWN) == Otr::EV_MOVED);
+    CHECK(world.move(Otr::Dir::DOWN) == Otr::EV_MOVED);
+    for (int i = 0; i < 3; ++i) CHECK(world.move(Otr::Dir::LEFT) & Otr::EV_MOVED);
+    CHECK(world.playerX() == 10 && world.playerY() == 5);
+    for (; cursor < commands.size(); ++cursor) {
+        const char c = commands[cursor];
+        const uint32_t event = c == 'A' ? world.activate() : world.move(direction(c));
+        CHECK(!(event & (Otr::EV_BLOCKED | Otr::EV_NEED_KEY | Otr::EV_DIED | Otr::EV_GAME_OVER)));
+    }
+    CHECK(world.exitReached() && world.steps() == 66 && !world.parMet());
+    CHECK(world.keys(Otr::KeyColor::GREEN) == 0);
+    return true;
+}
+
 int main()
 {
     const char *docs = "docs/adventures/s2_demo/s2_demo.adv";
@@ -381,7 +436,8 @@ int main()
     }
     std::string commands;
     if (!solutionFromReadme(commands) || !playFile(docs, commands, false) ||
-        !playFile(bundle, commands, true) || !sessionResume(commands)) return 1;
+        !playFile(bundle, commands, true) || !sessionResume(commands) ||
+        !optionalKeyNiche(docs, commands) || !optionalKeyNiche(bundle, commands)) return 1;
     std::puts("S2 external demo: both files solved; all mechanics and SD session resume verified");
     return 0;
 }

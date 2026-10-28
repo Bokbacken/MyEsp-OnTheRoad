@@ -12,6 +12,19 @@ The upper passage teaches the toggle lever, timed plate/gate, ice, then
 right/down/left/up belts. Follow the lower passage left, down, then right:
 each key precedes its matching door; the exit is at the bottom right.
 
+### Try a wrong key during play
+
+After collecting the **red / 1** key at `(14,5)`, move **one step left** to
+`(13,5)`, then press **up** against the **green / 2** side door at `(13,4)`.
+It stays locked: the red key remains in inventory, and neither steps nor the
+gate timer change. Continue left toward the red door to resume the main route.
+This optional blocked attempt does not change the 56-step solution below.
+The instructor also describes this test in SV/EN.
+
+The side door is an optional dead-end, not a bypass. If you return later with a
+green key and open it, a replacement green key inside at `(13,3)` prevents
+the optional experiment from consuming the key needed on the main route.
+
 Use the **joystick** for ice/belts: A* tap-to-walk excludes ice and belt cells
 from its route, so it cannot plan through them, even to a destination beyond them.
 It can detour around them or leave a stopped player already on one; it does
@@ -90,6 +103,17 @@ cell, including automatic movement, counts as a step and ticks timers;
 the failed automatic attempt adds neither. Automatic movement is capped at
 128 extra steps per input.
 
+The player visibly slides along each cell of an ice/belt chain, including
+corners. This is presentation of the already-resolved deterministic move:
+animation frames do not spend extra steps or advance timers. Further movement
+waits for the glide to finish; releasing the joystick does not cancel forced
+motion. Opening the menu snaps to the resolved endpoint before pausing.
+
+Timed groups have a separate HUD line, **Portsteg / Gate steps**.
+For example `2:33` means group 2 has 33 successful displacements remaining;
+`2:0` means closed, not zero seconds. The line remains visible after expiry,
+updates on reactivation and scrolls horizontally if several groups need space.
+
 `@rules` → `par: N` accepts 1–65535; omit it for no target.
 `par: 56` is a displacement target, not a command count:
 56 or fewer steps meets it, 57 does not. It does not prevent completion.
@@ -122,9 +146,12 @@ and **480×800**, in SV and EN:
 - Find the SD adventure; read the instructor without clipped controls/text.
 - Face the lever; select Spak/Lever with Byt/Swap, then verify the lower button
   toggles its lamp/gate. Walking into the lever must not activate it.
-- Cross the timed gate; check timer feedback and eventual closure.
-- Use the joystick across ice and all four arrows; verify camera/controls remain usable.
+- Cross the timed gate; verify the HUD's group-2 step countdown, expiry at
+  `2:0`, and that waiting or pausing does not decrement it.
+- Use the joystick across ice and all four arrows; verify visible gliding
+  through the cells/corners at both zooms, release/STOP, and menu interruption.
 - Match all six key/door colors **and 1–6 markers**, including HUD counts;
-  verify wrong colors fail and unlock requires another movement input.
+  try the green side door with the red key as above, and verify unlocking
+  requires another movement input.
 - Reach the exit at 56/par 56; restart and make a detour to exceed par.
 - Save/reload mid-route and verify inventory, lever and timer state persist.

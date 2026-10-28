@@ -43,8 +43,8 @@ V = door cyan
 #####################
 #1!##################
 #S..I.:..].iii..>.v##
-###############..#.##
-###############.{.<##
+#############g#..#.##
+#############J#.{.<##
 ##..L.t.J.g.H.q.#####
 ##.##################
 ##..y.N.s.O.e.V...X##
@@ -57,6 +57,6 @@ num: 1
 
 @node guide.start
 speaker: guide
-text.sv: Vänd mot spaken; välj Spak med Byt och tryck nedanför. Plattan öppnar grinden i 36 steg. Is/pilar flyttar dig. Matcha nyckelns färg och siffra med dörren. Gå igen efter upplåsning.
-text.en: Face lever; choose Lever with Swap, then tap the lower button. Plate: 36 steps. Ice/arrows move you. Match key/door color and number. Move again after unlocking.
+text.sv: Välj Spak med Byt; tryck nedanför. Plattan: 36 steg. Med röd nyckel: gå ett steg vänster, prova upp mot grön sidodörr. Fel färg behålls. Gå igen efter upplåsning.
+text.en: Choose Lever with Swap; tap below. Plate: 36 steps. With the red key: step left, try up at the green side door. Wrong colors stay. Move again after unlocking.
 choice: Jag provar! | Let me try! => END
