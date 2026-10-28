@@ -4,7 +4,7 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status:** v0.20.0 – **Phase S1: grouped Sokoban pressure plates and gates**.
+> **Status:** v0.20.1 – **Phase S1: grouped Sokoban pressure plates and gates**.
 > The adventure engine and `.adv` loader support 36 independent plate/gate groups
 > without changing the save format. A four-room playable demo in one `.adv` file
 > is included under `sdcard_bundle/otr/adventure/sokoban/`; see
