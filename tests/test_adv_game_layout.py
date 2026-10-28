@@ -19,20 +19,22 @@ def section(start, end):
     return source[begin:source.index(end, begin)]
 
 
-geometry = section("static constexpr int32_t VIEW_Y", "// Sprites:").rsplit("// -----", 1)[0]
+geometry = section("static Game::Layout s_layout", "// Sprites:").rsplit("// -----", 1)[0]
 joy = section("static void joyShow(bool down, int dx, int dy)\n{", "static void configureJoy()")
 pad = section("static lv_obj_t *circle(", "// Viewport: tap")
 talk = section("static void talkBuild()", "static void endTalk()")
 # Keep all construction/parenting statements from buildGame, stopping before world/timer work.
 game = section("static void buildGame(bool loadFailed)", "    snapPlayer();") + "\n}\n"
-talk_constants = section("static constexpr int32_t TALK_W", "static bool talking()")
+talk_constants = section("static constexpr int32_t TALK_PAD", "static bool talking()")
 
 code = r'''
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
+#include <vector>
 #include "adv_game_ui.h"
+#include "ui_metrics.h"
 #include "my_theme.h"
 #include "otr_joystick.h"
 
@@ -43,7 +45,7 @@ static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stage
 static lv_obj_t *s_joyKnob, *s_joyArrow[4];
 static int s_joyLit = -1;
 static Otr::JoyController s_joy;
-static uint16_t s_fb[Game::VIEW.w * Game::VIEW.h];
+static uint16_t *s_fb;
 static constexpr int PORTRAIT_PX = 48;
 static lv_obj_t *s_talkBox, *s_talkPanel, *s_talkPortrait, *s_talkName, *s_talkText, *s_talkRef;
 /*TALK_CONSTANTS*/
@@ -72,6 +74,7 @@ static void checkPad(lv_indev_t *indev) {
     auto *area = lv_obj_get_parent(s_joyKnob);
     auto a = AdvUi::gameBounds(area);
     assert(a.w == 160 && a.h == 160);
+    assert(a.x == s_layout.joystick.x && a.y == s_layout.controls.y);
     auto *ring = lv_obj_get_child(area, 0);
     auto *stop = lv_obj_get_child(area, 2);
     const auto r = AdvUi::gameBounds(ring), s = AdvUi::gameBounds(stop);
@@ -115,34 +118,43 @@ int main() {
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_display(indev, display);
     lv_indev_set_read_cb(indev, [](lv_indev_t *, lv_indev_data_t *data) { data->point = pointer; data->state = state; });
-    for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}}) {
+    for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}, lv_point_t{481, 801}}) {
         lv_display_set_resolution(display, size.x, size.y);
         for (int visit = 0; visit < 2; ++visit) {
+            s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH());
+            const auto stride = lv_draw_buf_width_to_stride(s_layout.view.w, LV_COLOR_FORMAT_RGB565);
+            s_fbStride = stride / sizeof(uint16_t);
+            std::vector<uint16_t> frame(Game::frameBytes(stride, s_layout.view.h) / sizeof(uint16_t));
+            s_fb = frame.data();
             buildGame(false);
             lv_screen_load(s_scr);
             lv_obj_update_layout(s_scr);
-            const auto o = Game::origin(size.x, size.y);
             auto root = AdvUi::gameBounds(s_gameRoot), canvas = AdvUi::gameBounds(s_canvas);
-            assert(root.x == o.x && root.y == o.y && root.w == 320 && root.h == 480);
-            assert(canvas.x == o.x && canvas.y == o.y && canvas.w == 320 && canvas.h == 320);
+            assert(root.x == 0 && root.y == 0 && root.w == size.x && root.h == size.y);
+            assert(canvas.x == 0 && canvas.y == 0 && canvas.w == size.x && canvas.h == size.y - 160);
+            const auto *drawBuffer = lv_canvas_get_draw_buf(s_canvas);
+            assert(drawBuffer->header.stride == stride && drawBuffer->data == reinterpret_cast<uint8_t *>(s_fb));
             auto stage = AdvUi::gameBounds(s_stageLabel);
-            assert(stage.x == o.x + 4 && stage.y == o.y + 4);
+            assert(stage.x == 4 && stage.y == 4);
             assert(lv_obj_get_parent(s_toast) == s_gameRoot);
+            assert(lv_obj_get_y(s_toast) == canvas.h - 64);
+            assert(lv_obj_get_width(s_toast) == canvas.w - 24);
             checkPad(indev);
             talkBuild();
             lv_obj_update_layout(s_scr);
             const auto panel = AdvUi::gameBounds(s_talkPanel);
             assert(lv_obj_get_parent(s_talkBox) == s_gameRoot);
-            assert(panel.x == o.x && panel.y == o.y + 320 && panel.w == 320 && panel.h == 160);
+            assert(panel.x == 0 && panel.y == canvas.h && panel.w == size.x && panel.h == 160);
+            assert(lv_obj_get_y(s_toast) == 8);
             assert(lv_obj_has_flag(s_talkPanel, LV_OBJ_FLAG_CLICKABLE));
             const int before = stops;
-            touch(indev, o.x + 160, o.y + 400, true);
-            touch(indev, o.x + 160, o.y + 400, false);
+            touch(indev, size.x / 2, canvas.h + 80, true);
+            touch(indev, size.x / 2, canvas.h + 80, false);
             assert(stops == before && !s_joy.held());  // Panel covers the translated joystick.
             lv_obj_delete(s_talkBox);
             lv_obj_delete(s_talkPanel);
             // Actual bounds remain authoritative even after an additional parent translation.
-            lv_obj_set_pos(s_gameRoot, o.x + 7, o.y + 9);
+            lv_obj_set_pos(s_gameRoot, 7, 9);
             lv_obj_update_layout(s_scr);
             float fx, fy;
             canvas = AdvUi::gameBounds(s_canvas);
@@ -154,11 +166,11 @@ int main() {
             lv_obj_delete(blank);
         }
     }
-    assert(deletions == 4);
+    assert(deletions == 6);
     lv_indev_delete(indev);
     lv_display_delete(display);
     lv_deinit();
-    puts("Adventure production root/pad/talk layout: 320x480 + 480x800, repeated entry/exit");
+    puts("Adventure production viewport/pad/talk: 320x480, 480x800, 481x801; repeated entry/exit");
 }
 '''
 # buildGame's pre-controls section references viewEvent; its transform is tested without LVGL.

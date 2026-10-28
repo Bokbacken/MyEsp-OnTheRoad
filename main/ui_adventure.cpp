@@ -48,20 +48,16 @@ namespace Game = AdvUi::Game;
 // ----------------------------------------------------------------------------------------
 // Layout
 // ----------------------------------------------------------------------------------------
-// v0.10.0: no top status bar. The viewport starts at y = 0 and the whole bottom strip
-// (160 px) is the control panel: status + menu (left) | joystick (centre) | Slå, energy,
-// gems, suit (right).
-static constexpr int32_t VIEW_Y = Game::VIEW.y, VIEW_W = Game::VIEW.w, VIEW_H = Game::VIEW.h;
-static constexpr int32_t CTRL_Y = Game::CONTROLS.y, CTRL_H = Game::CONTROLS.h;
+// No top status bar. Use the full area above the fixed-height control strip.
+// Capture the layout before allocation; it stays paired with that framebuffer until screen deletion.
+static Game::Layout s_layout = Game::layout(320, 480);
+static size_t s_fbStride;                                        // RGB565 pixels, including LVGL padding
+static constexpr int32_t CTRL_H = Game::JOY_SIZE;
 static constexpr uint32_t TICK_MS = 15;
 static constexpr uint32_t WALK_MS_32 = 150, WALK_MS_16 = 115, BUMP_MS = 110, FX_MS = 220;
 static constexpr uint32_t WALK_MS_MIN = 55;                      // Fastest walk animation (joystick)
 static constexpr uint32_t WALK_MS_MAX = 260;                     // Slowest (stretched to the joystick pace)
-// Control panel columns
-static constexpr int32_t COL_L_W = Game::JOYSTICK.x;              // Left: counters + menu/mute
-static constexpr int32_t COL_R_X = Game::JOYSTICK.x + Game::JOYSTICK.w, COL_R_W = Game::WIDTH - COL_R_X - 4;
 // Joystick (centre column): pad centre (relative to the touch area), outer radius, stop zone, knob
-static constexpr int32_t JOY_AREA_X = Game::JOYSTICK.x, JOY_AREA_W = Game::JOYSTICK.w, JOY_AREA_H = Game::JOYSTICK.h;
 static constexpr int32_t JOY_CX = Game::JOY_CX, JOY_CY = Game::JOY_CY, JOY_R = Game::JOY_R;
 static constexpr int32_t JOY_STOP_R = Game::JOY_STOP_R, JOY_KNOB_R = Game::JOY_KNOB_R;
 static constexpr uint32_t TOAST_MS = 2200, ANIM_FRAME_MS = 420;
@@ -107,7 +103,7 @@ struct Sprites {
 
 static Sprites *s_spr = nullptr;
 static Otr::World *s_world = nullptr;
-static uint16_t *s_fb = nullptr;   // Canvas buffer VIEW_W x VIEW_H
+static uint16_t *s_fb = nullptr;   // Canvas buffer sized to s_layout.view, with s_fbStride
 
 static Otr::Planner *s_planner = nullptr;   // ~90 kB A* work area
 static Otr::Path *s_path = nullptr;
@@ -740,21 +736,7 @@ static const uint16_t *spr(int id) { return s_ts == 32 ? s_spr->big[id] : s_spr-
 // Copies a ts x ts sprite to the frame buffer at (sx, sy), clipped to the viewport.
 static void blit(int id, int sx, int sy, bool keyed)
 {
-    const int ts = s_ts;
-    int x0 = sx < 0 ? -sx : 0, y0 = sy < 0 ? -sy : 0;
-    int x1 = sx + ts > VIEW_W ? VIEW_W - sx : ts, y1 = sy + ts > VIEW_H ? VIEW_H - sy : ts;
-    if (x0 >= x1 || y0 >= y1) return;
-    const uint16_t *src = spr(id);
-    for (int y = y0; y < y1; y++) {
-        const uint16_t *s = src + y * ts + x0;
-        uint16_t *d = s_fb + (sy + y) * VIEW_W + sx + x0;
-        if (!keyed) {
-            memcpy(d, s, (size_t)(x1 - x0) * 2);
-        } else {
-            for (int x = x0; x < x1; x++, s++, d++)
-                if (*s != KEY) *d = *s;
-        }
-    }
+    Game::blitSprite(s_fb, s_layout.view.w, s_layout.view.h, s_fbStride, spr(id), s_ts, sx, sy, keyed, KEY);
 }
 
 static int terrainSprite(int x, int y, int frame)
@@ -843,11 +825,11 @@ static void playerPixel(uint32_t now, int &x, int &y)
 static void camera(int ppx, int ppy, int32_t &cx, int32_t &cy)
 {
     const int ww = s_world->width() * s_ts, wh = s_world->height() * s_ts;
-    cx = ppx + s_ts / 2 - VIEW_W / 2;
-    cy = ppy + s_ts / 2 - VIEW_H / 2;
-    if (s_talkPanel) cy += VIEW_H / 4;   // Talking: hero in the upper half, above the dialogue box
-    cx = cx < 0 ? 0 : cx > ww - VIEW_W ? ww - VIEW_W : cx;
-    cy = cy < 0 ? 0 : cy > wh - VIEW_H ? wh - VIEW_H : cy;
+    cx = ppx + s_ts / 2 - s_layout.view.w / 2;
+    cy = ppy + s_ts / 2 - s_layout.view.h / 2;
+    if (s_talkPanel) cy += s_layout.view.h / 4;   // Talking: hero in the upper half, above the dialogue box
+    cx = Game::cameraOffset(cx, ww, s_layout.view.w);
+    cy = Game::cameraOffset(cy, wh, s_layout.view.h);
 }
 
 static void currentCamera(int32_t &camX, int32_t &camY)
@@ -864,7 +846,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
     const int ts = s_ts;
     const bool fog = w.fog(), over = w.gameOver();
     const int tx0 = camX / ts, ty0 = camY / ts;
-    const int tx1 = (camX + VIEW_W - 1) / ts, ty1 = (camY + VIEW_H - 1) / ts;
+    const int tx1 = (camX + s_layout.view.w - 1) / ts, ty1 = (camY + s_layout.view.h - 1) / ts;
     const bool rockSliding = s_rockAnim && moveProgress(now) < 1.f;
     for (int ty = ty0; ty <= ty1; ty++)
         for (int tx = tx0; tx <= tx1; tx++) {
@@ -912,7 +894,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             for(int j=1;j<ts-1;j++) for(int edge=0;edge<4;edge++) {
                 int dx=sx+(edge<2?j:(edge==2?1:ts-2));
                 int dy=sy+(edge<2?(edge==0?1:ts-2):j);
-                if(dx>=0&&dx<VIEW_W&&dy>=0&&dy<VIEW_H) s_fb[dy*VIEW_W+dx]=rgb(255,210,40);
+                if(dx>=0&&dx<s_layout.view.w&&dy>=0&&dy<s_layout.view.h) s_fb[size_t(dy)*s_fbStride+dx]=rgb(255,210,40);
             }
         }
         // Existing flag sprite identifies the tapped anchor, independent of clipping.
@@ -1260,7 +1242,7 @@ static void playEvents(uint32_t ev)
 // Dialogue (v0.11.0): box over the lower part of the map (portrait, name, typewriter text,
 // reference line) and up to 4 answer buttons (36 px) in place of the control panel.
 // ----------------------------------------------------------------------------------------
-static constexpr int32_t TALK_W = VIEW_W - 12, TALK_PAD = 10, TALK_TEXT_X = PORTRAIT_PX + 10;
+static constexpr int32_t TALK_PAD = 10, TALK_TEXT_X = PORTRAIT_PX + 10;
 static constexpr int32_t CHOICE_H = 36, CHOICE_GAP = 4;
 static constexpr uint32_t TW_CHAR_MS = 22, TW_COMMA_MS = 90, TW_STOP_MS = 180;
 
@@ -1363,7 +1345,7 @@ static void choiceClicked(lv_event_t *e)
 // One answer: text, and for a locked answer the hint below it (greyed out).
 static void addChoice(int slot, int idx, const char *text, const char *hint, bool enabled)
 {
-    lv_obj_t *b = Theme::button(s_talkPanel, "", VIEW_W - 12, CHOICE_H, enabled ? Theme::TEAL : Theme::LINE);
+    lv_obj_t *b = Theme::button(s_talkPanel, "", s_layout.view.w - 12, CHOICE_H, enabled ? Theme::TEAL : Theme::LINE);
     lv_obj_set_pos(b, 6, 2 + slot * (CHOICE_H + CHOICE_GAP));
     lv_obj_t *l = lv_obj_get_child(b, 0);
     lv_label_set_text(l, text);
@@ -1402,7 +1384,8 @@ static void talkShowNode()
     const Otr::Story::Node *nd = s_talk.node();
     const Otr::Story::Npc *sp = s_talk.speaker();
     const int L = langIdx();
-    const int32_t inner = TALK_W - 2 * TALK_PAD;
+    const int32_t talkW = s_layout.view.w - 12;
+    const int32_t inner = talkW - 2 * TALK_PAD;
     int32_t textX = 0, textY = 0;
     if (sp) {
         lv_canvas_set_buffer(s_talkPortrait, s_spr->portrait[sp->look % NPC_LOOKS], PORTRAIT_PX, PORTRAIT_PX,
@@ -1438,8 +1421,8 @@ static void talkShowNode()
     lv_obj_set_hidden(s_talkRef, !ref);
     if (sp && h < PORTRAIT_PX) h = PORTRAIT_PX;
     const int32_t boxH = h + 2 * TALK_PAD;
-    lv_obj_set_size(s_talkBox, TALK_W, boxH);
-    lv_obj_set_pos(s_talkBox, 6, VIEW_Y + VIEW_H - 6 - boxH);
+    lv_obj_set_size(s_talkBox, talkW, boxH);
+    lv_obj_set_pos(s_talkBox, 6, s_layout.view.h - 6 - boxH);
     lv_label_set_text(s_talkText, "");
     s_twPos = 0;
     s_twChars = 0;
@@ -1473,8 +1456,8 @@ static void talkBuild()
 
     s_talkPanel = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(s_talkPanel);
-    lv_obj_set_size(s_talkPanel, Game::CONTROLS.w, CTRL_H);
-    lv_obj_set_pos(s_talkPanel, 0, CTRL_Y);
+    lv_obj_set_size(s_talkPanel, s_layout.controls.w, CTRL_H);
+    lv_obj_set_pos(s_talkPanel, 0, s_layout.controls.y);
     lv_obj_set_style_bg_color(s_talkPanel, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(s_talkPanel, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(s_talkPanel, LV_BORDER_SIDE_TOP, 0);
@@ -1485,7 +1468,7 @@ static void talkBuild()
     lv_obj_add_event_cb(s_talkPanel, [](lv_event_t *) { talkSkip(); }, LV_EVENT_PRESSED, nullptr);
 
     lv_obj_move_foreground(s_toast);
-    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + 8);   // Above the box while talking
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, s_layout.view.y + 8);   // Above the box while talking
 }
 
 static void endTalk()
@@ -1497,7 +1480,7 @@ static void endTalk()
     if (s_talkBox) lv_obj_delete(s_talkBox);
     if (s_talkPanel) lv_obj_delete(s_talkPanel);
     s_talkBox = s_talkPanel = s_talkPortrait = s_talkName = s_talkText = s_talkRef = nullptr;
-    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + VIEW_H - 64);
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, s_layout.view.y + s_layout.view.h - 64);
     s_saveWanted = s_playerId != 0;   // Conversations change the game: keep it
     s_dirty = true;
     updateStats();
@@ -2182,8 +2165,8 @@ static void buildJoystick(lv_obj_t *scr)
 {
     lv_obj_t *area = lv_obj_create(scr);
     lv_obj_remove_style_all(area);
-    lv_obj_set_size(area, JOY_AREA_W, JOY_AREA_H);
-    lv_obj_set_pos(area, JOY_AREA_X, Game::JOYSTICK.y);
+    lv_obj_set_size(area, s_layout.joystick.w, s_layout.joystick.h);
+    lv_obj_set_pos(area, s_layout.joystick.x, s_layout.joystick.y);
     lv_obj_set_clickable(area, true);
     lv_obj_set_scrollable(area, false);
     lv_obj_set_gesture_bubble(area, false);
@@ -2229,6 +2212,7 @@ static void viewEvent(lv_event_t *e)
     currentCamera(camX, camY);
     float fx, fy;
     if (!Game::worldPoint(AdvUi::gameBounds(s_canvas), {p.x, p.y}, camX, camY, s_ts, fx, fy)) return;
+    if (!s_world->inside((int)floorf(fx), (int)floorf(fy))) return;
     if (code == LV_EVENT_LONG_PRESSED) {
         if (s_bombSize || !s_world->fog()) return;
         s_longDone = true;
@@ -2285,6 +2269,7 @@ static void freeAll()
     heap_caps_free(s_cat);
     heap_caps_free(s_adv);
     s_fb = nullptr;
+    s_fbStride = 0;
     s_spr = nullptr;
     s_world = nullptr;
     s_planner = nullptr;
@@ -2483,10 +2468,13 @@ static lv_obj_t *hudIcon(lv_obj_t *parent, HudIcon i)
 //   right  Slå box, red energy bar, icons of carried items (boat, later knife/sword ...; 2 rows)
 static void buildControls()
 {
+    const int32_t COL_L_W = s_layout.joystick.x;
+    const int32_t COL_R_X = s_layout.joystick.x + s_layout.joystick.w;
+    const int32_t COL_R_W = s_layout.controls.w - COL_R_X - 4;
     lv_obj_t *pan = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(pan);
-    lv_obj_set_size(pan, Game::CONTROLS.w, CTRL_H);
-    lv_obj_set_pos(pan, 0, CTRL_Y);
+    lv_obj_set_size(pan, s_layout.controls.w, CTRL_H);
+    lv_obj_set_pos(pan, 0, s_layout.controls.y);
     lv_obj_set_style_bg_color(pan, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(pan, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(pan, LV_BORDER_SIDE_TOP, 0);
@@ -2613,24 +2601,24 @@ static void buildGame(bool loadFailed)
     s_scr = Theme::screen();
     s_activeScr = s_scr;
     lv_obj_add_event_cb(s_scr, screenDeleted, LV_EVENT_DELETE, nullptr);
-    s_gameRoot = AdvUi::gameRoot(s_scr);
+    s_gameRoot = AdvUi::gameRoot(s_scr, s_layout);
 
     // Viewport canvas
     s_canvas = lv_canvas_create(s_gameRoot);
-    lv_canvas_set_buffer(s_canvas, s_fb, VIEW_W, VIEW_H, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(s_canvas, Game::VIEW.x, VIEW_Y);
+    lv_canvas_set_buffer(s_canvas, s_fb, s_layout.view.w, s_layout.view.h, LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_pos(s_canvas, s_layout.view.x, s_layout.view.y);
     lv_obj_set_clickable(s_canvas, true);
     lv_obj_add_event_cb(s_canvas, viewEvent, LV_EVENT_ALL, nullptr);
 
     s_toast = Theme::label(s_gameRoot, "", &my_font_14);
     lv_label_set_long_mode(s_toast, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(s_toast, VIEW_W - 24);
+    lv_obj_set_width(s_toast, s_layout.view.w - 24);
     lv_obj_set_style_text_align(s_toast, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_color(s_toast, Theme::c(0x000000), 0);
     lv_obj_set_style_bg_opa(s_toast, 190, 0);
     lv_obj_set_style_radius(s_toast, 10, 0);
     lv_obj_set_style_pad_all(s_toast, 8, 0);
-    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, VIEW_Y + VIEW_H - 64);
+    lv_obj_align(s_toast, LV_ALIGN_TOP_MID, 0, s_layout.view.y + s_layout.view.h - 64);
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
@@ -2900,7 +2888,12 @@ static void buildWorldPick()
 void show()
 {
     freeAll();
-    s_fb = (uint16_t *)heap_caps_aligned_alloc(64, VIEW_W * VIEW_H * 2, MALLOC_CAP_SPIRAM);
+    s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH());
+    const size_t stride = lv_draw_buf_width_to_stride(s_layout.view.w, LV_COLOR_FORMAT_RGB565);
+    const size_t frameBytes = stride >= size_t(s_layout.view.w) * sizeof(uint16_t) && stride % sizeof(uint16_t) == 0
+        ? Game::frameBytes(stride, s_layout.view.h) : 0;
+    s_fbStride = stride / sizeof(uint16_t);
+    s_fb = frameBytes ? (uint16_t *)heap_caps_aligned_alloc(64, frameBytes, MALLOC_CAP_SPIRAM) : nullptr;
     s_spr = (Sprites *)heap_caps_malloc(sizeof(Sprites), MALLOC_CAP_SPIRAM);
     void *wmem = heap_caps_malloc(sizeof(Otr::World), MALLOC_CAP_SPIRAM);
     void *pmem = heap_caps_malloc(sizeof(Otr::Planner), MALLOC_CAP_SPIRAM);
@@ -2923,7 +2916,7 @@ void show()
     const int64_t t0 = esp_timer_get_time();
     makeArt(s_spr);
     ESP_LOGI(TAG, "tile art %d ms (%u B sprites, %u B frame, world %u B, planner %u B)",
-             (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)(VIEW_W * VIEW_H * 2),
+             (int)((esp_timer_get_time() - t0) / 1000), (unsigned)sizeof(Sprites), (unsigned)frameBytes,
              (unsigned)sizeof(Otr::World), (unsigned)sizeof(Otr::Planner));
     // Scan the SD card for adventures (folders of ordered NN_name.adv maps under /otr/adventure).
     {
