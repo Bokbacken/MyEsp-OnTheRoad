@@ -92,10 +92,7 @@ static void testGenerated()
         "docs/adventures/generated/josef_01_lager.adv",
         "docs/adventures/generated/josef_02_vag.adv",
         "docs/adventures/generated/01_darkdemo.adv",   // v0.18.0 dark/flashlight/pogo demo
-        "docs/adventures/sokoban/01_start.adv",
-        "docs/adventures/sokoban/02_switches.adv",
-        "docs/adventures/sokoban/03_uppercase.adv",
-        "docs/adventures/sokoban/04_final.adv",
+        "docs/adventures/sokoban/sokoban.adv",
     };
     for (const char *f : files) crossCheck(f);
 }
@@ -110,10 +107,7 @@ static void testSdBundle()
         "sdcard_bundle/otr/adventure/josef/01_lager.adv",
         "sdcard_bundle/otr/adventure/josef/02_vag.adv",
         "sdcard_bundle/otr/adventure/darkdemo/01_darkdemo.adv",   // v0.18.0 dark/flashlight/pogo demo
-        "sdcard_bundle/otr/adventure/sokoban/01_start.adv",
-        "sdcard_bundle/otr/adventure/sokoban/02_switches.adv",
-        "sdcard_bundle/otr/adventure/sokoban/03_uppercase.adv",
-        "sdcard_bundle/otr/adventure/sokoban/04_final.adv",
+        "sdcard_bundle/otr/adventure/sokoban/sokoban.adv",
     };
     for (const char *f : files) crossCheck(f);
 }
@@ -483,30 +477,52 @@ static void testGroupedSokoban()
 
 static void testSokobanDemo()
 {
-    const char *files[] = {
-        "docs/adventures/sokoban/01_start.adv",
-        "docs/adventures/sokoban/02_switches.adv",
-        "docs/adventures/sokoban/03_uppercase.adv",
-        "docs/adventures/sokoban/04_final.adv",
-    };
-    const int groups[] = {1, 2, 10, 35};
-    for (int i = 0; i < 4; i++) {
-        auto L = std::make_unique<Adv::Loaded>();
-        char err[128] = {0};
-        CHECK(Adv::parseFile(files[i], *L, err, sizeof err));
-        Otr::World w;
-        CHECK(w.load(L->map));
-        CHECK(!w.gateOpenAt(6, 1));
-        w.move(Otr::Dir::RIGHT);
-        const uint32_t ev = w.move(Otr::Dir::RIGHT);
-        CHECK(ev & Otr::EV_GATE_OPEN);
-        CHECK(w.gateOpenForGroup(groups[i]));
-        CHECK(w.playerCanEnter(6, 1));
-        w.move(Otr::Dir::DOWN);
-        for (int step = 0; step < 2; step++) w.move(Otr::Dir::RIGHT);
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {0};
+    CHECK(Adv::parseFile("docs/adventures/sokoban/sokoban.adv", *L, err, sizeof err));
+    Otr::World w;
+    CHECK(w.load(L->map));
+
+    const int gateX[] = {10, 20, 30, 38};
+    for (int group = 1; group <= 4; group++) {
+        CHECK(!w.gateOpenForGroup(group));
+        CHECK(!w.gateOpenAt(gateX[group - 1], 4));
+    }
+
+    for (int room = 0; room < 4; room++) {
+        const int group = room + 1;
+        const int roomStartX = room * 10;
+
+        // Cover the first of this room's two plates; its gate must remain shut.
+        const int firstPlateDx = room == 0 ? 1 : 2;
+        for (int step = 0; step < firstPlateDx; step++) w.move(Otr::Dir::RIGHT);
         w.move(Otr::Dir::UP);
-        for (int step = 0; step < 5; step++) w.move(Otr::Dir::RIGHT);
-        CHECK(w.exitReached());
+        CHECK(!w.gateOpenForGroup(group));
+        CHECK(!w.gateOpenAt(gateX[room], 4));
+        for (int other = group + 1; other <= 4; other++)
+            CHECK(!w.gateOpenForGroup(other));
+
+        // Walk around the second rock and push it onto the other plate.
+        w.move(Otr::Dir::DOWN);
+        for (int step = 0; step < 3; step++) w.move(Otr::Dir::RIGHT);
+        const uint32_t ev = w.move(Otr::Dir::UP);
+        CHECK(ev & Otr::EV_GATE_OPEN);
+        CHECK(w.gateOpenForGroup(group));
+        CHECK(w.gateOpenAt(gateX[room], 4));
+
+        if (room < 3) {
+            // The passage to the next chamber is reachable only after solving this room.
+            w.move(Otr::Dir::DOWN);
+            for (int step = 0; step < gateX[room] - (roomStartX + 6); step++)
+                w.move(Otr::Dir::RIGHT);
+            CHECK(w.playerCanEnter(gateX[room], 4));
+            w.move(Otr::Dir::RIGHT);
+            CHECK(!w.gateOpenForGroup(group + 1));
+        } else {
+            w.move(Otr::Dir::DOWN);
+            for (int step = 0; step < 4; step++) w.move(Otr::Dir::RIGHT);
+            CHECK(w.exitReached());
+        }
     }
 }
 

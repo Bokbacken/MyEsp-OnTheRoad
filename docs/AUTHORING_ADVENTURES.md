@@ -697,9 +697,11 @@ Alternativt kan gruppen anges för redan placerade `o`-/`=`-rutor med koordinate
 ```
 
 Om en koordinat inte pekar på rätt ruttyp rapporteras ett fel med radnummer.
-Fyra sekventiella, spelbara exempelrum finns under
-[`docs/adventures/sokoban/`](adventures/sokoban/); SD-kortsversionerna finns i
-`/otr/adventure/sokoban/`.
+Ett spelbart exempel med fyra sekventiella rum i samma `.adv`-fil finns i
+[`docs/adventures/sokoban/sokoban.adv`](adventures/sokoban/sokoban.adv).
+Varje rum har två plattor och två stenar; grinden öppnas först när båda plattorna
+i dess grupp täcks. SD-kortsversionen finns i
+`/otr/adventure/sokoban/sokoban.adv`.
 
 ---
 

@@ -51,7 +51,9 @@ static void testCatalog(const Adv::Catalog &c)
     CHECK(folderIndex(c, "resdemo") == 5, "resdemo sorts sixth");
     int si = folderIndex(c, "sokoban");
     CHECK(si == 6, "sokoban sorts seventh");
-    CHECK(si >= 0 && c.items[si].mapCount == 4, "sokoban has four ordered rooms");
+    CHECK(si >= 0 && c.items[si].mapCount == 1, "sokoban has one four-room map");
+    CHECK(si >= 0 && strcmp(c.items[si].maps[0], "sokoban.adv") == 0,
+          "sokoban map is the combined demo");
     CHECK(folderIndex(c, "testvarlden") == 7, "testvarlden sorts eighth");
 
     // minkampanj is the true minesweeper campaign: 12 ordered maps.
