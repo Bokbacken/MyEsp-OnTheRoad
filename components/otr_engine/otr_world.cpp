@@ -994,7 +994,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     uint16_t timers[PLATE_GROUPS] = {};
     uint64_t latches = 0;
     if (version >= 4) {
-        Reader ext{cells + w_ * h_ * CELL_BYTES};
+        Reader ext{cells + size_t(w_) * size_t(h_) * CELL_BYTES};
         for (uint8_t &color : colors) color = (uint8_t)ext.u8();
         latches = ext.u32();
         latches |= uint64_t(ext.u32()) << 32;
