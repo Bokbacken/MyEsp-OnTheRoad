@@ -93,7 +93,7 @@ static const GameChoice GAMES[4] = {
     {GameType::SCC, Str::GAME_NAME_SCC, Str::MENU_SUB_GAME_SCC, Theme::BLUE},
 };
 
-// Name of the selected game + variant (player screen header, results).
+// Name of the selected game + variant (results).
 static const char *gameTitle()
 {
     switch (s_gameType) {
@@ -542,7 +542,7 @@ static void showPlayers()
         s_nameCount = 2;
     }
     lv_obj_t *scr = Theme::screen();
-    selectionHeader(scr, tr(Str::PL_TITLE), gameTitle());
+    selectionHeader(scr, tr(Str::PL_TITLE));
     lv_obj_t *body = selectionBody(scr, UiMetrics::titleH() + 2 * UiMetrics::marginSmall());
 
     lv_obj_t *card = Theme::card(body, LV_PCT(100), 0);

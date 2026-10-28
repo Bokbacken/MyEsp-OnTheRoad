@@ -588,6 +588,12 @@ int main() {
                     s_pids[i] = i % 2 ? i + 1 : 0; s_web[i] = false;
                 }
                 showPlayers(); settle(); auto *box = body();
+                auto *header = lv_obj_get_child(lv_screen_active(), 0);
+                assert(lv_obj_get_child_count(header) == 2); // Title and battery only; no variant subtitle.
+                lv_area_t titleArea, batteryArea;
+                lv_obj_get_coords(lv_obj_get_child(header, 0), &titleArea);
+                lv_obj_get_coords(lv_obj_get_child(header, 1), &batteryArea);
+                assert(titleArea.x2 < batteryArea.x1 || titleArea.y2 < batteryArea.y1);
                 noOverlap(child(box, -1), true);
                 if (size.x == 320 && size.y == 480) {
                     assert(lv_obj_get_y(s_addBtn) + lv_obj_get_y(box) == 384);
