@@ -43,7 +43,7 @@ code = r'''
 namespace Game = AdvUi::Game;
 using Otr::Dir;
 /*GEOMETRY*/
-static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stageLabel;
+static lv_obj_t *s_scr, *s_activeScr, *s_gameRoot, *s_canvas, *s_toast, *s_stageLabel, *s_progressLabel;
 static lv_obj_t *s_joyKnob, *s_joyArrow[4];
 static int s_joyLit = -1;
 static Otr::JoyController s_joy;
@@ -174,6 +174,13 @@ int main() {
             assert(drawBuffer->header.stride == stride && drawBuffer->data == reinterpret_cast<uint8_t *>(s_fb));
             auto stage = AdvUi::gameBounds(s_stageLabel);
             assert(stage.x == 4 && stage.y == 4);
+            lv_label_set_text(s_stageLabel, "A long map title must never cover the steps and par");
+            lv_label_set_text(s_progressLabel, "Steps:2147483647  Par:2147483647");
+            lv_obj_update_layout(s_scr);
+            auto progress = AdvUi::gameBounds(s_progressLabel);
+            assert(progress.x == 4 && progress.y == 24);
+            assert(progress.x + progress.w <= size.x && progress.y + progress.h < canvas.h);
+            assert(lv_obj_get_y(s_stageLabel) + lv_obj_get_height(s_stageLabel) <= progress.y);
             assert(lv_obj_get_parent(s_toast) == s_gameRoot);
             assert(lv_obj_get_y(s_toast) == canvas.h - 64);
             assert(lv_obj_get_width(s_toast) == canvas.w - 24);

@@ -526,6 +526,219 @@ static void testSokobanDemo()
     }
 }
 
+static void testS2Legend()
+{
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {};
+    const char *map =
+        "@legend\n"
+        "v = LeVeR z\n"
+        "= = gate Z\n"
+        "i = ICE\n"
+        "U = belt up\n"
+        "> = belt right\n"
+        "V = belt down\n"
+        "< = belt left\n"
+        "e = key red\n"
+        "g = key green\n"
+        "n = key blue\n"
+        "y = key yellow\n"
+        "q = key purple\n"
+        "w = key CYAN\n"
+        "E = door red\n"
+        "G = door green\n"
+        "N = door blue\n"
+        "Y = door yellow\n"
+        "J = door purple\n"
+        "W = door cyan\n"
+        "@rules\npar: 65535\n"
+        "@map\nSvv=iU>V<egnyqwEGNYJWkKD\n";
+    CHECK(Adv::parse(map, std::strlen(map), *L, err, sizeof err));
+    CHECK(L->controlCount == 1 && L->map.controls == L->controls);
+    CHECK(L->map.controlCount == 1 && L->controls[0].group == 35 && L->controls[0].steps == 0);
+    Otr::World world;
+    CHECK(world.load(L->map));
+    CHECK(world.tile(1, 0) == Otr::Tile::LEVER && world.objAmount(1, 0) == 35);
+    CHECK(world.tile(3, 0) == Otr::Tile::GATE && world.objAmount(3, 0) == 35);
+    CHECK(world.tile(4, 0) == Otr::Tile::ICE);
+    for (int d = 0; d < 4; d++) {
+        CHECK(world.tile(5 + d, 0) == (Otr::Tile)((int)Otr::Tile::BELT_UP + d));
+        CHECK(!Otr::Planner::targetable(world, 5 + d, 0));
+    }
+    CHECK(!Otr::Planner::targetable(world, 4, 0));
+    for (int c = 0; c < 6; c++) {
+        CHECK(world.rawObj(9 + c, 0) == (Otr::Obj)((int)Otr::Obj::KEY_RED + c));
+        CHECK(world.rawObj(15 + c, 0) == (Otr::Obj)((int)Otr::Obj::DOOR_RED + c));
+    }
+    CHECK(world.rawObj(21, 0) == Otr::Obj::KEY && world.rawObj(22, 0) == Otr::Obj::KEY);
+    CHECK(world.rawObj(23, 0) == Otr::Obj::DOOR && world.par() == 65535);
+    world.move(Otr::Dir::RIGHT);  // Face a lever in the shared toggle group.
+    CHECK(world.activate() & Otr::EV_GATE_OPEN);
+    CHECK(world.leverOnAt(1, 0) && world.leverOnAt(2, 0));
+    CHECK(world.gateOpenForGroup(35));
+    CHECK(world.activate() & Otr::EV_GATE_CLOSE);
+    CHECK(!world.leverOnAt(1, 0) && !world.leverOnAt(2, 0));
+
+    // Resources keep the S1 priority: a legend definition wins even if declared later.
+    for (const char *text : {
+             "@resources\ns : stone : Stone\n@legend\ns = ice\n@map\nSs\n",
+             "@legend\ns = ice\n@resources\ns : stone : Stone\n@map\nSs\n"}) {
+        CHECK(Adv::parse(text, std::strlen(text), *L, err, sizeof err));
+        CHECK(L->resourceCount == 1 && L->placementCount == 0);
+        CHECK(world.load(L->map) && world.tile(1, 0) == Otr::Tile::ICE);
+        CHECK(L->controlCount == 0 && L->map.controls == nullptr && L->map.par == 0);
+    }
+
+    // Every group fits the fixed backing, including group 0 and lowercase ids.
+    std::string text = "@legend\n", row = "S";
+    for (int g = 0; g < Otr::PLATE_GROUPS; g++) {
+        const char glyph = g < 26 ? (char)('a' + g) : (char)('A' + g - 26);
+        const char group = g < 10 ? (char)('0' + g) : (char)('a' + g - 10);
+        text += std::string(1, glyph) + " = lever " + group + "\n";
+        row += glyph;
+    }
+    text += "@map\n" + row + "\n";
+    CHECK(Adv::parse(text.c_str(), text.size(), *L, err, sizeof err));
+    CHECK(L->controlCount == Otr::PLATE_GROUPS);
+    for (int g = 0; g < Otr::PLATE_GROUPS; g++)
+        CHECK(L->controls[g].group == g && L->controls[g].steps == 0);
+    CHECK(world.load(L->map));
+}
+
+static void testS2Effects()
+{
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {};
+    Otr::World world;
+    const char *lever =
+        "@timedgate 1: 2 # subsequent successful displacements\n"
+        "@legend\nv = lever 1\nG = gate 1\n"
+        "@map\nS..G\nv...\n";
+    CHECK(Adv::parse(lever, std::strlen(lever), *L, err, sizeof err));
+    CHECK(L->controls[0].steps == 2 && world.load(L->map));
+    world.activate();
+    CHECK(world.timerRemaining(1) == 2 && world.gateOpenAt(3, 0));
+    world.move(Otr::Dir::UP);
+    CHECK(world.timerRemaining(1) == 2 && world.steps() == 0);
+    world.move(Otr::Dir::RIGHT);
+    CHECK(world.timerRemaining(1) == 1);
+    world.move(Otr::Dir::LEFT);
+    CHECK(world.timerRemaining(1) == 0 && !world.gateOpenAt(3, 0));
+
+    const char *plate =
+        "@map\nSo=.\n@plategroup A: 1,0\n@gategroup A: 2,0\n@timedgate a: 2\n";
+    CHECK(Adv::parse(plate, std::strlen(plate), *L, err, sizeof err));
+    CHECK(L->controls[0].group == 10 && world.load(L->map));
+    world.move(Otr::Dir::RIGHT);
+    CHECK(world.timerRemaining(10) == 2 && world.gateOpenAt(2, 0));
+    world.move(Otr::Dir::LEFT);
+    CHECK(world.timerRemaining(10) == 1);
+    world.move(Otr::Dir::RIGHT);  // Expiry ticks before the new entry rearms the timer.
+    CHECK(world.timerRemaining(10) == 2 && world.gateOpenAt(2, 0));
+
+    const char *rock =
+        "@legend\ns = plate 1\nG = gate 1\n@timedgate 1: 3\n@map\nSRsG.\n";
+    CHECK(Adv::parse(rock, std::strlen(rock), *L, err, sizeof err));
+    CHECK(world.load(L->map));
+    world.move(Otr::Dir::RIGHT);
+    CHECK(world.timerRemaining(1) == 3 && world.gateOpenAt(3, 0));
+
+    const char *motion =
+        "@legend\ni = ice\n> = belt right\n@rules\npar: 4\n@map\nSii>..X\n";
+    CHECK(Adv::parse(motion, std::strlen(motion), *L, err, sizeof err));
+    CHECK(world.load(L->map) && world.par() == 4 && world.parMet());
+    world.move(Otr::Dir::RIGHT);
+    CHECK(world.playerX() == 4 && world.steps() == 4 && world.parMet());
+    world.move(Otr::Dir::RIGHT);
+    CHECK(world.steps() == 5 && !world.parMet());
+
+    const char *colors =
+        "@legend\ns = key red\nw = door blue\nt = door red\n"
+        "@map\nSsw.t\n.....\n";
+    CHECK(Adv::parse(colors, std::strlen(colors), *L, err, sizeof err));
+    CHECK(world.load(L->map));
+    world.move(Otr::Dir::RIGHT);
+    CHECK(world.keys(Otr::KeyColor::RED) == 1 && world.keys() == 0);
+    CHECK(world.move(Otr::Dir::RIGHT) & Otr::EV_NEED_KEY);
+    CHECK(world.keys(Otr::KeyColor::RED) == 1);
+    world.move(Otr::Dir::DOWN);
+    for (int i = 0; i < 3; i++) world.move(Otr::Dir::RIGHT);
+    CHECK(world.move(Otr::Dir::UP) & Otr::EV_DOOR);
+    CHECK(world.keys(Otr::KeyColor::RED) == 0 && world.rawObj(4, 0) == Otr::Obj::NONE);
+}
+
+static void testS2Errors()
+{
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {};
+    struct Bad { const char *text; int line; const char *message; };
+    const Bad cases[] = {
+        {"@legend\nv = lever\n@map\nSv\n", 2, "group"},
+        {"@legend\nv = lever 36\n@map\nSv\n", 2, "group"},
+        {"@legend\nv = lever ?\n@map\nSv\n", 2, "group"},
+        {"@legend\ni = ice extra\n@map\nSi\n", 2, "argument"},
+        {"@legend\nv = belt\n@map\nSv\n", 2, "direction"},
+        {"@legend\nv = belt north\n@map\nSv\n", 2, "direction"},
+        {"@legend\nv = belt up extra\n@map\nSv\n", 2, "legend"},
+        {"@legend\nv = key\n@map\nSv\n", 2, "color"},
+        {"@legend\nv = door orange\n@map\nSv\n", 2, "color"},
+        {"@legend\nv = key red extra\n@map\nSv\n", 2, "legend"},
+        {"@legend\nv = teleport\n@map\nSv\n", 2, "kind"},
+        {"@legend\nS = ice\n@map\nS\n", 2, "reserved"},
+        {"@legend\n@ = ice\n@map\nS\n", 2, "section"},
+        {"@legend\n = ice\n@map\nS\n", 2, "legend"},
+        {"@legend\nv = ice\nv = lever 1\n@map\nSv\n", 3, "duplicate"},
+        {"@resources\nk : stone\n@map\nSk\n", 2, "built-in"},
+        {"@resources\ns : stone\ns : sand\n@map\nSs\n", 3, "duplicate"},
+        {"@timedgate 1\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate 36: 2\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate 1: 0\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate 1: -1\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate 1: 65536\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate 1: 999999999999999999999\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate 1: 2 extra\n@map\nSo=\n", 1, "timedgate"},
+        {"@timedgate a: 2\n@timedgate A: 3\n@map\nSo=\n", 2, "duplicate"},
+        {"@rules\npar: 0\n@map\nS\n", 2, "par"},
+        {"@rules\npar 2\n@map\nS\n", 2, "par"},
+        {"@rules\npar:\n@map\nS\n", 2, "par"},
+        {"@rules\npar: +2\n@map\nS\n", 2, "par"},
+        {"@rules\npar: -1\n@map\nS\n", 2, "par"},
+        {"@rules\npar: 65536\n@map\nS\n", 2, "par"},
+        {"@rules\npar: 1x\n@map\nS\n", 2, "par"},
+        {"@rules\npar: 2 extra\n@map\nS\n", 2, "par"},
+        {"@legend\nv = lever 0\n@map\nSvo=\n", 4, "mix"},
+        {"@legend\nv = lever 1\n@map\nSvo=\n@plategroup 1: 2,0\n", 4, "mix"},
+        {"@timedgate 0: 2\n@map\nSo.\n", 1, "exactly one"},
+        {"@timedgate 0: 2\n@map\nS.=\n", 1, "exactly one"},
+        {"@timedgate 0: 2\n@map\nSoo=\n", 1, "exactly one"},
+        {"@legend\nv = lever 1\nG = gate 1\n@map\nSvvG\n@timedgate 1: 2\n", 6, "exactly one"},
+        {"@legend\ni = ice\n@map\nSi\n@plategroup 1: 1,0\n", 5, "not a plate"},
+        {"@treasures\n1 0 gem 255\n@map\nSo=\n", 2, "treasure cannot share"},
+        {"@map\nSo=\n@treasures\n2 0 key 255\n", 4, "treasure cannot share"},
+        {"@treasures\n1 0 gem 255\n@legend\nv = lever 1\n@map\nSv\n", 2, "treasure cannot share"},
+        {"@legend\ns = plate Z\n@map\nSs\n@treasures\n1 0 gem 255\n", 6, "treasure cannot share"},
+        {"@legend\nG = gate Z\n@map\nSG\n@treasures\n1 0 potion 255\n", 6, "treasure cannot share"},
+        {"@map\nSo=\n@plategroup 1: 1,0\n@timedgate 1: 2\n@gategroup 1: 2,0\n"
+         "@treasures\n1 0 gem 255\n", 7, "treasure cannot share"},
+    };
+    for (const Bad &bad : cases) {
+        CHECK(!Adv::parse(bad.text, std::strlen(bad.text), *L, err, sizeof err));
+        char prefix[32];
+        std::snprintf(prefix, sizeof prefix, "line %d:", bad.line);
+        CHECK(std::strncmp(err, prefix, std::strlen(prefix)) == 0);
+        CHECK(std::strstr(err, bad.message) != nullptr);
+    }
+    const char *maxTimer = "@timedgate 0: 65535\n@map\nSo=\n";
+    CHECK(Adv::parse(maxTimer, std::strlen(maxTimer), *L, err, sizeof err));
+    CHECK(L->controlCount == 1 && L->controls[0].steps == 65535);
+    const char *ordinaryTreasure =
+        "@legend\no = ice\n@treasures\n1 0 gem 1\n@map\nSo\n";
+    CHECK(Adv::parse(ordinaryTreasure, std::strlen(ordinaryTreasure), *L, err, sizeof err));
+    Otr::World world;
+    CHECK(world.load(L->map));
+    CHECK(world.tile(1, 0) == Otr::Tile::ICE && world.rawObj(1, 0) == Otr::Obj::GEM);
+}
+
 int main()
 {
     testGenerated();
@@ -537,6 +750,9 @@ int main()
     testDarkFlashPogo();
     testGroupedSokoban();
     testSokobanDemo();
+    testS2Legend();
+    testS2Effects();
+    testS2Errors();
     std::printf("\n%s: %d passed, %d failed\n", g_fail ? "FAIL" : "OK", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

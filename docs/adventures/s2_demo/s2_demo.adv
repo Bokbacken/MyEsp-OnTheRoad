@@ -1,0 +1,62 @@
+@meta
+id: s2_demo
+world: 96
+map_id: 96
+
+@about
+title.sv: Verkstadens provbana
+title.en: Workshop training circuit
+desc.sv: Prova spak, tidsgrind, is, fyra pilriktningar och sex nyckelfärger. Par: 56 steg.
+desc.en: Try a lever, timed gate, ice, four belt directions and six key colors. Par: 56 steps.
+author: MyEsp-OnTheRoad
+
+@rules
+lives: infinite
+par: 56
+
+@legend
+! = lever 1
+I = gate 1
+: = plate 2
+] = gate 2
+i = ice
+{ = belt up
+> = belt right
+v = belt down
+< = belt left
+q = key red
+H = door red
+g = key green
+J = door green
+t = key blue
+L = door blue
+y = key yellow
+N = door yellow
+s = key purple
+O = door purple
+e = key cyan
+V = door cyan
+
+@timedgate 2: 24
+
+@map
+#####################
+#1!##################
+#S..I.:..].iii..>.v##
+###############..#.##
+###############.{.<##
+##..L.t.J.g.H.q.#####
+##.##################
+##..y.N.s.O.e.V...X##
+#####################
+
+@npc guide
+name: Handledaren | The instructor
+look: 0
+num: 1
+
+@node guide.start
+speaker: guide
+text.sv: Vänd mot spaken; tryck Aktivera. Plattan öppnar grinden i 24 steg. Is/pilar flyttar dig. Matcha nyckelns färg och siffra med dörren. Gå igen efter upplåsning.
+text.en: Face the lever; press Activate. Plate: gate open for 24 steps. Ice/arrows move you. Match key/door color and number. After unlocking, move again.
+choice: Jag provar! | Let me try! => END

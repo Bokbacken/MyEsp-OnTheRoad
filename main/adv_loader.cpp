@@ -135,8 +135,7 @@ bool isBuiltinGlyph(char c)
 
 struct LegendDef {
     char glyph;
-    Otr::Tile tile;
-    uint8_t group;
+    uint8_t encoded;
 };
 
 constexpr int MAX_LEGEND = 128;
@@ -165,11 +164,26 @@ bool sameWord(const char *a, const char *b)
     return *a == 0 && *b == 0;
 }
 
+bool positiveSteps(const char *text, uint16_t &steps)
+{
+    unsigned n = 0;
+    if (!text || !*text) return false;
+    for (; *text; text++) {
+        if (*text < '0' || *text > '9') return false;
+        const unsigned digit = (unsigned)(*text - '0');
+        if (n > (65535u - digit) / 10u) return false;
+        n = n * 10u + digit;
+    }
+    if (!n) return false;
+    steps = (uint16_t)n;
+    return true;
+}
+
 bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *err, size_t errCap)
 {
     stripCommentIn(line);
-    char *equals = strchr(line, '=');
-    if (!equals) { setErr(err, errCap, lineNo, "legend needs 'glyph = plate|gate group'"); return false; }
+    char *equals = strchr(line + (line[0] == '=' ? 1 : 0), '=');
+    if (!equals) { setErr(err, errCap, lineNo, "legend needs 'glyph = kind [argument]'"); return false; }
     *equals = 0;
     char *glyphText = trimIn(line);
     char *value = trimIn(equals + 1);
@@ -184,26 +198,45 @@ bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *
     if (count >= MAX_LEGEND) { setErr(err, errCap, lineNo, "too many legend glyphs"); return false; }
 
     char *kind = strtok(value, " \t");
-    char *groupText = strtok(nullptr, " \t");
+    char *arg = strtok(nullptr, " \t");
     if (!kind || strtok(nullptr, " \t")) {
-        setErr(err, errCap, lineNo, "legend needs 'glyph = plate|gate group'");
+        setErr(err, errCap, lineNo, "legend needs 'glyph = kind [argument]'");
         return false;
     }
-    Otr::Tile tile;
-    if (sameWord(kind, "plate")) tile = Otr::Tile::PLATE;
-    else if (sameWord(kind, "gate")) tile = Otr::Tile::GATE;
-    else { setErr(err, errCap, lineNo, "legend supports only plate and gate"); return false; }
-    uint8_t group = 0;
-    if (groupText && !groupFromText(groupText, group)) {
-        setErr(err, errCap, lineNo, "invalid plate/gate group");
+    uint8_t encoded;
+    if (sameWord(kind, "plate") || sameWord(kind, "gate") || sameWord(kind, "lever")) {
+        uint8_t group = 0;
+        if ((sameWord(kind, "lever") && !arg) || (arg && !groupFromText(arg, group))) {
+            setErr(err, errCap, lineNo, "invalid plate/gate/lever group");
+            return false;
+        }
+        encoded = (uint8_t)((sameWord(kind, "plate") ? Otr::GROUPED_PLATE_GLYPH :
+                            sameWord(kind, "gate") ? Otr::GROUPED_GATE_GLYPH : Otr::GROUPED_LEVER_GLYPH) + group);
+    } else if (sameWord(kind, "ice")) {
+        if (arg) { setErr(err, errCap, lineNo, "ice takes no argument"); return false; }
+        encoded = Otr::ICE_GLYPH;
+    } else if (sameWord(kind, "belt")) {
+        const char *dirs[] = {"up", "right", "down", "left"};
+        int d = 0;
+        for (; d < 4; d++) if (arg && sameWord(arg, dirs[d])) break;
+        if (d == 4) { setErr(err, errCap, lineNo, "invalid belt direction"); return false; }
+        encoded = (uint8_t)(Otr::BELT_UP_GLYPH + d);
+    } else if (sameWord(kind, "key") || sameWord(kind, "door")) {
+        const char *colors[] = {"red", "green", "blue", "yellow", "purple", "cyan"};
+        int c = 0;
+        for (; c < 6; c++) if (arg && sameWord(arg, colors[c])) break;
+        if (c == 6) { setErr(err, errCap, lineNo, "invalid key/door color"); return false; }
+        encoded = (uint8_t)((sameWord(kind, "key") ? Otr::COLORED_KEY_GLYPH : Otr::COLORED_DOOR_GLYPH) + c);
+    } else {
+        setErr(err, errCap, lineNo, "unknown legend kind");
         return false;
     }
-    defs[count++] = {glyph, tile, group};
+    defs[count++] = {glyph, encoded};
     return true;
 }
 
 enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND,
-           PLATEGROUP, GATEGROUP };
+           PLATEGROUP, GATEGROUP, TIMEDGATE };
 
 // Maps a "@tag" (without any arg) to a section. Returns false for an unknown tag.
 bool secFromTag(const char *tag, Sec &sec)
@@ -222,6 +255,7 @@ bool secFromTag(const char *tag, Sec &sec)
     else if (!strcmp(tag, "@legend")) sec = LEGEND;
     else if (!strcmp(tag, "@plategroup")) sec = PLATEGROUP;
     else if (!strcmp(tag, "@gategroup")) sec = GATEGROUP;
+    else if (!strcmp(tag, "@timedgate")) sec = TIMEDGATE;
     else if (!strcmp(tag, "@npc")) sec = NPC;
     else if (!strcmp(tag, "@node")) sec = NODE;
     else return false;
@@ -349,7 +383,8 @@ const char *Loaded::intern(const char *s, size_t len)
 
 void Loaded::reset()
 {
-    memset(this, 0, sizeof(*this));
+    // Reset backing in place rather than putting a Loaded-sized temporary on the device stack.
+    memset(static_cast<void *>(this), 0, sizeof(*this));
 }
 
 bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
@@ -363,6 +398,11 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     bool oom = false;
     LegendDef legend[MAX_LEGEND];
     int legendCount = 0;
+    int rowLines[MAX_ROWS] = {};
+    int treasureLines[MAX_TREASURES] = {};
+    int timedLines[Otr::PLATE_GROUPS] = {};
+    uint16_t timedSteps[Otr::PLATE_GROUPS] = {};
+    int par = 0;
 
     // intern helper: sets oom on overflow (checked at the end).
     auto IN = [&](const char *s) -> const char * {
@@ -400,6 +440,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 size_t w = strlen(line);
                 if (w > (size_t)Otr::MAX_W) { setErr(err, errCap, lineNo, "map row too wide"); return false; }
                 memcpy(out.rows[out.rowCount], line, w + 1);
+                rowLines[out.rowCount] = lineNo;
                 out.rowCount++;
                 continue;
             }
@@ -415,6 +456,22 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             if (space) { *space = 0; arg = trimIn(space + 1); }
             Sec ns;
             if (!secFromTag(t, ns)) { setErr(err, errCap, lineNo, "unknown section"); return false; }
+            if (ns == TIMEDGATE) {
+                char *groupText, *stepsText;
+                uint8_t group;
+                uint16_t steps;
+                if (arg) stripCommentIn(arg);
+                if (!arg || !splitKV(arg, groupText, stepsText) ||
+                    !groupFromText(groupText, group) || !positiveSteps(stepsText, steps)) {
+                    setErr(err, errCap, lineNo, "@timedgate needs 'group: steps' (1..65535)");
+                    return false;
+                }
+                if (timedLines[group]) { setErr(err, errCap, lineNo, "duplicate timed gate group"); return false; }
+                timedLines[group] = lineNo;
+                timedSteps[group] = steps;
+                sec = NONE;
+                continue;
+            }
             if (ns == PLATEGROUP || ns == GATEGROUP) {
                 sec = NONE;
                 continue;
@@ -474,8 +531,20 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             }
             case RULES: {
                 char *k, *v;
-                if (!splitKV(t, k, v)) break;
+                if (!splitKV(t, k, v)) {
+                    if (!strncmp(t, "par", 3) && (t[3] == 0 || t[3] == ' ' || t[3] == '\t')) {
+                        setErr(err, errCap, lineNo, "par needs 'par: steps' (1..65535)");
+                        return false;
+                    }
+                    break;
+                }
                 stripCommentIn(v);
+                if (!strcmp(k, "par")) {
+                    uint16_t steps;
+                    if (!positiveSteps(v, steps)) { setErr(err, errCap, lineNo, "par must be 1..65535"); return false; }
+                    par = steps;
+                    break;
+                }
                 const int n = atoi(v);
                 if (!strcmp(k, "start_energy")) rules.startEnergy = (uint8_t)n;
                 else if (!strcmp(k, "energy_cap")) rules.energyCap = (uint8_t)n;
@@ -550,6 +619,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 const Otr::Obj item = objFromName(tok[2]);
                 if (item == Otr::Obj::NONE) { setErr(err, errCap, lineNo, "unknown treasure item"); return false; }
                 if (out.treasureCount >= MAX_TREASURES) { setErr(err, errCap, lineNo, "too many treasures"); return false; }
+                treasureLines[out.treasureCount] = lineNo;
                 Otr::Treasure &tr = out.treasures[out.treasureCount++];
                 tr = Otr::Treasure{};
                 tr.x = (uint8_t)atoi(tok[0]);
@@ -719,13 +789,56 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
         for (size_t x = 0; x < w; x++)
             for (int i = 0; i < legendCount; i++)
                 if (out.rows[y][x] == legend[i].glyph) {
-                    out.rows[y][x] = (char)((legend[i].tile == Otr::Tile::PLATE
-                                                  ? Otr::GROUPED_PLATE_GLYPH
-                                                  : Otr::GROUPED_GATE_GLYPH) +
-                                             legend[i].group);
+                    out.rows[y][x] = (char)legend[i].encoded;
                     break;
                 }
     if (!applyGroupDirectives(text, len, out, err, errCap)) return false;
+
+    for (int i = 0; i < out.treasureCount; i++) {
+        const Otr::Treasure &tr = out.treasures[i];
+        if (tr.x >= w || tr.y >= out.rowCount) continue;  // Engine validates treasure coordinates.
+        const uint8_t c = (uint8_t)out.rows[tr.y][tr.x];
+        if (c == 'o' || c == '=' ||
+            (c >= Otr::GROUPED_PLATE_GLYPH && c < Otr::GROUPED_LEVER_GLYPH + Otr::PLATE_GROUPS)) {
+            setErr(err, errCap, treasureLines[i], "treasure cannot share a plate, gate or lever cell");
+            return false;
+        }
+    }
+
+    // Validate final groups, including coordinate overrides. Keep provenance per row/group,
+    // rather than adding a source-line array for every map cell.
+    uint16_t plateCounts[Otr::PLATE_GROUPS] = {};
+    uint16_t leverCounts[Otr::PLATE_GROUPS] = {};
+    bool gates[Otr::PLATE_GROUPS] = {};
+    int leverLines[Otr::PLATE_GROUPS] = {};
+    for (int y = 0; y < out.rowCount; y++) {
+        for (size_t x = 0; x < w; x++) {
+            const uint8_t c = (uint8_t)out.rows[y][x];
+            if (c == 'o') plateCounts[0]++;
+            else if (c == '=') gates[0] = true;
+            else if (c >= Otr::GROUPED_PLATE_GLYPH && c < Otr::GROUPED_PLATE_GLYPH + Otr::PLATE_GROUPS)
+                plateCounts[c - Otr::GROUPED_PLATE_GLYPH]++;
+            else if (c >= Otr::GROUPED_GATE_GLYPH && c < Otr::GROUPED_GATE_GLYPH + Otr::PLATE_GROUPS)
+                gates[c - Otr::GROUPED_GATE_GLYPH] = true;
+            else if (c >= Otr::GROUPED_LEVER_GLYPH && c < Otr::GROUPED_LEVER_GLYPH + Otr::PLATE_GROUPS) {
+                const int group = c - Otr::GROUPED_LEVER_GLYPH;
+                leverCounts[group]++;
+                leverLines[group] = rowLines[y];
+            }
+        }
+    }
+    for (int g = 0; g < Otr::PLATE_GROUPS; g++) {
+        if (leverCounts[g] && plateCounts[g]) {
+            setErr(err, errCap, leverLines[g], "group cannot mix levers and plates");
+            return false;
+        }
+        if (timedLines[g] && (!gates[g] || plateCounts[g] + leverCounts[g] != 1)) {
+            setErr(err, errCap, timedLines[g], "timed gate needs a gate and exactly one lever or plate");
+            return false;
+        }
+        if (leverCounts[g] || timedLines[g])
+            out.controls[out.controlCount++] = {(uint8_t)g, timedSteps[g]};
+    }
 
     // --- Build the MapDef rows (translate resource glyphs to grass, record placements) ---
     for (int i = 0; i < out.rowCount; i++) {
@@ -753,6 +866,9 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     out.map.treasureCount = out.treasureCount;
     out.map.darks = out.darkCount ? out.darks : nullptr;   // v0.18.0
     out.map.darkCount = out.darkCount;
+    out.map.controls = out.controlCount ? out.controls : nullptr;
+    out.map.controlCount = out.controlCount;
+    out.map.par = par;
 
     // --- Build the Script ---
     out.script.npcs = out.npcs;

@@ -41,8 +41,8 @@ static int folderIndex(const Adv::Catalog &c, const char *name)
 static void testCatalog(const Adv::Catalog &c)
 {
     // The bundle also ships resources, minesweeper, dark/pogo and four-room Sokoban demos.
-    CHECK(c.count == 8, "catalog found 8 adventures");
-    // Alphabetical order: byn, darkdemo, josef, minfaltet, minkampanj, resdemo, sokoban, testvarlden.
+    CHECK(c.count == 9, "catalog found 9 adventures");
+    // Alphabetical order: byn, darkdemo, josef, minfaltet, minkampanj, resdemo, s2_demo, sokoban, testvarlden.
     CHECK(folderIndex(c, "byn") == 0, "byn sorts first");
     CHECK(folderIndex(c, "darkdemo") == 1, "darkdemo sorts second");
     CHECK(folderIndex(c, "josef") == 2, "josef sorts third");
@@ -50,11 +50,14 @@ static void testCatalog(const Adv::Catalog &c)
     CHECK(folderIndex(c, "minkampanj") == 4, "minkampanj sorts fifth");
     CHECK(folderIndex(c, "resdemo") == 5, "resdemo sorts sixth");
     int si = folderIndex(c, "sokoban");
-    CHECK(si == 6, "sokoban sorts seventh");
+    int s2 = folderIndex(c, "s2_demo");
+    CHECK(s2 == 6, "s2_demo sorts seventh");
+    CHECK(s2 >= 0 && c.items[s2].mapCount == 1, "s2_demo has one standalone map");
+    CHECK(si == 7, "sokoban sorts eighth");
     CHECK(si >= 0 && c.items[si].mapCount == 1, "sokoban has one four-room map");
     CHECK(si >= 0 && strcmp(c.items[si].maps[0], "sokoban.adv") == 0,
           "sokoban map is the combined demo");
-    CHECK(folderIndex(c, "testvarlden") == 7, "testvarlden sorts eighth");
+    CHECK(folderIndex(c, "testvarlden") == 8, "testvarlden sorts ninth");
 
     // minkampanj is the true minesweeper campaign: 12 ordered maps.
     int mi = folderIndex(c, "minkampanj");
@@ -118,6 +121,8 @@ static void testSession(const Adv::Catalog &c)
     w.setEnergy(11);
     w.setSuitCharges(5);
     w.setKeys(3);
+    for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+        w.setKeys((Otr::KeyColor)i, i + 1);
     const int oldEnergy = w.energy(), oldMax = w.maxEnergy();
 
     ok = s.travel(*scratch, w, story, script, err, sizeof(err));
@@ -131,6 +136,8 @@ static void testSession(const Adv::Catalog &c)
     CHECK(w.maxEnergy() == oldMax, "max energy carried across maps");
     CHECK(w.suitCharges() == 0, "suit reset (not in carry list)");
     CHECK(w.keys() == 0, "keys not carried (not in josef carry list)");
+    for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+        CHECK(w.keys((Otr::KeyColor)i) == 0, "colored keys not carried without keys policy");
     CHECK(!s.hasNext(), "no map after map 1");
 }
 
@@ -150,6 +157,8 @@ static void testSaveRoundtrip(const Adv::Catalog &c)
     s.travel(*scratch, w, story, script, err, sizeof(err));
     w.setEnergy(7);
     w.move(Otr::Dir::DOWN);   // change some mutable world state
+    for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+        w.setKeys((Otr::KeyColor)i, 255 - i);
     const int savedMap = s.mapIndex(), savedEnergy = w.energy();
 
     auto buf = std::make_unique<uint8_t[]>(Adv::MAX_FILE);
@@ -173,6 +182,12 @@ static void testSaveRoundtrip(const Adv::Catalog &c)
     }
     CHECK(s2.mapIndex() == savedMap, "restored map index matches");
     CHECK(w2.energy() == savedEnergy, "restored energy matches");
+    for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+        CHECK(w2.keys((Otr::KeyColor)i) == 255 - i, "session restores independent colored counts");
+    CHECK(s2.restart(*scratch2, w2, story2, script2, err, sizeof(err)), "session restart succeeds");
+    CHECK(w2.keys() == 0 && w2.steps() == 0, "restart resets legacy keys and steps");
+    for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+        CHECK(w2.keys((Otr::KeyColor)i) == 0, "restart clears colored keys");
 
     // A corrupt image must be rejected and leave the (started) state intact.
     buf[4] = 0xFF;   // smash the version
@@ -194,6 +209,35 @@ static void testSaveRoundtrip(const Adv::Catalog &c)
         size_t nj = sj.save(w, story, buf.get(), Adv::MAX_FILE);
         bool mism = s4.restore(buf.get(), nj, *scratch2, w2, story2, script2, err, sizeof(err));
         CHECK(!mism, "save from another folder refused");
+    }
+}
+
+static void testKeyCarryPolicy(const Adv::Catalog &c)
+{
+    const int ji = folderIndex(c, "josef");
+    if (ji < 0) return;
+    auto scratch = std::make_unique<Adv::Loaded>();
+    auto w = std::make_unique<Otr::World>();
+    Otr::Story::StoryState story;
+    const Otr::Story::Script *script = nullptr;
+    char err[96];
+    for (int reset = 0; reset < 2; reset++) {
+        Adv::SdSession session;
+        CHECK(session.start(ROOT, c.items[ji], *scratch, *w, story, script, err, sizeof(err)),
+              "key policy session starts");
+        // Isolate the leaving map's policy while using real production-loaded map transitions.
+        scratch->carryMask |= Adv::CARRY_KEYS;
+        if (reset) scratch->resetMask |= Adv::CARRY_KEYS;
+        w->setKeys(7);
+        for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+            w->setKeys((Otr::KeyColor)i, i + 2);
+        CHECK(session.travel(*scratch, *w, story, script, err, sizeof(err)),
+              "key policy travels to second map");
+        CHECK(w->keys() == (reset ? 0 : 7), "legacy keys follow carry/reset; reset wins");
+        for (int i = 0; i < (int)Otr::KeyColor::COUNT; i++)
+            CHECK(w->keys((Otr::KeyColor)i) == (reset ? 0 : i + 2),
+                  "all colored keys follow the same carry/reset policy");
+        CHECK(w->steps() == 0, "travel resets map-local steps");
     }
 }
 
@@ -301,6 +345,7 @@ int main()
     testMissingFolder();
     testSession(*cat);
     testSaveRoundtrip(*cat);
+    testKeyCarryPolicy(*cat);
     testLoadEveryAdventure(*cat);
     testMinesweeperSession(*cat);
 

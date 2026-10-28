@@ -158,7 +158,7 @@ static int s_advIdx = 0;                      // Chosen catalog entry index
 static constexpr const char *SD_ADV_ROOT = "/sdcard/otr/adventure";
 static int s_bombSize=0, s_bombX=-1, s_bombY=-1;
 static bool s_resultShown=false;
-static lv_obj_t *s_stageLabel, *s_bombCancel;
+static lv_obj_t *s_stageLabel, *s_progressLabel, *s_bombCancel;
 // v0.18.0: HUD indicators for the permanent abilities (shown only while owned) and the
 // previous ability levels, used to raise the pickup toast on a level increase (no event bit left).
 static lv_obj_t *s_flashCell, *s_pogoCell;    // v0.18.0: ability image + level digit (icon in s_item[])
@@ -176,7 +176,7 @@ static int s_pendingChoice = -2;              // Picked answer, handled in the n
 static lv_obj_t *s_talkBox, *s_talkPortrait, *s_talkName, *s_talkText, *s_talkRef, *s_talkPanel;
 static lv_obj_t *s_hitBtn;                    // Bottom 2/3: runs the selected action
 static lv_obj_t *s_swapBtn;                   // Top 1/3: "Byt" cycles the selected action
-static int s_actSel = -1;                     // v0.18.4: selected action 0 Slå, 1 Prata, 2 Hoppa
+static int s_actSel = -1;                     // Selected action; only the execute button runs it
 static int s_actShown = -1;                   // Last action rendered on the button (force sync)
 static uint32_t s_hitTapMs, s_choiceTapMs;
 static const char *s_twText;                  // Typewriter: full text, bytes shown, next char time
@@ -755,12 +755,20 @@ static int terrainSprite(int x, int y, int frame)
         return x == s_world->checkpointX() && y == s_world->checkpointY() ? S_CHECK_ON : S_CHECK;
     case Tile::EXIT: return S_EXIT;
     case Tile::CRATER: return S_CRATER;
+    case Tile::LEVER:
+    case Tile::ICE:
+    case Tile::BELT_UP:
+    case Tile::BELT_RIGHT:
+    case Tile::BELT_DOWN:
+    case Tile::BELT_LEFT: return S_FLOOR;
     default: return S_WALL;
     }
 }
 
 static int objSprite(Obj o)
 {
+    if (o >= Obj::KEY_RED && o <= Obj::KEY_CYAN) return S_KEY;
+    if (o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN) return S_DOOR;
     switch (o) {
     case Obj::ROCK: return S_ROCK;
     case Obj::CRATE: return S_CRATE;
@@ -776,6 +784,75 @@ static int objSprite(Obj o)
     case Obj::FLASH: return S_FLASH;
     case Obj::POGO: return S_POGO;
     default: return -1;
+    }
+}
+
+// Shared by the map badges and inventory: IDs 1..6 never depend on colour perception.
+static constexpr uint32_t KEY_COLORS[6] = {0xef5350, 0x66cc66, 0x4488ff, 0xffdd44, 0xcc66ee, 0x44dddd};
+static int keyColorId(Obj o)
+{
+    if (o >= Obj::KEY_RED && o <= Obj::KEY_CYAN) return int(o) - int(Obj::KEY_RED);
+    if (o >= Obj::DOOR_RED && o <= Obj::DOOR_CYAN) return int(o) - int(Obj::DOOR_RED);
+    return -1;
+}
+
+static void framePixel(int x, int y, uint16_t color)
+{
+    if (x >= 0 && y >= 0 && x < s_layout.view.w && y < s_layout.view.h)
+        s_fb[size_t(y) * s_fbStride + x] = color;
+}
+
+// Draw in a 16px local grid at either zoom, without allocating additional sprite buffers.
+static void terrainOverlay(Tile tile, int tx, int ty, int sx, int sy)
+{
+    if (tile < Tile::LEVER || tile > Tile::BELT_LEFT) return;
+    const int scale = s_ts / 16;
+    const bool on = tile == Tile::LEVER && s_world->leverOnAt(tx, ty);
+    for (int y = 0; y < 16; ++y) for (int x = 0; x < 16; ++x) {
+        uint16_t c = KEY;
+        if (tile == Tile::ICE) {
+            c = rgb(130, 205, 235);
+            if ((x + y == 12 || x + y == 22) && x > 2 && x < 13) c = rgb(235, 255, 255);
+        } else if (tile >= Tile::BELT_UP && tile <= Tile::BELT_LEFT) {
+            int u = x - 8, v = y - 8;
+            const int d = int(tile) - int(Tile::BELT_UP);
+            const int across = d % 2 ? v : u;
+            const int along = d == 0 ? -v : d == 1 ? u : d == 2 ? v : -u;
+            if (x == 1 || x == 14 || y == 1 || y == 14) c = rgb(170, 120, 45);
+            if ((along >= -5 && along <= 3 && abs(across) <= 1) ||
+                (along >= 0 && along <= 5 && abs(across) <= 5 - along)) c = rgb(255, 215, 65);
+        } else if (tile == Tile::LEVER) {
+            if (x >= 3 && x <= 12 && y >= 11 && y <= 13) c = rgb(95, 105, 115);
+            if (y >= 4 && y <= 11 && abs(x - (on ? 11 - y / 3 : 4 + y / 3)) <= 1)
+                c = rgb(220, 225, 230);
+            if (y >= 2 && y <= 5 && abs(x - (on ? 10 : 5)) <= 2)
+                c = on ? rgb(90, 245, 120) : rgb(255, 140, 65);
+        }
+        if (c != KEY) for (int j = 0; j < scale; ++j) for (int i = 0; i < scale; ++i)
+            framePixel(sx + x * scale + i, sy + y * scale + j, c);
+    }
+}
+
+static void coloredObject(int sprite, int id, int sx, int sy)
+{
+    const uint32_t col = KEY_COLORS[id];
+    const int r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255;
+    const uint16_t *src = spr(sprite);
+    for (int y = 0; y < s_ts; ++y) for (int x = 0; x < s_ts; ++x) {
+        const uint16_t p = src[y * s_ts + x];
+        if (p == KEY) continue;
+        // Retain the original key silhouette / door planks and lock shading.
+        const int light = 80 + (((p >> 11) & 31) * 175 / 31);
+        framePixel(sx + x, sy + y, rgb(r * light / 255, g * light / 255, b * light / 255));
+    }
+    static constexpr uint16_t DIGITS[6] = {0x2492, 0x73e7, 0x73cf, 0x5bc9, 0x79cf, 0x79ef};
+    const int scale = s_ts / 16;
+    for (int y = 0; y < 7; ++y) for (int x = 0; x < 5; ++x) {
+        const bool ink = x > 0 && x < 4 && y > 0 && y < 6 &&
+            (DIGITS[id] & (1u << (14 - ((y - 1) * 3 + x - 1))));
+        for (int j = 0; j < scale; ++j) for (int i = 0; i < scale; ++i)
+            framePixel(sx + (11 + x) * scale + i, sy + y * scale + j,
+                       ink ? rgb(255, 255, 255) : rgb(15, 20, 25));
     }
 }
 
@@ -849,6 +926,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             const int sx = tx * ts - camX, sy = ty * ts - camY;
             if (over && w.rawObj(tx, ty) == Obj::MINE) {   // Game over: show where the mines were
                 blit(terrainSprite(tx, ty, frame), sx, sy, false);
+                    terrainOverlay(w.tile(tx, ty), tx, ty, sx, sy);
                 blit(S_MINE, sx, sy, true);
                 continue;
             }
@@ -862,6 +940,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
                 continue;
             }
             blit(terrainSprite(tx, ty, frame), sx, sy, false);
+            terrainOverlay(w.tile(tx, ty), tx, ty, sx, sy);
             if (fog) {
                 const int n = w.mineHint(tx, ty);
                 if (n > 0 && w.tile(tx, ty) != Tile::WALL && w.tile(tx, ty) != Tile::TREE) blit(S_NUM1 + n - 1, sx, sy, true);
@@ -869,7 +948,9 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             if (rockSliding && tx == s_rockToX && ty == s_rockToY) continue;   // Drawn below
             const Obj ob = w.obj(tx, ty);
             const int o = ob == Obj::NPC ? npcSprite(tx, ty, now) : objSprite(ob);
-            if (o >= 0) blit(o, sx, sy, o != S_DOOR);
+            const int color = keyColorId(ob);
+            if (color >= 0) coloredObject(o, color, sx, sy);
+            else if (o >= 0) blit(o, sx, sy, o != S_DOOR);
             if(ob==Obj::BOMB3||ob==Obj::BOMB4) {
                 blit(S_CRATE,sx,sy,true);
                 blit(S_NUM1+(ob==Obj::BOMB3?2:3),sx,sy,true);
@@ -932,6 +1013,10 @@ static void updateStats()
     } else {
         lv_label_set_text(s_stageLabel, advMapTitle());
     }
+    if (w.par() > 0) lv_label_set_text_fmt(s_progressLabel, "%s:%d  Par:%d",
+        strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps(), w.par());
+    else lv_label_set_text_fmt(s_progressLabel, "%s:%d  Par:-",
+        strcmp(Lang::currentLang(), "en") == 0 ? "Steps" : "Steg", w.steps());
     // Right column: carried items, shown only while owned (flex wrap fills up to two rows)
     lv_obj_set_hidden(s_item[H_BOAT], !w.hasBoat());
     // Permanent abilities: show the item image + its level digit only while owned.
@@ -1223,7 +1308,8 @@ static void playEvents(uint32_t ev)
     else if (ev & Otr::EV_HEART) s = Sfx::HEART;
     else if (ev & (Otr::EV_POTION | Otr::EV_SUIT)) s = Sfx::POTION;
     else if (ev & Otr::EV_CHECKPOINT) s = Sfx::CHECKPOINT;
-    else if (ev & (Otr::EV_DOOR | Otr::EV_GATE_OPEN)) s = Sfx::DOOR;
+    else if (ev & (Otr::EV_DOOR | Otr::EV_GATE_OPEN | Otr::EV_GATE_CLOSE)) s = Sfx::DOOR;
+    else if (ev & Otr::EV_LEVER) s = Sfx::CLICK;
     else if (ev & Otr::EV_NEED_KEY) s = Sfx::LOCKED;
     else if (ev & (Otr::EV_SPLASH | Otr::EV_SIZZLE)) s = Sfx::SPLASH;
     else if (ev & Otr::EV_PUSHED) s = Sfx::PUSH;
@@ -1543,6 +1629,7 @@ static void talkTick(uint32_t now)
 // SD adventure reached an exit (walked onto X, or a true-minesweeper win cleared the last safe
 // cell). Advance to the next ordered map (carrying/resetting per the next map's @rules) or finish
 // the adventure on the last map. Same behaviour whether the win came from a move or a bomb.
+static void adventureResult();
 static void sdExitAdvance()
 {
     stopPath(); s_joy.cancel();
@@ -1557,7 +1644,8 @@ static void sdExitAdvance()
         }
     } else {
         s_sd.markCompleted(); s_saveWanted = true;
-        toast(tr(Str::ADV_ADVENTURE_DONE), Theme::GOLD, 6000);
+        updateStats();
+        adventureResult();
     }
 }
 
@@ -1565,8 +1653,9 @@ static void sdExitAdvance()
 static uint32_t doMove(Dir d, bool vault = false)
 {
     const uint32_t now = nowMs();
-    if (s_bombSize || busy(now) || s_world->gameOver()) return 0;
+    if (s_bombSize || busy(now) || s_world->gameOver() || s_world->exitReached()) return 0;
     const int fx = s_world->playerX(), fy = s_world->playerY();
+    const int stepsBefore = s_world->steps();
     const int tx = fx + Otr::dirX(d), ty = fy + Otr::dirY(d);
     const bool wasRock = s_world->obj(tx, ty) == Obj::ROCK;
     const Tile targetTile = s_world->tile(tx, ty);
@@ -1575,6 +1664,11 @@ static uint32_t doMove(Dir d, bool vault = false)
     const uint32_t ev = vault ? s_world->vault() : s_world->move(d);
     s_dirty = true;
     playEvents(ev);
+    if (ev & (Otr::EV_DIED | Otr::EV_GAME_OVER | Otr::EV_EXIT)) {
+        stopPath();
+        s_joy.cancel();
+        joyShow(false, 0, 0);
+    }
     char buf[80];
     if ((ev & Otr::EV_EXIT) && s_sd.active()) {
         // SD adventure: an exit (X tile, or a true-minesweeper win returned as EV_EXIT) advances to
@@ -1622,6 +1716,10 @@ static uint32_t doMove(Dir d, bool vault = false)
             s_rockToY = ty + Otr::dirY(d);
             s_moveMs += 40;   // Pushing is a little slower
         }
+        // A synchronous belt/ice chain may turn or even loop back beside its origin.
+        // Its intermediate cells are not available to the renderer: never draw a shortcut.
+        if (s_world->steps() - stepsBefore > 1 ||
+            (s_world->playerX() != fx && s_world->playerY() != fy)) snapPlayer();
     } else if (!(ev & Otr::EV_TALK)) {
         s_bumpDx = Otr::dirX(d);
         s_bumpDy = Otr::dirY(d);
@@ -1648,21 +1746,23 @@ static uint32_t doMove(Dir d, bool vault = false)
         eventToasts(ev);
     }
     if (ev & (Otr::EV_MINE | Otr::EV_BURNED)) eventToasts(ev & (Otr::EV_CHECKPOINT));
-    if (ev & ~(Otr::EV_MOVED | Otr::EV_BLOCKED | Otr::EV_TALK)) updateStats();
-    if (s_world->mineLevel()) updateStats();
+    updateStats();
+    if ((ev & Otr::EV_EXIT) && !s_sd.active()) adventureResult();
     if (ev & Otr::EV_TALK) startTalk(s_world->talkNpc());
     return ev;
 }
 
 // v0.18.4: the split action button. The player picks the action with "Byt" (top 1/3)
 // instead of it switching automatically; add new actions here as features arrive.
-enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_N = 3 };
+enum { ACT_HIT = 0, ACT_TALK = 1, ACT_JUMP = 2, ACT_LEVER = 3, ACT_N = 4 };
 static bool actAvail(int a)
 {
     switch (a) {
         case ACT_HIT:  return true;                    // Slå always works (bumps empty cells too)
         case ACT_TALK: return s_world->facingNpc() != 0;
         case ACT_JUMP: return s_world->canVault();
+        case ACT_LEVER: return s_world->tile(s_world->playerX() + Otr::dirX(s_world->facing()),
+                                            s_world->playerY() + Otr::dirY(s_world->facing())) == Tile::LEVER;
         default:       return false;
     }
 }
@@ -1678,8 +1778,10 @@ static void refreshActBtn()
     if (s_actSel != s_actShown) {
         s_actShown = s_actSel;
         lv_label_set_text(lv_obj_get_child(s_hitBtn, 0),
+            s_actSel == ACT_LEVER ? (langIdx() ? "Lever" : "Spak") :
             tr(s_actSel == ACT_JUMP ? Str::ADV_JUMP : s_actSel == ACT_TALK ? Str::ADV_TALK : Str::ADV_HIT));
-        const auto col = s_actSel == ACT_TALK ? Theme::TEAL : s_actSel == ACT_JUMP ? Theme::GOLD : Theme::ACCENT;
+        const auto col = s_actSel == ACT_TALK || s_actSel == ACT_LEVER ? Theme::TEAL :
+            s_actSel == ACT_JUMP ? Theme::GOLD : Theme::ACCENT;
         lv_obj_set_style_bg_color(s_hitBtn, Theme::c(col), 0);
         lv_obj_set_style_border_color(s_hitBtn, Theme::c(col), 0);
     }
@@ -1699,7 +1801,19 @@ static void doHit()
 {
     const uint32_t now = nowMs();
     if (s_world->mineLevel()) { bombAction(); return; }
-    if (busy(now) || s_world->gameOver()) return;
+    if (busy(now) || s_world->gameOver() || s_world->exitReached()) return;
+    if (s_actSel == ACT_LEVER) {
+        s_joy.cancel();
+        joyShow(false, 0, 0);
+        if (actAvail(ACT_LEVER)) {
+            const uint32_t ev = s_world->activate();
+            playEvents(ev);
+            eventToasts(ev);
+            updateStats();
+            s_dirty = true;
+        }
+        return;
+    }
     if (s_actSel == ACT_JUMP && s_world->canVault()) { doMove(s_world->facing(), true); return; }
     if (s_actSel == ACT_TALK && s_world->facingNpc()) { startTalk(s_world->facingNpc()); return; }
     // Slå (also the fallback): swing at the facing cell. People can't be hurt, so a swing at
@@ -1838,6 +1952,39 @@ static lv_obj_t *dialog(const char *text)
     return s_dialog;
 }
 
+static void performanceText(char *out, size_t cap)
+{
+    const bool en = langIdx() != 0;
+    if (s_world->par() <= 0) {
+        snprintf(out, cap, "%s: %d\nPar: -", en ? "Steps" : "Steg", s_world->steps());
+        return;
+    }
+    const char *assessment = s_world->steps() == s_world->par() ? (en ? "Equal to par" : "Lika med par") :
+        s_world->parMet() ? "Under par" : (en ? "Over par" : "Över par");
+    snprintf(out, cap, "%s: %d\nPar: %d\n%s", en ? "Steps" : "Steg",
+             s_world->steps(), s_world->par(), assessment);
+}
+
+static void addPerformance(lv_obj_t *mb)
+{
+    char text[96];
+    performanceText(text, sizeof text);
+    lv_msgbox_add_text(mb, text);
+}
+
+static void leave();
+static void adventureResult()
+{
+    if (s_resultShown) return;
+    s_resultShown = true;
+    snapPlayer();
+    auto *mb = dialog(tr(Str::ADV_ADVENTURE_DONE));
+    addPerformance(mb);
+    auto *leaveBtn = lv_msgbox_add_footer_button(mb, tr(Str::ADV_LEAVE));
+    lv_obj_add_event_cb(leaveBtn, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
+    AdvUi::resultLayout(mb);
+}
+
 static void cancelBomb()
 {
     s_bombSize=0; s_bombX=s_bombY=-1; s_dirty=true;
@@ -1881,6 +2028,7 @@ static void mineResult()
     s_session.recordWin(*s_world); saveNow();
     const bool won=s_world->exitReached()&&!s_world->gameOver();
     auto *mb=dialog(tr(!won?Str::ADV_MINE_LOSS:s_world->mineLevel()==12?Str::ADV_CAMPAIGN_WIN:Str::ADV_MINE_WIN));
+    addPerformance(mb);
     if(won && s_world->mineLevel()<12) {
         auto *b=lv_msgbox_add_footer_button(mb,tr(Str::ADV_NEXT_STAGE));
         lv_obj_add_event_cb(b,[](lv_event_t*) {
@@ -1908,6 +2056,7 @@ static void showGameOver()
 {
     if(s_world->mineLevel()) { mineResult(); return; }
     lv_obj_t *mb = dialog(tr(Str::ADV_GAME_OVER_Q));
+    addPerformance(mb);
     lv_obj_t *cont = lv_msgbox_add_footer_button(mb, tr(Str::ADV_CONTINUE));
     lv_obj_t *restart = lv_msgbox_add_footer_button(mb, tr(Str::ADV_RESTART));
     lv_obj_add_event_cb(cont, [](lv_event_t *) {
@@ -2011,7 +2160,7 @@ static void tick(lv_timer_t *)
     }
     if (!s_bombSize && !s_dialog && !talking()) {
         Dir jd;
-        if (s_joy.poll(now, !busy(now) && !s_world->gameOver(), jd)) {
+        if (s_joy.poll(now, !busy(now) && !s_world->gameOver() && !s_world->exitReached(), jd)) {
             stopPath();
             doMove(jd);
         } else if (s_joy.held()) {
@@ -2206,7 +2355,7 @@ static void viewEvent(lv_event_t *e)
         return;
     }
     if (code != LV_EVENT_LONG_PRESSED && code != LV_EVENT_RELEASED) return;
-    if (s_dialog || talking() || s_world->gameOver()) return;
+    if (s_dialog || talking() || s_world->gameOver() || s_world->exitReached()) return;
     lv_point_t p;
     lv_indev_get_point(lv_indev_active(), &p);
     int32_t camX, camY;
@@ -2255,7 +2404,7 @@ static void viewEvent(lv_event_t *e)
 
 static void freeAll()
 {
-    s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_bombCancel=nullptr;
+    s_session.clear(); s_sd.clear(); s_bombSize=0; s_stageLabel=s_progressLabel=s_bombCancel=nullptr;
     s_flashCell=s_pogoCell=s_flashLvl=s_pogoLvl=nullptr; s_prevFlash=s_prevPogo=0;
     liveStop();   // Before the world memory goes
     closeDialog();
@@ -2384,6 +2533,13 @@ static void showMenu()
     lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(c, 8, 0);
+    static const char *namesEn[6] = {"Red", "Green", "Blue", "Yellow", "Purple", "Cyan"};
+    static const char *namesSv[6] = {"Röd", "Grön", "Blå", "Gul", "Lila", "Cyan"};
+    for (int i = 0; i < 6; ++i) {
+        auto *key = Theme::label(c, "", &my_font_14, KEY_COLORS[i]);
+        lv_label_set_text_fmt(key, "%s %d (%s): %d", langIdx() ? "Key" : "Nyckel", i + 1,
+                             langIdx() ? namesEn[i] : namesSv[i], s_world->keys(Otr::KeyColor(i)));
+    }
     menuButton(c, soundText(), Theme::LINE, [](lv_event_t *e) {
         if (toggleSound()) lv_label_set_text(lv_obj_get_child(lv_event_get_target_obj(e), 0), soundText());
     });
@@ -2627,9 +2783,16 @@ static void buildGame(bool loadFailed)
 
     s_stageLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_stageLabel,4,4);
+    lv_obj_set_width(s_stageLabel, s_layout.view.w - 8);
+    lv_label_set_long_mode(s_stageLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_stageLabel,210,0);
     lv_obj_set_clickable(s_stageLabel,false);
+    s_progressLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
+    lv_obj_set_pos(s_progressLabel,4,24);
+    lv_obj_set_style_bg_color(s_progressLabel,Theme::c(Theme::BG),0);
+    lv_obj_set_style_bg_opa(s_progressLabel,210,0);
+    lv_obj_set_clickable(s_progressLabel,false);
     buildControls();
     snapPlayer();
     s_fxX = -1;
@@ -2650,6 +2813,7 @@ static void buildGame(bool loadFailed)
     Theme::loadScreen(s_scr);
     Audio::music(Sound::Music::ADVENTURE);
     if (s_world->gameOver()) showGameOver();
+    else if (s_world->exitReached() && (!s_sd.active() || s_sd.completed())) adventureResult();
 }
 
 static void startGame(bool cont)
