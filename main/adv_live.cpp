@@ -45,7 +45,8 @@ void fillMap(Snapshot &s, const Source &src)
         for (int x = 0; x < s.w; x++) {
             const bool hidden = s.fog && !w.revealed(x, y);
             const Obj o = w.obj(x, y);
-            s.terrain[y][x] = hidden ? '?' : (char)('a' + (int)w.tile(x, y));
+            const Tile t = w.tile(x, y);
+            s.terrain[y][x] = hidden ? '?' : (t == Tile::GATE && w.gateOpenAt(x, y) ? 'M' : (char)('a' + (int)t));
             if (hidden) s.obj[y][x] = w.flagged(x, y) ? '!' : '.';
             else s.obj[y][x] = (o == Obj::NONE || o == Obj::NPC) ? '.' : (char)('A' + (int)o);
             s.hint[y][x] = (s.fog && !hidden) ? (char)('0' + w.mineHint(x, y)) : '0';

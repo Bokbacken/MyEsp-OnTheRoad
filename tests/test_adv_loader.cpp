@@ -92,6 +92,7 @@ static void testGenerated()
         "docs/adventures/generated/josef_01_lager.adv",
         "docs/adventures/generated/josef_02_vag.adv",
         "docs/adventures/generated/01_darkdemo.adv",   // v0.18.0 dark/flashlight/pogo demo
+        "docs/adventures/sokoban/sokoban.adv",
     };
     for (const char *f : files) crossCheck(f);
 }
@@ -106,6 +107,7 @@ static void testSdBundle()
         "sdcard_bundle/otr/adventure/josef/01_lager.adv",
         "sdcard_bundle/otr/adventure/josef/02_vag.adv",
         "sdcard_bundle/otr/adventure/darkdemo/01_darkdemo.adv",   // v0.18.0 dark/flashlight/pogo demo
+        "sdcard_bundle/otr/adventure/sokoban/sokoban.adv",
     };
     for (const char *f : files) crossCheck(f);
 }
@@ -377,6 +379,153 @@ static void testDarkFlashPogo()
     }
 }
 
+static void testGroupedSokoban()
+{
+    const char *map =
+        "@legend\n"
+        "a = plate 1\n"
+        "A = gate 1\n"
+        "@map\n"
+        "S.RaA...Ro=.\n"
+        "....Ra......\n"
+        "............\n"
+        "@plategroup 2: 9,0\n"
+        "@gategroup 2: 10,0\n";
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {0};
+    CHECK(Adv::parse(map, std::strlen(map), *L, err, sizeof err));
+    Otr::World w;
+    CHECK(w.load(L->map));
+    CHECK(!w.gateOpenForGroup(1) && !w.gateOpenForGroup(2));
+    CHECK(!w.gateOpenAt(4, 0) && !w.gateOpenAt(10, 0));
+    CHECK(!w.gateOpenForGroup(-1) && !w.gateOpenForGroup(Otr::PLATE_GROUPS));
+    CHECK(!w.gateOpenAt(-1, 0) && !w.gateOpenAt(3, 0));
+    CHECK(!w.playerCanEnter(4, 0) && !Otr::Planner::targetable(w, 10, 0));
+
+    w.move(Otr::Dir::RIGHT);
+    uint32_t ev = w.move(Otr::Dir::RIGHT);  // One of two group-1 plates is covered.
+    CHECK(!(ev & Otr::EV_GATE_OPEN));
+    CHECK(!w.gateOpenForGroup(1) && !w.gateOpenForGroup(2));
+    w.move(Otr::Dir::DOWN);
+    w.move(Otr::Dir::RIGHT);
+    ev = w.move(Otr::Dir::RIGHT);           // The second group-1 plate is covered.
+    CHECK(ev & Otr::EV_GATE_OPEN);
+    CHECK(w.gateOpenForGroup(1) && !w.gateOpenForGroup(2));
+    CHECK(w.gatesOpen() == w.gateOpenForGroup(0));
+    CHECK(w.gateOpenAt(4, 0) && !w.gateOpenAt(10, 0));
+    CHECK(w.playerCanEnter(4, 0) && Otr::Planner::targetable(w, 4, 0));
+    CHECK(!Otr::Planner::targetable(w, 10, 0));
+
+    w.move(Otr::Dir::DOWN);
+    for (int i = 0; i < 3; i++) w.move(Otr::Dir::RIGHT);
+    w.move(Otr::Dir::UP);
+    w.move(Otr::Dir::UP);
+    ev = w.move(Otr::Dir::RIGHT);  // Group 2 rock onto its coordinate-assigned plate.
+    CHECK(ev & Otr::EV_GATE_OPEN);
+    CHECK(w.gateOpenForGroup(1) && w.gateOpenForGroup(2));
+    CHECK(w.gateOpenAt(4, 0) && w.gateOpenAt(10, 0));
+    CHECK(Otr::Planner::targetable(w, 10, 0));
+
+    for (int i = 0; i < 4; i++) w.move(Otr::Dir::LEFT);
+    ev = w.move(Otr::Dir::LEFT);  // Push the group 1 rock off its plate.
+    CHECK(ev & Otr::EV_GATE_CLOSE);
+    CHECK(!w.gateOpenForGroup(1) && w.gateOpenForGroup(2));
+
+    static uint8_t save[1024];
+    const size_t n = w.save(save, sizeof(save));
+    CHECK(n > 0);
+    Otr::World restored;
+    CHECK(restored.load(L->map));
+    CHECK(restored.restore(save, n));
+    CHECK(!restored.gateOpenForGroup(1) && restored.gateOpenForGroup(2));
+
+    // Legend definitions override built-in map glyphs.
+    const char *override =
+        "@legend\n"
+        "R = plate 1\n"
+        "@map\n"
+        "SR=\n";
+    CHECK(Adv::parse(override, std::strlen(override), *L, err, sizeof err));
+    CHECK(w.load(L->map));
+    CHECK(w.tile(1, 0) == Otr::Tile::PLATE && w.rawObj(1, 0) == Otr::Obj::NONE);
+    CHECK(w.gateOpenForGroup(1) == false);
+
+    const char *reserved = "@legend\nS = plate 1\n@map\nS..\n";
+    CHECK(!Adv::parse(reserved, std::strlen(reserved), *L, err, sizeof err));
+    CHECK(std::strstr(err, "line 2") != nullptr);
+    const char *duplicate = "@legend\na = plate 1\na = gate 1\n@map\nS..\n";
+    CHECK(!Adv::parse(duplicate, std::strlen(duplicate), *L, err, sizeof err));
+    CHECK(std::strstr(err, "line 3") != nullptr);
+
+    const char *wrongCell =
+        "@map\n"
+        "S.o=\n"
+        "@plategroup 1: 1,0\n";
+    CHECK(!Adv::parse(wrongCell, std::strlen(wrongCell), *L, err, sizeof err));
+    CHECK(std::strstr(err, "line 3") != nullptr);
+
+    const char *hashWall =
+        "@map\n"
+        "####\n"
+        "S..#\n"
+        "...X\n";
+    CHECK(Adv::parse(hashWall, std::strlen(hashWall), *L, err, sizeof err));
+    CHECK(L->rowCount == 3 && std::strcmp(L->rowPtrs[0], "####") == 0);
+    CHECK(w.load(L->map));
+    CHECK(w.width() == 4 && w.height() == 3 && w.tile(0, 0) == Otr::Tile::WALL);
+}
+
+static void testSokobanDemo()
+{
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {0};
+    CHECK(Adv::parseFile("docs/adventures/sokoban/sokoban.adv", *L, err, sizeof err));
+    Otr::World w;
+    CHECK(w.load(L->map));
+
+    const int gateX[] = {10, 20, 30, 38};
+    for (int group = 1; group <= 4; group++) {
+        CHECK(!w.gateOpenForGroup(group));
+        CHECK(!w.gateOpenAt(gateX[group - 1], 4));
+    }
+
+    for (int room = 0; room < 4; room++) {
+        const int group = room + 1;
+        const int roomStartX = room * 10;
+
+        // Cover the first of this room's two plates; its gate must remain shut.
+        const int firstPlateDx = room == 0 ? 1 : 2;
+        for (int step = 0; step < firstPlateDx; step++) w.move(Otr::Dir::RIGHT);
+        w.move(Otr::Dir::UP);
+        CHECK(!w.gateOpenForGroup(group));
+        CHECK(!w.gateOpenAt(gateX[room], 4));
+        for (int other = group + 1; other <= 4; other++)
+            CHECK(!w.gateOpenForGroup(other));
+
+        // Walk around the second rock and push it onto the other plate.
+        w.move(Otr::Dir::DOWN);
+        for (int step = 0; step < 3; step++) w.move(Otr::Dir::RIGHT);
+        const uint32_t ev = w.move(Otr::Dir::UP);
+        CHECK(ev & Otr::EV_GATE_OPEN);
+        CHECK(w.gateOpenForGroup(group));
+        CHECK(w.gateOpenAt(gateX[room], 4));
+
+        if (room < 3) {
+            // The passage to the next chamber is reachable only after solving this room.
+            w.move(Otr::Dir::DOWN);
+            for (int step = 0; step < gateX[room] - (roomStartX + 6); step++)
+                w.move(Otr::Dir::RIGHT);
+            CHECK(w.playerCanEnter(gateX[room], 4));
+            w.move(Otr::Dir::RIGHT);
+            CHECK(!w.gateOpenForGroup(group + 1));
+        } else {
+            w.move(Otr::Dir::DOWN);
+            for (int step = 0; step < 4; step++) w.move(Otr::Dir::RIGHT);
+            CHECK(w.exitReached());
+        }
+    }
+}
+
 int main()
 {
     testGenerated();
@@ -386,6 +535,8 @@ int main()
     testHeaderScan();
     testErrors();
     testDarkFlashPogo();
+    testGroupedSokoban();
+    testSokobanDemo();
     std::printf("\n%s: %d passed, %d failed\n", g_fail ? "FAIL" : "OK", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -1,0 +1,36 @@
+@meta
+id: sokoban_four_rooms
+world: 95
+map_id: 95
+
+@about
+title.sv: Stenrum
+title.en: Stone Rooms
+desc.sv: Lös fyra rum med grupperade tryckplattor och grindar.
+desc.en: Solve four rooms with grouped pressure plates and gates.
+author: MyEsp-OnTheRoad
+
+@rules
+lives: infinite
+
+@legend
+a = plate 1
+A = gate 1
+b = plate 2
+B = gate 2
+
+@map
+##########################################
+#.........#.........#.........#.......#..#
+#..a..a...#..b..b...#..o..o...#..o..o.#..#
+#..R..R...#..R..R...#..R..R...#..R..R.#..#
+#.S.......A.........B.........=.......=.X#
+#.........#.........#.........#.......#..#
+#.........#.........#.........#.......#..#
+#.........#.........#.........#.......#..#
+##########################################
+
+@plategroup 3: 23,2 26,2
+@gategroup 3: 30,4
+@plategroup 4: 33,2 36,2
+@gategroup 4: 38,4

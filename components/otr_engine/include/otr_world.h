@@ -18,7 +18,7 @@
 //   energy    0 energy = one life lost, respawn at the last checkpoint (or start) with full energy.
 //             Finite lives: 0 lives left = game over. Infinite lives: only "lives used" is counted.
 //   hit       Hits the facing cell: crates and bushes break at once, cracked walls after CRACK_HITS.
-//   plates    When every pressure plate carries a rock all gates open (and close again otherwise).
+//   plates    A gate group opens when every plate in that group carries a rock; groups are independent.
 //
 // Maps are ASCII rows (see otr_maps.h for the legend). The world is trivially constructible and
 // ~29 kB, so the UI allocates it in PSRAM. Planner (A*) is separate and also ~70 kB (PSRAM).
@@ -35,6 +35,9 @@ constexpr int CRACK_HITS = 2;
 constexpr int LIVES_INFINITE = -1;
 constexpr int MAX_LIVES = 9;
 constexpr int MAX_DARK = 16;   // v0.18.0: max @dark rectangles per SD map (see MapDef::darks)
+constexpr int PLATE_GROUPS = 36;
+constexpr uint8_t GROUPED_PLATE_GLYPH = 0x80;
+constexpr uint8_t GROUPED_GATE_GLYPH = GROUPED_PLATE_GLYPH + PLATE_GROUPS;
 
 enum class Tile : uint8_t {
     GRASS, SAND, FLOOR, RUBBLE, WALL, CRACKED, TREE, WATER, BRIDGE, LAVA, BASALT, PLATE, GATE,
@@ -176,7 +179,15 @@ public:
     int gems() const { return gems_; }
     int gemsTotal() const { return gemsTotal_; }
     bool hasBoat() const { return boat_; }
-    bool gatesOpen() const { return gateOpen_; }
+    bool gatesOpen() const { return gateOpenForGroup(0); }   // Legacy group-0 query
+    bool gateOpenForGroup(int group) const
+    {
+        return group >= 0 && group < PLATE_GROUPS && (gateOpenGroups_ & (uint64_t(1) << group));
+    }
+    bool gateOpenAt(int x, int y) const
+    {
+        return inside(x, y) && tile(x, y) == Tile::GATE && gateOpenForGroup(val_[y][x]);
+    }
     int steps() const { return steps_; }
     uint32_t revision() const { return rev_; }   // Bumped on every terrain / object / fog change
 
@@ -280,7 +291,7 @@ private:
 
     uint8_t terrain_[MAX_H][MAX_W];
     uint8_t obj_[MAX_H][MAX_W];
-    uint8_t val_[MAX_H][MAX_W];     // Item amount for POTION / HEART (0 = default)
+    uint8_t val_[MAX_H][MAX_W];     // Item amount or PLATE/GATE group id (0..35)
     uint8_t hid_[MAX_H][MAX_W];     // Hidden treasure item
     uint8_t hidVal_[MAX_H][MAX_W];
     uint8_t flags_[MAX_H][MAX_W];   // F_REVEALED | F_FLAG
@@ -289,9 +300,10 @@ private:
     int w_, h_;
     int px_, py_, startX_, startY_, cpX_, cpY_;
     Dir facing_;
-    int keys_, gems_, gemsTotal_, plates_, steps_;
+    int keys_, gems_, gemsTotal_, steps_;
     int energy_, maxEnergy_, livesLeft_, livesUsed_, suit_;
-    bool boat_, gateOpen_, gameOver_, exitReached_;
+    uint64_t gateOpenGroups_;
+    bool boat_, gameOver_, exitReached_;
     uint8_t mapId_;
     uint8_t talkNpc_;
     uint8_t mineLevel_, bomb3_, bomb4_;

@@ -175,7 +175,7 @@ function terrain(c, ch, x, y) {
     case 'j': rect(c, 0, 0, S, S, '#e0521b'); circ(c, 7, 8, 3, '#ffb03a'); circ(c, 17, 16, 4, '#ff8a20'); break;
     case 'k': rect(c, 0, 0, S, S, '#3a3b42'); lineC(c, 4, 6, 12, 10, '#55565f'); lineC(c, 12, 16, 20, 20, '#55565f'); break;
     case 'l': rect(c, 0, 0, S, S, '#9c968b'); rect(c, 4, 4, S - 8, S - 8, '#c2b8a3'); rect(c, 7, 7, S - 14, S - 14, '#8a8273'); break;
-    case 'm': rect(c, 0, 0, S, S, '#9c968b'); break;   // Gate bars: dynamic (open / closed)
+    case 'm': case 'M': rect(c, 0, 0, S, S, '#9c968b'); break;   // Gate bars: dynamic (open / closed)
     case 'n': grass(c, x, y); break;                  // Checkpoint flag: dynamic (active one)
     case 'o': grass(c, x, y); circ(c, 12, 12, 10, '#f4c542'); circ(c, 12, 12, 7, '#fff3b0'); poly(c, [12, 5, 14, 10, 19, 12, 14, 14, 12, 19, 10, 14, 5, 12, 10, 10], '#e08a00'); break;
     case 'p': grass(c, x, y); circ(c, 12, 12, 9, '#2d2a26'); circ(c, 12, 12, 6, '#1a1815'); break;
@@ -229,10 +229,10 @@ function drawDynamicCells(c) {
   for (let y = 0; y < map.h; y++)
     for (let x = 0; x < map.w; x++) {
       const t = map.terrain[y][x];
-      if (t !== 'm' && t !== 'n') continue;
+      if (t !== 'm' && t !== 'M' && t !== 'n') continue;
       c.save(); c.translate(x * CELL, y * CELL);
-      if (t === 'm') {
-        if (st.gates_open) { rect(c, 1, 2, 3, 20, '#555'); rect(c, 20, 2, 3, 20, '#555'); }
+      if (t === 'm' || t === 'M') {
+        if (t === 'M') { rect(c, 1, 2, 3, 20, '#555'); rect(c, 20, 2, 3, 20, '#555'); }
         else { rect(c, 1, 3, 22, 2, '#3b3b3b'); for (let i = 0; i < 5; i++) rect(c, 2 + i * 4.5, 3, 2, 19, '#2a2a2a'); }
       } else {
         const on = st.checkpoint[0] === x && st.checkpoint[1] === y;

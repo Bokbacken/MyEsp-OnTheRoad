@@ -675,6 +675,29 @@ static uint32_t testCrc32(const uint8_t *p, size_t n)
     return ~crc;
 }
 
+static void testLegacyGroupZeroSave()
+{
+    // v0.19.3 World::save() fixture: group bytes were unused and therefore zero.
+    static const uint8_t legacy[] = {
+        0x4F, 0x54, 0x52, 0x53, 0x03, 0x00, 0x4D, 0x03, 0x01, 0x00, 0x35, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,         0x00, 0x00, 0x00, 0x08, 0x08, 0xFF, 0x00, 0x00,
+        0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x0C, 0x00, 0x00, 0x00,         0x00, 0x00, 0x00, 0x2A, 0xEF, 0x64,
+        0xC1,
+    };
+    static const char *const rows[] = {"So="};
+    const MapDef def = {77, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0};
+    CHECK_EQ(World::SAVE_MAGIC, 0x5352544F);
+    CHECK_EQ(World::SAVE_VERSION, 3);
+    CHECK(W.load(def));
+    CHECK(W.restore(legacy, sizeof(legacy)));
+    CHECK(W.gatesOpen());
+    CHECK(W.gateOpenAt(2, 0));
+    CHECK_EQ(W.obj(1, 0), Obj::ROCK);
+}
+
 // v0.18.0: dark areas, the flashlight cone, pogo vaulting, and the v3 save round trip.
 static void testDarkFlashPogo()
 {
@@ -1284,6 +1307,7 @@ int main()
     testHit();
     testDoorAndBoat();
     testLavaAndGates();
+    testLegacyGroupZeroSave();
     testWorld();
     testPickTarget();
     testPlanBasic();
