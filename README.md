@@ -358,6 +358,124 @@ The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
 CI labels the build artifact `firmware-esp32s3-v<PROJECT_VER>`.
 This build label does not create a Git release tag.
 
+### Firmware releases
+
+PRs and pushes to `main` only validate the ESP32-S3 build and retain firmware/debug
+CI artifacts, including available files after failures. **They never publish a release**,
+including documentation-only pushes. Release preparation is a separate manual operation:
+
+1. Merge and test the intended changes on `main`. Read the current `PROJECT_VER` from
+   `CMakeLists.txt`; the workflow never bumps it. Each release needs a unique canonical
+   `MAJOR.MINOR.PATCH` version. Record the full 40-character tested main commit SHA.
+2. In **Actions → Prepare firmware release → Run workflow**, select branch **main** and
+   paste that SHA into **expected_sha**. It must equal main at dispatch time. If main
+   moved since testing, test the new commit first; do not substitute an untested SHA.
+   CLI equivalent: `gh workflow run release.yaml --ref main -f expected_sha=FULL_MAIN_SHA`.
+3. The workflow checks event/ref, checkout SHA and version, builds that exact dispatch
+   SHA using ESP-IDF v6.1 and `sdkconfig.defaults`, and runs `idf.py merge-bin`.
+   It checks the generated target/profile, actual app header/version, app size against
+   **both generated OTA partitions**, required files and merged-image contents.
+   There is no P4 build. Failed builds retain available debug/diagnostic CI artifacts.
+4. Only after the build/package job succeeds, a separate publishing job rechecks the
+   dispatch identity, manifest and every checksum. It creates `v<PROJECT_VER>` at that
+   same SHA (not whatever main points to later), then a **draft** GitHub Release.
+   Notes use GitHub's generated changes for the selected tag/SHA, plus flashing and
+   hardware-verification warnings. Review the real change list and add actual device
+   test results; compilation alone does **not** prove display/touch/audio/SD/OTA work.
+5. Download and check the assets, test the intended device, then use **Releases → Edit
+   draft → Publish release** for manual final approval. Inspect the diff against the
+   previous published tag if GitHub's automatically selected notes baseline is unsuitable.
+
+The workflow must first be merged into `main` before this dispatch is available.
+No actual tag/release should be created just to test a CI change. Repository rules or
+Actions policies may require maintainer approval/adjustment for tag/release creation;
+the workflow cannot bypass protected tags. No PAT or additional secret is needed.
+Global `contents: read` covers builds; only the trusted main publishing job has
+`contents: write` with `GITHUB_TOKEN`, scoped to the publication step. Checkouts do not
+persist credentials. Fork PRs never get write permissions, and `pull_request_target`
+is not used. Tag creation does not need to trigger another workflow: build and
+publication are in this same workflow. Release runs are serialized (not cancelled);
+GitHub concurrency may replace an older pending run when multiple runs are queued.
+
+**Assets** (prefix `MyEsp-OnTheRoad-esp32s3-ES3C35P-v<PROJECT_VER>`):
+
+| Suffix / file | Purpose |
+|---|---|
+| `-ota.bin` | App **only**; select this file on the device's `/update` web page. Requires compatible installed partitions (current B1). |
+| `-initial-flash-0x0.bin` | Bootloader, partition table, initial OTA data and app merged by IDF. USB initial install at **0x0**, never web OTA. |
+| `-flash-metadata.zip` | Individual flash files with build-relative paths, generated `flasher_args.json`, generated and source partition CSVs, and these instructions. Not an OTA upload. |
+| `-sdcard.zip` | Contents of `sdcard_bundle/`, with `otr/...` directly at ZIP root. Extract at SD root; back up existing content/saves first. Not a complete music/SF2 collection. |
+| `manifest.json` | Exact source SHA, target, board, version, app/OTA sizes, flash offsets/settings. |
+| `SHA256SUMS` | SHA256 for every other release asset, including ZIPs and manifest. |
+
+Download assets together and run `sha256sum -c SHA256SUMS`. Example USB command
+(replace filenames, version and port; ESP-IDF v6.1's esptool installed):
+
+```sh
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 write-flash \
+  0x0 MyEsp-OnTheRoad-esp32s3-ES3C35P-vVERSION-initial-flash-0x0.bin
+```
+
+Back up internal storage **and** SD before USB flashing. The merged image is an
+initial-install image, not a backup: it includes padding and initial OTA data and can
+overwrite NVS/settings; partition migrations may make FFat/player/adventure saves
+inaccessible or require reformatting. It does not initialize FFat or copy SD content.
+Never blindly erase flash for a routine OTA update. Use the actual generated partition
+metadata, not old offsets, when diagnosing a device with a different layout.
+Secure-boot/flash-encrypted configurations are deliberately rejected by this packager.
+ELF/map and build diagnostics stay in the separately named **debug CI artifact** under
+the release run's Actions page (subject to repository retention), not in release assets.
+Save that artifact externally if long-term symbolication is required.
+
+**Safe reruns / recovery:** publication fails closed on any existing release, including
+a draft, and never overwrites assets. An existing tag on the selected SHA is reusable;
+a tag on any other SHA (including an annotated tag's resolved commit) aborts and is
+**never moved or deleted**. If upload fails after draft creation, inspect the run and
+draft. Either finish the upload manually from that run's verified artifact without
+replacing existing assets, or delete **only the incomplete draft** and rerun the same
+workflow run/jobs on the original SHA. Do not delete the version tag. A published
+release is not replaced: use a new version through the normal development process.
+If main has moved, use Actions **Re-run all jobs** on the original run rather than a
+new dispatch. A failure before tag creation has no tag/release side effects; a failure
+between tag and draft creation can leave a correctly pinned tag, which a rerun accepts.
+
+Local non-publishing release-tool tests:
+
+```sh
+python3 -m unittest discover -s tests -p test_firmware_release.py
+```
+
+After an actual local IDF build, the same packaging checks can be exercised without
+GitHub credentials or publication (output must not already exist):
+
+```sh
+idf.py -B build_release_esp32s3 -D SDKCONFIG_DEFAULTS=sdkconfig.defaults set-target esp32s3
+idf.py -B build_release_esp32s3 build
+idf.py -B build_release_esp32s3 merge-bin -o merged.bin
+python "$IDF_PATH/components/partition_table/gen_esp32part.py" \
+  build_release_esp32s3/partition_table/partition-table.bin build_release_esp32s3/release-partitions.csv
+python3 tools/firmware_release.py package --build-dir build_release_esp32s3 \
+  --output build_release_esp32s3/release
+```
+
+**P4 remains pending, not a green S3 build with a P4 display size.** `P4_43` in
+`main/hw_profile.h` and `main/Kconfig.projbuild` is still an unported placeholder.
+Before porting, obtain manufacturer documentation for the exact Waveshare model and
+PCB revision and verify schematics/pins, display interface/timing, touch controller,
+flash/PSRAM, partitions, audio, SD and the actual networking solution. Do not guess
+values or copy S3 defaults. A P4 BSP/drivers, real `esp32p4` target compilation and
+hardware validation are separate work. Once support exists, use a separate board,
+target, defaults file, build directory and artifact prefix, following the explicit
+S3 tuple here: `ES3C35P / esp32s3 / sdkconfig.defaults / build_release_esp32s3`.
+Initial real P4 target builds may precede hardware arrival, but must be labelled
+**experimental, not physically verified**, with any publication explicitly opt-in
+and separated from verified S3 releases. This workflow publishes no P4 firmware.
+
+Official references: [workflow triggering and GITHUB_TOKEN](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow),
+[release API](https://docs.github.com/en/rest/releases/releases),
+[Espressif merge-bin implementation](https://github.com/espressif/esp-idf/blob/master/tools/idf_py_actions/serial_ext.py)
+and [Espressif CI action](https://github.com/espressif/esp-idf-ci-action).
+
 ### Shared components
 
 The `components/my_*` folders have no project-specific code and are meant to be reused in other

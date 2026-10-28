@@ -1,0 +1,92 @@
+name: Prepare firmware release
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: 'Full tested main SHA (must equal main at dispatch time)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-release
+  cancel-in-progress: false
+
+env:
+  EXPECTED_SHA: ${{ inputs.expected_sha }}
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.firmware.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate dispatch, SHA and version
+        id: firmware
+        run: python3 tools/firmware_release.py prepare
+      - name: Test release tooling (no publication)
+        run: python3 -m unittest discover -s tests -p test_firmware_release.py
+      - name: Build and verify ES3C35P release package
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32s3
+          command: |
+            set -eu
+            idf.py --version
+            idf.py -B build_release_esp32s3 -D SDKCONFIG_DEFAULTS=sdkconfig.defaults set-target esp32s3
+            idf.py -B build_release_esp32s3 build
+            idf.py -B build_release_esp32s3 merge-bin -o merged.bin
+            python "$IDF_PATH/components/partition_table/gen_esp32part.py" build_release_esp32s3/partition_table/partition-table.bin build_release_esp32s3/release-partitions.csv
+            python tools/firmware_release.py package --build-dir build_release_esp32s3 --output build_release_esp32s3/release
+      - name: Upload verified release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-esp32s3-ES3C35P-v${{ steps.firmware.outputs.version }}
+          path: build_release_esp32s3/release/*
+          if-no-files-found: error
+      - name: Upload debug and diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-esp32s3-ES3C35P-${{ github.sha }}
+          path: |
+            build_release_esp32s3/*.bin
+            build_release_esp32s3/*.elf
+            build_release_esp32s3/*.map
+            build_release_esp32s3/*.json
+            build_release_esp32s3/log/
+            build_release_esp32s3/bootloader/bootloader.bin
+            build_release_esp32s3/partition_table/partition-table.bin
+          if-no-files-found: warn
+
+  publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-esp32s3-ES3C35P-v${{ needs.build.outputs.version }}
+          path: ${{ runner.temp }}/firmware-release
+      - name: Verify assets, create immutable tag and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DIRECTORY: ${{ runner.temp }}/firmware-release
+        run: python3 tools/firmware_release.py publish --directory "$RELEASE_DIRECTORY"
