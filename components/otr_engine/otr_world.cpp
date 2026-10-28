@@ -94,7 +94,7 @@ bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
            o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4 ||
-           o == Obj::FLASH || o == Obj::POGO || o == Obj::SKATES || coloredKey(o);
+           o == Obj::FLASH || o == Obj::POGO || o == Obj::SKATES || o == Obj::SUCTION || coloredKey(o);
 }
 bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == Tile::CRACKED; }
 
@@ -143,6 +143,8 @@ bool World::load(const char *const *rows, int h, const Rules &rules)
                 c = {(Tile)((int)Tile::POISON + glyph - POISON_GLYPH), Obj::NONE};
             } else if (glyph == SKATES_GLYPH) {
                 c = {Tile::FLOOR, Obj::SKATES};
+            } else if (glyph == SUCTION_GLYPH) {
+                c = {Tile::FLOOR, Obj::SUCTION};
             } else if (glyph >= GROUPED_PLATE_GLYPH && glyph < GROUPED_GATE_GLYPH) {
                 c = {Tile::PLATE, Obj::NONE};
                 val_[y][x] = glyph - GROUPED_PLATE_GLYPH;
@@ -264,11 +266,127 @@ bool World::load(const MapDef &def)
         for (int y = y0; y <= y1; y++)
             for (int x = x0; x <= x1; x++) flags_[y][x] |= F_DARK;
     }
+    if (def.enemyCount < 0 || def.enemyCount > MAX_ENEMIES ||
+        (def.enemyCount && !def.enemies)) return false;
+    for (int i = 0; i < def.enemyCount; ++i) {
+        const EnemyDef &e = def.enemies[i];
+        if ((e.kind != EnemyKind::PATROL && e.kind != EnemyKind::CHASER) ||
+            e.routeCount > MAX_ROUTE || (e.kind == EnemyKind::PATROL && !e.routeCount) ||
+            (e.kind == EnemyKind::CHASER && (e.routeCount || e.pingPong)) ||
+            !enemyTerrain(e.x, e.y) || (e.x == px_ && e.y == py_) ||
+            enemyAt(e.x, e.y) >= 0) return false;
+        if (e.bounded && (e.x0 > e.x1 || e.y0 > e.y1 || !inside(e.x0, e.y0) ||
+            !inside(e.x1, e.y1) || e.x < e.x0 || e.x > e.x1 || e.y < e.y0 || e.y > e.y1))
+            return false;
+        for (int j = 0; j < e.routeCount; ++j) {
+            const EnemyPoint &p = e.route[j];
+            if (!enemyTerrain(p.x, p.y) || (e.bounded &&
+                (p.x < e.x0 || p.x > e.x1 || p.y < e.y0 || p.y > e.y1))) return false;
+        }
+        enemyDefs_[i] = e;
+        enemies_[i] = {e.x, e.y, 0, 1};
+        ++enemyCount_;
+    }
     rev_ = 1;
     return true;
 }
 
 // ---- Queries --------------------------------------------------------------------------------
+
+int World::enemyAt(int x, int y) const
+{
+    for (int i = 0; i < enemyCount_; ++i)
+        if (enemies_[i].x == x && enemies_[i].y == y) return i;
+    return -1;
+}
+
+bool World::enemyTerrain(int x, int y) const
+{
+    if (!inside(x, y) || blocksWalk(rawObj(x, y)) || rawObj(x, y) == Obj::MINE) return false;
+    const Tile t = tile(x, y);
+    return (isGround(t) && t != Tile::POISON && t != Tile::SWAMP && t != Tile::SHARP_ROCKS) ||
+           (t == Tile::GATE && gateOpenAt(x, y));
+}
+
+bool World::enemyCanEnter(int i, int x, int y) const
+{
+    const EnemyDef &e = enemyDefs_[i];
+    const int other = enemyAt(x, y);
+    return enemyTerrain(x, y) && (other < 0 || other == i) &&
+           (!e.bounded || (x >= e.x0 && x <= e.x1 && y >= e.y0 && y <= e.y1));
+}
+
+bool World::enemyStep(int i, int tx, int ty, int &nx, int &ny)
+{
+    const EnemyState &e = enemies_[i];
+    const int start = e.y * w_ + e.x, goal = ty * w_ + tx;
+    if (!enemyCanEnter(i, tx, ty) || start == goal) return false;
+    for (int j = 0; j < w_ * h_; ++j) enemyPrev_[j] = -1;
+    int head = 0, tail = 0;
+    enemyQueue_[tail++] = (uint16_t)start;
+    enemyPrev_[start] = (int16_t)start;
+    while (head < tail && enemyPrev_[goal] < 0) {
+        const int c = enemyQueue_[head++];
+        for (int d = 0; d < 4; ++d) {
+            const int x = c % w_ + dirX((Dir)d), y = c / w_ + dirY((Dir)d);
+            if (!enemyCanEnter(i, x, y)) continue;
+            const int n = y * w_ + x;
+            if (enemyPrev_[n] >= 0) continue;
+            enemyPrev_[n] = (int16_t)c;
+            enemyQueue_[tail++] = (uint16_t)n;
+        }
+    }
+    if (enemyPrev_[goal] < 0) return false;
+    int next = goal;
+    while (enemyPrev_[next] != start) next = enemyPrev_[next];
+    nx = next % w_; ny = next / w_;
+    return true;
+}
+
+void World::enemyContact(uint32_t &ev)
+{
+    if (!enemyContact_ && !(ev & EV_DIED) && enemyAt(px_, py_) >= 0) {
+        enemyContact_ = true;
+        hurt(2, ev);
+    }
+}
+
+uint32_t World::finishAction(uint32_t ev)
+{
+    if (gameOver_ || exitReached_ || (ev & EV_DIED)) return ev;
+    for (int i = 0; i < enemyCount_; ++i) {
+        EnemyState &s = enemies_[i];
+        const EnemyDef &e = enemyDefs_[i];
+        // A player may enter an enemy cell; that enemy waits until the player leaves.
+        if (s.x == px_ && s.y == py_) {
+            enemyContact(ev);
+            if (ev & EV_DIED) break;
+            continue;
+        }
+        int tx = px_, ty = py_;
+        if (e.kind == EnemyKind::PATROL) {
+            if (s.x == e.route[s.index].x && s.y == e.route[s.index].y && e.routeCount > 1) {
+                int next = s.index + s.direction;
+                if (next < 0 || next >= e.routeCount) {
+                    if (e.pingPong) { s.direction = -s.direction; next = s.index + s.direction; }
+                    else next = 0;
+                }
+                s.index = (uint8_t)next;
+                ++rev_;
+            }
+            tx = e.route[s.index].x; ty = e.route[s.index].y;
+        }
+        int nx, ny;
+        if (!enemyStep(i, tx, ty, nx, ny)) continue;
+        if (nx == px_ && ny == py_) {
+            if (!enemyContact_) { enemyContact_ = true; hurt(2, ev); }
+            if (ev & EV_DIED) break;
+        } else {
+            s.x = (uint8_t)nx; s.y = (uint8_t)ny; ++rev_;
+        }
+    }
+    return ev;
+}
 
 int World::keys(KeyColor color) const
 {
@@ -300,6 +418,7 @@ bool World::leverOnAt(int x, int y) const
 uint32_t World::activate()
 {
     if (gameOver_ || (mineLevel_ && exitReached_)) return EV_NONE;
+    enemyContact_ = false;
     const int x = px_ + dirX(facing_), y = py_ + dirY(facing_);
     if (!inside(x, y) || tile(x, y) != Tile::LEVER) return EV_NONE;
     const int group = val_[y][x];
@@ -309,7 +428,7 @@ uint32_t World::activate()
     uint32_t ev = EV_LEVER;
     ++rev_;
     updateGates(ev);
-    return ev;
+    return finishAction(ev);
 }
 
 void World::tickTimers(uint32_t &ev)
@@ -394,7 +513,7 @@ bool World::playerCanEnter(int x, int y) const
 
 bool World::rockCanEnter(int x, int y) const
 {
-    if (!inside(x, y) || rawObj(x, y) != Obj::NONE) return false;
+    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || enemyAt(x, y) >= 0) return false;
     const Tile t = tile(x, y);
     if (t == Tile::CHECKPOINT || t == Tile::EXIT) return false;
     return isGround(t) || t == Tile::WATER || t == Tile::LAVA;   // Never onto gates
@@ -552,6 +671,7 @@ uint32_t World::pickup(uint32_t ev)
         break;
     case Obj::BOAT: boat_ = true; ev |= EV_BOAT; break;
     case Obj::SKATES: skates_ = true; ev |= EV_TREASURE; break;
+    case Obj::SUCTION: suction_ = true; ev |= EV_TREASURE; break;
     case Obj::POTION: {
         const int a = amount ? amount : rules_.potionDefault;
         energy_ = energy_ + a > maxEnergy_ ? maxEnergy_ : energy_ + a;
@@ -605,6 +725,7 @@ uint32_t World::move(Dir d, MoveTrace *trace)
 {
     if (trace) trace->count = 0;
     if (gameOver_ || (mineLevel_ && exitReached_)) return EV_NONE;
+    enemyContact_ = false;
     facing_ = d;
     const int tx = px_ + dirX(d), ty = py_ + dirY(d);
     if (!inside(tx, ty) || (mineLevel_ && flagged(tx, ty))) return EV_BLOCKED;
@@ -616,7 +737,7 @@ uint32_t World::move(Dir d, MoveTrace *trace)
         --colorKeys_[c];
         set(tx, ty, Obj::NONE);
         uncover(tx, ty, ev);
-        return ev | EV_DOOR;
+        return finishAction(ev | EV_DOOR);
     }
     int plateX = -1, plateY = -1;
 
@@ -629,7 +750,7 @@ uint32_t World::move(Dir d, MoveTrace *trace)
         keys_--;
         set(tx, ty, Obj::NONE);
         uncover(tx, ty, ev);
-        return ev | EV_DOOR;
+        return finishAction(ev | EV_DOOR);
     case Obj::CRATE:
     case Obj::BUSH:
         break;   // v0.18.0: fall through to the pogo gate (a pogo stick may vault it)
@@ -663,7 +784,7 @@ uint32_t World::move(Dir d, MoveTrace *trace)
     if (!playerCanEnter(tx, ty)) return ev | EV_BLOCKED;   // v0.18.3: pogo vault is now manual (vault())
     ev = landOn(tx, ty, ev, trace);
     if (plateX >= 0) activatePlate(plateX, plateY, ev);
-    return resolveForced(ev, trace);
+    return finishAction(resolveForced(ev, trace));
 }
 
 // v0.18.3: shared landing sequence for a normal step and a manual pogo vault. Moves the player onto
@@ -678,6 +799,8 @@ uint32_t World::landOn(int destX, int destY, uint32_t ev, MoveTrace *trace)
     steps_++;
     ev |= EV_MOVED;
     activatePlate(px_, py_, ev);
+    enemyContact(ev);
+    if (ev & EV_DIED) return ev;
 
     if (rawObj(px_, py_) == Obj::MINE) {   // Boom: the mine is gone, a crater remains
         obj_[py_][px_] = (uint8_t)Obj::NONE;
@@ -741,7 +864,41 @@ uint32_t World::vault(MoveTrace *trace)
     if (gameOver_ || (mineLevel_ && exitReached_) || pogo_ <= 0) return EV_NONE;
     int lx, ly;
     if (!pogoLand(facing_, lx, ly)) return EV_BLOCKED;
-    return resolveForced(landOn(lx, ly, 0, trace), trace);
+    enemyContact_ = false;
+    return finishAction(resolveForced(landOn(lx, ly, 0, trace), trace));
+}
+
+bool World::canPull() const
+{
+    if (!suction_ || gameOver_ || exitReached_) return false;
+    const int dx = dirX(facing_), dy = dirY(facing_);
+    const Obj o = rawObj(px_ + dx, py_ + dy);
+    return (o == Obj::ROCK || coloredBox(o)) && rockCanEnter(px_, py_) &&
+           !(coloredBox(o) && (tile(px_, py_) == Tile::WATER || tile(px_, py_) == Tile::LAVA)) &&
+           playerCanEnter(px_ - dx, py_ - dy) &&
+           !(mineLevel_ && flagged(px_ - dx, py_ - dy));
+}
+
+uint32_t World::pull(MoveTrace *trace)
+{
+    if (trace) trace->count = 0;
+    if (gameOver_ || exitReached_) return EV_NONE;
+    if (!canPull()) return EV_BLOCKED;
+    enemyContact_ = false;
+    const int dx = dirX(facing_), dy = dirY(facing_);
+    const int ox = px_, oy = py_, sx = px_ + dx, sy = py_ + dy;
+    const Obj o = rawObj(sx, sy);
+    uint32_t ev = EV_PUSHED;
+    set(sx, sy, Obj::NONE);
+    // Amount/group/treasure layers belong to cells, not to the moving rock/box.
+    uncover(sx, sy, ev);
+    if (tile(ox, oy) == Tile::WATER) { set(ox, oy, Tile::BRIDGE); ev |= EV_SPLASH; }
+    else if (tile(ox, oy) == Tile::LAVA) { set(ox, oy, Tile::BASALT); ev |= EV_SIZZLE; }
+    else set(ox, oy, o);
+    updateGates(ev);
+    ev = landOn(ox - dx, oy - dy, ev, trace);
+    if (!(ev & EV_DIED)) activatePlate(ox, oy, ev);
+    return finishAction(resolveForced(ev, trace));
 }
 
 bool World::forcedMotion(Dir &direction) const
@@ -822,7 +979,7 @@ bool World::moveNpc(int num, int x, int y)
     int ox, oy;
     if (!findNpc(num, ox, oy)) return false;
     if (ox == x && oy == y) return true;
-    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || (x == px_ && y == py_) ||
+    if (!inside(x, y) || rawObj(x, y) != Obj::NONE || enemyAt(x, y) >= 0 || (x == px_ && y == py_) ||
         !isGround(tile(x, y)) || groupedTile(tile(x, y))) return false;
     obj_[oy][ox] = (uint8_t)Obj::NONE;
     val_[oy][ox] = 0;
@@ -934,7 +1091,7 @@ bool World::placeBomb(int size,int x,int y)
 }
 bool World::spawnAt(int x,int y)
 {
-    if(!inside(x,y)||!isGround(tile(x,y))||tile(x,y)==Tile::EXIT||rawObj(x,y)!=Obj::NONE) return false;
+    if(!inside(x,y)||!isGround(tile(x,y))||tile(x,y)==Tile::EXIT||rawObj(x,y)!=Obj::NONE||enemyAt(x,y)>=0) return false;
     px_=cpX_=x; py_=cpY_=y; facing_=Dir::DOWN; exitReached_=false; ++rev_; return true;
 }
 void World::carryFrom(const World &w)
@@ -942,6 +1099,7 @@ void World::carryFrom(const World &w)
     keys_=w.keys_; boat_=w.boat_; suit_=w.suit_; energy_=w.energy_; maxEnergy_=w.maxEnergy_;
     memcpy(colorKeys_, w.colorKeys_, sizeof(colorKeys_));
     skates_ = w.skates_;
+    suction_ = w.suction_;
     livesLeft_=w.livesLeft_; livesUsed_=w.livesUsed_; ++rev_;
 }
 

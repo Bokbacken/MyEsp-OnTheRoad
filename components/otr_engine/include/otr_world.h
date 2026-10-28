@@ -54,6 +54,9 @@ constexpr uint8_t POISON_GLYPH = 13;
 constexpr uint8_t SWAMP_GLYPH = 14;
 constexpr uint8_t SHARP_ROCKS_GLYPH = 15;
 constexpr uint8_t SKATES_GLYPH = 16;
+constexpr uint8_t SUCTION_GLYPH = 17;
+constexpr int MAX_ENEMIES = 8;
+constexpr int MAX_ROUTE = 16;
 
 enum class Tile : uint8_t {
     GRASS, SAND, FLOOR, RUBBLE, WALL, CRACKED, TREE, WATER, BRIDGE, LAVA, BASALT, PLATE, GATE,
@@ -73,6 +76,7 @@ enum class Obj : uint8_t {
     KEY_RED, KEY_GREEN, KEY_BLUE, KEY_YELLOW, KEY_PURPLE, KEY_CYAN,
     DOOR_RED, DOOR_GREEN, DOOR_BLUE, DOOR_YELLOW, DOOR_PURPLE, DOOR_CYAN,
     SKATES, BOX_RED, BOX_GREEN, BOX_BLUE, BOX_YELLOW, BOX_PURPLE, BOX_CYAN,
+    SUCTION,
     COUNT
 };
 
@@ -152,6 +156,18 @@ struct Treasure {
 // movement. Coordinates are clipped to the map bounds in World::load (invalid rects are dropped).
 struct DarkRect { uint8_t x0, y0, x1, y1; };
 struct GroupControl { uint8_t group; uint16_t steps; bool requireBoth = false; };
+enum class EnemyKind : uint8_t { PATROL, CHASER };
+struct EnemyPoint { uint8_t x, y; };
+struct EnemyDef {
+    EnemyKind kind;
+    uint8_t x, y;
+    bool bounded = false;
+    uint8_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    bool pingPong = false;
+    uint8_t routeCount = 0;
+    EnemyPoint route[MAX_ROUTE]{};
+};
+struct EnemyState { uint8_t x, y, index; int8_t direction; };
 
 // Optional caller-owned output: one manual landing plus at most 128 forced landings.
 // Respawns are not displacements. The trace is never stored in World or saves.
@@ -175,6 +191,8 @@ struct MapDef {
     int par = 0;
     // Optional group overrides for colored plates; zero = default, otherwise group + 1.
     const uint8_t (*plateGroups)[MAX_W] = nullptr;
+    const EnemyDef *enemies = nullptr;
+    int enemyCount = 0;
 };
 
 struct MineLevel { uint8_t w, h, mines; };
@@ -249,6 +267,11 @@ public:
     int flashlight() const { return flash_; }
     int pogo() const { return pogo_; }
     bool hasSkates() const { return skates_; }
+    bool hasSuction() const { return suction_; }
+    int enemyCount() const { return enemyCount_; }
+    const EnemyDef &enemyDef(int i) const { return enemyDefs_[i]; }
+    const EnemyState &enemy(int i) const { return enemies_[i]; }
+    int enemyAt(int x, int y) const;
 
     // v0.18.0 dark areas. darkCell(): the cell is flagged dark (a static map property). lit():
     // the flashlight cone (facing direction, range flash_+2, ~45deg) reaches the cell - flashlight
@@ -271,6 +294,8 @@ public:
     bool forcedMotion(Dir &direction) const; // Current ice/belt direction, without moving.
     bool canVault() const;  // v0.18.3: owns a pogo stick AND faces a jumpable run -> UI shows "Hoppa"
     uint32_t vault(MoveTrace *trace = nullptr);       // Manual pogo jump in the facing direction
+    bool canPull() const;
+    uint32_t pull(MoveTrace *trace = nullptr);
     void revive();          // After game over ("continue"): one life, full energy, at the checkpoint
 
     bool playerCanEnter(int x, int y) const;     // Terrain + object check (no side effects)
@@ -302,6 +327,7 @@ public:
     void setFlashlight(int l) { flash_ = (uint8_t)(l < 0 ? 0 : l > 3 ? 3 : l); rev_++; }
     void setPogo(int l) { pogo_ = (uint8_t)(l < 0 ? 0 : l > 3 ? 3 : l); rev_++; }
     void setSkates(bool active) { skates_ = active; rev_++; }
+    void setSuction(bool active) { suction_ = active; rev_++; }
 
     // Campaign and map travel, no rendering / storage dependencies.
     bool loadMines(int level);
@@ -318,7 +344,7 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 5;   // v5: one skates byte after the v4 extension
+    static constexpr uint16_t SAVE_VERSION = 6;   // v6: suction, count, four bytes per enemy
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
@@ -333,6 +359,11 @@ private:
     bool pogoLand(Dir d, int &lx, int &ly) const;
     uint32_t landOn(int destX, int destY, uint32_t ev, MoveTrace *trace);
     uint32_t resolveForced(uint32_t ev, MoveTrace *trace);
+    uint32_t finishAction(uint32_t ev);
+    void enemyContact(uint32_t &ev);
+    bool enemyTerrain(int x, int y) const;
+    bool enemyCanEnter(int i, int x, int y) const;
+    bool enemyStep(int i, int tx, int ty, int &nx, int &ny);
     void tickTimers(uint32_t &ev);
     void activatePlate(int x, int y, uint32_t &ev);
     void updateGates(uint32_t &ev);
@@ -365,6 +396,13 @@ private:
     int par_;
     bool boat_, gameOver_, exitReached_;
     bool skates_;
+    bool suction_, enemyContact_;
+    uint8_t enemyCount_;
+    EnemyDef enemyDefs_[MAX_ENEMIES];
+    EnemyState enemies_[MAX_ENEMIES];
+    // Shared bounded BFS scratch; never serialized and never allocated on the task stack.
+    uint16_t enemyQueue_[MAX_W * MAX_H];
+    int16_t enemyPrev_[MAX_W * MAX_H];
     uint8_t mapId_;
     uint8_t talkNpc_;
     uint8_t mineLevel_, bomb3_, bomb4_;

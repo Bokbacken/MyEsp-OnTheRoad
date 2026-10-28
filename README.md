@@ -4,16 +4,27 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.21.0** – adventure skates, poison ground/swamp/sharp rocks,
+> **Status: v0.21.1** – findable suction cup and explicit **Dra / Pull** action,
+> deterministic turn-based patrols and pathfinding chasers, with optional movement areas.
+> Action selection (**Byt / Swap**) never performs the action; use the lower button to pull.
+> The external [S4 demo](docs/adventures/s4_demo/README.md) includes an exact tested solution
+> and is mirrored in the SD bundle. Existing S2/S3 demos are preserved.
+> Engine saves use format 6 for suction ownership and enemy position/route state;
+> formats 1–5 remain readable. The SD-session container remains version 1.
+> See [authoring section 10g](docs/AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211)
+> for syntax, turn order, bounds and compatibility.
+> **Verification:** physical ESP32/display/touch testing remains necessary;
+> this sandbox has no ESP-IDF toolchain for a firmware build.
+> No undo, editor, release-workflow changes, tags or GitHub Releases are included.
+>
+> Previous: v0.21.0 – adventure skates, poison ground/swamp/sharp rocks,
 > six colored push-box/plate pairs and explicit lever+plate AND groups.
 > The larger external demo and reproducible solution are in
 > [`docs/adventures/s3_demo/`](docs/adventures/s3_demo/), mirrored in the SD bundle.
 > Engine saves are now format 5 (one skates byte added to format 4);
 > formats 1–4 load with skates off. The SD-session container remains version 1.
 > See [authoring section 10f](docs/AUTHORING_ADVENTURES.md#10f-s3-skridskor-giftterräng-och-färgsokoban-v0210).
-> **Verification:** host tests cover these additions; physical ESP32/display/touch
-> verification and a firmware build are still required. No enemy AI, editor or undo
-> is included in this release.
+> The owner confirms that this preceding gameplay block works on hardware.
 >
 > Previous: v0.20.1 – the adventure engine includes S1 grouped Sokoban plates/gates
 > (introduced in v0.20.0) and S2 levers, timed gates, ice, belts, colored keys/doors
