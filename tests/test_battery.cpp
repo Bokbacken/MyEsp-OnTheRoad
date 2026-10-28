@@ -44,8 +44,12 @@ int main()
     uint8_t percent = 0;
     CHECK(BatteryMath::estimatePercent(3000, 4200, percent) && percent == 0);
     CHECK(BatteryMath::estimatePercent(3300, 4200, percent) && percent == 5);
-    CHECK(BatteryMath::estimatePercent(3600, 4200, percent) && percent == 10);
-    CHECK(BatteryMath::estimatePercent(3820, 4200, percent) && percent == 50);
+    CHECK(BatteryMath::estimatePercent(3500, 4200, percent) && percent == 10);
+    CHECK(BatteryMath::estimatePercent(3700, 4200, percent) && percent == 50);
+    CHECK(BatteryMath::estimatePercent(3760, 4200, percent) && percent == 80);
+    CHECK(BatteryMath::estimatePercent(3800, 4200, percent) && percent == 85);
+    CHECK(BatteryMath::estimatePercent(4000, 4200, percent) && percent == 97);
+    CHECK(BatteryMath::estimatePercent(4100, 4200, percent) && percent == 99);
     CHECK(BatteryMath::estimatePercent(4200, 4200, percent) && percent == 100);
     CHECK(BatteryMath::estimatePercent(4500, 4200, percent) && percent == 100);
     CHECK(BatteryMath::estimatePercent(4100, 4100, percent) && percent == 100);
