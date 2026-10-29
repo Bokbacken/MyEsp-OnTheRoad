@@ -3,6 +3,7 @@
 import pathlib
 import subprocess
 import tempfile
+import csv
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -245,8 +246,49 @@ int main() {
 }
 '''
 
+PROFILE = r'''
+#include <cassert>
+#include "hw_profile.h"
+int main() {
+    const auto &p = HwProfile::active();
+#ifdef CONFIG_OTR_HW_PROFILE_P4_43
+    assert(p.id == HwProfile::Id::P4_43);
+    assert(p.flashBytes == 32u * 1024 * 1024 && p.psramBytes == 32u * 1024 * 1024);
+    assert(p.soundFontMaxBytes == p.psramBytes && p.psramReserveBytes == 2u * 1024 * 1024);
+    assert(!p.resampleSoundFonts);
+#else
+    assert(p.id == HwProfile::Id::ES3C35P);
+    assert(p.flashBytes == 16u * 1024 * 1024 && p.psramBytes == 8u * 1024 * 1024);
+    assert(p.soundFontMaxBytes == 7u * 1024 * 1024 && p.psramReserveBytes == 512u * 1024);
+    assert(p.resampleSoundFonts);
+#endif
+}
+'''
+
+
+def partitions(path):
+    result = {}
+    with path.open(newline="") as file:
+        for row in csv.reader(file):
+            if not row or row[0].lstrip().startswith("#"):
+                continue
+            name, _type, _subtype, offset, size, *_ = [value.strip() for value in row]
+            result[name] = (int(offset, 0), int(size, 0))
+    return result
+
 
 def main():
+    s3 = partitions(ROOT / "partitions.csv")
+    p4 = partitions(ROOT / "partitions.esp32p4.csv")
+    for name in ("app0", "app1"):
+        assert p4[name] == s3[name], f"{name} OTA slot changed on P4"
+    assert p4["ffat"][0] == s3["ffat"][0] and p4["ffat"][1] == 0x15E0000
+    assert p4["coredump"][0] + p4["coredump"][1] == 32 * 1024 * 1024
+    for table, flash in ((s3, 16 * 1024 * 1024), (p4, 32 * 1024 * 1024)):
+        ranges = sorted((offset, offset + size, name) for name, (offset, size) in table.items())
+        assert all(end <= flash for _, end, _ in ranges)
+        assert all(ranges[i][1] <= ranges[i + 1][0] for i in range(len(ranges) - 1))
+
     with tempfile.TemporaryDirectory(prefix="otr-peripheral-test-") as directory:
         work = pathlib.Path(directory)
         (work / "test_idf.h").write_text(COMMON)
@@ -291,6 +333,14 @@ def main():
                 ]], "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
+            profile = work / f"profile-{target}"
+            flags = ["-DCONFIG_OTR_HW_PROFILE_P4_43"] if target == "p4" else []
+            subprocess.run([
+                "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", *flags,
+                f"-I{work}", f"-I{ROOT / 'main'}", str(ROOT / "main/hw_profile.cpp"),
+                "-x", "c++", "-o", str(profile), "-",
+            ], input=PROFILE, text=True, check=True)
+            subprocess.run([str(profile)], check=True)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ static Status s_reported = Status::OFF;
 static FailReason s_lastFail = FailReason::NONE;
 static bool s_mdnsInit = false, s_mdnsOk = false;
 static bool s_userIdle = false;
+static bool s_screenPowerSave = false;
 static bool s_bgAttempt = false;
 static bool s_saveOnSuccess = false;
 static char s_trySsid[33] = "";
@@ -123,7 +124,9 @@ static void startMdns()
         s_mdnsOk = mdns_hostname_set(host) == ESP_OK;
         mdns_instance_name_set(host);
         mdns_txt_item_t txt[1] = {{"fw", s_hooks.mdnsTxtFw ? s_hooks.mdnsTxtFw : ""}};
+        mdns_txt_item_t gameTxt[] = {{"proto", "1"}, {"games", "yatzy"}, {"device", host}};
         if (s_mdnsOk) s_mdnsOk = mdns_service_add(nullptr, "_http", "_tcp", 80, txt, 1) == ESP_OK;
+        if (s_mdnsOk) s_mdnsOk = mdns_service_add(nullptr, "_ontheroad", "_tcp", 80, gameTxt, 3) == ESP_OK;
     }
     ESP_LOGI(TAG, "mDNS %s.local %s", host, s_mdnsOk ? "ok" : "FAILED");
 }
@@ -313,7 +316,8 @@ static bool initDriver()
     if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) return false;
     if (s_hooks.hostname) esp_netif_set_hostname(s_netif, s_hooks.hostname());
     if (esp_wifi_start() != ESP_OK) return false;
-    esp_wifi_set_ps(WIFI_PS_NONE);   // Lower latency for the web UI
+    const esp_err_t psErr = esp_wifi_set_ps(s_screenPowerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+    if (psErr != ESP_OK) ESP_LOGW(TAG, "initial power-save mode failed: %s", esp_err_to_name(psErr));
     return true;
 }
 
@@ -620,6 +624,16 @@ Status status()
     return s_status;
 }
 bool connected() { return s_status == Status::CONNECTED; }
+
+void setScreenPowerSave(bool enabled)
+{
+    Lock l;
+    s_screenPowerSave = enabled;
+    if (s_status == Status::OFF || s_status == Status::ERROR) return;
+    const esp_err_t err = esp_wifi_set_ps(enabled ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+    if (err != ESP_OK) ESP_LOGW(TAG, "screen power-save mode %s failed: %s",
+                                enabled ? "enable" : "disable", esp_err_to_name(err));
+}
 bool mdnsOk() { return s_mdnsOk; }
 const char *ipStr() { return connected() ? s_ip : "0.0.0.0"; }
 uint32_t attemptId() { return s_attemptId; }

@@ -33,13 +33,13 @@ struct tsf_hydra;
 namespace Sf {
 
 constexpr int MAX_VOICES = 32;                      // Voices allocated; setMaxVoices() can use fewer
-constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // load() (whole file in PSRAM) refuses larger files
-constexpr size_t PSRAM_RESERVE = 512u * 1024;       // prepare() auto budget: largest free PSRAM block minus this
+constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // Default whole-file limit (S3-compatible)
+constexpr size_t PSRAM_RESERVE = 512u * 1024;       // Default automatic prepare() reserve (S3-compatible)
 constexpr size_t HOST_BUDGET = 8u * 1024 * 1024;    // prepare() auto budget off target (tests/tools)
 constexpr int REDUCED_VELOCITY = 100;               // Velocity layer kept when a song is over budget
 constexpr uint32_t RESAMPLE_MIN_LOOP = 8;           // Loops shorter than this (in output samples) stay at full rate
 
-// TOO_BIG: load(): file > MAX_SF2; prepare(): the song needs more than the budget even with one
+// TOO_BIG: load(): file > the configured/free-memory limit; prepare(): the song needs more than the budget even with one
 // velocity layer and one zone per key.
 enum class LoadErr : uint8_t { OK, NO_FILE, TOO_BIG, BAD_FILE, NO_MEMORY, COMPRESSED };
 const char *loadErrName(LoadErr e);
@@ -75,7 +75,7 @@ class Synth : public Midi::Sink {
 public:
     Synth();
     ~Synth() override;
-    LoadErr load(const char *path, int sampleRate);   // Whole file (<= MAX_SF2), all presets
+    LoadErr load(const char *path, int sampleRate);   // Whole file, all presets
     LoadErr open(const char *path, int sampleRate);   // Structure only; needs prepare() before sound
     // Loads the samples `song` needs (bank opened with open()) for the current transpose. budget 0 =
     // automatic (largest free PSRAM block - PSRAM_RESERVE; HOST_BUDGET off target); the free PSRAM
@@ -91,6 +91,7 @@ public:
 
     void setEffects(const Effects &e);
     const Effects &effects() const { return fx_; }
+    void setMemoryLimits(size_t maxFileBytes, size_t reserveBytes);
     // Resample samples above the output rate in prepare() (default on; takes effect at the next prepare)
     void setResampling(bool on) { resample_ = on; }
     bool resampling() const { return resample_; }
@@ -126,6 +127,7 @@ private:
     uint32_t smplPos_ = 0;
     size_t size_ = 0;
     bool full_ = false, prepared_ = false, scanning_ = false, resample_ = true;
+    size_t maxFileBytes_ = MAX_SF2, psramReserve_ = PSRAM_RESERVE;
     int maxVoices_ = MAX_VOICES;
     PrepStats stats_;
     uint64_t *keyMask_ = nullptr, *velMask_ = nullptr;   // Scan: 2 x 64 bit per preset

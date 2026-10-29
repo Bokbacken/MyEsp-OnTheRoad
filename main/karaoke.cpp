@@ -23,6 +23,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lang.h"
+#include "hw_profile.h"
 #include "otr_synth.h"
 
 static const char *TAG = "karaoke";
@@ -293,6 +294,9 @@ void stopDiag()
 void fontTask(void *)
 {
     memoryMark("bank-task-start");
+    const HwProfile::Info &hw = HwProfile::active();
+    s_synth.setMemoryLimits(hw.soundFontMaxBytes, hw.psramReserveBytes);
+    s_synth.setResampling(hw.resampleSoundFonts);
     char path[128], name[64];
     Err err = Err::OK;
     s_loadPct = 0;

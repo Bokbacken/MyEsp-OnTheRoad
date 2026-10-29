@@ -20,6 +20,11 @@ struct Info {
     bool hasSd;
     bool hasRgbLed;
     bool hasHostRadio;
+    uint32_t flashBytes;
+    uint32_t psramBytes;
+    uint32_t soundFontMaxBytes;
+    uint32_t psramReserveBytes;
+    bool resampleSoundFonts;
 };
 
 const Info &active();

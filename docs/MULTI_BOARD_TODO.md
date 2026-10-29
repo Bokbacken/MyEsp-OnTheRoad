@@ -215,7 +215,38 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## IX. Fler kort i framtiden
 
-- [ ] Guide: lägga till ett kort (profil, stift, drivrutiner, overlay, CI).
+### Guide: lägga till ett kort
+
+1. Lägg till ett ID och en rad i `HwProfile::Info` (`main/hw_profile.h/.cpp`):
+   namn, upplösning, periferikapacitet, flash/PSRAM, SoundFont-reserv och
+   resamplingsstandard. Applikationskod ska fråga profilen om kapacitet i stället
+   för att sprida kortvillkor.
+2. Lägg kortets GPIO- och busskarta i `main/board_pins_<id>.h`, välj den via
+   `main/board_pins.h` och håll kortdrivrutinerna bakom de gemensamma
+   `board_*.h`-API:erna.
+3. Binda profil till ESP-IDF-target i `main/Kconfig.projbuild`; lägg
+   targetflaggor i `sdkconfig.defaults.<target>`. Om kortet behöver annan flash-
+   layout ska det ha egen `partitions.<id>.csv`, vald av dess target-overlay.
+4. Lägg målberoenden i `idf_component.yml` med target-regler. Lägg till
+   drivrutinsfiler i `main/CMakeLists.txt` bakom profilen; undvik spridda
+   `CONFIG_IDF_TARGET_*`-villkor i funktionskod.
+5. Lägg target/profile-raden i CI-matrisen och verifiera att buildloggen väljer
+   rätt profil, SDK-defaults, partitionstabell och beroenden. Lägg till
+   hosttest för profilens kapabiliteter och minnesbudgets.
+6. Först när stegen är stabila: samla metadata och pin-namn i
+   `boards/<id>/board.h` och generera/validera profil- och konfigurationsdelarna
+   från den filen. Flytta inte byggval till generering innan CI kan bevisa att
+   genererade filer motsvarar targeten.
+
+**Rekommendation – hybridgränser:** härled tillgänglig budget från faktiskt
+ledigt/största PSRAM-block och flashpartitionernas storlek vid körning. Profilen
+anger rekommenderat tak, reserv och standardval för respektive funktion; en
+funktion får inte slås av automatiskt bara för att ett annat kort saknar minne.
+Varje funktion ska ha en dokumenterad miniminivå och ett kontrollerat
+reservbeteende. För Karaoke är nuvarande rekommendation 8 MB PSRAM, 512 kB
+SoundFont-reserv och nedsampling på S3; P4-profilen anger 32 MB, 2 MB reserv och
+nativ SoundFont-samplingsfrekvens. Större laddningar begränsas alltid av faktisk
+ledig PSRAM.
 
 ## X. Nästa runda (v0.23, ägarens lista 2026-10-29)
 
@@ -228,46 +259,54 @@ rekommendation innan kod skrivs.
    host=3.0.10 coprocessor=3.0.10 (match)`) i Översikt och Diagnostik, bara
    för kort med Host-radio. Ersätter punkten "Kontrollera C6-version" i
    avsnitt V.
-   - [ ] Cacha versionen vid uppstart (ingen RPC per webbanrop).
-   - [ ] Startkontroll/diagnostik: varning vid mismatch eller okänd version.
+   - [x] Cacha versionen vid uppstart (ingen RPC per webbanrop).
+   - [x] Startkontroll/diagnostik: varning vid mismatch eller okänd version.
+   - [ ] **Hårdvara:** verifiera match, mismatch och okänd-version-varning på P4.
 2. **Karaoke på stor skärm.** P4 visar 4 textrader på övre halvan; resten är
    svart.
-   - [ ] Centrera texten horisontellt och vertikalt.
-   - [ ] Antal rader beräknas från skärmhöjd och textstorlek (S3 oförändrat).
+   - [x] Centrera texten horisontellt och vertikalt.
+   - [x] Antal rader beräknas från skärmhöjd och textstorlek (S3 oförändrat).
+   - [ ] **Hårdvara:** verifiera radantal, läsbarhet och vertikal centrering på
+     båda skärmarna.
 3. **Kortdefinitioner.** Utred och föreslå hur nästa kort läggs till med i
    princip en definitionsfil (`hw_profile`, `board_pins_*.h`, sdkconfig,
    partitionstabell, CI-matris, `idf_component.yml`-regler).
-   - [ ] Dokumentera förslaget i "IX. Fler kort i framtiden" och genomför
-     de delar som är små och säkra.
-   - [ ] Beslut: funktionsgränser automatiskt efter minne/flash, manuellt
-     per funktion, eller automatiska standardvärden som profilen kan
-     åsidosätta (rekommendation krävs).
+   - [x] Dokumentera förslaget i "IX. Fler kort i framtiden"; capability- och
+     minnesbudgetar ligger i profilen.
+   - [x] Rekommendation: automatiska runtime-budgetar med profilens
+     funktionsvisa tak/reserver och standardval; ingen automatisk avstängning.
 4. **Flash, PSRAM och SoundFont.**
-   - [ ] Utnyttja P4:s hela flash (32 MB) och PSRAM (32 MB) i
-     partitionstabell/FFat och minnesbudgetar; S3 (16 MB/8 MB) oförändrat.
-   - [ ] Ladda större SoundFonts utan nedsampling när PSRAM räcker
-     (`MAX_SF2` 7 MB och nedsampling idag); behåll nuvarande beteende på
-     S3.
-   - [ ] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
-     kvalitet per kort.
+   - [x] P4-tabell med 32 MB flash och 21.875 MB FFat; OTA-offsetar behålls.
+     S3-tabellen är oförändrad. **USB:** befintliga P4 måste flasha
+     partitionstabellen en gång; procedur dokumenterad nedan.
+   - [x] Profilstyrt SoundFont-tak/reserv; S3 behåller 7 MB/512 kB och
+     nedsampling, P4 får dynamiskt minnestak/2 MB reserv utan nedsampling.
+   - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
+     kvalitet i `MUSIC_KARAOKE_PLAN.md`.
+   - [ ] **Hårdvara:** verifiera utökad P4-FFat, återstart/OTA och stora SF2.
 5. **Stereoljud till webbsidan i Karaoke.** Utred stereoström (idag mono
    22050 Hz från mixen) för P4 och kommande kort; implementera om
    bandbredd/CPU räcker, annars dokumentera varför inte.
+   - [x] Utredning och bandbreddsestimat dokumenterade i
+     `MUSIC_KARAOKE_PLAN.md`.
+   - [x] **Ägarbeslut:** behåll mono i v0.23; stereo kräver en stereo-synt,
+     mixer/tap, ringbuffer och webbavkodare, samt CPU-/ljudmätning på P4.
 6. **Strömsparning, nästa steg.**
-   - [ ] Karaoke: håll vaken medan en låt spelar; inaktivitet räknas från
+   - [x] Karaoke: håll vaken medan en låt spelar; inaktivitet räknas från
      låtens slut.
-   - [ ] Pågående spel: dubbel inaktivitetstid innan skärmsläckning.
-   - [ ] Utred och dokumentera: Wi-Fi power save (S3 inbyggt, P4 via C6
-     Host), sänkt CPU-frekvens/`esp_pm` med automatisk light sleep,
-     deep sleep med touch-väckning (I2C/INT-stift), väcktid inklusive
-     Wi-Fi-återanslutning. Implementera säkra vinster bakom inställning.
+   - [x] Pågående spel: dubbel inaktivitetstid innan skärmsläckning.
+   - [x] Wi-Fi `MIN_MODEM` när skärmen släcks, av igen vid väckning. Styrs av
+     befintlig skärmtimeout/manuell släckning.
+   - [x] Utred Wi-Fi/DFS/deep sleep och dokumentera rekommendationerna nedan.
+     **Hårdvara:** mät effekt och verifiera återanslutning på båda korten.
 7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.
-   - [ ] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
-     (PIN), vilka spel först.
-   - [ ] Första steg: en ESP-enhet ansluter som spelare till en annan
-     enhets spel (Yatzy) via samma protokoll som webbläsarna.
+   - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
+     (PIN), återanslutning och Yatzy först.
+   - [x] mDNS annonserar `_ontheroad._tcp` med protokollversion och stödda spel.
+   - [ ] **Ägarbeslut / nästa steg:** ESP-enhetens upptäckts-/join-UI och
+     WebSocket-klient för fjärrsäte återstår; se designbeslutet.
 
 ## Leveranslogg
 

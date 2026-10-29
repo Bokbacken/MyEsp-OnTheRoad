@@ -5,6 +5,10 @@
 #include "my_lvgl.h"
 #include "my_ota.h"
 #include "my_sys.h"
+#include "game_live.h"
+#include "karaoke.h"
+#include "my_wifi.h"
+#include "screen_power_policy.h"
 #include "esp_log.h"
 
 namespace {
@@ -15,6 +19,7 @@ bool s_blockTouch = false;
 void wake(uint32_t now)
 {
     Backlight::setSleeping(false);
+    MyWifi::setScreenPowerSave(false);
     s_lastActivity = now;
     s_wakeAt = now;
     s_blockTouch = true;
@@ -46,7 +51,13 @@ void tick(lv_timer_t *)
         return;
     }
     const uint16_t seconds = Config::get().screenOffSeconds;
-    if (!Backlight::sleeping() && seconds && now - s_lastActivity >= uint32_t(seconds) * 1000)
+    if (Karaoke::playing()) {
+        if (Backlight::sleeping()) wake(now);
+        s_lastActivity = now;
+        return;
+    }
+    if (!Backlight::sleeping() &&
+        ScreenPowerPolicy::shouldSleep(seconds, now - s_lastActivity, false, GameLive::running()))
         UiScreenPower::sleepNow();
 }
 }  // namespace
@@ -68,6 +79,7 @@ void sleepNow()
         ESP_LOGW("screen", "screen-off blocked during OTA");
         return;
     }
+    MyWifi::setScreenPowerSave(true);
     Backlight::setSleeping(true);
     ESP_LOGI("screen", "backlight off; touch wake enabled");
 }

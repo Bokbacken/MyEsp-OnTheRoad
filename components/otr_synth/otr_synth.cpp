@@ -169,7 +169,15 @@ LoadErr Synth::load(const char *path, int sampleRate)
     long sz = 0;
     const LoadErr pe = openChecked(path, &fp, &sz);
     if (pe != LoadErr::OK) return pe;
-    if ((size_t)sz > MAX_SF2) {
+    size_t limit = maxFileBytes_;
+#ifdef ESP_PLATFORM
+    const size_t freeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    const size_t available = freeBlock > psramReserve_ ? freeBlock - psramReserve_ : 0;
+    if (available < limit) limit = available;
+#else
+    if (limit > HOST_BUDGET) limit = HOST_BUDGET;
+#endif
+    if ((size_t)sz > limit) {
         fclose(fp);
         return LoadErr::TOO_BIG;
     }
@@ -187,6 +195,12 @@ LoadErr Synth::load(const char *path, int sampleRate)
     initFx();
     reset();
     return LoadErr::OK;
+}
+
+void Synth::setMemoryLimits(size_t maxFileBytes, size_t reserveBytes)
+{
+    maxFileBytes_ = maxFileBytes ? maxFileBytes : MAX_SF2;
+    psramReserve_ = reserveBytes;
 }
 
 LoadErr Synth::open(const char *path, int sampleRate)
@@ -565,7 +579,7 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
     size_t limit = budget;
 #ifdef ESP_PLATFORM
     const size_t freeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
-    const size_t avail = freeBlock > PSRAM_RESERVE ? freeBlock - PSRAM_RESERVE : 0;
+    const size_t avail = freeBlock > psramReserve_ ? freeBlock - psramReserve_ : 0;
     if (!limit || avail < limit) limit = avail;
 #else
     if (!limit) limit = HOST_BUDGET;
