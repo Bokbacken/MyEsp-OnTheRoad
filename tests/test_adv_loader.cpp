@@ -13,6 +13,7 @@
 //   -o tests/test_adv_loader && ./tests/test_adv_loader
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -95,6 +96,28 @@ static void testGenerated()
         "docs/adventures/sokoban/sokoban.adv",
     };
     for (const char *f : files) crossCheck(f);
+}
+
+static void testMapComment()
+{
+    const char *path = "/tmp/adv_map_comment.adv";
+    {
+        std::ofstream file(path);
+        file << "@map\n"
+                "S###\n"
+                "....\n"
+                "...X\n"
+                "# This comment follows the map.\n"
+                "@dark\n"
+                "1,1 2,1\n";
+    }
+
+    crossCheck(path);
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {0};
+    CHECK(Adv::parseFile(path, *L, err, sizeof err));
+    CHECK(L->rowCount == 3);
+    CHECK(std::strcmp(L->rowPtrs[0], "S###") == 0);
 }
 
 // Also cross-check the SD bundle copies (the files that actually ship on the card).
@@ -771,6 +794,7 @@ static void testZeroTreasureAmounts()
 int main()
 {
     testGenerated();
+    testMapComment();
     testSdBundle();
     testResourcesDemo();
     testMinesweeper();

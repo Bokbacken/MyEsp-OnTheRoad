@@ -608,7 +608,7 @@ static bool parseSingleMap(const char *text, size_t len, int requestedMap, Loade
         if (rawN && line[rawN - 1] == '\r') rawN--;
         line[rawN] = 0;
 
-        // Inside @map, only a new section or a blank line ends/skips a row; '#' is map data.
+        // Inside @map, '#' followed by whitespace starts a comment; other '#' glyphs are map data.
         if (sec == MAP) {
             char tmp[LINE_CAP];
             memcpy(tmp, line, rawN + 1);
@@ -616,6 +616,8 @@ static bool parseSingleMap(const char *text, size_t len, int requestedMap, Loade
             if (t[0] == '@') {
                 sec = NONE;   // fall through to section handling below
             } else if (t[0] == 0) {
+                continue;
+            } else if (t[0] == '#' && (t[1] == ' ' || t[1] == '\t')) {
                 continue;
             } else {
                 if (out.rowCount >= MAX_ROWS) { setErr(err, errCap, lineNo, "too many map rows"); return false; }
