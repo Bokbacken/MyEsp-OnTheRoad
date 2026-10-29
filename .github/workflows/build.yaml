@@ -21,6 +21,7 @@ jobs:
           repository: espressif/esp-hosted-mcu
           ref: 78b1c1c43c02b0c4e898cf87f94679278b1ddaff
           path: esp_hosted
+          submodules: recursive
           persist-credentials: false
 
       - name: Record upstream revision
