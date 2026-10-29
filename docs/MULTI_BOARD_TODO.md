@@ -147,7 +147,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   artefakten `host-fw-esp32c6-78b1c1c`. C6-byggprojektets dubbla OTA-slots
   är 0x1C0000 byte; webb-OTA avvisar större filer.
 - [ ] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
-  vid uppstart (nu görs säkerhetskontrollen vid OTA-begäran).
+  vid uppstart. Flyttad till avsnitt X punkt 1.
 - [ ] Dokumentera återställning via C6:s 4-poliga flashkontakt.
 - [x] **Hårdvara:** C6-OTA från fabriksfirmware till 3.0.10 verifierad av
   ägaren; efter omstart rapporterar `eh_init_evt` host=3.0.10
@@ -216,6 +216,58 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 ## IX. Fler kort i framtiden
 
 - [ ] Guide: lägga till ett kort (profil, stift, drivrutiner, overlay, CI).
+
+## X. Nästa runda (v0.23, ägarens lista 2026-10-29)
+
+Underlag och detaljer finns i PR-beskrivningen för den här rundan. Ordningen
+nedan är arbetsordningen; utredningspunkter ska ge ett dokumenterat svar med
+rekommendation innan kod skrivs.
+
+1. **ESP-Hosted-version i webben.** Visa host-/coprocessor-version och
+   match/mismatch (samma info som `eh_init_evt: esp-hosted fw versions:
+   host=3.0.10 coprocessor=3.0.10 (match)`) i Översikt och Diagnostik, bara
+   för kort med Host-radio. Ersätter punkten "Kontrollera C6-version" i
+   avsnitt V.
+   - [ ] Cacha versionen vid uppstart (ingen RPC per webbanrop).
+   - [ ] Startkontroll/diagnostik: varning vid mismatch eller okänd version.
+2. **Karaoke på stor skärm.** P4 visar 4 textrader på övre halvan; resten är
+   svart.
+   - [ ] Centrera texten horisontellt och vertikalt.
+   - [ ] Antal rader beräknas från skärmhöjd och textstorlek (S3 oförändrat).
+3. **Kortdefinitioner.** Utred och föreslå hur nästa kort läggs till med i
+   princip en definitionsfil (`hw_profile`, `board_pins_*.h`, sdkconfig,
+   partitionstabell, CI-matris, `idf_component.yml`-regler).
+   - [ ] Dokumentera förslaget i "IX. Fler kort i framtiden" och genomför
+     de delar som är små och säkra.
+   - [ ] Beslut: funktionsgränser automatiskt efter minne/flash, manuellt
+     per funktion, eller automatiska standardvärden som profilen kan
+     åsidosätta (rekommendation krävs).
+4. **Flash, PSRAM och SoundFont.**
+   - [ ] Utnyttja P4:s hela flash (32 MB) och PSRAM (32 MB) i
+     partitionstabell/FFat och minnesbudgetar; S3 (16 MB/8 MB) oförändrat.
+   - [ ] Ladda större SoundFonts utan nedsampling när PSRAM räcker
+     (`MAX_SF2` 7 MB och nedsampling idag); behåll nuvarande beteende på
+     S3.
+   - [ ] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
+     kvalitet per kort.
+5. **Stereoljud till webbsidan i Karaoke.** Utred stereoström (idag mono
+   22050 Hz från mixen) för P4 och kommande kort; implementera om
+   bandbredd/CPU räcker, annars dokumentera varför inte.
+6. **Strömsparning, nästa steg.**
+   - [ ] Karaoke: håll vaken medan en låt spelar; inaktivitet räknas från
+     låtens slut.
+   - [ ] Pågående spel: dubbel inaktivitetstid innan skärmsläckning.
+   - [ ] Utred och dokumentera: Wi-Fi power save (S3 inbyggt, P4 via C6
+     Host), sänkt CPU-frekvens/`esp_pm` med automatisk light sleep,
+     deep sleep med touch-väckning (I2C/INT-stift), väcktid inklusive
+     Wi-Fi-återanslutning. Implementera säkra vinster bakom inställning.
+7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
+   och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
+   master. Bygger på befintlig webb-live-vy och WebSocket-platser.
+   - [ ] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
+     (PIN), vilka spel först.
+   - [ ] Första steg: en ESP-enhet ansluter som spelare till en annan
+     enhets spel (Yatzy) via samma protokoll som webbläsarna.
 
 ## Leveranslogg
 
