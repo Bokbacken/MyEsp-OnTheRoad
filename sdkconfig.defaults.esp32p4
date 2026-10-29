@@ -5,6 +5,8 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
 CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 CONFIG_SPIRAM_SPEED_200M=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+# The P4 bootloader starts at 0x2000; with the partition table at 0x8000 it must stay below 24 KB.
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 
 # --- Wi-Fi through the ESP32-C6 co-processor (ESP-Hosted 3.x, SDIO, board default pins) ---
 CONFIG_ESP_HOSTED=y
