@@ -25,6 +25,7 @@ struct Info {
     uint32_t soundFontMaxBytes;
     uint32_t psramReserveBytes;
     bool resampleSoundFonts;
+    uint16_t maxKaraokeVoices;
 };
 
 const Info &active();

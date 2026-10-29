@@ -175,6 +175,7 @@ TSFDEF void tsf_set_volume(tsf* f, float global_gain);
 //   max_voices: maximum number to pre-allocate and set the limit to
 //   (tsf_set_max_voices returns 0 if allocation failed, otherwise 1)
 TSFDEF int tsf_set_max_voices(tsf* f, int max_voices);
+TSFDEF unsigned int tsf_take_voice_steals(tsf* f);
 
 // Start playing a note
 //   preset_index: preset index >= 0 and < tsf_get_presetcount()
@@ -350,6 +351,7 @@ struct tsf
 	int voiceNum;
 	int maxVoiceNum;
 	unsigned int voicePlayIndex;
+	unsigned int voiceSteals;
 
 	enum TSFOutputMode outputmode;
 	float outSampleRate;
@@ -1654,6 +1656,7 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 				}
 				if (!voice)
 					continue;
+				if (voice->playingPreset != -1) f->voiceSteals++;
 				tsf_voice_kill(voice);
 			}
 			else
@@ -1762,6 +1765,13 @@ TSFDEF int tsf_active_voice_count(tsf* f)
 	int count = 0;
 	struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
 	for (; v != vEnd; v++) if (v->playingPreset != -1) count++;
+	return count;
+}
+
+TSFDEF unsigned int tsf_take_voice_steals(tsf* f)
+{
+	unsigned int count = f->voiceSteals;
+	f->voiceSteals = 0;
 	return count;
 }
 

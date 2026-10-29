@@ -257,19 +257,38 @@ bool needPrepare() { return s_open && s_synth.bankOpen() && s_songGen != s_prepG
 
 void progressCb(void *, int pct) { s_loadPct = pct; }
 
+uint8_t effectiveVoiceLimit(uint8_t requested, uint16_t capacity)
+{
+    uint8_t effective = 0;
+    for (uint8_t option : KARA_VOICE_OPTIONS)
+        if (option <= capacity && option <= requested) effective = option;
+    if (effective) return effective;
+    for (uint8_t option : KARA_VOICE_OPTIONS)
+        if (option <= capacity) return option;
+    return 1;
+}
+
 // Every 5 s while a song is open: render load (average/peak in % of a mixer block), late blocks and
 // voices, to find the cause of dropouts on the device
 void diagCb(void *)
 {
     const Audio::ExternalStats st = Audio::takeExternalStats();
-    const int peak = s_voicesPeak;
-    s_voicesPeak = 0;
+    int peak, limit;
+    uint32_t steals;
+    {
+        Lock l;
+        peak = s_voicesPeak;
+        s_voicesPeak = 0;
+        limit = s_synth.maxVoices();
+        steals = s_synth.takeVoiceSteals();
+    }
     const uint32_t newUnder = st.underruns - s_lastUnderruns;
     s_lastUnderruns = st.underruns;
     if (!s_open || s_fontState == FontState::LOADING || !st.blocks) return;
-    ESP_LOGI(TAG, "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, %s",
+    ESP_LOGI(TAG, "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, steals %u, %s",
              (unsigned)(st.avgLoad100 / 100), (unsigned)(st.avgLoad100 % 100), (unsigned)(st.maxLoad100 / 100),
-             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, s_synth.maxVoices(),
+             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, limit,
+             (unsigned)steals,
              s_player.playing() ? "playing" : "paused");
 }
 
@@ -283,6 +302,7 @@ void startDiag()
     Audio::takeExternalStats();   // Start a fresh period
     s_lastUnderruns = Audio::status().underruns;
     s_voicesPeak = 0;
+    s_synth.takeVoiceSteals();
     if (!esp_timer_is_active(s_diagTimer)) esp_timer_start_periodic(s_diagTimer, 5000000);
 }
 
@@ -304,7 +324,8 @@ void fontTask(void *)
     Audio::releaseClips();
     {
         Lock l;
-        s_synth.setMaxVoices(Config::get().karaVoices);
+        s_synth.setVoiceCapacity(hw.maxKaraokeVoices);
+        s_synth.setMaxVoices(effectiveVoiceLimit(Config::get().karaVoices, hw.maxKaraokeVoices));
     }
     if (s_taskOpenBank) {
         {
@@ -767,7 +788,7 @@ void setDefaultFont(const char *name)
 
 void setVoiceLimit(uint8_t voices)
 {
-    if (!Config::validKaraVoices(voices)) return;
+    if (!Config::validKaraVoices(voices) || voices > HwProfile::active().maxKaraokeVoices) return;
     Config::get().karaVoices = voices;
     Config::save();
     Lock l;

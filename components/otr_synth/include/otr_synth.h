@@ -32,7 +32,7 @@ struct tsf_hydra;
 
 namespace Sf {
 
-constexpr int MAX_VOICES = 192;                     // Voices allocated; setMaxVoices() can use fewer
+constexpr int MAX_SUPPORTED_VOICES = 192;           // Upper bound; the active board profile sets allocation capacity
 constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // Default whole-file limit (S3-compatible)
 constexpr size_t PSRAM_RESERVE = 512u * 1024;       // Default automatic prepare() reserve (S3-compatible)
 constexpr size_t HOST_BUDGET = 8u * 1024 * 1024;    // prepare() auto budget off target (tests/tools)
@@ -95,9 +95,13 @@ public:
     // Resample samples above the output rate in prepare() (default on; takes effect at the next prepare)
     void setResampling(bool on) { resample_ = on; }
     bool resampling() const { return resample_; }
-    // Voice limit 1..MAX_VOICES (default MAX_VOICES); applies at once (voices above it are cut)
+    // Board profile capacity is set before loading a bank; user limit cannot exceed that allocation.
+    void setVoiceCapacity(int n);
+    int voiceCapacity() const { return voiceCapacity_; }
+    // Voice limit 1..voiceCapacity(); applies at once (voices above it are cut)
     void setMaxVoices(int n);
     int maxVoices() const { return maxVoices_; }
+    uint32_t takeVoiceSteals();
 
     void midi(uint8_t status, uint8_t d1, uint8_t d2) override;
     void reset() override;
@@ -128,7 +132,8 @@ private:
     size_t size_ = 0;
     bool full_ = false, prepared_ = false, scanning_ = false, resample_ = true;
     size_t maxFileBytes_ = MAX_SF2, psramReserve_ = PSRAM_RESERVE;
-    int maxVoices_ = MAX_VOICES;
+    int voiceCapacity_ = 32;
+    int maxVoices_ = 32;
     PrepStats stats_;
     uint64_t *keyMask_ = nullptr, *velMask_ = nullptr;   // Scan: 2 x 64 bit per preset
     Effects fx_;

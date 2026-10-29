@@ -190,7 +190,7 @@ LoadErr Synth::load(const char *path, int sampleRate)
     full_ = true;
     rate_ = sampleRate;
     tsf_set_output(f_, TSF_MONO, sampleRate, -14.0f);   // Headroom: dense songs (30+ voices) must not clip
-    if (!tsf_set_max_voices(f_, MAX_VOICES)) { unload(); return LoadErr::NO_MEMORY; }
+    if (!tsf_set_max_voices(f_, voiceCapacity_)) { unload(); return LoadErr::NO_MEMORY; }
     applyVoices();
     initFx();
     reset();
@@ -234,7 +234,7 @@ LoadErr Synth::open(const char *path, int sampleRate)
     rate_ = sampleRate;
     snprintf(path_, sizeof(path_), "%s", path);
     tsf_set_output(f_, TSF_MONO, sampleRate, -14.0f);
-    if (!tsf_set_max_voices(f_, MAX_VOICES)) { unload(); return LoadErr::NO_MEMORY; }
+    if (!tsf_set_max_voices(f_, voiceCapacity_)) { unload(); return LoadErr::NO_MEMORY; }
     applyVoices();
     initFx();
     reset();
@@ -967,11 +967,23 @@ void Synth::setMuted(int ch, bool m)
 
 void Synth::setMaxVoices(int n)
 {
-    maxVoices_ = n < 1 ? 1 : n > MAX_VOICES ? MAX_VOICES : n;
+    maxVoices_ = n < 1 ? 1 : n > voiceCapacity_ ? voiceCapacity_ : n;
     applyVoices();
 }
 
-// All MAX_VOICES are allocated; TinySoundFont only uses the first voiceNum (stealing beyond)
+void Synth::setVoiceCapacity(int n)
+{
+    const int capacity = n < 1 ? 1 : n > MAX_SUPPORTED_VOICES ? MAX_SUPPORTED_VOICES : n;
+    if (capacity == voiceCapacity_) return;
+    if (f_ && f_->voices && capacity > f_->voiceNum && !tsf_set_max_voices(f_, capacity)) return;
+    voiceCapacity_ = capacity;
+    if (maxVoices_ > voiceCapacity_) maxVoices_ = voiceCapacity_;
+    applyVoices();
+}
+
+uint32_t Synth::takeVoiceSteals() { return f_ ? tsf_take_voice_steals(f_) : 0; }
+
+// All voiceCapacity_ slots are allocated; TinySoundFont only uses the first maxVoices_.
 void Synth::applyVoices()
 {
     if (!f_ || !f_->voices) return;

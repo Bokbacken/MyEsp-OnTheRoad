@@ -256,11 +256,13 @@ int main() {
     assert(p.flashBytes == 32u * 1024 * 1024 && p.psramBytes == 32u * 1024 * 1024);
     assert(p.soundFontMaxBytes == p.psramBytes && p.psramReserveBytes == 2u * 1024 * 1024);
     assert(!p.resampleSoundFonts);
+    assert(p.maxKaraokeVoices == 192);
 #else
     assert(p.id == HwProfile::Id::ES3C35P);
     assert(p.flashBytes == 16u * 1024 * 1024 && p.psramBytes == 8u * 1024 * 1024);
     assert(p.soundFontMaxBytes == 7u * 1024 * 1024 && p.psramReserveBytes == 512u * 1024);
     assert(p.resampleSoundFonts);
+    assert(p.maxKaraokeVoices == 32);
 #endif
 }
 '''

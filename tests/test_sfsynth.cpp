@@ -312,21 +312,27 @@ static void testSelective()
     s.midi(0x90, 60, 100);
     CHECK(s.activeVoices() == 0);
 
-    // Voice limit: applies at once, clamped to 1..MAX_VOICES
+    // Voice capacity is board-configurable; the current limit cannot exceed its allocation.
     s.reset();
-    CHECK(Sf::MAX_VOICES == 192);
-    CHECK(s.maxVoices() == Sf::MAX_VOICES);
+    CHECK(Sf::MAX_SUPPORTED_VOICES == 192);
+    CHECK(s.voiceCapacity() == 32 && s.maxVoices() == 32);
+    for (int i = 0; i < 40; i++) s.midi(0x90, 60, 100);
+    CHECK(s.activeVoices() == 32);
+    s.reset();
+    s.setVoiceCapacity(Sf::MAX_SUPPORTED_VOICES);
+    CHECK(s.voiceCapacity() == 192);
     s.setMaxVoices(2);
     for (int k = 0; k < 4; k++) s.midi(0x90, (uint8_t)(60 + k), 100);
     CHECK(s.maxVoices() == 2 && s.activeVoices() == 2);
+    CHECK(s.takeVoiceSteals() > 0 && s.takeVoiceSteals() == 0);
     s.setMaxVoices(1);
     CHECK(s.activeVoices() == 1);
-    s.setMaxVoices(Sf::MAX_VOICES + 1);
-    CHECK(s.maxVoices() == Sf::MAX_VOICES);
+    s.setMaxVoices(Sf::MAX_SUPPORTED_VOICES + 1);
+    CHECK(s.maxVoices() == Sf::MAX_SUPPORTED_VOICES);
     s.reset();
-    for (int i = 0; i < Sf::MAX_VOICES + 4; i++) s.midi(0x90, 60, 100);
-    CHECK(s.activeVoices() == Sf::MAX_VOICES);
-    s.setMaxVoices(Sf::MAX_VOICES);
+    for (int i = 0; i < Sf::MAX_SUPPORTED_VOICES + 4; i++) s.midi(0x90, 60, 100);
+    CHECK(s.activeVoices() == Sf::MAX_SUPPORTED_VOICES);
+    s.setMaxVoices(Sf::MAX_SUPPORTED_VOICES);
     s.reset();
 
     // Same file again: the hydra is kept

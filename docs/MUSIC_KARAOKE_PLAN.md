@@ -94,6 +94,14 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
 - **v0.13.4 – budget och diagnostik:** budgeten är största lediga PSRAM-block − 512 kB (inte längre fast 6 MB);
   spelets ljudklippscache frigörs först. Var 5:e sekund loggas renderbelastning (medel/max), underruns och röster.
   NVS `kara_voices` (32/64/96/128/160/192, standard 96) begränsar antalet röster.
+- **v0.23 – rösttak per kort:** S3-profilen förallokerar högst 32 röster och visar bara valet 32; P4-profilen
+  förallokerar högst 192 och visar valen 32–192. På P4 är 96 fortsatt standard; 128+ är opt-in.
+- **Mätning på P4:** FluidR3 (151 MB), Alan Parsons Project “Time”, 96 röster: 0 underruns, cirka 45 % medellast,
+  97 % maxlast och långa perioder med 96/96 aktiva röster. En separat helsångsmätning med 192 som tak hade också
+  0 underruns, men 5-sekunders medellast varierade ungefär 33–78 %, maxlast nådde 134 % och topparna var 179/192.
+  Last över 100 % betyder att en mixerperiod tog längre än sin tidsbudget; att mätningen inte hade underruns är
+  inte en garanti mot framtida bortfall. Utdata är mono 22 050 Hz. Mindre eller förhandsomsamplade SoundFonts kan
+  minska renderarbetet och eventuellt tillåta högre rösttak; behöver mätas av ägaren på hårdvaran.
 - **v0.13.5 – webbkaraoke:** mixerns färdiga monoblock går via `Audio::setTap()` till en låsfri ring
   (`main/kara_stream`, 32 kB i PSRAM) och skickas av `main/kara_web` som binärframes (512 sampel int16, 22 050 Hz)
   på WebSocket `/ws/karaoke`. Texten (`newrow`/`lyric`/`clear`, JSON) läggs i strömmen vid exakt rätt sampel av

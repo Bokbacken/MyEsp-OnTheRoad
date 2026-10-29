@@ -14,6 +14,7 @@
 #include "kara_web.h"
 #include "karaoke_layout.h"
 #include "karaoke.h"
+#include "hw_profile.h"
 #include "lang.h"
 #include "my_lvgl.h"
 #include "my_textinput.h"
@@ -1076,10 +1077,11 @@ void voicePickCb(lv_event_t *e)
     static uint32_t last = 0;
     if (!Theme::debounce(last, DEBOUNCE_MS)) return;
     const uint8_t voices = (uint8_t)(intptr_t)lv_event_get_user_data(e);
-    if (!Config::validKaraVoices(voices)) return;
+    if (!Config::validKaraVoices(voices) || voices > HwProfile::active().maxKaraokeVoices) return;
     Karaoke::setVoiceLimit(voices);
     lv_obj_t *row = lv_obj_get_parent(static_cast<lv_obj_t *>(lv_event_get_target(e)));
     for (uint32_t i = 0; i < KARA_VOICE_OPTION_COUNT; i++) {
+        if (KARA_VOICE_OPTIONS[i] > HwProfile::active().maxKaraokeVoices) break;
         lv_obj_t *button = lv_obj_get_child(row, (int32_t)i);
         const bool selected = KARA_VOICE_OPTIONS[i] == voices;
         lv_obj_set_style_bg_color(button, Theme::c(selected ? Theme::TEAL : Theme::LINE), 0);
@@ -1131,7 +1133,11 @@ void showFonts(bool forSong)
     lv_obj_set_style_pad_column(voiceRow, layout().gap, 0);
     for (uint8_t i = 0; i < KARA_VOICE_OPTION_COUNT; i++) {
         const uint8_t voices = KARA_VOICE_OPTIONS[i];
-        const bool selected = Config::get().karaVoices == voices;
+        if (voices > HwProfile::active().maxKaraokeVoices) break;
+        const uint8_t selectedLimit = Config::get().karaVoices > HwProfile::active().maxKaraokeVoices
+                                          ? HwProfile::active().maxKaraokeVoices
+                                          : Config::get().karaVoices;
+        const bool selected = selectedLimit == voices;
         char text[4];
         snprintf(text, sizeof(text), "%u", (unsigned)voices);
         lv_obj_t *button = Theme::button(voiceRow, text, 52, layout().buttonH,
