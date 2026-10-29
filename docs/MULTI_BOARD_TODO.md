@@ -310,6 +310,8 @@ rekommendation innan kod skrivs.
      partitionstabellen en gång; se "P4-partitionstabell: USB-migrering".
    - [x] Profilstyrt SoundFont-tak/reserv; S3 behåller 7 MB/512 kB och
      nedsampling, P4 får dynamiskt minnestak/2 MB reserv utan nedsampling.
+   - [x] Profilstyrt rösttak: S3 högst 96, P4 högst 192; väljaren visar bara
+     värden som ryms inom kortets gräns.
    - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
      kvalitet i `MUSIC_KARAOKE_PLAN.md`.
    - [ ] **Hårdvara:** verifiera utökad P4-FFat, återstart/OTA och stora SF2.

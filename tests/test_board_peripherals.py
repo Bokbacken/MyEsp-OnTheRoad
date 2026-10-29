@@ -262,7 +262,7 @@ int main() {
     assert(p.flashBytes == 16u * 1024 * 1024 && p.psramBytes == 8u * 1024 * 1024);
     assert(p.soundFontMaxBytes == 7u * 1024 * 1024 && p.psramReserveBytes == 512u * 1024);
     assert(p.resampleSoundFonts);
-    assert(p.maxKaraokeVoices == 32);
+    assert(p.maxKaraokeVoices == 96);
 #endif
 }
 '''
