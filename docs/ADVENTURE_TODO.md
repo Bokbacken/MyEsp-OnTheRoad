@@ -37,7 +37,9 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 Pågående leverans: `feat/adventure-multimap-portals`, PR #19, firmware
 `0.21.3`. Kod och testbanor är pushade där men ännu inte mergade till
 `main`. Checklistans avbockningar avser implementation på den branchen;
-fysisk ESP-verifiering och slutlig firmwarekontroll återstår.
+fysisk ESP-verifiering återstår. Kodversion `084ae6e` byggdes med ESP-IDF
+6.1 för ESP32-S3 i Actions-körning `40874166116`; följande
+checklisteuppdatering ändrar ingen firmwarekod.
 Själva planen publicerades separat på `main` via PR #20.
 
 Bekräftade spelregler för denna leverans:
@@ -81,7 +83,8 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
   Multimapkontroller, ASan/UBSan, tidigare resurser och SD-sessioner samt
   Adventure/Karaoke-layout är kontrollerade. Slutligt firmwarebygge ska
   avse PR:ens senaste SHA, inte en äldre grön commit.
-- [ ] Slutlig ESP-IDF-byggkontroll för senaste SHA i PR #19.
+- [x] Slutlig ESP-IDF-byggkontroll för implementationen i PR #19:
+  `084ae6e`, Actions `40874166116`.
 - [ ] Användarens verifiering på ESP32-S3.
 
 ## Småfixar i samma leverans
@@ -141,4 +144,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | Datum | Leverans | Verifiering/status |
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
-| 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Första ESP-IDF-bygget grönt; slutlig integration och fysisk ESP-verifiering kvar. |
+| 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Slutlig kodversion `084ae6e` byggd med ESP-IDF 6.1; fysisk ESP-verifiering kvar. |
