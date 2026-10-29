@@ -3272,6 +3272,8 @@ static void buildGame(bool loadFailed)
     else if (!s_world->mineLevel() && s_world->exitReached() && (!s_sd.active() || s_sd.completed())) adventureResult();
 }
 
+static void buildWorldPick();
+
 static void startGame(bool cont)
 {
     s_pendingDestination[0] = 0;
@@ -3289,7 +3291,15 @@ static void startGame(bool cont)
         // <map>", "line N: ...", etc.
         char msg[192];
         snprintf(msg, sizeof(msg), "%s\n%s", tr(Str::ADV_SD_LOAD_FAIL), err);
-        toast(msg, Theme::RED, 7000);
+        auto *mb = lv_msgbox_create(nullptr);
+        lv_msgbox_add_text(mb, msg);
+        auto *back = lv_msgbox_add_footer_button(mb, tr(Str::ADV_PICK_WORLD));
+        s_dialog = mb;
+        lv_obj_add_event_cb(back, [](lv_event_t *) {
+            closeDialog();
+            buildWorldPick();
+        }, LV_EVENT_CLICKED, nullptr);
+        AdvUi::dialogLayout(mb);
         return;
     }
     bool failed = false;
@@ -3398,7 +3408,6 @@ static void fillPlayerList()
     heap_caps_free(db);
 }
 
-static void buildWorldPick();
 static void buildPlayerPick();
 
 // Step 1 tap: remember the chosen adventure, then advance to the player picker.
