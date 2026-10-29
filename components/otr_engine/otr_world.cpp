@@ -546,6 +546,24 @@ bool World::playerCanEnter(int x, int y) const
     return false;
 }
 
+bool World::safeArrivalAt(int x, int y) const
+{
+    if (!playerCanEnter(x, y) || rawObj(x, y) == Obj::MINE || enemyAt(x, y) >= 0) return false;
+    const Tile t = tile(x, y);
+    return t != Tile::LAVA && t != Tile::POISON && t != Tile::SWAMP && t != Tile::SHARP_ROCKS;
+}
+
+bool World::setPlayerPosition(int x, int y)
+{
+    if (!safeArrivalAt(x, y)) return false;
+    px_ = x;
+    py_ = y;
+    exitReached_ = false;
+    facing_ = Dir::DOWN;
+    ++rev_;
+    return true;
+}
+
 bool World::rockCanEnter(int x, int y) const
 {
     if (!inside(x, y) || rawObj(x, y) != Obj::NONE || enemyAt(x, y) >= 0) return false;

@@ -33,6 +33,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   (GigaDevice, 32 MB). USB-UART-brygga CH343 (VID `0x1a86`, PID `0x55d3`).
 - Bygg därför med `CONFIG_ESP32P4_REV_MIN_300` (v3.0–v3.99). Ett v1.x-bygge
   behövs inte för detta kort.
+- Ägaren har startat v0.22.0 på P4 och anslutit till Wi-Fi. RTC fungerar
+  inte ännu och batteri-ADC saknas. Övriga hårdvarukontroller nedan är
+  inte automatiskt godkända av detta första test.
 
 ### Beslut
 
@@ -73,7 +76,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   via LVGL-mjukvarurotation.
 - [x] Bakgrundsbelysning GPIO26, LEDC PWM, inverterad.
 - [x] GT911-touch på I²C GPIO7/8, adress `0x5D`/`0x14`, polling utan INT.
-- [x] I²C-skanning och RTC på delad buss.
+- [x] I²C-skanning på delad buss.
 - [x] Ingen RGB-lysdiod: `Rgb` blir no-op utan att påverka appen.
 - [x] Startskärmen visar rätt kortnamn/upplösning.
 - [x] CI-bygge för P4 grönt.
@@ -86,11 +89,14 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Ljud: ES8311 med I²S MCLK13/BCLK12/WS10/DOUT9/DIN11, förstärkare
   GPIO53 (aktiv hög).
 - [ ] Batteri: ADC på GPIO20, delare 3:1 som förvald skala.
+- [ ] RTC: identifiera P4-kortets RTC och lägg till rätt drivrutin bakom
+  befintligt API; nuvarande DS3231-stöd räcker inte för kortet.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
 
 ## IV. Wi-Fi via ESP32-C6 (ESP-Hosted)
 
-- [ ] `esp_hosted` 3.x (SDIO, C6 som slav) initieras på P4; länkas redan.
+- [x] `esp_hosted` 3.x (SDIO, C6 som slav) initieras på P4;
+  Wi-Fi-anslutning bekräftad av ägaren med v0.22.0.
 - [ ] `my_wifi`, mDNS, webbserver, NTP och webb-OTA fungerar oförändrat.
 - [ ] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
 - [ ] **Hårdvara:** anslutning, webbsida, klocka via NTP.
@@ -133,3 +139,5 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 |---|---|---|
 | 2026-10-29 | Plan | Skapad. |
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
+| 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
+| 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1; nytt dual-target-bygge krävs före merge. |

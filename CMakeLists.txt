@@ -1,6 +1,6 @@
 # MyEsp-OnTheRoad - ESP-IDF project. Boards: ES3C35P (esp32s3), Waveshare P4 4.3" (esp32p4).
 cmake_minimum_required(VERSION 3.22)
-set(PROJECT_VER "0.22.0")
+set(PROJECT_VER "0.22.1")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # Managed components differ per target (ESP-Hosted on P4), so keep one lock file per target.
 if(NOT IDF_TARGET)

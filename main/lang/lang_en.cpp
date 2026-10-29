@@ -321,6 +321,7 @@ extern const Entry LANG_EN[] = {
     {Str::ADV_DIED_LEFT, "Out of energy - %d lives left"},
     {Str::ADV_GAME_OVER_Q, "Game over - no lives left. Continue from the last save or start over?"},
     {Str::ADV_CHECKPOINT, "Checkpoint - you restart here"},
+    {Str::ADV_PORTAL_BLOCKED, "The portal destination is blocked. You stay here."},
     {Str::ADV_EXIT, "You found the exit - well done!"},
     {Str::ADV_SAVED, "Saved"},
     {Str::ADV_SAVE_FAIL, "Could not save"},

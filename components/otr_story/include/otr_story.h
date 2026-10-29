@@ -60,6 +60,7 @@ struct Npc {
     Text name;
     uint8_t look;   // Sprite / portrait set in the UI
     uint8_t num;    // Map digit 1..9
+    uint8_t mapId = 1; // Internal SD map; 1 is the main map.
 };
 
 struct Choice {
@@ -107,7 +108,7 @@ struct Script {
     int itemId(const char *name, size_t len) const;
     int questId(const char *name, size_t len) const;
     const Npc *npc(const char *id) const;
-    const Npc *npcByNum(int num) const;
+    const Npc *npcByNum(int num, int mapId = 1) const;
 
     // Checks the whole script: declared names, condition / effect syntax, every target exists,
     // every node reachable from a "<npc>.start", text lengths, speakers, npc numbers unique.
@@ -139,6 +140,11 @@ class Host {
 public:
     virtual ~Host() = default;
     virtual void worldAction(const char *verb, int argc, const int *argv) = 0;
+    virtual void worldActionOnMap(const char *verb, int mapId, int argc, const int *argv)
+    {
+        if (mapId == 1) worldAction(verb, argc, argv);
+    }
+    virtual void worldTravel(const char *destination) { (void)destination; }
     virtual void sound(const char *name) = 0;
 };
 

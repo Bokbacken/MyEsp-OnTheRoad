@@ -50,7 +50,7 @@ namespace Game = AdvUi::Game;
 // ----------------------------------------------------------------------------------------
 // Layout
 // ----------------------------------------------------------------------------------------
-// No top status bar. The control strip height is half the display width.
+// The HUD has a reserved top strip; the control strip height is half the display width.
 // Capture the layout before allocation; it stays paired with that framebuffer until screen deletion.
 static Game::Layout s_layout = Game::layout(320, 480);
 static size_t s_fbStride;                                        // RGB565 pixels, including LVGL padding
@@ -110,7 +110,7 @@ static uint16_t *s_fb = nullptr;   // Canvas buffer sized to s_layout.view, with
 static Otr::Planner *s_planner = nullptr;   // ~90 kB A* work area
 static Otr::Path *s_path = nullptr;
 static uint8_t *s_saveBuf = nullptr;         // Save file image
-static constexpr size_t SAVE_CAP = Adventure::Session::SAVE_CAP;   // >= World::saveSize() for 64 x 64
+static constexpr size_t SAVE_CAP = Adv::SdSession::SAVE_CAP;
 
 // Screen objects
 static lv_obj_t *s_scr, *s_gameRoot, *s_canvas, *s_toast, *s_dialog;
@@ -181,6 +181,7 @@ static void cancelBomb();
 static void mineResult();
 static Otr::Story::StoryState s_storyState;   // What the conversations changed (saved as .sts)
 static Otr::Story::Dialog s_talk;
+static char s_pendingDestination[64];
 static int s_talkNum;                         // Person being talked to (map number), 0 = none
 static int s_walkTalkNum;                     // Tap on a person: walk there, then talk to it
 static int s_pendingChoice = -2;              // Picked answer, handled in the next tick (-1 = close)
@@ -977,7 +978,7 @@ static void coloredObject(int sprite, int id, int sx, int sy)
 static int npcSprite(int x, int y, uint32_t now)
 {
     const int num = s_world->npcAt(x, y);
-    const Otr::Story::Npc *n = s_story ? s_story->npcByNum(num) : nullptr;
+    const Otr::Story::Npc *n = s_story ? s_story->npcByNum(num, s_sd.currentMapId()) : nullptr;
     const int look = (n ? n->look : num + NPC_LOOKS - 1) % NPC_LOOKS;
     const int dx = s_world->playerX() - x, dy = s_world->playerY() - y;
     Dir d;
@@ -1072,6 +1073,18 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
                 coloredObject(S_COLOR_PLATE, int(tile) - int(Tile::PLATE_RED), sx, sy);
             else blit(terrainSprite(tx, ty, frame), sx, sy, false);
             terrainOverlay(tile, tx, ty, sx, sy);
+            if (s_adv) for (int i = 0; i < s_adv->portalCount; ++i) {
+                const auto &portal = s_adv->portals[i];
+                if (portal.mapId != s_sd.currentMapId() || portal.x != tx || portal.y != ty) continue;
+                const int center = ts / 2, radius = ts / 3;
+                for (int y = -radius - 1; y <= radius + 1; ++y)
+                    for (int x = -radius - 1; x <= radius + 1; ++x) {
+                        const int distance = x * x + y * y;
+                        if (distance >= (radius - 1) * (radius - 1) &&
+                            distance <= (radius + 1) * (radius + 1))
+                            framePixel(sx + center + x, sy + center + y, rgb(70, 190, 255));
+                    }
+            }
             if (fog) {
                 const int n = w.mineHint(tx, ty);
                 if (n > 0 && w.tile(tx, ty) != Tile::WALL && w.tile(tx, ty) != Tile::TREE) blit(S_NUM1 + n - 1, sx, sy, true);
@@ -1510,6 +1523,11 @@ class StoryHost : public Otr::Story::Host {
 public:
     void worldAction(const char *verb, int argc, const int *a) override
     {
+        if (s_sd.hasInternalMaps() &&
+            (!strcmp(verb, "npc_move") || !strcmp(verb, "npc_remove") || !strcmp(verb, "open"))) {
+            worldActionOnMap(verb, 1, argc, a);
+            return;
+        }
         Otr::World &w = *s_world;
         bool ok = true;
         if (!strcmp(verb, "npc_move") && argc == 3) ok = w.moveNpc(a[0], a[1], a[2]);
@@ -1522,6 +1540,29 @@ public:
         if (!ok) ESP_LOGW(TAG, "story: world %s (%d args) failed", verb, argc);
         s_dirty = true;
         updateStats();
+    }
+    void worldActionOnMap(const char *verb, int mapId, int argc, const int *a) override
+    {
+        char err[160];
+        if (!s_sd.active() || !s_sd.applyWorldActionOnMap(verb, mapId, argc, a,
+                *s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
+            ESP_LOGW(TAG, "story: world %s map=%d failed", verb, mapId);
+            toast(s_sd.active() ? err : tr(Str::ADV_SD_LOAD_FAIL), Theme::RED, 5000);
+            return;
+        }
+        s_dirty = true;
+        s_saveWanted = true;
+        updateStats();
+    }
+    void worldTravel(const char *destination) override
+    {
+        if (!destination || strlen(destination) >= sizeof s_pendingDestination) {
+            ESP_LOGW(TAG, "story: invalid portal destination");
+            toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED, 5000);
+            return;
+        }
+        // Defer scratch/script replacement until Dialog has finished applying this node's effects.
+        snprintf(s_pendingDestination, sizeof s_pendingDestination, "%s", destination);
     }
     void sound(const char *name) override
     {
@@ -1674,7 +1715,7 @@ static void talkShowNode()
     if (sp && h < PORTRAIT_PX) h = PORTRAIT_PX;
     const int32_t boxH = h + 2 * TALK_PAD;
     lv_obj_set_size(s_talkBox, talkW, boxH);
-    lv_obj_set_pos(s_talkBox, 6, s_layout.view.h - 6 - boxH);
+    lv_obj_set_pos(s_talkBox, 6, s_layout.view.y + s_layout.view.h - 6 - boxH);
     lv_label_set_text(s_talkText, "");
     s_twPos = 0;
     s_twChars = 0;
@@ -1743,7 +1784,7 @@ static void startTalk(int num)
     stopPath();
     s_joy.cancel();
     joyShow(false, 0, 0);
-    const Otr::Story::Npc *n = s_story ? s_story->npcByNum(num) : nullptr;
+    const Otr::Story::Npc *n = s_story ? s_story->npcByNum(num, s_sd.currentMapId()) : nullptr;
     if (!n || !s_talk.start(*s_story, s_storyState, n->id, &s_storyHost)) {
         toast(tr(Str::ADV_TALK_NONE), Theme::MUTED, 1500);
         return;
@@ -1839,6 +1880,61 @@ static void loadResourceImages()
                       "Resursbild saknas/ogiltig: visar påse", Theme::ACCENT, 5000);
 }
 
+static void refreshInternalMap()
+{
+    stopPath();
+    s_joy.cancel();
+    joyShow(false, 0, 0);
+    snapPlayer();
+    s_fxX = -1;
+    s_bumpT0 = 0;
+    s_lastCamX = s_lastCamY = -1;
+    s_dirty = true;
+    s_saveWanted = true;
+    AdvLive::invalidateMap();
+    updateStats();
+    loadResourceImages();
+}
+
+static Adv::SdSession::PortalResult afterSdAction(int oldX, int oldY, uint32_t events)
+{
+    if (!s_sd.active()) return Adv::SdSession::PORTAL_NONE;
+    char err[160];
+    const auto result = s_sd.afterAction(oldX, oldY, events, *s_adv, *s_world,
+                                         s_storyState, s_story, err, sizeof err);
+    if (result == Adv::SdSession::PORTAL_TRAVELLED ||
+        result == Adv::SdSession::PORTAL_CHECKPOINT_RESPAWNED) {
+        refreshInternalMap();
+    } else if (result == Adv::SdSession::PORTAL_BLOCKED ||
+               result == Adv::SdSession::PORTAL_FAILED) {
+        stopPath();
+        s_joy.cancel();
+        joyShow(false, 0, 0);
+        snapPlayer();
+        ESP_LOGW(TAG, "portal: %s", err);
+        toast(result == Adv::SdSession::PORTAL_BLOCKED ? tr(Str::ADV_PORTAL_BLOCKED) : err,
+              Theme::RED, 5000);
+    }
+    return result;
+}
+
+static void pendingStoryTravel()
+{
+    if (!s_pendingDestination[0]) return;
+    char destination[sizeof s_pendingDestination];
+    memcpy(destination, s_pendingDestination, sizeof destination);
+    s_pendingDestination[0] = 0;
+    endTalk();
+    char err[160];
+    if (!s_sd.active() || !s_sd.travelToDestination(destination, *s_adv, *s_world,
+            s_storyState, s_story, err, sizeof err)) {
+        ESP_LOGW(TAG, "story travel to %s failed", destination);
+        toast(s_sd.active() ? err : tr(Str::ADV_SD_LOAD_FAIL), Theme::RED, 5000);
+        return;
+    }
+    refreshInternalMap();
+}
+
 static void sdExitAdvance()
 {
     stopPath(); s_joy.cancel();
@@ -1912,6 +2008,7 @@ static uint32_t doMove(Dir d, bool vault = false, bool pull = false)
         vault ? s_world->vault(&s_moveTrace) : s_world->move(d, &s_moveTrace);
     s_dirty = true;
     playEvents(ev);
+    const auto portal = afterSdAction(fx, fy, ev);
     if (ev & (Otr::EV_DIED | Otr::EV_GAME_OVER | Otr::EV_EXIT)) {
         stopPath();
         s_joy.cancel();
@@ -1919,9 +2016,11 @@ static uint32_t doMove(Dir d, bool vault = false, bool pull = false)
     }
     char buf[80];
     if (ev & Otr::EV_DIED) {   // Respawned (or game over): no walk animation
-        handleActionDeath(ev, tx, ty, now);
+        handleActionDeath(ev, portal == Adv::SdSession::PORTAL_CHECKPOINT_RESPAWNED ? s_world->playerX() : tx,
+                          portal == Adv::SdSession::PORTAL_CHECKPOINT_RESPAWNED ? s_world->playerY() : ty, now);
         return ev;
     }
+    if (portal != Adv::SdSession::PORTAL_NONE) return ev;
     if (ev & Otr::EV_MOVED) {
         s_fromX = fx;
         s_fromY = fy;
@@ -2040,7 +2139,9 @@ static void doHit()
         s_joy.cancel();
         joyShow(false, 0, 0);
         if (actAvail(ACT_LEVER)) {
+            const int oldX = s_world->playerX(), oldY = s_world->playerY();
             const uint32_t ev = s_world->activate();
+            afterSdAction(oldX, oldY, ev);
             playEvents(ev);
             eventToasts(ev);
             if (ev & Otr::EV_DIED) {
@@ -2056,7 +2157,15 @@ static void doHit()
     // a person is just a harmless bump — press Byt to pick Prata to talk instead.
     const int tx = s_world->playerX() + Otr::dirX(s_world->facing());
     const int ty = s_world->playerY() + Otr::dirY(s_world->facing());
+    const int oldX = s_world->playerX(), oldY = s_world->playerY();
     const uint32_t ev = s_world->hit();
+    const auto portal = afterSdAction(oldX, oldY, ev);
+    if (ev & Otr::EV_DIED) {
+        playEvents(ev);
+        handleActionDeath(ev, s_world->playerX(), s_world->playerY(), now);
+        return;
+    }
+    if (portal != Adv::SdSession::PORTAL_NONE) return;
     if (ev & Otr::EV_TALK) {
         s_bumpDx = Otr::dirX(s_world->facing());
         s_bumpDy = Otr::dirY(s_world->facing());
@@ -2190,6 +2299,9 @@ static lv_obj_t *dialog(const char *text)
     s_moveEvents = events; // Snapping a modal to the endpoint must not discard its terminal result.
     closeDialog();
     s_dialog = lv_msgbox_create(nullptr);
+    lv_obj_add_event_cb(s_dialog, [](lv_event_t *e) {
+        if (lv_event_get_current_target(e) == s_dialog) s_dialog = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
     if (text) lv_msgbox_add_text(s_dialog, text);
     AdvUi::dialogLayout(s_dialog);
     return s_dialog;
@@ -2309,12 +2421,17 @@ static void showGameOver()
         // more life at the checkpoint.
         Otr::World &w = *s_world;
         if (!(s_playerId && loadSave() && !w.gameOver())) {
-            if (w.gameOver()) w.revive();
+            if (w.gameOver()) {
+                w.revive();
+                char err[160];
+                if (s_sd.active() && !s_sd.respawnAtCheckpoint(*s_adv, w, s_storyState,
+                        s_story, err, sizeof err)) {
+                    ESP_LOGW(TAG, "checkpoint revive: %s", err);
+                    toast(err, Theme::RED, 5000);
+                }
+            }
         }
-        AdvLive::invalidateMap();
-        snapPlayer();
-        s_dirty = true;
-        updateStats();
+        refreshInternalMap();
     }, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(restart, [](lv_event_t *) {
         closeDialog();
@@ -2376,7 +2493,8 @@ static void liveSync(bool force = false)
     s_liveValid = true;
     const AdvLive::Source src = {&w, worldName(), s_story, &s_storyState, s_talk.active() ? &s_talk : nullptr,
                                  langIdx(), tr(Str::ADV_TALK_READ), tr(Str::ADV_TALK_OK), tr(Str::ADV_TALK_BYE),
-                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY, s_adv, s_sd.folder()};
+                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY,
+                                 s_adv, s_sd.folder(), s_sd.currentMapId()};
     AdvLive::publish(src);
 }
 
@@ -2394,6 +2512,7 @@ static void tick(lv_timer_t *)
     const uint32_t now = nowMs();
     finishMovement(now);
     talkTick(now);
+    pendingStoryTravel();
     if(s_world->mineLevel() && !s_resultShown && !busy(now)) {
         if(s_world->exitReached() && !s_world->gameOver() && s_sd.active()) {
             // True-minesweeper win on an SD map: advance like an X exit (catches bomb-cleared wins;
@@ -2856,10 +2975,6 @@ static void showMenu()
     lv_obj_set_style_text_font(help, &my_font_14, 0);
     lv_obj_set_style_text_font(perf, &my_font_14, 0);
     lv_obj_set_style_text_color(perf, Theme::c(Theme::MUTED), 0);
-    // The close button (x) only deletes the box: forget it
-    lv_obj_add_event_cb(mb, [](lv_event_t *e) {
-        if (lv_event_get_current_target(e) == s_dialog) s_dialog = nullptr;
-    }, LV_EVENT_DELETE, nullptr);
 }
 
 // 32 px sprite -> HUD_PX icon: box-filtered, colour-key pixels count as panel colour, so the edges
@@ -3099,7 +3214,15 @@ static void buildGame(bool loadFailed)
     lv_obj_set_clickable(s_toast, false);
     lv_obj_set_hidden(s_toast, true);
 
-    s_stageLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
+    lv_obj_t *hud = lv_obj_create(s_gameRoot);
+    lv_obj_remove_style_all(hud);
+    lv_obj_set_pos(hud, s_layout.hud.x, s_layout.hud.y);
+    lv_obj_set_size(hud, s_layout.hud.w, s_layout.hud.h);
+    lv_obj_set_style_bg_color(hud, Theme::c(Theme::BG), 0);
+    lv_obj_set_style_bg_opa(hud, LV_OPA_COVER, 0);
+    lv_obj_set_scrollable(hud, false);
+    lv_obj_set_clickable(hud, false);
+    s_stageLabel=Theme::label(hud,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_stageLabel,4,4);
     lv_obj_set_width(s_stageLabel, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(s_stageLabel, s_layout.view.w - 8, 0);
@@ -3108,18 +3231,18 @@ static void buildGame(bool loadFailed)
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_stageLabel,210,0);
     lv_obj_set_clickable(s_stageLabel,false);
-    s_progressLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
+    s_progressLabel=Theme::label(hud,"",&my_font_14,Theme::TEXT);
     lv_obj_set_pos(s_progressLabel,4,24);
-    lv_obj_set_width(s_progressLabel, s_layout.view.w - 8);
+    lv_obj_set_width(s_progressLabel, s_layout.hud.w / 2 - 6);
     lv_obj_set_height(s_progressLabel, 20);
     lv_label_set_long_mode(s_progressLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_progressLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_progressLabel,210,0);
     lv_obj_set_clickable(s_progressLabel,false);
     lv_obj_set_hidden(s_progressLabel,!s_extraHud);
-    s_timerLabel=Theme::label(s_gameRoot,"",&my_font_14,Theme::TEXT);
-    lv_obj_set_pos(s_timerLabel,4,44);
-    lv_obj_set_width(s_timerLabel, s_layout.view.w - 8);
+    s_timerLabel=Theme::label(hud,"",&my_font_14,Theme::TEXT);
+    lv_obj_set_pos(s_timerLabel,s_layout.hud.w / 2 + 2,24);
+    lv_obj_set_width(s_timerLabel, s_layout.hud.w - s_layout.hud.w / 2 - 6);
     lv_obj_set_height(s_timerLabel, 20);
     lv_label_set_long_mode(s_timerLabel, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_bg_color(s_timerLabel,Theme::c(Theme::BG),0);
@@ -3149,8 +3272,11 @@ static void buildGame(bool loadFailed)
     else if (!s_world->mineLevel() && s_world->exitReached() && (!s_sd.active() || s_sd.completed())) adventureResult();
 }
 
+static void buildWorldPick();
+
 static void startGame(bool cont)
 {
+    s_pendingDestination[0] = 0;
     closeDialog();
     s_storyState.clear();
     s_bombSize=0; s_resultShown=false;
@@ -3165,7 +3291,15 @@ static void startGame(bool cont)
         // <map>", "line N: ...", etc.
         char msg[192];
         snprintf(msg, sizeof(msg), "%s\n%s", tr(Str::ADV_SD_LOAD_FAIL), err);
-        toast(msg, Theme::RED, 7000);
+        auto *mb = lv_msgbox_create(nullptr);
+        lv_msgbox_add_text(mb, msg);
+        auto *back = lv_msgbox_add_footer_button(mb, tr(Str::ADV_PICK_WORLD));
+        s_dialog = mb;
+        lv_obj_add_event_cb(back, [](lv_event_t *) {
+            closeDialog();
+            buildWorldPick();
+        }, LV_EVENT_CLICKED, nullptr);
+        AdvUi::dialogLayout(mb);
         return;
     }
     bool failed = false;
@@ -3274,7 +3408,6 @@ static void fillPlayerList()
     heap_caps_free(db);
 }
 
-static void buildWorldPick();
 static void buildPlayerPick();
 
 // Step 1 tap: remember the chosen adventure, then advance to the player picker.

@@ -212,8 +212,8 @@ static void session()
         CHECK(!world.hasSuction());
         world.setSuction(true);
         const std::string rules = std::string("@rules\n") +
-            (policy & 1 ? "carry: energy suit keys suction\n" : "") +
-            (policy & 2 ? "reset: energy suit keys suction\n" : "") + "@map\nS.\n";
+            (policy & 1 ? "carry: energy suit keys\n" : "") +
+            (policy & 2 ? "reset: energy suit keys\n" : "") + "@map\nS.\n";
         CHECK(parse(rules));
         CHECK(session.travel(loaded, world, story, script, error, sizeof(error)));
         CHECK(world.hasSuction());

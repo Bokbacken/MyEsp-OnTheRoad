@@ -321,6 +321,7 @@ extern const Entry LANG_SV[] = {
     {Str::ADV_DIED_LEFT, "Energin tog slut - %d liv kvar"},
     {Str::ADV_GAME_OVER_Q, "Game over - alla liv är slut. Fortsätta från senaste sparning eller börja om?"},
     {Str::ADV_CHECKPOINT, "Kontrollpunkt - här börjar du om"},
+    {Str::ADV_PORTAL_BLOCKED, "Portalens ankomst är blockerad. Du stannar kvar."},
     {Str::ADV_EXIT, "Du hittade utgången - bra jobbat!"},
     {Str::ADV_SAVED, "Sparat"},
     {Str::ADV_SAVE_FAIL, "Kunde inte spara"},
