@@ -58,6 +58,8 @@ constexpr uint8_t SKATES_GLYPH = 16;
 constexpr uint8_t SUCTION_GLYPH = 17;
 constexpr int MAX_ENEMIES = 8;
 constexpr int MAX_ROUTE = 16;
+constexpr int MAX_RESOURCE_PICKUPS = 160;
+constexpr int MAX_RESOURCE_ITEMS = 32;
 
 enum class Tile : uint8_t {
     GRASS, SAND, FLOOR, RUBBLE, WALL, CRACKED, TREE, WATER, BRIDGE, LAVA, BASALT, PLATE, GATE,
@@ -77,7 +79,7 @@ enum class Obj : uint8_t {
     KEY_RED, KEY_GREEN, KEY_BLUE, KEY_YELLOW, KEY_PURPLE, KEY_CYAN,
     DOOR_RED, DOOR_GREEN, DOOR_BLUE, DOOR_YELLOW, DOOR_PURPLE, DOOR_CYAN,
     SKATES, BOX_RED, BOX_GREEN, BOX_BLUE, BOX_YELLOW, BOX_PURPLE, BOX_CYAN,
-    SUCTION,
+    SUCTION, RESOURCE,   // val_ is the story item index, not a second inventory.
     COUNT
 };
 
@@ -180,6 +182,13 @@ struct MoveTrace {
     uint16_t count = 0;
 };
 
+struct ResourcePickup { uint8_t x, y, item; };
+class ItemCollector {
+public:
+    virtual ~ItemCollector() = default;
+    virtual bool collect(uint8_t item) = 0;   // False leaves the pickup on the ground.
+};
+
 struct MapDef {
     uint8_t id;                     // Stable id (save files)
     const char *const *rows;
@@ -196,6 +205,8 @@ struct MapDef {
     const uint8_t (*plateGroups)[MAX_W] = nullptr;
     const EnemyDef *enemies = nullptr;
     int enemyCount = 0;
+    const ResourcePickup *resources = nullptr;
+    int resourceCount = 0;
 };
 
 struct MineLevel { uint8_t w, h, mines; };
@@ -206,6 +217,7 @@ class Planner;
 
 class World {
 public:
+    void setItemCollector(ItemCollector *collector) { itemCollector_ = collector; }
     // rows: h strings of equal length (1..MAX_W), exactly one 'S'. false on any error.
     bool load(const char *const *rows, int h, const Rules &rules = CLASSIC_RULES);
     bool load(const MapDef &def);   // Rows + rules + treasures
@@ -355,12 +367,15 @@ public:
     // must have been done first; restore() validates everything and leaves the world untouched
     // (freshly loaded) on any error.
     static constexpr uint32_t SAVE_MAGIC = 0x5352544F;   // "OTRS"
-    static constexpr uint16_t SAVE_VERSION = 6;   // v6: suction, count, definition hash, enemy states
+    static constexpr uint16_t SAVE_VERSION = 7;   // v7: resource objects; unchanged image size
     size_t saveSize() const;
     size_t save(uint8_t *buf, size_t cap) const;   // Bytes written, 0 if cap too small
     bool restore(const uint8_t *buf, size_t n);
 
 private:
+    ItemCollector *itemCollector_;
+    ResourcePickup resourceDefs_[MAX_RESOURCE_PICKUPS];
+    uint8_t resourceCount_;
     friend class Planner;
     enum : uint8_t { F_REVEALED = 1, F_FLAG = 2, F_DARK = 4 };   // F_DARK: v0.18.0 dark-area cell
     bool rockCanEnter(int x, int y) const;

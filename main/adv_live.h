@@ -39,6 +39,7 @@
 
 #include "otr_story.h"
 #include "otr_world.h"
+#include "adv_loader.h"
 
 namespace AdvLive {
 
@@ -48,9 +49,9 @@ constexpr int CHOICE_CAP = 4 * Otr::Story::MAX_CHOICE_CHARS + 1;
 constexpr int HINT_CAP = 160;
 constexpr int REF_CAP = 96;
 constexpr int MAX_NPCS = 9;        // Map digits 1..9
-constexpr int MAX_ITEMS = 16;      // Carried story items listed (first ones)
+constexpr int MAX_ITEMS = Otr::Story::MAX_ITEMS;
 constexpr int MAX_CHOICES = Otr::Story::MAX_CHOICES + 1;   // + the device's own "Okej" / "Gå vidare"
-constexpr size_t JSON_CAP = 28 * 1024;   // Worst case: 64 x 64 map with hints + a long dialogue
+constexpr size_t JSON_CAP = 48 * 1024;   // 80x80 layers, resources and a long dialogue
 
 struct NpcInfo {
     uint8_t num, x, y, look;
@@ -60,8 +61,14 @@ struct NpcInfo {
 
 struct ItemInfo {
     char name[NAME_CAP];
-    uint8_t count;
+    uint8_t count, cap;
 };
+
+struct ResourceType {
+    uint8_t item;
+    char name[NAME_CAP], image[40];
+};
+struct ResourceInfo { uint8_t x, y, type; };
 
 struct EnemyInfo {
     uint8_t x, y;
@@ -113,6 +120,10 @@ struct Snapshot {
     EnemyInfo enemies[Otr::MAX_ENEMIES];
     uint8_t itemCount;
     ItemInfo items[MAX_ITEMS];
+    char resourceFolder[40];
+    uint8_t resourceTypeCount, resourceCount;
+    ResourceType resourceTypes[Adv::MAX_RESOURCES];
+    ResourceInfo resources[Adv::MAX_RES_PLACE];
     DialogInfo dialog;
 };
 
@@ -129,6 +140,8 @@ struct Source {
     const char *byeText;                        // Added when every answer is locked ("Gå vidare")
     int talkNum;                                // Person being talked to (map number), 0 = none
     int worldId = 0, completed = 0, bombSize = 0, bombX = -1, bombY = -1;
+    const Adv::Loaded *adventure = nullptr;    // Read only by UI publisher, copied under the mutex.
+    const char *folder = nullptr;
 };
 
 // Pure: fills a snapshot from the source (no lock, no version). The map layers are rebuilt only

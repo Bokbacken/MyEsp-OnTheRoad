@@ -1,0 +1,16 @@
+@meta
+id: resource_carry
+world: 99
+map_id: 100
+@about
+title.sv: Resursprovet - carry
+title.en: Resource check - carry
+@rules
+carry: items
+reset: items
+@items
+ticket : Biljett : Ticket
+@resources
+s : stone : Sten : Stone : 1 :
+@map
+S.sQ.X

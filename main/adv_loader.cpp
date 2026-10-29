@@ -634,6 +634,12 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             if (space) { *space = 0; arg = trimIn(space + 1); }
             Sec ns;
             if (!secFromTag(t, ns)) { setErr(err, errCap, lineNo, "unknown section"); return false; }
+            if (arg && strstr(arg, "map=")) {
+                setErr(err, errCap, lineNo, "map selectors are not supported yet"); return false;
+            }
+            if (ns == MAP && ((arg && arg[0] && arg[0] != '#') || out.rowCount)) {
+                setErr(err, errCap, lineNo, "multiple maps / map ids are not supported yet"); return false;
+            }
             if (ns == ENEMIES && arg && arg[0] && arg[0] != '#') {
                 setErr(err, errCap, lineNo, "@enemies takes no arguments"); return false;
             }
@@ -872,7 +878,10 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                     return false;
                 }
                 const char g = f[0][0];
-                if (isBuiltinGlyph(g)) { setErr(err, errCap, lineNo, "resource glyph clashes with a built-in glyph"); return false; }
+                if ((unsigned char)g <= 32 || (unsigned char)g >= 127 || g == '@' || isBuiltinGlyph(g)) {
+                    setErr(err, errCap, lineNo, "resource glyph clashes with a built-in glyph / syntax"); return false;
+                }
+                if (strlen(f[1]) >= 40) { setErr(err, errCap, lineNo, "resource id too long"); return false; }
                 for (int i = 0; i < out.resourceCount; i++)
                     if (out.resources[i].glyph == g) { setErr(err, errCap, lineNo, "duplicate resource glyph"); return false; }
                 if (out.resourceCount >= MAX_RESOURCES) { setErr(err, errCap, lineNo, "too many resources"); return false; }
@@ -888,7 +897,13 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 if (cap < 1) cap = 1;
                 if (cap > 255) cap = 255;
                 r.cap = (uint8_t)cap;
-                copyStr(r.image, sizeof(r.image), nf >= 6 ? f[5] : "");
+                const char *image = nf >= 6 ? f[5] : "";
+                if (strlen(image) >= sizeof(r.image) || strstr(image, "..") ||
+                    strpbrk(image, "/\\:") || (image[0] && (strlen(image) < 5 ||
+                    strcasecmp(image + strlen(image) - 4, ".png")))) {
+                    setErr(err, errCap, lineNo, "resource image must be a PNG filename (max 39 bytes)"); return false;
+                }
+                copyStr(r.image, sizeof(r.image), image);
                 // The resource IS a story item (so has:/give/take validate).
                 if (out.itemCount >= MAX_ITEMS) { setErr(err, errCap, lineNo, "too many items (resource)"); return false; }
                 Named &nm = out.items[out.itemCount++];
@@ -896,6 +911,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 nm.id = IN(f[1]);
                 nm.name.s[0] = IN(nsv);
                 nm.name.s[1] = nen ? IN(nen) : nullptr;
+                nm.cap = r.cap;
                 break;
             }
             case NPC: {
@@ -991,6 +1007,11 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     }
 
     if (oom) { setErr(err, errCap, lineNo, "out of string space"); return false; }
+    for (int i = 0; i < out.itemCount; ++i)
+        for (int j = 0; j < i; ++j)
+            if (!strcmp(out.items[i].id, out.items[j].id)) {
+                setErr(err, errCap, 0, "duplicate item / resource id"); return false;
+            }
 
     // --- Apply grouped plate/gate authoring before translating resources to grass. ---
     if (out.rowCount == 0) { setErr(err, errCap, 0, "no @map rows"); return false; }
@@ -1070,6 +1091,11 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                     pl.glyph = ch;
                     pl.x = (uint8_t)x;
                     pl.y = (uint8_t)i;
+                    int itemIndex = -1;
+                    for (int k = 0; k < out.itemCount; ++k)
+                        if (!strcmp(out.items[k].id, out.resources[r].id)) itemIndex = k;
+                    if (itemIndex < 0) { setErr(err, errCap, 0, "missing resource item"); return false; }
+                    out.pickups[out.placementCount - 1] = {(uint8_t)x, (uint8_t)i, (uint8_t)itemIndex};
                     out.rows[i][x] = '.';
                     break;
                 }
@@ -1092,6 +1118,8 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     out.map.plateGroups = out.plateGroups;
     out.map.enemies = out.enemyCount ? out.enemies : nullptr;
     out.map.enemyCount = out.enemyCount;
+    out.map.resources = out.placementCount ? out.pickups : nullptr;
+    out.map.resourceCount = out.placementCount;
 
     // --- Build the Script ---
     out.script.npcs = out.npcs;

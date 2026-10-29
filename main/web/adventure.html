@@ -293,6 +293,42 @@ function drawEnemy(c, e) {
   lineC(c, x + 9, y + 17, x + 15, y + 17, '#14141e', 2);
 }
 
+const resourceImages = new Map();
+let resourceImageFolder = '';
+function drawResources(c, state) {
+  const folder = state.resource_folder || '';
+  if (folder !== resourceImageFolder) { resourceImages.clear(); resourceImageFolder = folder; }
+  for (const r of state.resources || []) {
+    if (!visibleCell(r.x, r.y)) continue;
+    const def = (state.resource_types || [])[r.type];
+    let image;
+    if (def && def.image) {
+      image = resourceImages.get(def.image);
+      if (!image) {
+        image = new Image();
+        image.onload = () => {
+          if (image.naturalWidth !== 32 || image.naturalHeight !== 32) {
+            image.failed = true; console.warn('Resource image must be 32x32:', def.image);
+          }
+          requestAnimationFrame(draw);
+        };
+        image.onerror = () => { image.failed = true; console.warn('Resource image unavailable:', def.image); };
+        image.src = '/api/fs/download?root=sd&path=' +
+          encodeURIComponent('/otr/adventure/' + folder + '/bitmaps/' + def.image);
+        resourceImages.set(def.image, image);
+      }
+    }
+    const x = r.x * CELL, y = r.y * CELL;
+    if (image && image.complete && image.naturalWidth === 32 && image.naturalHeight === 32 && !image.failed)
+      c.drawImage(image, x, y, CELL, CELL);
+    else {
+      rect(c, x + 5, y + 8, 15, 13, '#eb9b2d');
+      rect(c, x + 8, y + 3, 9, 5, '#eb9b2d');
+      lineC(c, x + 5, y + 8, x + 20, y + 8, '#5f6b2d', 2);
+    }
+  }
+}
+
 // Renders the full world into the world canvas (1 cell = CELL px), then scales / crops to the screen.
 const world = document.createElement('canvas'), wctx = world.getContext('2d');
 function draw() {
@@ -302,6 +338,7 @@ function draw() {
   const ax = anim.fx + (anim.x - anim.fx) * k, ay = anim.fy + (anim.y - anim.fy) * k;
   if (world.width !== layer.width || world.height !== layer.height) { world.width = layer.width; world.height = layer.height; }
   wctx.drawImage(layer, 0, 0);
+  drawResources(wctx, st);
   drawDynamicCells(wctx);
   for (const n of st.npcs) if (visibleCell(n.x, n.y)) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
   for (const e of st.enemies || []) drawEnemy(wctx, e);
@@ -367,7 +404,8 @@ function renderHud(s) {
   if (s.flashlight) it += chip('🔦', s.flashlight, s.lang === 1 ? 'Flashlight' : 'Ficklampa');
   if (s.pogo) it += chip('↟', s.pogo, s.lang === 1 ? 'Pogo' : 'Hoppstav');
   if (s.suit > 0) it += chip('🦺', s.suit, 'dräktladdningar');
-  for (const i of s.items) it += chip('🎒', esc(i.name), i.count > 1 ? '× ' + i.count : '');
+  for (const i of s.items) it += chip('🎒', esc(i.name),
+    i.cap && i.cap < 255 ? i.count + ' / ' + i.cap : i.count > 1 ? '× ' + i.count : '');
   $('items').innerHTML = it ? '<span class="muted" style="align-self:center">Föremål:</span>' + it : '<span class="muted">Föremål: inga</span>';
   const b = $('banner');
   b.hidden = !(s.game_over || s.exit);

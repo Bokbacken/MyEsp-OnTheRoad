@@ -12,7 +12,30 @@ finns i [Sokoban-demot](adventures/sokoban/sokoban.adv) och
 
 Versionsnumren i demohänvisningarna anger när respektive mekanik introducerades,
 inte att den bara stöds i den versionen. I repot är äventyrsmotorns senaste
-dokumenterade version 0.21.1; tidigare mekanik finns kvar.
+dokumenterade version 0.21.2; tidigare mekanik finns kvar.
+
+**0.21.2:** `@resources` är nu spelbara pickups, inte bara metadata.
+[Resursprovet](adventures/z_resource_test/README.md) kan kopieras direkt till SD.
+[Flerkartsformatet](ADVENTURE_MULTIMAP_FORMAT.md) är **enbart framtida
+specifikation**; `@map 2`, `map=2:` och portaler stöds ännu inte.
+
+Exempel på en fristående resurskarta i dagens format:
+
+```text
+@resources
+s : stone : Sten : Stone : 2 :
+@map
+SsssX
+```
+
+Varje `s` ger en sten; tredje stenen ligger kvar vid taket två.
+Tomt bildfält ger en gul påse; valfritt `stone.png` hämtas ur mappens
+`bitmaps/` (32×32, högst 16 KiB). Meny → **Föremål** visar namn och antal/tak.
+Resurs-id:t fungerar direkt i `has:stone`, `give stone` och `take stone`.
+`give` respekterar samma tak. Sparning omfattar både innehav och bortplockade
+objekt. Mellan **separata filer** krävs `carry: items` i filen du lämnar
+och samma id i nästa; `reset: items` vinner och nya filens tak gäller.
+**Starta om** börjar om hela äventyret från första filen.
 
 ## 1. Börja med en karta
 
@@ -161,7 +184,19 @@ på vanliga `o`-/`=`-rutor med nollbaserade kartkoordinater (`x,y`):
 @gategroup 1: 5,1
 ```
 
-En koordinat måste peka på rätt ruttyp. För att blanda plattor och spakar krävs
+Gruppdirektivet ska stå på en enda rad. Efter kolon anges en lista med en
+eller flera enskilda rutor, inte en rektangel:
+
+```text
+@plategroup 1: 3,4 5,4 7,8
+@gategroup 1: 9,4 9,5
+```
+
+Detta tilldelar tre plattor och två grindar till grupp 1. Koordinaterna måste
+peka på redan placerade plattor respektive grindar på din karta. Exemplen
+anger inget kart-id; flera kartor i samma fil stöds ännu inte.
+
+För att blanda plattor och spakar krävs
 `@andgate <grupp>` (även `@group <grupp>: and`): spaken måste vara ON **och** alla plattor rätt täckta.
 Utan detta direktiv är blandningen ett fel. En tidsgrupp
 (`@timedgate <grupp>: N`, `N`=1–65535 steg) kräver minst en
@@ -177,6 +212,23 @@ kartor; `reset: keys` tömmer dem och vinner om båda anges.
 resultat visar stegen i förhållande till par. Se
 [fyrarumsdemot](adventures/sokoban/sokoban.adv) för flera oberoende rum i samma
 karta och [S2-demot](adventures/s2_demo/README.md) för alla S2-objekt tillsammans.
+
+### Mörka områden: två hörn, inte en rutlista
+
+Till skillnad från gruppdirektiven beskriver varje mörkerrektangel exakt två
+hörn, inklusive båda:
+
+```text
+@dark
+2,2 9,6
+12,8 14,10
+```
+
+Här blir två rektanglar mörka. En enda mörk ruta anges som `4,3 4,3`.
+En rektangel kan också skrivas direkt på taggraden: `@dark 2,2 9,6`.
+Koordinaterna är nollbaserade, och något kart-id stöds inte ännu. Se
+[mörker och ficklampa](AUTHORING_ADVENTURES.md#10a-dark--mörka-områden)
+för fullständiga regler.
 
 ### Sugpropp och fiender (0.21.1)
 

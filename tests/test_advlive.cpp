@@ -163,7 +163,7 @@ void testVillage()
     st.items[bun] = 2;
     publish(source(*w, "Byn", &Story::VILLAGE_STORY, &st, &dl));
     CHECK(writeJson(mr + 1, g_buf, sizeof(g_buf)) > 0);
-    CHECK(has("\"items\":[{\"name\":\"Bulle\",\"count\":2}]"));
+    CHECK(has("\"items\":[{\"name\":\"Bulle\",\"count\":2,\"cap\":255}]"));
     CHECK(has("\"dialog\":null"));
 
     // English names

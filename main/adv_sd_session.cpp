@@ -3,6 +3,11 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <new>
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#endif
 
 namespace Adv {
 
@@ -14,6 +19,15 @@ void put16(uint8_t *p, uint16_t v) { p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; }
 void put32(uint8_t *p, uint32_t v) { p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF; }
 uint16_t get16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
+
+void *restoreBuffer(size_t size)
+{
+#ifdef ESP_PLATFORM
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    return malloc(size);
+#endif
+}
 
 // Player resources carried between maps.
 struct PlayerSnap {
@@ -90,7 +104,7 @@ void applyStory(const Otr::Story::Script *sc, Otr::Story::StoryState &st)
         int id = sc->itemId(g_snap.items[i].id, strlen(g_snap.items[i].id));
         if (id >= 0) {
             int v = g_snap.items[i].val;
-            st.items[id] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+            st.items[id] = (uint8_t)(v < 0 ? 0 : v > sc->items[id].cap ? sc->items[id].cap : v);
         }
     }
     for (int i = 0; i < g_snap.counterCount; i++) {
@@ -116,12 +130,22 @@ void applyStory(const Otr::Story::Script *sc, Otr::Story::StoryState &st)
 
 void SdSession::clear()
 {
+    inventory_ = nullptr;
+    script_ = nullptr;
     root_[0] = folder_[0] = 0;
     mapCount_ = mapIndex_ = 0;
     completed_ = false;
 }
 
-bool SdSession::loadMapInto(int index, Loaded &scratch, Otr::World &w, Otr::Story::StoryState &,
+bool SdSession::collect(uint8_t item)
+{
+    if (!inventory_ || !script_ || item >= script_->itemCount ||
+        inventory_->items[item] >= script_->items[item].cap) return false;
+    ++inventory_->items[item];
+    return true;
+}
+
+bool SdSession::loadMapInto(int index, Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
                             const Otr::Story::Script *&outScript, char *err, size_t errCap)
 {
     if (index < 0 || index >= mapCount_) {
@@ -134,11 +158,15 @@ bool SdSession::loadMapInto(int index, Loaded &scratch, Otr::World &w, Otr::Stor
         return false;
     }
     if (!parseFile(path, scratch, err, errCap)) return false;
+    if (scratch.script.validate(err, errCap)) return false;
     if (!w.load(scratch.map)) {
         snprintf(err, errCap, "engine rejected %s", maps_[index]);
         return false;
     }
-    outScript = scratch.nodeCount > 0 ? &scratch.script : nullptr;
+    outScript = scratch.nodeCount > 0 || scratch.itemCount > 0 ? &scratch.script : nullptr;
+    inventory_ = &story;
+    script_ = &scratch.script;
+    w.setItemCollector(this);
     mapIndex_ = index;
     return true;
 }
@@ -266,11 +294,42 @@ bool SdSession::restore(const uint8_t *data, size_t n, Loaded &scratch, Otr::Wor
         snprintf(err, errCap, "bad story image");
         return false;
     }
-    if (!loadMapInto(mapIndex, scratch, w, story, outScript, err, errCap)) return false;
-    if (!w.restore(data + HDR, ws)) {
-        snprintf(err, errCap, "bad world image");
+    // Loaded owns the script's strings. Back it up at its original addresses, and stage
+    // the world separately: an invalid cap/image must not reset the running game.
+    void *backup = restoreBuffer(sizeof(Loaded));
+    void *worldMemory = restoreBuffer(sizeof(Otr::World));
+    if (!backup || !worldMemory) {
+        free(backup); free(worldMemory);
+        snprintf(err, errCap, "out of PSRAM restoring adventure");
         return false;
     }
+    memcpy(backup, &scratch, sizeof scratch);
+    auto *candidate = new (worldMemory) Otr::World;
+    const int oldIndex = mapIndex_;
+    const auto *oldScript = script_;
+    auto *oldInventory = inventory_;
+    const Otr::Story::Script *newScript = nullptr;
+    auto rollback = [&]() {
+        memcpy(static_cast<void *>(&scratch), backup, sizeof scratch);
+        mapIndex_ = oldIndex;
+        script_ = oldScript;
+        inventory_ = oldInventory;
+        free(backup); free(worldMemory);
+        return false;
+    };
+    if (!loadMapInto(mapIndex, scratch, *candidate, story, newScript, err, errCap)) return rollback();
+    for (int i = 0; i < scratch.itemCount; ++i)
+        if (tmp.items[i] > scratch.items[i].cap) {
+            snprintf(err, errCap, "saved item exceeds cap: %s", scratch.items[i].id);
+            return rollback();
+        }
+    if (!candidate->restore(data + HDR, ws)) {
+        snprintf(err, errCap, "bad world image");
+        return rollback();
+    }
+    w = *candidate;
+    outScript = newScript;
+    free(backup); free(worldMemory);
     story = tmp;
     completed_ = w.exitReached() && !hasNext();
     return true;

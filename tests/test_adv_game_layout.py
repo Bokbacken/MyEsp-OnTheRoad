@@ -42,6 +42,9 @@ code = r'''
 #include <set>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <iterator>
+#include "adv_resource_art.h"
 #include "adv_game_ui.h"
 #include "ui_metrics.h"
 #include "my_theme.h"
@@ -288,6 +291,25 @@ static void checkPad(lv_indev_t *indev) {
 int main() {
     lv_init();
     makeArt(s_spr);
+    {
+        std::ifstream file("docs/adventures/z_resource_test/bitmaps/stone.png", std::ios::binary);
+        std::vector<uint8_t> png{std::istreambuf_iterator<char>(file), {}};
+        assert(!png.empty());
+        Adv::ResourceArt art{};
+        for (int repeat = 0; repeat < 32; ++repeat)
+            assert(Adv::decodeResourcePng(png.data(), png.size(), art) && art.ready);
+        int opaque = 0, transparent = 0;
+        for (int p = 0; p < 1024; ++p) {
+            opaque += art.bgra[p * 4 + 3] == 255;
+            transparent += art.bgra[p * 4 + 3] == 0;
+        }
+        assert(opaque && transparent);
+        assert(!Adv::decodeResourcePng(png.data(), 16, art) && !art.ready);
+        auto wrongSize = png; wrongSize[19] = 64;
+        assert(!Adv::decodeResourcePng(wrongSize.data(), wrongSize.size(), art));
+        auto corrupt = png; corrupt[corrupt.size()/2] ^= 255;
+        assert(!Adv::decodeResourcePng(corrupt.data(), corrupt.size(), art));
+    }
     assert(!s_extraHud);
     auto *display = lv_display_create(320, 480);
     static uint8_t pixels[320 * 20 * 2];
@@ -431,10 +453,10 @@ set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
-add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130)
+add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130 LV_USE_LODEPNG=1)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/components/my_ui/fonts/my_font_18.c" "{ROOT}/components/my_ui/fonts/my_font_14.c"
- "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp"
+ "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp" "{ROOT}/main/adv_resource_art.cpp"
  "{ROOT}/components/otr_engine/otr_world.cpp" "{ROOT}/main/lang/lang.cpp"
  "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/components/my_ui/include" "{ROOT}/main"

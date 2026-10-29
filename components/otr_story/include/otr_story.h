@@ -85,6 +85,7 @@ struct Node {
 struct Named {
     const char *id;
     Text name;
+    uint8_t cap = 255;   // Resource limits; ordinary story items retain the legacy limit.
 };
 
 struct Script {
