@@ -687,8 +687,8 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/ui_numpad.cpp" "{ROOT}/main/hw_profile.cpp"
- "{ROOT}/components/my_ui/fonts/my_font_14.c" "{ROOT}/components/my_ui/fonts/my_font_18.c"
- "{ROOT}/components/my_ui/fonts/my_font_24.c" "{ROOT}/main/app_players.cpp"
+ "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
+  "{ROOT}/main/app_players.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"
  "{ROOT}/main/game_yatzy.cpp" "{ROOT}/main/dice_cup.cpp")
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/tests/player_stubs"

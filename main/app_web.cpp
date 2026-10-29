@@ -27,7 +27,9 @@
 #include "kara_songs_web.h"
 #include "kara_web.h"
 #include "adv_live.h"
+#include "hw_profile.h"
 #include "my_diag.h"
+#include "my_fonts.h"
 #include "my_log.h"
 #include "my_ota.h"
 #include "my_rtc.h"
@@ -302,6 +304,13 @@ static esp_err_t handleInfo(httpd_req_t *r)
 // ----------------------------------------------------------------------------------------
 // /api/config
 // ----------------------------------------------------------------------------------------
+// Largest text size for this panel (see MyFonts::maxFor); the 320 px panels stop at "large".
+static uint8_t maxTextSize()
+{
+    const HwProfile::Info &hw = HwProfile::active();
+    return (uint8_t)MyFonts::maxFor(hw.width < hw.height ? hw.width : hw.height);
+}
+
 static cJSON *configJson()
 {
     const AppConfig &c = Config::get();
@@ -313,6 +322,8 @@ static cJSON *configJson()
     cJSON_AddStringToObject(o, "tz", c.tz);
     cJSON_AddNumberToObject(o, "brightness", c.brightness);
     cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
+    cJSON_AddNumberToObject(o, "text_size", c.textSize);
+    cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
     cJSON_AddBoolToObject(o, "led_enabled", c.ledEnabled);
     cJSON_AddNumberToObject(o, "default_variant", c.defaultVariant);
@@ -357,6 +368,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         if (!Config::validScreenOffSeconds(static_cast<uint16_t>(v))) bad = true;
         else next.screenOffSeconds = static_cast<uint16_t>(v);
     }
+    if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
     if (q.getInt("led_brightness", 0, 255, v, bad)) next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;

@@ -8,6 +8,8 @@ extern const Entry LANG_EN[] = {
     {Str::BTN_CANCEL, "Cancel"},
     {Str::BTN_SAVE, "Save"},
     {Str::BTN_BACK, "Back"},
+    {Str::SET_TEXT_SIZE, "Text size"},
+    {Str::SET_TEXT_SIZE_OPTIONS, "Small\nNormal\nLarge\nExtra large"},
     {Str::SCREEN_TIMEOUT, "Screen off after inactivity"},
     {Str::SCREEN_TIMEOUT_OPTIONS, "Off\n30 seconds\n1 minute\n2 minutes\n5 minutes\n10 minutes\n30 minutes\n60 minutes"},
     {Str::SCREEN_SLEEP_NOW, "Turn screen off now"},

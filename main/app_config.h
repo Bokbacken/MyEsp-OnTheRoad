@@ -18,6 +18,7 @@ struct AppConfig {
     char hostname[32];       // mDNS name without ".local"
     uint8_t brightness;      // Backlight 5..100 %
     uint16_t screenOffSeconds; // 0 = disabled; otherwise one of SCREEN_OFF_SECONDS
+    uint8_t textSize;        // 0 small, 1 normal (default), 2 large, 3 extra large (MyFonts::TextSize)
     uint8_t ledBrightness;   // RGB LED 0..255
     bool ledEnabled;
     uint8_t defaultVariant;  // 0 Yatzy, 1 Maxi, 2 Yatzy in order, 3 Maxi in order
@@ -64,6 +65,7 @@ struct AppConfig {
 // Joystick limits shared by the UI and the web API.
 constexpr uint16_t JOY_MS_MIN = 60, JOY_MS_MAX = 600, JOY_HOLD_MIN = 100, JOY_HOLD_MAX = 600;
 constexpr uint16_t SCREEN_OFF_SECONDS[] = {0, 30, 60, 120, 300, 600, 1800, 3600};
+constexpr uint8_t TEXT_SIZE_COUNT = 4, TEXT_SIZE_DEFAULT = 1;
 
 namespace Config {
 // Loads settings from NVS, falling back to defaults (MyNvs::initFlash() must have run).

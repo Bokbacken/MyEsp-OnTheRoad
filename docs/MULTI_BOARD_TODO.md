@@ -146,15 +146,28 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [x] **Hårdvara v0.22.4:** ägaren bekräftar ren skärmväxling följd av
   OTA-progress, utan tidigare startflimmer. De flesta spel samt Karaoke
   har provats och fungerar; detta ersätter inte full layoutverifiering.
-- [ ] Nästa layoutsteg: startskärm och Wi-Fi-anslutningsvy ska utnyttja
-  P4:s större skärm bättre utan att försämra S3.
-- [ ] Utred befintliga fontresurser och gemensamma textroller. Lägg till
-  sparad användarinställning för textstorlek på båda korten; alternativ
-  och omfattning ska bestämmas innan implementation. Större text måste
-  få plats genom layout/scrollning, inte klippas eller täcka kontroller.
+- [x] v0.22.6: startskärm, Wi-Fi-nätlista, lösenordshjul och
+  anslutningsvy beräknar layout från skärmstorlek och aktuella
+  radhöjder. S3 Normal behåller tidigare startgeometri; P4 fyller
+  skärmen med större logga, rader och namn. Inställningsskärmen använder
+  också hela P4-skärmen.
+- [x] v0.22.6: sparad textstorlek (NVS `text_size`, enhet + webb/API):
+  Liten / Normal (standard) / Stor på båda korten, Extra stor bara på
+  skärmar med kortsida ≥ 400 px (P4). De fyra textrollerna
+  `my_font_14/18/24/36` byts tillsammans (12/16/20/32, 14/18/24/36,
+  16/20/28/40, 18/22/32/44 px) via `MyFonts::apply()`; typsnitten
+  genereras reproducerbart med `tools/gen_fonts.sh`. Ändringen gäller
+  när huvudmenyn byggs om (direkt efter Spara på enheten, nästa
+  menyvisning vid ändring från webben). `tests/test_text_size_layout.py`
+  kontrollerar start/Wi-Fi-layout för alla nivåer på båda upplösningarna.
+- [ ] **Hårdvara v0.22.6:** prova alla textstorlekar på båda korten i
+  meny, inställningar, Wi-Fi och varje spel/Karaoke/Äventyr. Notera
+  skärmar där text klipps eller täcker kontroller vid Stor/Extra stor;
+  de justeras med layout/scrollning, inte genom att låsa fontstorleken.
 - [ ] Ta bort fasta 320×480-koordinater (inställningar, Wi-Fi, Yatzy,
   Adventure-setup) och använd `ui_metrics`/aktuell skärmstorlek.
-- [ ] Typsnitt och träffytor skalas för större skärm.
+- [ ] Typsnitt och träffytor skalas för större skärm. Textstorlek finns
+  (v0.22.6); träffytor i spelen är kvar att skala.
 - [ ] Layouttester för 320×480 och 480×800 för alla huvudskärmar.
 - [ ] **Hårdvara:** alla appar användbara på båda korten.
 

@@ -56,6 +56,20 @@ int main()
     Config::begin();
     CHECK(Config::get().screenOffSeconds == 0);
 
+    CHECK(defaults.textSize == TEXT_SIZE_DEFAULT);
+    for (uint8_t size = 0; size < TEXT_SIZE_COUNT; ++size) {
+        Config::get().textSize = size;
+        CHECK(Config::save());
+        Config::begin();
+        CHECK(Config::get().textSize == size);
+    }
+    TestNvs::numbers["text_size"] = 9;
+    Config::begin();
+    CHECK(Config::get().textSize == TEXT_SIZE_DEFAULT);
+    Config::get().textSize = 200;
+    CHECK(Config::save());
+    CHECK(Config::get().textSize == TEXT_SIZE_DEFAULT);
+
     TestNvs::numbers["bat_scale"] = 0;
     Config::begin();
     CHECK(Config::get().batteryScalePermille == defaultScale);

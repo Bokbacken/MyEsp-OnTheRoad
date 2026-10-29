@@ -105,6 +105,14 @@
     <legend>Display och LED</legend>
     <label for="brightness">Skärmljusstyrka: <b id="brightness-val">–</b> %</label>
     <input type="range" id="brightness" name="brightness" min="5" max="100" step="1">
+    <label for="text_size">Textstorlek på enheten</label>
+    <select id="text_size" name="text_size">
+      <option value="0">Liten</option>
+      <option value="1">Normal</option>
+      <option value="2">Stor</option>
+      <option value="3">Extra stor</option>
+    </select>
+    <p class="muted">Gäller nästa gång huvudmenyn visas på enheten. Extra stor finns bara på den större skärmen.</p>
     <label for="screen_off_seconds">Släck skärmen efter inaktivitet</label>
     <select id="screen_off_seconds" name="screen_off_seconds">
       <option value="0">Av</option>
@@ -262,6 +270,8 @@ function fill(c) {
   $('pin-old').disabled = !c.admin_pin_set;
   $('brightness').value = c.brightness; updB();
   $('screen_off_seconds').value = c.screen_off_seconds ?? 0;
+  for (const o of $('text_size').options) o.hidden = o.disabled = Number(o.value) > (c.text_size_max ?? 2);
+  $('text_size').value = c.text_size ?? 1;
   if (c.rotation !== undefined) $('rotation').value = c.rotation;
   $('led_brightness').value = c.led_brightness; updL();
   $('led_enabled').checked = c.led_enabled;
@@ -487,6 +497,7 @@ $('cfg-form').addEventListener('submit', async e => {
   const data = {
     brightness: $('brightness').value,
     screen_off_seconds: $('screen_off_seconds').value,
+    text_size: $('text_size').value,
     rotation: $('rotation').value,
     led_brightness: $('led_brightness').value,
     led_enabled: $('led_enabled').checked ? '1' : '0',

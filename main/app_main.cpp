@@ -162,6 +162,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "touch %s", touchOk ? "ok" : "not found");
 
     if (displayOk) {
+        UiSettings::applyTextSize();
         UiBoot::show();
         Display::startTask();
     }

@@ -7,12 +7,9 @@
 
 #include "lvgl.h"
 
-// Fonts generated with lv_font_conv: Montserrat Medium (ASCII + Latin-1, so å/ä/ö work)
-// plus the LVGL FontAwesome symbol set (LV_SYMBOL_*).
-LV_FONT_DECLARE(my_font_14);
-LV_FONT_DECLARE(my_font_18);
-LV_FONT_DECLARE(my_font_24);
-LV_FONT_DECLARE(my_font_36);
+// Fonts generated with lv_font_conv (tools/gen_fonts.sh): Montserrat Medium (ASCII + Latin-1, so
+// å/ä/ö work) plus the LVGL FontAwesome symbol set. my_font_14/18/24/36 are text-size roles.
+#include "my_fonts.h"
 
 namespace Theme {
 

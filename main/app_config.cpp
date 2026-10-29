@@ -28,6 +28,7 @@ void defaults(AppConfig &c)
     memset(&c, 0, sizeof(c));
     strcpy(c.hostname, "ontheroad");
     c.brightness = 80;
+    c.textSize = TEXT_SIZE_DEFAULT;
     c.ledBrightness = 40;
     c.ledEnabled = true;
     c.defaultVariant = 0;
@@ -70,6 +71,7 @@ void begin()
             p.getStr("host", g_cfg.hostname, sizeof(g_cfg.hostname));
             g_cfg.brightness = MySys::clamp<uint8_t>(p.getU8("bl", g_cfg.brightness), 5, 100);
             g_cfg.screenOffSeconds = p.getU16("screen_off", 0);
+            g_cfg.textSize = p.getU8("text_size", TEXT_SIZE_DEFAULT);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
             g_cfg.defaultVariant = p.getU8("variant", 0) % 4;
@@ -130,6 +132,7 @@ bool save()
     ok &= p.setStr("host", g_cfg.hostname);
     ok &= p.setU8("bl", g_cfg.brightness);
     ok &= p.setU16("screen_off", g_cfg.screenOffSeconds);
+    ok &= p.setU8("text_size", g_cfg.textSize);
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);
     ok &= p.setU8("variant", g_cfg.defaultVariant);
@@ -276,6 +279,7 @@ void sanitize(AppConfig &c)
         ESP_LOGW(TAG, "invalid screen-off timeout %u; disabling", (unsigned)c.screenOffSeconds);
         c.screenOffSeconds = 0;
     }
+    if (c.textSize >= TEXT_SIZE_COUNT) c.textSize = TEXT_SIZE_DEFAULT;
     if (c.sfxVol > 100) c.sfxVol = 100;
     if (c.musicVol > 100) c.musicVol = 100;
     c.joyZones = MySys::clamp<uint8_t>(c.joyZones, 1, 4);

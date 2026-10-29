@@ -10,6 +10,7 @@
 #include "my_charwheel.h"
 #include "lang.h"
 #include "my_theme.h"
+#include "ui_metrics.h"
 #include "ui_yatzy.h"
 
 // Extra FontAwesome glyphs included in my_font_14/18/24.
@@ -30,27 +31,44 @@ static void killTimer()
     }
 }
 
+// Scale in percent from the short side (320 px = 100 %, at most 150 %), like UiMetrics.
+static int32_t sc(int32_t v)
+{
+    const int32_t w = UiMetrics::screenW(), h = UiMetrics::screenH();
+    return v * LV_CLAMP(100, (w < h ? w : h) * 100 / 320, 150) / 100;
+}
+
+static int32_t textW(const char *text, const lv_font_t *font)
+{
+    lv_point_t size;
+    lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
 static void toMenu()
 {
     killTimer();
     UiYatzy::showMenu();
 }
 
-// 5 signal bars (heights 6..18 px) in a small container.
+// 5 signal bars (heights 6..18 px at 320 px) in a small container.
+static int32_t signalBarsW() { return 5 * sc(5) + 4 * sc(2); }
+
 static lv_obj_t *signalBars(lv_obj_t *parent, int bars)
 {
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_remove_style_all(box);
-    lv_obj_set_size(box, 5 * 5 + 4 * 2, 18);
+    const int32_t boxH = sc(18);
+    lv_obj_set_size(box, signalBarsW(), boxH);
     lv_obj_set_scrollable(box, false);
     lv_obj_set_clickable(box, false);
     uint32_t col = bars >= 4 ? Theme::GREEN : bars == 3 ? Theme::ACCENT : Theme::RED;
     for (int i = 0; i < 5; i++) {
         lv_obj_t *b = lv_obj_create(box);
         lv_obj_remove_style_all(b);
-        int h = 6 + i * 3;
-        lv_obj_set_size(b, 5, h);
-        lv_obj_set_pos(b, i * 7, 18 - h);
+        int32_t h = sc(6 + i * 3);
+        lv_obj_set_size(b, sc(5), h);
+        lv_obj_set_pos(b, i * (sc(5) + sc(2)), boxH - h);
         lv_obj_set_style_radius(b, 1, 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(b, Theme::c(i < bars ? col : Theme::LINE), 0);
@@ -92,7 +110,7 @@ static void forgetDialog(const char *ssid)
     lv_obj_t *mb = lv_msgbox_create(nullptr);
     lv_msgbox_add_title(mb, tr(Str::WIFI_SAVED_NETWORK));
     lv_msgbox_add_text(mb, txt);
-    lv_obj_set_width(mb, 280);
+    lv_obj_set_width(mb, LV_MIN(UiMetrics::screenW() - 40, sc(280)));
     lv_obj_center(mb);
     lv_obj_set_style_bg_color(mb, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_text_color(mb, Theme::c(Theme::TEXT), 0);
@@ -160,11 +178,14 @@ static void fillList()
             lv_free(nl);
         }
     }
+    const int32_t rowW = lv_obj_get_content_width(s_list);
+    const int32_t rowH = LV_MAX(sc(50), lv_font_get_line_height(&my_font_18) + sc(16));
+    const int32_t nameX = sc(24) + (lv_font_get_line_height(&my_font_14) > 18 ? 6 : 0);
     for (int i = 0; i < s_netCount; i++) {
         const MyWifi::Network &n = s_nets[i];
         lv_obj_t *row = lv_button_create(s_list);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, LV_PCT(100), 50);
+        lv_obj_set_size(row, LV_PCT(100), rowH);
         lv_obj_set_style_radius(row, 10, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(row, Theme::c(Theme::PANEL), 0);
@@ -187,17 +208,19 @@ static void fillList()
         bool isCurrent = wi.connected && strcmp(wi.ssid, n.ssid) == 0;
         char name[48];
         snprintf(name, sizeof(name), "%.32s%s", n.ssid, isCurrent ? " " LV_SYMBOL_OK : "");
+        const char *secText = n.secure ? SYM_LOCK : trp(SYM_UNLOCK " ", Str::WIFI_OPEN);
+        const int32_t barsRight = sc(8), secRight = barsRight + signalBarsW() + sc(11);
+        const int32_t nameW = rowW - nameX - secRight - textW(secText, &my_font_14) - sc(8);
         lv_obj_t *l = Theme::label(row, name, &my_font_18, isCurrent ? Theme::GREEN : Theme::TEXT);
         lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(l, 178);
-        lv_obj_align(l, LV_ALIGN_LEFT_MID, 24, 0);
+        lv_obj_set_width(l, LV_MAX(nameW, sc(60)));
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, nameX, 0);
 
-        lv_obj_t *sec = n.secure ? Theme::label(row, SYM_LOCK, &my_font_14, Theme::MUTED)
-                                 : Theme::label(row, trp(SYM_UNLOCK " ", Str::WIFI_OPEN), &my_font_14, Theme::GREEN);
-        lv_obj_align(sec, LV_ALIGN_RIGHT_MID, -44, 0);
+        lv_obj_t *sec = Theme::label(row, secText, &my_font_14, n.secure ? Theme::MUTED : Theme::GREEN);
+        lv_obj_align(sec, LV_ALIGN_RIGHT_MID, -secRight, 0);
 
         lv_obj_t *bars = signalBars(row, MyWifi::signalBars(n.rssi));
-        lv_obj_align(bars, LV_ALIGN_RIGHT_MID, -8, 0);
+        lv_obj_align(bars, LV_ALIGN_RIGHT_MID, -barsRight, 0);
 
         lv_obj_add_event_cb(row, rowEvent, LV_EVENT_ALL, (void *)(intptr_t)i);
     }
@@ -230,10 +253,16 @@ void showNetworks()
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::WIFI_CHOOSE));
 
+    const int32_t sw = UiMetrics::screenW(), sh = UiMetrics::screenH();
+    const int32_t btnH = LV_MAX(sc(46), lv_font_get_line_height(&my_font_18) + 20);
+    const int32_t btnY = sh - btnH - 8, btnW = (sw - 24) / 2;
+    const int32_t statusY = btnY - 8 - lv_font_get_line_height(&my_font_14);
+    const int32_t listY = 48, listH = statusY - 8 - listY;
+
     s_list = lv_obj_create(scr);
     lv_obj_remove_style_all(s_list);
-    lv_obj_set_pos(s_list, 0, 48);
-    lv_obj_set_size(s_list, 320, 344);
+    lv_obj_set_pos(s_list, 0, listY);
+    lv_obj_set_size(s_list, sw, listH);
     lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_hor(s_list, 8, 0);
     lv_obj_set_style_pad_ver(s_list, 4, 0);
@@ -243,34 +272,36 @@ void showNetworks()
 
     s_busy = lv_obj_create(scr);
     lv_obj_remove_style_all(s_busy);
-    lv_obj_set_size(s_busy, 300, 200);
-    lv_obj_align(s_busy, LV_ALIGN_TOP_MID, 0, 110);
+    const int32_t spinnerSize = sc(64), busyW = sw - 20;
+    const int32_t busyH = spinnerSize + 16 + 3 * lv_font_get_line_height(&my_font_18);
+    lv_obj_set_size(s_busy, busyW, busyH);
+    lv_obj_align(s_busy, LV_ALIGN_TOP_MID, 0, listY + LV_MAX(0, (listH - busyH) * 2 / 5));
     lv_obj_set_scrollable(s_busy, false);
     lv_obj_set_clickable(s_busy, false);
     lv_obj_t *sp = lv_spinner_create(s_busy);
     lv_spinner_set_anim_params(sp, 1000, 60);                       // child 0
-    lv_obj_set_size(sp, 64, 64);
+    lv_obj_set_size(sp, spinnerSize, spinnerSize);
     lv_obj_align(sp, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_arc_color(sp, Theme::c(Theme::LINE), LV_PART_MAIN);
     lv_obj_set_style_arc_color(sp, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(sp, 6, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(sp, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(sp, sc(6), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(sp, sc(6), LV_PART_INDICATOR);
     s_busyLabel = Theme::label(s_busy, "", &my_font_18, Theme::MUTED);
-    lv_obj_set_width(s_busyLabel, 300);
+    lv_obj_set_width(s_busyLabel, busyW);
     lv_label_set_long_mode(s_busyLabel, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(s_busyLabel, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_busyLabel, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_align(s_busyLabel, LV_ALIGN_TOP_MID, 0, spinnerSize + 16);
 
     s_netStatus = Theme::label(scr, "", &my_font_14, Theme::MUTED);
     lv_label_set_long_mode(s_netStatus, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_netStatus, 304);
-    lv_obj_set_pos(s_netStatus, 10, 400);
+    lv_obj_set_width(s_netStatus, sw - 16);
+    lv_obj_set_pos(s_netStatus, 10, statusY);
 
-    s_rescanBtn = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::WIFI_REFRESH), 148, 46, Theme::ACCENT);
-    lv_obj_set_pos(s_rescanBtn, 8, 426);
+    s_rescanBtn = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::WIFI_REFRESH), btnW, btnH, Theme::ACCENT);
+    lv_obj_set_pos(s_rescanBtn, 8, btnY);
     lv_obj_add_event_cb(s_rescanBtn, [](lv_event_t *) { startListScan(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 148, 46, Theme::MUTED);
-    lv_obj_set_pos(cancel, 164, 426);
+    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), btnW, btnH, Theme::MUTED);
+    lv_obj_set_pos(cancel, sw - 8 - btnW, btnY);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) { toMenu(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_user_data(s_rescanBtn, cancel);
 
@@ -330,7 +361,7 @@ void showPassword(const char *ssid)
     snprintf(label, sizeof(label), trp(SYM_LOCK " ", Str::WIFI_PASSWORD_FOR), s_ssid);
     // Wheel user data = the wheel itself (needed for setHint/close in the callback).
     static lv_obj_t *s_wheel;
-    s_wheel = CharWheel::create(scr, 0, 0, 320, 480, label, s_pass, PASS_MAX, true,
+    s_wheel = CharWheel::create(scr, 0, 0, UiMetrics::screenW(), UiMetrics::screenH(), label, s_pass, PASS_MAX, true,
                                 [](const char *t, bool ok, void *) { passEntered(t, ok, s_wheel); }, nullptr);
     memset(s_pass, 0, sizeof(s_pass));
     if (s_wheel && MyWifi::hasSavedCredentials() && CharWheel::text(s_wheel)[0])
@@ -415,6 +446,42 @@ static void connTick(lv_timer_t *)
     }
 }
 
+ConnLayout connLayout(int32_t w, int32_t h, int32_t titleLineH, int32_t bodyLineH, int32_t smallLineH,
+                      int32_t iconLineH)
+{
+    ConnLayout l{};
+    const int32_t pct = LV_CLAMP(100, (w < h ? w : h) * 100 / 320, 150);
+    auto s = [&](int32_t v) { return v * pct / 100; };
+    l.textW = w - s(20);
+    l.btnW = LV_MIN(w - 40, s(200));
+    l.btnH = LV_MAX(s(48), bodyLineH + 20);
+    l.btnY = h - s(12) - l.btnH;
+    l.spinner = s(110);
+    l.arc = s(9);
+    l.barW = LV_MIN(w - 40, s(240));
+    l.barH = s(10);
+    // Title, SSID, spinner, countdown bar + seconds and a two-line result message, centred in the
+    // space above the button.
+    const int32_t gapSsid = s(7), gapSpinner = s(24), gapBar = s(26), gapTime = s(6), gapMsg = s(10);
+    const int32_t total = 2 * titleLineH + gapSsid + gapSpinner + l.spinner + gapBar + l.barH + gapTime + smallLineH +
+                          gapMsg + 2 * bodyLineH;
+    int32_t y = LV_MAX(s(8), (l.btnY - s(8) - total) / 2);
+    l.titleY = y;
+    y += titleLineH + gapSsid;
+    l.ssidY = y;
+    y += titleLineH + gapSpinner;
+    l.spinnerY = y;
+    l.iconY = y + (l.spinner - iconLineH) / 2;
+    y += l.spinner + gapBar;
+    l.barY = y;
+    y += l.barH + gapTime;
+    l.timeY = y;
+    y += smallLineH + gapMsg;
+    l.msgY = y;
+    l.msgBottom = y + 2 * bodyLineH;
+    return l;
+}
+
 void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
 {
     killTimer();
@@ -422,46 +489,52 @@ void showConnecting(const char *ssid, const char *pass, bool alreadyStarted)
     snprintf(ssidCopy, sizeof(ssidCopy), "%s", ssid ? ssid : "");
 
     lv_obj_t *scr = Theme::screen();
+    const ConnLayout l = connLayout(UiMetrics::screenW(), UiMetrics::screenH(), lv_font_get_line_height(&my_font_24),
+                                    lv_font_get_line_height(&my_font_18), lv_font_get_line_height(&my_font_14),
+                                    lv_font_get_line_height(&my_font_36));
 
     s_connTitle = Theme::label(scr, tr(Str::WIFI_CONNECTING_TO), &my_font_24);
-    lv_obj_align(s_connTitle, LV_ALIGN_TOP_MID, 0, 70);
+    lv_label_set_long_mode(s_connTitle, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(s_connTitle, l.textW);
+    lv_obj_set_style_text_align(s_connTitle, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_connTitle, LV_ALIGN_TOP_MID, 0, l.titleY);
     s_connSsid = Theme::label(scr, ssidCopy, &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_connSsid, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_connSsid, 300);
+    lv_obj_set_width(s_connSsid, l.textW);
     lv_obj_set_style_text_align(s_connSsid, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_connSsid, LV_ALIGN_TOP_MID, 0, 106);
+    lv_obj_align(s_connSsid, LV_ALIGN_TOP_MID, 0, l.ssidY);
 
     s_spinner = lv_spinner_create(scr);
     lv_spinner_set_anim_params(s_spinner, 1000, 60);
-    lv_obj_set_size(s_spinner, 110, 110);
-    lv_obj_align(s_spinner, LV_ALIGN_TOP_MID, 0, 160);
+    lv_obj_set_size(s_spinner, l.spinner, l.spinner);
+    lv_obj_align(s_spinner, LV_ALIGN_TOP_MID, 0, l.spinnerY);
     lv_obj_set_style_arc_color(s_spinner, Theme::c(Theme::LINE), LV_PART_MAIN);
     lv_obj_set_style_arc_color(s_spinner, Theme::c(Theme::BLUE), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(s_spinner, 9, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(s_spinner, 9, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_spinner, l.arc, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_spinner, l.arc, LV_PART_INDICATOR);
 
     s_resultIcon = Theme::label(scr, LV_SYMBOL_OK, &my_font_36, Theme::GREEN);
-    lv_obj_align(s_resultIcon, LV_ALIGN_TOP_MID, 0, 196);
+    lv_obj_align(s_resultIcon, LV_ALIGN_TOP_MID, 0, l.iconY);
     lv_obj_set_hidden(s_resultIcon, true);
 
     s_connBar = lv_bar_create(scr);
-    lv_obj_set_size(s_connBar, 240, 10);
-    lv_obj_align(s_connBar, LV_ALIGN_TOP_MID, 0, 296);
+    lv_obj_set_size(s_connBar, l.barW, l.barH);
+    lv_obj_align(s_connBar, LV_ALIGN_TOP_MID, 0, l.barY);
     lv_bar_set_range(s_connBar, 0, MyWifi::CONNECT_TIMEOUT_MS / 100);
     lv_bar_set_value(s_connBar, MyWifi::CONNECT_TIMEOUT_MS / 100, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(s_connBar, Theme::c(Theme::PANEL_RAISED), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_connBar, Theme::c(Theme::BLUE), LV_PART_INDICATOR);
     s_connTime = Theme::label(scr, "15 s", &my_font_14, Theme::MUTED);
-    lv_obj_align(s_connTime, LV_ALIGN_TOP_MID, 0, 312);
+    lv_obj_align(s_connTime, LV_ALIGN_TOP_MID, 0, l.timeY);
 
     s_connMsg = Theme::label(scr, "", &my_font_18, Theme::TEXT);
     lv_label_set_long_mode(s_connMsg, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(s_connMsg, 300);
+    lv_obj_set_width(s_connMsg, l.textW);
     lv_obj_set_style_text_align(s_connMsg, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_connMsg, LV_ALIGN_TOP_MID, 0, 340);
+    lv_obj_align(s_connMsg, LV_ALIGN_TOP_MID, 0, l.msgY);
 
-    lv_obj_t *btn = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 200, 48, Theme::MUTED);
-    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_t *btn = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), l.btnW, l.btnH, Theme::MUTED);
+    lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, l.btnY);
     s_connBtnLabel = lv_obj_get_child(btn, 0);
     lv_obj_add_event_cb(btn, [](lv_event_t *) {
         if (s_phase == ConnPhase::WAIT) {

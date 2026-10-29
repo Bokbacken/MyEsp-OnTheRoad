@@ -75,6 +75,7 @@ async function page(file, data) {
     if (!elements.has(id)) elements.set(id, {
       value: '', style: {}, events: {}, appendChild() {},
       addEventListener(name, fn) { this.events[name] = fn; },
+      options: id === 'text_size' ? ['0', '1', '2', '3'].map(value => ({value})) : [],
     });
     return elements.get(id);
   };
@@ -95,11 +96,16 @@ async function page(file, data) {
   vm.runInContext(settings, sandbox);
   vm.runInContext("fill({hostname:'otr'})", sandbox);
   assert.equal(element('screen_off_seconds').value, 0);
-  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120})", sandbox);
+  assert.equal(element('text_size').value, 1);
+  assert(element('text_size').options[3].disabled, 'S3 firmware without text_size_max hides extra large');
+  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120,text_size:3,text_size_max:3})", sandbox);
   assert.equal(element('screen_off_seconds').value, 120);
+  assert.equal(element('text_size').value, 3);
+  assert(!element('text_size').options[3].disabled, 'P4 offers extra large');
   element('tz').value = 'CET-1';
   await element('cfg-form').events.submit({preventDefault() {}});
   assert.equal(submitted.get('screen_off_seconds'), '120');
+  assert.equal(submitted.get('text_size'), '3');
   assert.equal(element('toast').textContent, 'Inställningar sparade');
-  console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery and screen power passed');
+  console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery, screen power and text size passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

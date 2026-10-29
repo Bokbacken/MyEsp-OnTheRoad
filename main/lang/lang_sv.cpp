@@ -8,6 +8,8 @@ extern const Entry LANG_SV[] = {
     {Str::BTN_CANCEL, "Avbryt"},
     {Str::BTN_SAVE, "Spara"},
     {Str::BTN_BACK, "Tillbaka"},
+    {Str::SET_TEXT_SIZE, "Textstorlek"},
+    {Str::SET_TEXT_SIZE_OPTIONS, "Liten\nNormal\nStor\nExtra stor"},
     {Str::SCREEN_TIMEOUT, "Släck efter inaktivitet"},
     {Str::SCREEN_TIMEOUT_OPTIONS, "Av\n30 sekunder\n1 minut\n2 minuter\n5 minuter\n10 minuter\n30 minuter\n60 minuter"},
     {Str::SCREEN_SLEEP_NOW, "Släck skärmen nu"},
