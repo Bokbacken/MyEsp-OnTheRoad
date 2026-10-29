@@ -59,6 +59,7 @@ struct lv_obj_t {
     lv_obj_t *parent = nullptr;
     std::vector<lv_obj_t *> children;
     const uint16_t *pixels = nullptr;
+    void (*deleteCallback)(struct lv_event_t *) = nullptr;
 };
 static std::deque<lv_obj_t> uiObjects;
 static lv_obj_t *lv_obj_create(lv_obj_t *parent) {
@@ -99,6 +100,7 @@ static lv_obj_t *lv_obj_get_child(lv_obj_t *o, int) { return o; }
 static void lv_bar_set_range(lv_obj_t *, int, int) {}
 static void lv_bar_set_value(lv_obj_t *, int, int) {}
 enum { LV_STATE_DISABLED, LV_ANIM_OFF, LV_PART_MAIN };
+enum { LV_EVENT_DELETE };
 namespace Theme {
 constexpr uint32_t TEXT=1, MUTED=2, ACCENT=3, GOLD=4, TEAL=5, GREEN=6, RED=7, BLUE=8, LINE=9;
 constexpr uint32_t PANEL=0x17263A;
@@ -111,6 +113,13 @@ static lv_obj_t *label(lv_obj_t *parent, const char *text, const int *font, uint
 }
 struct lv_event_t { lv_obj_t *target; };
 static lv_obj_t *lv_event_get_target_obj(lv_event_t *e) { return e->target; }
+static lv_obj_t *lv_event_get_current_target(lv_event_t *e) { return e->target; }
+static void lv_obj_add_event_cb(lv_obj_t *o, void (*callback)(lv_event_t *), int, void *) {
+    o->deleteCallback=callback;
+}
+static void lv_msgbox_close(lv_obj_t *o) {
+    if (o->deleteCallback) { lv_event_t event{o}; o->deleteCallback(&event); }
+}
 namespace Rgb { static void effectFlash(int, int, int, int) {} }
 static uint32_t clockMs=1000;
 static uint32_t nowMs() { return clockMs; }
@@ -593,6 +602,12 @@ static void inventoryTests() {
     s_story=&script; s_storyState.clear();
     inventoryLines.clear(); showInventory();
     assert(inventoryLines.back()==(langIdx()?"Empty":"Tomt"));
+    lv_msgbox_close(s_dialog);
+    assert(!s_dialog);
+    inventoryLines.clear(); showInventory();
+    assert(s_dialog && inventoryLines.back()==(langIdx()?"Empty":"Tomt"));
+    lv_msgbox_close(s_dialog);
+    assert(!s_dialog); // The main-menu guard can now open another menu.
     s_storyState.items[0]=2; inventoryLines.clear(); showInventory();
     assert(inventoryLines.back()==(langIdx()?"Stone: 2 / 2":"Sten: 2 / 2"));
     s_story=nullptr; s_storyState.clear(); closeDialog();

@@ -2299,6 +2299,9 @@ static lv_obj_t *dialog(const char *text)
     s_moveEvents = events; // Snapping a modal to the endpoint must not discard its terminal result.
     closeDialog();
     s_dialog = lv_msgbox_create(nullptr);
+    lv_obj_add_event_cb(s_dialog, [](lv_event_t *e) {
+        if (lv_event_get_current_target(e) == s_dialog) s_dialog = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
     if (text) lv_msgbox_add_text(s_dialog, text);
     AdvUi::dialogLayout(s_dialog);
     return s_dialog;
@@ -2972,10 +2975,6 @@ static void showMenu()
     lv_obj_set_style_text_font(help, &my_font_14, 0);
     lv_obj_set_style_text_font(perf, &my_font_14, 0);
     lv_obj_set_style_text_color(perf, Theme::c(Theme::MUTED), 0);
-    // The close button (x) only deletes the box: forget it
-    lv_obj_add_event_cb(mb, [](lv_event_t *e) {
-        if (lv_event_get_current_target(e) == s_dialog) s_dialog = nullptr;
-    }, LV_EVENT_DELETE, nullptr);
 }
 
 // 32 px sprite -> HUD_PX icon: box-filtered, colour-key pixels count as panel colour, so the edges
