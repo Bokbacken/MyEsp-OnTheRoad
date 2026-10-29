@@ -140,4 +140,4 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | Plan | Skapad. |
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
 | 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
-| 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1; nytt dual-target-bygge krävs före merge. |
+| 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1. S3 och P4 gröna för mergecommit `07b5853` (CI run 40887806090); hostkontroller för multimap, Adventure och Karaoke godkända. |
