@@ -26,6 +26,7 @@
 #include "ui_yatzy.h"
 #include "ui_screen_power.h"
 #include "ui_metrics.h"
+#include "hw_profile.h"
 
 namespace UiSettings {
 
@@ -413,11 +414,13 @@ void show()
     lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_t *screenOff = Theme::button(disp, tr(Str::SCREEN_SLEEP_NOW), LV_PCT(100), 44, Theme::LINE);
     lv_obj_add_event_cb(screenOff, [](lv_event_t *) { UiScreenPower::sleepNow(); }, LV_EVENT_CLICKED, nullptr);
-    switchRow(disp, tr(Str::SET_RGB_LED), s_edit.ledEnabled, [](lv_event_t *e) {
-        s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
-        Rgb::setEnabled(s_edit.ledEnabled);
-    });
-    sliderRow(disp, tr(Str::SET_LED_BRIGHTNESS), 0, 255, s_edit.ledBrightness, &s_ledVal, onLed);
+    if (HwProfile::active().hasRgbLed) {
+        switchRow(disp, tr(Str::SET_RGB_LED), s_edit.ledEnabled, [](lv_event_t *e) {
+            s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+            Rgb::setEnabled(s_edit.ledEnabled);
+        });
+        sliderRow(disp, tr(Str::SET_LED_BRIGHTNESS), 0, 255, s_edit.ledBrightness, &s_ledVal, onLed);
+    }
     // Rotation: previewed immediately (MADCTL + touch), kept on Save, reverted on Cancel.
     Theme::label(disp, tr(Str::SET_ROTATION), &my_font_14, Theme::MUTED);
     static char rotOpts[96];

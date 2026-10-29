@@ -10,6 +10,46 @@ permissions:
   contents: read
 
 jobs:
+  build-host-fw:
+    name: build-host-fw-esp32c6
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout ESP-Hosted MCU
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-hosted-mcu
+          ref: 78b1c1c43c02b0c4e898cf87f94679278b1ddaff
+          path: esp_hosted
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Record upstream revision
+        id: upstream
+        run: echo "ref=$(git -C esp_hosted rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build C6 Host firmware with ESP-IDF v6.1
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32c6
+          command: |
+            cd esp_hosted/examples/ota/coprocessor_ota/cp
+            idf.py --version
+            idf.py set-target esp32c6
+            idf.py build
+            cp build/eh_cp_ota_coprocessor_ota.bin build/host_fw.bin
+
+      - name: Upload C6 Host firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-fw-esp32c6-${{ steps.upstream.outputs.ref }}
+          path: |
+            esp_hosted/examples/ota/coprocessor_ota/cp/build/host_fw.bin
+            esp_hosted/examples/ota/coprocessor_ota/cp/build/eh_cp_ota_coprocessor_ota.elf
+            esp_hosted/examples/ota/coprocessor_ota/cp/build/partition_table/partition-table.bin
+          if-no-files-found: error
+
   build:
     name: build-${{ matrix.target }}
     runs-on: ubuntu-latest
@@ -44,6 +84,7 @@ jobs:
           python3 tests/test_ota_stream.py
           python3 tests/test_screen_power.py
           python3 tests/test_text_size_layout.py
+          python3 tests/test_host_ota.py
           node tests/test_board_diagnostics_web.js
 
       - name: Read firmware version

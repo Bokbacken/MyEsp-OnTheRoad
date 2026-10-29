@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>OnTheRoad – Inställningar</title>
 <link rel="stylesheet" href="/style.css">
+<script src="/device-name.js" defer></script>
 </head>
 <body>
 <header class="otr-brand">
@@ -130,9 +132,11 @@
       <option value="0">0° (USB nedåt)</option>
       <option value="180">180° (USB uppåt)</option>
     </select>
-    <label class="check"><input type="checkbox" id="led_enabled" name="led_enabled"> RGB-LED aktiv</label>
-    <label for="led_brightness">LED-ljusstyrka: <b id="led-val">–</b></label>
-    <input type="range" id="led_brightness" name="led_brightness" min="0" max="255" step="1">
+    <div id="led-controls">
+      <label class="check"><input type="checkbox" id="led_enabled" name="led_enabled"> RGB-LED aktiv</label>
+      <label for="led_brightness">LED-ljusstyrka: <b id="led-val">–</b></label>
+      <input type="range" id="led_brightness" name="led_brightness" min="0" max="255" step="1">
+    </div>
   </fieldset>
   <fieldset>
     <legend>Ljud</legend>
@@ -186,8 +190,9 @@
   </fieldset>
   <fieldset>
     <legend>Nätverk</legend>
-    <label for="hostname">Värdnamn (mDNS, utan .local)</label>
+    <label for="hostname">Enhetsnamn (mDNS och värdnamn)</label>
     <input type="text" id="hostname" name="hostname" maxlength="31" pattern="[A-Za-z0-9-]{1,31}" autocapitalize="none">
+    <p class="muted">Används som <code>namn.local</code>, DHCP-värdnamn och namn i webbgränssnittet. 1–31 tecken: a–z, 0–9 och bindestreck.</p>
     <label for="tz">Tidszon (POSIX TZ)</label>
     <input type="text" id="tz" name="tz" maxlength="47" autocapitalize="none">
     <p class="muted">Sverige: <code>CET-1CEST,M3.5.0,M10.5.0/3</code></p>
@@ -275,6 +280,7 @@ function fill(c) {
   if (c.rotation !== undefined) $('rotation').value = c.rotation;
   $('led_brightness').value = c.led_brightness; updL();
   $('led_enabled').checked = c.led_enabled;
+  $('led-controls').hidden = !c.has_rgb_led;
   $('default_variant').value = c.default_variant;
   $('roll_anim_ms').value = c.roll_anim_ms; updA();
   $('maxi_saved_rolls').checked = c.maxi_saved_rolls;

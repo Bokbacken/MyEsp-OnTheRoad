@@ -312,10 +312,35 @@ Unlike the ESP32-S3 board, the ESP32-P4 has **no radio of its own**. Wi-Fi 6 and
 
 On ESP-IDF, Wi-Fi/BT on the ESP32-P4 is driven **remotely** through the C6:
 
-- `espressif/esp_hosted` — host/co-processor transport.
-- `espressif/esp_wifi_remote` — remote Wi-Fi API on the P4 side.
+- `espressif/esp_hosted` — host/co-processor transport and OTA RPC.
+- With ESP-IDF 6.1+, `esp_wifi` routes through ESP-Hosted; older ESP-IDF
+  versions may also need `espressif/esp_wifi_remote`.
 
 The C6 runs its own "slave"/hosted firmware. Keep the P4 host firmware and the C6 slave firmware versions compatible — a mismatch is a common cause of Wi-Fi not coming up. Official examples: `04_wifistation` (station via the hosted link). The factory image also bundles ESP-Hosted Wi-Fi.
+
+The application CI builds `host_fw.bin` from the pinned Espressif
+ESP-Hosted MCU coprocessor-OTA example. On a working P4 Host-radio connection,
+upload that C6 app image under **Uppdatera → ESP32-C6 Host-radio (OTA)**.
+The uploader checks the ESP32-C6 image header and queries the running C6
+firmware before using the ESP-Hosted OTA RPCs. If the installed firmware
+cannot report its version or is older than v2.6.0, OTA still proceeds but
+skips the explicit activation RPC; older slave firmware reboots after the
+OTA end/validation step. The first update can therefore be a bootstrap step
+before later updates use explicit activation. The C6 OTA app uses two
+`0x1C0000` app slots; the upload is size-limited accordingly. After activation
+or the legacy auto-reboot, the P4 restarts to reconnect to the C6.
+
+Each `ota_write` RPC must fit one SDIO frame: ESP-Hosted rejects chunks above
+`EH_HOST_CP_OTA_CHUNK_MAX` (about 1480 bytes) locally with `ESP_FAIL`, without
+contacting the C6. The uploader therefore sends 1400-byte chunks, with the
+image header in the first chunk. Progress uses the same full-screen overlay
+as the P4 app OTA, and an app OTA cannot start while the C6 is being updated.
+Expect the transfer to take about 1–3 minutes.
+
+If the legacy firmware cannot start or complete the OTA RPCs, recovery requires
+the dedicated 4-pin C6 flashing pads and an ESP32-C6 serial flashing setup; use
+the board schematic to verify pad order and voltage rather than assuming the
+P4 USB-UART connector is wired to the C6.
 
 ---
 

@@ -128,18 +128,30 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 - [x] `esp_hosted` 3.x (SDIO, C6 som slav) initieras på P4;
   Wi-Fi-anslutning bekräftad av ägaren med v0.22.0.
-- [ ] `my_wifi`, mDNS, webbserver, NTP och webb-OTA fungerar oförändrat.
+- [x] `my_wifi`, mDNS, webbserver, NTP och app-webb-OTA fungerar på P4.
+  Ägaren bekräftar båda kortens senaste firmware efter v0.22.6-test.
 - [ ] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
-- [ ] **Hårdvara:** anslutning, webbsida, klocka via NTP.
+- [x] Webb-OTA kontrollerar nu C6-version och kräver firmware ≥2.6.0
+  innan en uppdatering kan aktiveras; system-RPC saknas/är för gammal ger
+  ett tydligt fel med hänvisning till återställningskontakten.
+- [x] **Hårdvara v0.22.6:** ägaren bekräftar funktion på både S3 och P4.
 
 ## V. OTA för C6-radiochippet
 
-- [ ] Kontrollera C6-slavens version vid start; varna vid inkompatibel version.
-- [ ] Uppdatera C6 från P4 via ESP-Hosted OTA-API: fil från SD-kort och
-  uppladdning i webbgränssnittet, med förlopp och verifiering.
-- [ ] Bygg/hämta matchande C6-slavfirmware i CI som artefakt.
+- [x] Uppdatera C6 från P4 med ESP-Hosted RPC OTA (`begin/write/end/activate`).
+  Administratörs-PIN kontrolleras; app-headern måste vara ESP32-C6; enheten
+  startar om efter aktivering för att återansluta till radion. Host-OTA finns
+  bara på P4 med Host-radio; S3-app-OTA påverkas inte.
+- [x] CI bygger `host_fw.bin` från ESP-Hosted MCU-repositoryns aktuella
+  källrevision `78b1c1c43c02b0c4e898cf87f94679278b1ddaff` i den separata
+  artefakten `host-fw-esp32c6-78b1c1c`. C6-byggprojektets dubbla OTA-slots
+  är 0x1C0000 byte; webb-OTA avvisar större filer.
+- [ ] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
+  vid uppstart (nu görs säkerhetskontrollen vid OTA-begäran).
 - [ ] Dokumentera återställning via C6:s 4-poliga flashkontakt.
-- [ ] **Hårdvara:** C6-uppdatering och återanslutning efter omstart.
+- [x] **Hårdvara:** C6-OTA från fabriksfirmware till 3.0.10 verifierad av
+  ägaren; efter omstart rapporterar `eh_init_evt` host=3.0.10
+  coprocessor=3.0.10 (match) och Wi-Fi fungerar.
 
 ## VI. UI för 480×800 och fler upplösningar
 
@@ -160,10 +172,8 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   när huvudmenyn byggs om (direkt efter Spara på enheten, nästa
   menyvisning vid ändring från webben). `tests/test_text_size_layout.py`
   kontrollerar start/Wi-Fi-layout för alla nivåer på båda upplösningarna.
-- [ ] **Hårdvara v0.22.6:** prova alla textstorlekar på båda korten i
-  meny, inställningar, Wi-Fi och varje spel/Karaoke/Äventyr. Notera
-  skärmar där text klipps eller täcker kontroller vid Stor/Extra stor;
-  de justeras med layout/scrollning, inte genom att låsa fontstorleken.
+- [x] **Hårdvara v0.22.6:** ägaren bekräftar att ändringarna är testade på
+  båda enheterna. Fortsätt notera eventuella layoutproblem i senare test.
 - [ ] Ta bort fasta 320×480-koordinater (inställningar, Wi-Fi, Yatzy,
   Adventure-setup) och använd `ui_metrics`/aktuell skärmstorlek.
 - [ ] Typsnitt och träffytor skalas för större skärm. Textstorlek finns
@@ -211,6 +221,8 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 | Datum | Steg | Status |
 |---|---|---|
+| 2026-10-29 | v0.22.6 hårdvarutest + merge | Ägaren bekräftar att båda enheterna är testade; PR #23 mergad till `main`. Start/Wi-Fi/textstorlek fungerar. |
+| 2026-10-29 | v0.22.7 Host OTA, namn och P4-inställningar | Host-OTA och `host_fw.bin` CI från ESP-Hosted MCU, enhetsnamn för web/mDNS/DHCP, RGB-kontroller dolda på P4. Första C6-OTA föll på för stora chunkar (1500 B > ~1480 B gräns); efter fix till 1400 B uppdaterade ägaren C6 från fabriksfirmware till 3.0.10 (host=3.0.10 coprocessor=3.0.10, match). |
 | 2026-10-29 | Plan | Skapad. |
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
 | 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |

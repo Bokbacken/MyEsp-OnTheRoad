@@ -28,6 +28,9 @@
 #include "kara_web.h"
 #include "adv_live.h"
 #include "hw_profile.h"
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+#include "host_ota.h"
+#endif
 #include "my_diag.h"
 #include "my_fonts.h"
 #include "my_log.h"
@@ -326,6 +329,8 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
     cJSON_AddBoolToObject(o, "led_enabled", c.ledEnabled);
+    cJSON_AddBoolToObject(o, "has_rgb_led", HwProfile::active().hasRgbLed);
+    cJSON_AddBoolToObject(o, "has_host_radio", HwProfile::active().hasHostRadio);
     cJSON_AddNumberToObject(o, "default_variant", c.defaultVariant);
     cJSON_AddNumberToObject(o, "roll_anim_ms", c.rollAnimMs);
     cJSON_AddBoolToObject(o, "maxi_saved_rolls", c.maxiSavedRolls);
@@ -369,7 +374,8 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.screenOffSeconds = static_cast<uint16_t>(v);
     }
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
-    if (q.getInt("led_brightness", 0, 255, v, bad)) next.ledBrightness = (uint8_t)v;
+    if (HwProfile::active().hasRgbLed && q.getInt("led_brightness", 0, 255, v, bad))
+        next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;
     if (q.getInt("throw_mode", 0, 1, v, bad)) next.throwMode = (uint8_t)v;
@@ -407,7 +413,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("joy_diag", 0, 1, v, bad)) next.joyDiag = (uint8_t)v;
     if (batteryCalibrationFailed) return MyWeb::sendError(r, 400, tr(Str::BATTERY_CALIBRATION_FAILED));
     if (bad) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_NUMBER));
-    if (q.getBool("led_enabled", b)) next.ledEnabled = b;
+    if (HwProfile::active().hasRgbLed && q.getBool("led_enabled", b)) next.ledEnabled = b;
     if (q.getBool("sound_on", b)) next.soundOn = b;
     if (q.getBool("music_on", b)) next.musicOn = b;
     if (q.getBool("maxi_saved_rolls", b)) next.maxiSavedRolls = b;
@@ -1369,6 +1375,9 @@ bool begin()
     ok &= MyWeb::on("/api/reset", HTTP_POST, handleReset);
     ok &= MyWeb::on("/api/game", HTTP_GET, handleGame);
     ok &= MyWeb::on("/api/adventure", HTTP_GET, handleAdventure);
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    ok &= HostOta::registerRoute();
+#endif
     ok &= AppWebFiles::registerRoutes();
     ok &= KaraSongsWeb::registerRoutes();   // v0.13.7 song picker API
     ok &= otr_log_register_routes();        // v0.13.7 /api/log/stream + /api/log/download
