@@ -207,7 +207,8 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
             if (id < 0) return false;
             if (st) {
                 const int old = st->items[id];
-                const int now = verb.eq("give") ? (old + n > 255 ? 255 : old + n) : (old - n < 0 ? 0 : old - n);
+                const int cap = sc.items[id].cap;
+                const int now = verb.eq("give") ? (old + n > cap ? cap : old + n) : (old - n < 0 ? 0 : old - n);
                 st->items[id] = (uint8_t)now;
                 if (now != old) addNote(notes, noteCount, noteCap, now > old ? NoteKind::ITEM_GOT : NoteKind::ITEM_LOST, id, now > old ? now - old : old - now);
             }

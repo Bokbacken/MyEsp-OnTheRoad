@@ -56,7 +56,7 @@ static Otr::Dir direction(char c)
 
 static bool checkSave(const Otr::World &world, const Otr::MapDef &map)
 {
-    CHECK(Otr::World::SAVE_VERSION == 6);
+    CHECK(Otr::World::SAVE_VERSION == 7);
     std::vector<uint8_t> bytes(world.saveSize());
     CHECK(world.save(bytes.data(), bytes.size()) == bytes.size());
     Otr::World restored;

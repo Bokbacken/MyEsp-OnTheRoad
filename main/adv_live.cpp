@@ -123,6 +123,27 @@ void fillState(Snapshot &s, const Source &src)
             ItemInfo &it = s.items[s.itemCount++];
             copyStr(it.name, sizeof(it.name), src.story->items[i].name.get(L));
             it.count = c;
+            it.cap = src.story->items[i].cap;
+        }
+    }
+    s.resourceTypeCount = s.resourceCount = 0;
+    copyStr(s.resourceFolder, sizeof s.resourceFolder, src.folder);
+    if (src.adventure && src.story) {
+        const auto &adv = *src.adventure;
+        for (int i = 0; i < adv.resourceCount && i < Adv::MAX_RESOURCES; ++i) {
+            const auto &r = adv.resources[i];
+            const int item = src.story->itemId(r.id, strlen(r.id));
+            if (item < 0) continue;
+            auto &type = s.resourceTypes[s.resourceTypeCount++];
+            type.item = item;
+            copyStr(type.name, sizeof type.name, r.name.get(L));
+            copyStr(type.image, sizeof type.image, r.image);
+        }
+        for (int y = 0; y < w.height(); ++y) for (int x = 0; x < w.width(); ++x) {
+            if (w.obj(x, y) != Obj::RESOURCE || (w.fog() && !w.revealed(x, y)) || w.darkHidden(x, y)) continue;
+            for (int i = 0; i < s.resourceTypeCount && s.resourceCount < Adv::MAX_RES_PLACE; ++i)
+                if (w.objAmount(x, y) == s.resourceTypes[i].item)
+                    s.resources[s.resourceCount++] = {(uint8_t)x, (uint8_t)y, (uint8_t)i};
         }
     }
 
@@ -307,7 +328,22 @@ size_t toJson(const Snapshot &s, uint32_t clientMapRev, char *buf, size_t cap)
         if (i) o.put(",");
         o.put("{\"name\":");
         o.str(s.items[i].name);
-        o.fmt(",\"count\":%u}", (unsigned)s.items[i].count);
+        o.fmt(",\"count\":%u,\"cap\":%u}", (unsigned)s.items[i].count, (unsigned)s.items[i].cap);
+    }
+    o.put("],\"resource_folder\":");
+    o.str(s.resourceFolder);
+    o.put(",\"resource_types\":[");
+    for (int i = 0; i < s.resourceTypeCount; ++i) {
+        if (i) o.put(",");
+        o.put("{\"name\":"); o.str(s.resourceTypes[i].name);
+        o.put(",\"image\":"); o.str(s.resourceTypes[i].image);
+        o.put("}");
+    }
+    o.put("],\"resources\":[");
+    for (int i = 0; i < s.resourceCount; ++i) {
+        if (i) o.put(",");
+        const auto &r = s.resources[i];
+        o.fmt("{\"x\":%u,\"y\":%u,\"type\":%u}", r.x, r.y, r.type);
     }
     o.put("],\"dialog\":");
     const DialogInfo &d = s.dialog;

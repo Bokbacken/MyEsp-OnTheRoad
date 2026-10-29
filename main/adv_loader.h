@@ -41,7 +41,8 @@ constexpr int MAX_ITEMS = Otr::Story::MAX_ITEMS;         // 32
 constexpr int MAX_QUESTS = Otr::Story::MAX_QUESTS;       // 16
 constexpr int MAX_TREASURES = 48;
 constexpr int MAX_RESOURCES = 16;
-constexpr int MAX_RES_PLACE = 160;
+constexpr int MAX_RES_PLACE = Otr::MAX_RESOURCE_PICKUPS;
+static_assert(MAX_ITEMS <= Otr::MAX_RESOURCE_ITEMS, "resource indices must fit the engine inventory");
 constexpr int ARENA_CAP = 28 * 1024;                 // interned strings (dialogue is text-heavy)
 constexpr int LINE_CAP = 1200;                       // longest source line we accept
 
@@ -59,7 +60,7 @@ enum CarryBit : uint32_t {
 };
 
 // A collectible bound to a free map glyph by @resources (reuses the story item system). The
-// device overlays/pick-ups live in the session; the loader records the authoring metadata.
+// Inventory lives in StoryState; World handles pickup through the SD session's collector.
 struct Resource {
     char glyph;                 // free map glyph (not a built-in terrain/object/person)
     const char *id;             // story item id (also added to Loaded.items)
@@ -69,7 +70,7 @@ struct Resource {
 };
 
 // A placed resource on the map (glyph + cell). The map cell itself is translated to grass so
-// World::load() accepts it; the session overlays the resource here.
+// World::load() accepts it; map.resources then installs a real resource object here.
 struct ResourcePlace { char glyph; uint8_t x, y; };
 
 // One fully-parsed .adv map. Big; allocate in PSRAM.
@@ -114,6 +115,7 @@ struct Loaded {
     Resource resources[MAX_RESOURCES];
     int resourceCount;
     ResourcePlace placements[MAX_RES_PLACE];
+    Otr::ResourcePickup pickups[MAX_RES_PLACE];
     int placementCount;
 
     // ---- backing storage (stable addresses) ----

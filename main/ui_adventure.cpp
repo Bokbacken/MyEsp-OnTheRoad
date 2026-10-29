@@ -7,6 +7,7 @@
 #include "adv_session.h"
 #include "adv_catalog.h"
 #include "adv_sd_session.h"
+#include "adv_resource_art.h"
 
 #include <algorithm>
 #include <errno.h>
@@ -160,6 +161,7 @@ static Adventure::Session s_session;          // v0.16: built-in sessions (dorma
 // adventures are no longer listed (the engine enum/maps stay for the dormant Session code above).
 static Adv::Catalog *s_cat = nullptr;         // Scanned SD catalog (PSRAM)
 static Adv::Loaded *s_adv = nullptr;          // Current parsed SD map (PSRAM, ~70 kB)
+static Adv::ResourceArt *s_resourceArt = nullptr; // One bounded PSRAM image per resource type.
 static Adv::SdSession s_sd;                   // Active SD adventure (folder, map index, carry/reset)
 static int s_advIdx = 0;                      // Chosen catalog entry index
 static constexpr const char *SD_ADV_ROOT = "/sdcard/otr/adventure";
@@ -886,6 +888,29 @@ static void framePixel(int x, int y, uint16_t color)
         s_fb[size_t(y) * s_fbStride + x] = color;
 }
 
+static int resourceIndex(int item)
+{
+    if (!s_adv || !s_story || item < 0 || item >= s_story->itemCount) return -1;
+    for (int i = 0; i < s_adv->resourceCount; ++i)
+        if (!strcmp(s_adv->resources[i].id, s_story->items[item].id)) return i;
+    return -1;
+}
+
+static void resourceSprite(int item, int sx, int sy)
+{
+    const int r = resourceIndex(item);
+    const auto *art = r >= 0 && s_resourceArt ? &s_resourceArt[r] : nullptr;
+    Adv::drawResource(art, s_ts, [=](int x, int y, int red, int green, int blue, int alpha) {
+        const int fx = sx + x, fy = sy + y;
+        if (fx < 0 || fy < 0 || fx >= s_layout.view.w || fy >= s_layout.view.h) return;
+        const uint16_t bg = s_fb[size_t(fy) * s_fbStride + fx];
+        red = (red * alpha + ((bg >> 11) * 255 / 31) * (255 - alpha)) / 255;
+        green = (green * alpha + (((bg >> 5) & 63) * 255 / 63) * (255 - alpha)) / 255;
+        blue = (blue * alpha + ((bg & 31) * 255 / 31) * (255 - alpha)) / 255;
+        framePixel(fx, fy, rgb(red, green, blue));
+    });
+}
+
 // Draw in a 16px local grid at either zoom, without allocating additional sprite buffers.
 static void terrainOverlay(Tile tile, int tx, int ty, int sx, int sy)
 {
@@ -1053,6 +1078,7 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
             }
             if (rockSliding && tx == s_rockToX && ty == s_rockToY) continue;   // Drawn below
             const Obj ob = w.obj(tx, ty);
+            if (ob == Obj::RESOURCE) resourceSprite(w.objAmount(tx, ty), sx, sy);
             const int o = ob == Obj::NPC ? npcSprite(tx, ty, now) : objSprite(ob);
             const int color = keyColorId(ob);
             if (color >= 0) coloredObject(o, color, sx, sy);
@@ -1514,6 +1540,7 @@ static void noteToasts()
 {
     using Otr::Story::NoteKind;
     if (!s_story || !s_talk.noteCount()) return;
+    s_saveWanted = true;
     const int L = langIdx();
     char buf[200];
     size_t len = 0;
@@ -1771,6 +1798,47 @@ static void talkTick(uint32_t now)
 // cell). Advance to the next ordered map (carrying/resetting per the next map's @rules) or finish
 // the adventure on the last map. Same behaviour whether the win came from a move or a bomb.
 static void adventureResult();
+static void loadResourceImages()
+{
+    s_dirty = true;
+    heap_caps_free(s_resourceArt);
+    s_resourceArt = nullptr;
+    if (!s_adv || !s_adv->resourceCount) return;
+    s_resourceArt = static_cast<Adv::ResourceArt *>(heap_caps_malloc(
+        sizeof(Adv::ResourceArt) * s_adv->resourceCount, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s_resourceArt) {
+        ESP_LOGE(TAG, "resource art: out of PSRAM");
+        toast(tr(Str::ADV_LOAD_FAIL), Theme::RED);
+        return;
+    }
+    for (int i = 0; i < s_adv->resourceCount; ++i) new (&s_resourceArt[i]) Adv::ResourceArt{};
+    bool failed = false;
+    for (int i = 0; i < s_adv->resourceCount; ++i) {
+        const char *name = s_adv->resources[i].image;
+        if (!name[0]) continue;
+        char path[192];
+        snprintf(path, sizeof path, "%s/%s/bitmaps/%s", SD_ADV_ROOT, s_sd.folder(), name);
+        auto *data = static_cast<uint8_t *>(heap_caps_malloc(16385, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        size_t size = 0;
+        {
+            BoardSd::Guard guard;
+            FILE *file = fopen(path, "rb");
+            if (file) {
+                if (data) size = fread(data, 1, 16385, file);
+                fclose(file);
+            }
+        }
+        const bool ok = data && Adv::decodeResourcePng(data, size, s_resourceArt[i]);
+        heap_caps_free(data);
+        if (!ok) {
+            ESP_LOGW(TAG, "resource image invalid/missing: %s (using bag)", path);
+            failed = true;
+        }
+    }
+    if (failed) toast(langIdx() ? "Resource image missing/invalid: using bag" :
+                      "Resursbild saknas/ogiltig: visar påse", Theme::ACCENT, 5000);
+}
+
 static void sdExitAdvance()
 {
     stopPath(); s_joy.cancel();
@@ -1779,6 +1847,7 @@ static void sdExitAdvance()
         if (s_sd.travel(*s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
             snapPlayer(); AdvLive::invalidateMap(); updateStats(); s_saveWanted = true;
             toast(advMapTitle(), Theme::GOLD);
+            loadResourceImages();
         } else {
             ESP_LOGE(TAG, "travel failed: %s", err);
             toast(tr(Str::ADV_SD_LOAD_FAIL), Theme::RED);
@@ -2094,8 +2163,11 @@ static void resetWorld(bool showHelp = true)
 {
     cancelBomb(); s_resultShown=false;
     char err[96];
-    if (!s_sd.restart(*s_adv, *s_world, s_storyState, s_story, err, sizeof err))
-        ESP_LOGE(TAG, "restart failed: %s", err);   // SdSession::restart also clears the story state
+    if (!s_sd.restart(*s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
+        ESP_LOGE(TAG, "restart failed: %s", err);
+        toast(err, Theme::RED, 5000);
+        return;
+    }
     AdvLive::invalidateMap();
     if (talking()) endTalk();
     s_storyState.clear();
@@ -2108,6 +2180,7 @@ static void resetWorld(bool showHelp = true)
     updateStats();
     if (showHelp) toast(tr(s_world->mineLevel()?Str::ADV_MINE_HELP:s_story?Str::ADV_TRAVEL_HELP:
         s_world->fog() ? Str::ADV_HELP_MINES : Str::ADV_HELP), Theme::MUTED, 6000);
+    loadResourceImages();
 }
 
 static lv_obj_t *dialog(const char *text)
@@ -2303,7 +2376,7 @@ static void liveSync(bool force = false)
     s_liveValid = true;
     const AdvLive::Source src = {&w, worldName(), s_story, &s_storyState, s_talk.active() ? &s_talk : nullptr,
                                  langIdx(), tr(Str::ADV_TALK_READ), tr(Str::ADV_TALK_OK), tr(Str::ADV_TALK_BYE),
-                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY};
+                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY, s_adv, s_sd.folder()};
     AdvLive::publish(src);
 }
 
@@ -2588,6 +2661,8 @@ static void freeAll()
     heap_caps_free(s_saveBuf);
     heap_caps_free(s_cat);
     heap_caps_free(s_adv);
+    heap_caps_free(s_resourceArt);
+    s_resourceArt = nullptr;
     s_fb = nullptr;
     s_fbStride = 0;
     s_spr = nullptr;
@@ -2692,6 +2767,25 @@ static void toggleZoom()
     s_dirty = true;
 }
 
+static void showInventory()
+{
+    auto *inventory = dialog(nullptr);
+    lv_msgbox_add_title(inventory, langIdx() ? "Inventory" : "Föremål");
+    lv_msgbox_add_close_button(inventory);
+    bool any = false;
+    if (s_story) for (int i = 0; i < s_story->itemCount; ++i) {
+        if (!s_storyState.items[i]) continue;
+        any = true;
+        char text[160];
+        snprintf(text, sizeof text, "%s: %u / %u", s_story->items[i].name.get(langIdx()),
+                 (unsigned)s_storyState.items[i], (unsigned)s_story->items[i].cap);
+        lv_msgbox_add_text(inventory, text);
+    }
+    if (!any) lv_msgbox_add_text(inventory, langIdx() ? "Empty" : "Tomt");
+    AdvUi::dialogLayout(inventory);
+    Theme::msgboxFonts(inventory);
+}
+
 static const char *extraHudText()
 {
     if (langIdx()) return s_extraHud ? "Extra HUD info: ON" : "Extra HUD info: OFF";
@@ -2721,6 +2815,9 @@ static void showMenu()
     lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(c, 8, 0);
     menuButton(c, extraHudText(), Theme::LINE, toggleExtraHud);
+    menuButton(c, langIdx() ? "Inventory" : "Föremål", Theme::GOLD, [](lv_event_t *) {
+        showInventory();
+    });
     menuButton(c, soundText(), Theme::LINE, [](lv_event_t *e) {
         if (toggleSound()) lv_label_set_text(lv_obj_get_child(lv_event_get_target_obj(e), 0), soundText());
     });
@@ -3080,6 +3177,7 @@ static void startGame(bool cont)
     }
     stopPath();
     buildGame(failed);
+    loadResourceImages();
 }
 
 // ----------------------------------------------------------------------------------------

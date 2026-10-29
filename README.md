@@ -4,15 +4,16 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.21.1** – findable suction cup and explicit **Dra / Pull** action,
-> deterministic turn-based patrols and pathfinding chasers, with optional movement areas.
-> Action selection (**Byt / Swap**) never performs the action; use the lower button to pull.
-> The external [S4 demo](docs/adventures/s4_demo/README.md) includes an exact tested solution
-> and is mirrored in the SD bundle. Existing S2/S3 demos are preserved.
-> Engine saves use format 6 for suction ownership and enemy position/route state;
-> formats 1–5 remain readable. The SD-session container remains version 1.
-> See [authoring section 10g](docs/AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211)
-> for syntax, turn order, bounds and compatibility.
+> **Status: v0.21.2** – custom `@resources` now work in the player:
+> real pickups, shared story inventory, caps (including `give` and carry),
+> PNG/bag rendering, inventory menu, save/restore and web live view.
+> Copy the [resource check](docs/adventures/z_resource_test/README.md) from the
+> SD bundle to test collection, dialogue, checkpoints and carry/reset on ESP.
+> Engine saves use format 7; old saves remain readable on maps without resources.
+> Old resource-map saves require a new game. Story and SD-container versions are unchanged.
+> The [multi-map format specification](docs/ADVENTURE_MULTIMAP_FORMAT.md) is
+> **future syntax, not implemented**. Multi-map runtime and portals are the next delivery.
+> Existing suction/**Pull**, enemies and S2/S3/S4 demos are preserved; no undo was added.
 > **Verification:** physical ESP32/display/touch testing remains necessary;
 > this sandbox has no ESP-IDF toolchain for a firmware build.
 > No undo, editor, release-workflow changes, tags or GitHub Releases are included.
@@ -506,6 +507,27 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 ```
 
 ### Tests (host)
+
+Adventure v0.21.2 resource checks (from the repository root):
+
+```sh
+mkdir -p build_host_resources
+g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_resources.cpp main/adv_loader.cpp main/adv_sd_session.cpp main/adv_live.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o build_host_resources/resources
+build_host_resources/resources
+python3 tests/test_adv_s2_ui.py build_host_resources
+python3 tests/test_adv_game_layout.py build_host_resources/layout
+node tests/test_adv_live_web.js
+python3 tools/embed_web.py --check
+```
+
+The real-LVGL layout harness requires the pinned `managed_components/lvgl__lvgl`.
+It also tests the production PNG decoder, repeated decoding, alpha and malformed files.
+The resource harness validates both shipped copies with the production loader,
+script and world, then exercises pickup/cap/dialogue, session save/restore,
+checkpoint/restart, name-based carry/reset, live JSON and invalid-restore rollback.
+The UI harness exercises resource PNG/fallback pixels at both zooms and the
+Swedish/English inventory menu. ESP-IDF firmware build and physical ESP32-S3
+checks remain open; see the demo README.
 
 Adventure v0.21.1 checks (run from the repository root; no ESP-IDF required):
 

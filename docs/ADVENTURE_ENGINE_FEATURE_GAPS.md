@@ -3,7 +3,7 @@
 Jämförelse mot klassiska 2D rutnätsmotorer (Chip's Challenge, Boulder Dash,
 Sokoban-varianter, Zelda-likes, Baba Is You, enkla roguelikes). Listan tar **bara**
 upp sådant motorn *inte* redan har. Statusen är kontrollerad mot parsern och
-motorn i repot, som anger firmwareversion 0.21.1; versionsnummer i listan
+motorn i repot, som anger firmwareversion 0.21.2; versionsnummer i listan
 beskriver när befintliga funktioner introducerades.
 
 **Svårighetsskala (för just denna kodbas):**
@@ -26,6 +26,15 @@ BFS-jagare med valfria områden; se
 Sugpropp är inte generell undo. `@legend` kan mappa ett urval av befintliga
 mekaniker, men är ännu inte en generell tabell för valfri terräng eller
 objekt-id.
+
+Från **0.21.2** fungerar egna `@resources` i spelaren: kartpickup till
+storyinventory, tak även för `give`/carry, `has`/`take`, valfri PNG/påse,
+föremålslista, checkpoint/save/restore/omstart och carry/reset mellan filer.
+Webblivevyn speglar resurser och innehav. Se
+[resursprovet](adventures/z_resource_test/README.md).
+[Flerkartsformatet](ADVENTURE_MULTIMAP_FORMAT.md) är specificerat men **ännu
+inte implementerat**. Flerkartsruntime och portaler kommer tillsammans i
+nästa leverans; budget, turordning och omstarts-/ankomstregler har öppna beslut.
 
 ---
 
@@ -87,14 +96,14 @@ objekt-id.
 |---|----------|-------------|:--------:|
 | 32 | **Tidtagning/bestatid** | Spara bästa tid per bana | 2 |
 | 33 | **Samlarmål / bonusstjärnor** | Hitta alla skatter = stjärna; delmål utöver utgången | 2 |
-| 34 | **Ångra drag (undo)** | Sokoban-must för svåra pussel; kräver tillståndsstack (PSRAM finns) | 4 |
+| 34 | **Ångra drag (undo), ej prioriterat** | Sugpropp/Dra är avsiktligt alternativ; omstart finns kvar. Ingen undo planeras i aktuell leverans | 4 |
 | 35 | **Nivåväljare med framsteg** | Lås upp banor i följd, visa klarade | 3 |
 
 ---
 
 ## Möjliga nästa steg (värde för insatsen)
-- **Ångra drag (#34)** – större förändring, men skulle stärka pusseldelen.
-- **Teleport-par (#4)** – bygger vidare på grupp-id-tänket och kan ge nya pussel.
+- **Flerkartor + namngivna portaler (#21/#4)** – genomförs tillsammans
+  efter besluten i [formatspecifikationen](ADVENTURE_MULTIMAP_FORMAT.md).
 
 Motorlogik kan i regel host-testas utan hårdvara. UI- och presentationsändringar
 behöver dessutom relevanta UI-/enhetskontroller.

@@ -1,0 +1,11 @@
+@meta
+id: resource_reset
+world: 99
+map_id: 101
+@about
+title.sv: Resursprovet - reset
+title.en: Resource check - reset
+@resources
+s : stone : Sten : Stone : 2 :
+@map
+SsQ.X

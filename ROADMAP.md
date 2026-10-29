@@ -1,6 +1,23 @@
 # MyEsp-OnTheRoad – Roadmap
 
-Status per 2026-10-28. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat, ➡️ = flyttat till annat repo.
+Status per 2026-10-29. ✅ = klart (kompilerar + värdtester), 🔧 = HW-test återstår, ⏳ = planerat, ➡️ = flyttat till annat repo.
+
+### v0.21.2 – Egna resurser i spelaren + framtida formatspecifikation 🔧
+- `@resources` är riktiga kartobjekt: upplockning till befintligt storyinventory,
+  fullt innehav lämnar objektet kvar. Samma tak gäller `give` och carry.
+  `has`/`take`, menyns föremålslista och webblivevy använder samma antal.
+- Valfri 32×32 PNG avkodas med LVGL i UI-tasken och cachas i PSRAM;
+  tom bild ger påse, fel i angiven bild ger synlig/loggad varning och påse.
+- Världens saveformat 7 lägger till resursobjekt utan större världsbild;
+  storyformat/SD-container oförändrade. Äldre saves för kartor utan resurser
+  stöds fortsatt; gamla resurskartors saves kräver nytt spel.
+- [Körbar ESP-testbana](docs/adventures/z_resource_test/README.md) med tre
+  separata filer testar cap, dialog, checkpoint, save/restore och carry/reset.
+  Hosttester ersätter inte firmwarebygge/fysisk ESP32-S3-verifiering.
+- [Framtida flerkartsformat](docs/ADVENTURE_MULTIMAP_FORMAT.md) är **enbart
+  specifikation**, med öppna budget-/turordnings-/ankomst-/omstartsbeslut.
+  Flerkartsruntime och portaler genomförs tillsammans i nästa leverans.
+  Ingen undo, editor, commit eller publicering ingår i denna leverans.
 
 ### v0.21.1 – Sugpropp och turbaserade fiender 🔧
 - Sugpropp som kartpickup eller dold skatt; explicit **Dra** via **Byt** och

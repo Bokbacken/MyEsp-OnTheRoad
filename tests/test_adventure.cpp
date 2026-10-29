@@ -691,7 +691,7 @@ static void testLegacyGroupZeroSave()
     static const char *const rows[] = {"So="};
     const MapDef def = {77, rows, 1, CLASSIC_RULES, nullptr, 0, nullptr, 0};
     CHECK_EQ(World::SAVE_MAGIC, 0x5352544F);
-    CHECK_EQ(World::SAVE_VERSION, 6);
+    CHECK_EQ(World::SAVE_VERSION, 7);
     CHECK(W.load(def));
     CHECK(W.restore(legacy, sizeof(legacy)));
     CHECK(W.gatesOpen());

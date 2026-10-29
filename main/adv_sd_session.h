@@ -7,7 +7,7 @@
 // progress; the josef folder therefore keeps the Joseph line's progress separate as before.
 //
 // No LVGL / ESP-IDF dependency (pure engine + loader), so the carry/reset and save-roundtrip logic
-// is host-tested by tests/test_adv_sd_session.cpp. The big Adv::Loaded scratch buffer is supplied
+// is host-tested by tests/test_adv_catalog.cpp and tests/test_adv_resources.cpp. The big Adv::Loaded scratch buffer is supplied
 // by the caller (UI owns it in PSRAM and reuses it across maps).
 #pragma once
 
@@ -20,8 +20,9 @@
 
 namespace Adv {
 
-class SdSession {
+class SdSession : public Otr::ItemCollector {
 public:
+    bool collect(uint8_t item) override;
     // Loads the first map of adventure `e` (found under `root`) into `w`, clears `story`, builds the
     // script into `scratch` and points `outScript` at it (nullptr when the map has no dialogue).
     // Returns false (with err) if the map file is missing, fails to parse, or the engine rejects it.
@@ -63,6 +64,8 @@ public:
     static constexpr uint16_t SAVE_VERSION = 1;
 
 private:
+    Otr::Story::StoryState *inventory_ = nullptr;
+    const Otr::Story::Script *script_ = nullptr;
     // Parses map `index` into scratch, loads it into the world/story, points outScript at it.
     bool loadMapInto(int index, Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
                      const Otr::Story::Script *&outScript, char *err, size_t errCap);

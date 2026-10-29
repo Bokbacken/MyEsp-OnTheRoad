@@ -41,7 +41,8 @@ static int folderIndex(const Adv::Catalog &c, const char *name)
 static void testCatalog(const Adv::Catalog &c)
 {
     // The bundle also ships resources, minesweeper, dark/pogo, Sokoban and S2/S3/S4 demos.
-    CHECK(c.count == 11, "catalog found 11 adventures");
+    CHECK(c.count == 12, "catalog found 12 adventures");
+    CHECK(folderIndex(c, "z_resource_test") == 11, "resource check sorts last");
     // Alphabetical order: byn, darkdemo, josef, minfaltet, minkampanj, resdemo, s2_demo, s3_demo, s4_demo, sokoban, testvarlden.
     CHECK(folderIndex(c, "byn") == 0, "byn sorts first");
     CHECK(folderIndex(c, "darkdemo") == 1, "darkdemo sorts second");

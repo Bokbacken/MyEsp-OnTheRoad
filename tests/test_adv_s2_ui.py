@@ -39,6 +39,8 @@ code = r'''
 #include "otr_world.h"
 #include "otr_joystick.h"
 #include "otr_story.h"
+#include "adv_loader.h"
+#include "adv_resource_art.h"
 #include "sound_bank.h"
 #include "lang/lang.h"
 using Otr::Dir;
@@ -98,6 +100,7 @@ namespace Theme {
 constexpr uint32_t TEXT=1, MUTED=2, ACCENT=3, GOLD=4, TEAL=5, GREEN=6, RED=7, BLUE=8, LINE=9;
 constexpr uint32_t PANEL=0x17263A;
 static uint32_t c(uint32_t n) { return n; }
+static void msgboxFonts(lv_obj_t *) {}
 static lv_obj_t *label(lv_obj_t *parent, const char *text, const int *font, uint32_t color) {
     auto *obj=lv_obj_create(parent); obj->text=text; obj->h=*font; obj->color=color;
     obj->w=9; return obj;
@@ -122,11 +125,17 @@ static int s_rockFromX, s_rockFromY, s_rockToX, s_rockToY, s_bumpDx, s_bumpDy, s
 static int s_bombSize, s_bombX=-1, s_bombY=-1, s_talkNum, s_pathPos=-1, s_walkTalkNum;
 static Otr::JoyController s_joy;
 static const Otr::Story::Script *s_story;
+static Otr::Story::StoryState s_storyState;
+static Adv::Loaded *s_adv;
+static Adv::ResourceArt *s_resourceArt;
 static lv_obj_t *s_talkPanel;
 static lv_obj_t *s_dialog;
 static void closeDialog() { s_dialog=nullptr; }
 static lv_obj_t *lv_msgbox_create(lv_obj_t *) { static lv_obj_t popup; return &popup; }
-static void lv_msgbox_add_text(lv_obj_t *o, const char *text) { o->text=text; }
+static std::vector<std::string> inventoryLines;
+static void lv_msgbox_add_text(lv_obj_t *o, const char *text) { o->text=text; inventoryLines.emplace_back(text); }
+static void lv_msgbox_add_title(lv_obj_t *, const char *) {}
+static void lv_msgbox_add_close_button(lv_obj_t *) {}
 namespace AdvUi { static void dialogLayout(lv_obj_t *) {} }
 static lv_obj_t labelObjects[32];
 enum HudCount { C_LIVES, C_SUIT, C_KEYS, C_GEMS, C_COUNT };
@@ -187,6 +196,7 @@ static void menuPause() {
 /*MENU_PAUSE*/
 }
 /*DIALOG*/
+/*INVENTORY*/
 /*ACTION*/
 /*PERFORMANCE*/
 static std::vector<std::string> rows;
@@ -484,6 +494,15 @@ static void inventoryConstructionTests() {
     }
 }
 static void inventoryTests() {
+    static Otr::Story::Named named{"stone",{{"Sten","Stone"}},2};
+    static Otr::Story::Script script{};
+    script.items=&named; script.itemCount=1;
+    s_story=&script; s_storyState.clear();
+    inventoryLines.clear(); showInventory();
+    assert(inventoryLines.back()==(langIdx()?"Empty":"Tomt"));
+    s_storyState.items[0]=2; inventoryLines.clear(); showInventory();
+    assert(inventoryLines.back()==(langIdx()?"Stone: 2 / 2":"Sten: 2 / 2"));
+    s_story=nullptr; s_storyState.clear(); closeDialog();
     makeArt(s_spr); makeColoredKeyIcons();
     inventoryConstructionTests();
     std::set<std::vector<uint16_t>> images, badges;
@@ -621,6 +640,32 @@ static void rendererTests() {
             rows[7][2+c]=char(Otr::COLORED_DOOR_GLYPH+c);
         }
         reload(); draw();
+        {
+            static Adv::Loaded adventure;
+            adventure.resourceCount=1;
+            adventure.resources[0].id="stone";
+            static Otr::Story::Named named{"stone",{{"Sten","Stone"}},2};
+            static Otr::Story::Script script{};
+            script.items=&named; script.itemCount=1;
+            s_adv=&adventure; s_story=&script;
+            std::fill(s_fb,s_fb+count,0);
+            resourceSprite(0,0,0);
+            const auto fallback=cell(0,0);
+            assert(std::count(fallback.begin(),fallback.end(),uint16_t(0))<int(fallback.size()));
+            static Adv::ResourceArt custom;
+            custom.ready=true;
+            for(int p=0;p<1024;++p) {
+                custom.bgra[p*4]=0; custom.bgra[p*4+1]=0;
+                custom.bgra[p*4+2]=255; custom.bgra[p*4+3]=255;
+            }
+            s_resourceArt=&custom;
+            resourceSprite(0,0,0);
+            assert(s_fb[0]==rgb(255,0,0) && cell(0,0)!=fallback);
+            custom.bgra[3]=0; s_fb[0]=rgb(0,255,0);
+            resourceSprite(0,0,0); assert(s_fb[0]==rgb(0,255,0));
+            s_resourceArt=nullptr; s_adv=nullptr; s_story=nullptr;
+            draw();
+        }
         assert(objSprite(Obj::SUCTION)==S_SUCTION && keyColorId(Obj::SUCTION)==-1);
         std::set<std::vector<uint16_t>> terrain, keys, doors, badges;
         for(int x=2;x<8;++x) { terrain.insert(cell(x,3)); keys.insert(cell(x,5)); doors.insert(cell(x,7)); }
@@ -744,6 +789,7 @@ replacements = {
     "MOVE": section("static void finishMovement(", "// v0.18.4: the split"),
     "MENU_PAUSE": section("    if (s_dialog || talking()) return;   // Already open", "    lv_obj_t *mb = dialog(nullptr);"),
     "DIALOG": section("static lv_obj_t *dialog(const char *text)", "static void performanceText("),
+    "INVENTORY": section("static void showInventory()", "static const char *extraHudText()"),
     "ACTION": section("enum { ACT_HIT", "// Tap-to-walk"),
     "PERFORMANCE": section("static void performanceText(", "static void addPerformance("),
     "EXTRA_STATE": section("static bool s_extraHud", "static lv_obj_t *s_keyBox"),

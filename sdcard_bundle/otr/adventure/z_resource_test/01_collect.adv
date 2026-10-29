@@ -1,0 +1,31 @@
+@meta
+id: resource_test
+world: 99
+map_id: 99
+@about
+title.sv: Resursprovet
+title.en: Resource check
+desc.sv: Tre stenar, tak två, dialog, checkpoint och tre separata filer.
+desc.en: Three stones, cap two, dialogue, checkpoint and three separate files.
+author: MyEsp-OnTheRoad
+@rules
+carry: items
+@resources
+s : stone : Sten : Stone : 2 : stone.png
+@map
+#############
+#Ssss.Q...X.#
+#....1......#
+#...........#
+#############
+@npc tester
+name: Provaren | Tester
+look: 0
+num: 1
+@node tester.start
+speaker: tester
+text.sv: Ge mig en sten, eller testa att få nio. Du kan bära högst två.
+text.en: Give me a stone, or ask for nine. You can carry at most two.
+choice: Ge en sten | Give a stone => END ?? has:stone !! take stone ~~ Du behöver en sten | You need a stone
+choice: Få nio stenar | Get nine stones => END !! give stone 9
+choice: Hej då | Bye => END

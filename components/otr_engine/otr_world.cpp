@@ -94,7 +94,7 @@ bool isItem(Obj o)
 {
     return o == Obj::KEY || o == Obj::GEM || o == Obj::BOAT || o == Obj::POTION || o == Obj::HEART ||
            o == Obj::SUIT || o == Obj::LIFE || o == Obj::BOMB3 || o == Obj::BOMB4 ||
-           o == Obj::FLASH || o == Obj::POGO || o == Obj::SKATES || o == Obj::SUCTION || coloredKey(o);
+           o == Obj::FLASH || o == Obj::POGO || o == Obj::SKATES || o == Obj::SUCTION || o == Obj::RESOURCE || coloredKey(o);
 }
 bool alwaysVisible(Tile t) { return t == Tile::WALL || t == Tile::TREE || t == Tile::CRACKED; }
 
@@ -213,6 +213,17 @@ bool World::load(const MapDef &def)
 {
     if (!load(def.rows, def.h, def.rules)) return false;
     mapId_ = def.id;
+    if (def.resourceCount < 0 || def.resourceCount > MAX_RESOURCE_PICKUPS ||
+        (def.resourceCount && !def.resources)) return false;
+    for (int i = 0; i < def.resourceCount; ++i) {
+        const auto &p = def.resources[i];
+        if (!inside(p.x, p.y) || p.item >= MAX_RESOURCE_ITEMS || tile(p.x, p.y) != Tile::GRASS ||
+            rawObj(p.x, p.y) != Obj::NONE ||
+            (p.x == startX_ && p.y == startY_)) return false;
+        obj_[p.y][p.x] = (uint8_t)Obj::RESOURCE;
+        val_[p.y][p.x] = p.item;
+        resourceDefs_[resourceCount_++] = p;
+    }
     if (def.controlCount < 0 || def.controlCount > PLATE_GROUPS ||
         (def.controlCount && !def.controls) || def.par < 0) return false;
     bool configured[PLATE_GROUPS] = {};
@@ -236,7 +247,8 @@ bool World::load(const MapDef &def)
     updateGates(gateEvents);
     for (int i = 0; i < def.treasureCount && def.treasures; i++) {
         const Treasure &t = def.treasures[i];
-        if (!inside(t.x, t.y) || !isItem(t.item) || hid_[t.y][t.x] || groupedTile(tile(t.x, t.y)))
+        if (!inside(t.x, t.y) || !isItem(t.item) || t.item == Obj::RESOURCE ||
+            rawObj(t.x, t.y) == Obj::RESOURCE || hid_[t.y][t.x] || groupedTile(tile(t.x, t.y)))
             return false; // Group ids and item amounts share val_; they cannot occupy the same cell.
         // v0.18.5: @treasures takes precedence over a map-glyph PICKUP on the same cell, so a
         // higher pogo / flashlight level (or any treasure) wins over the bare glyph (e.g. j, f).
@@ -684,6 +696,10 @@ uint32_t World::pickup(uint32_t ev)
         ev |= EV_KEY;
     }
     switch (o) {
+    case Obj::RESOURCE:
+        if (!itemCollector_ || !itemCollector_->collect((uint8_t)amount)) return ev;
+        ev |= EV_TREASURE;
+        break;
     case Obj::BOMB3: if (bomb3_ < 99) bomb3_++; ev |= EV_TREASURE; break;
     case Obj::BOMB4: if (bomb4_ < 99) bomb4_++; ev |= EV_TREASURE; break;
     case Obj::KEY: keys_++; ev |= EV_KEY; break;
@@ -1247,6 +1263,7 @@ bool World::restore(const uint8_t *buf, size_t n)
     const int version = r.u16();
     if (version < 1 || version > SAVE_VERSION || r.u8() != mapId_ || r.u8() != w_ || r.u8() != h_)
         return false;
+    if (version < 7 && resourceCount_) return false;
     if (n != saveSize() - (version < 4 ? S2_BYTES : 0) - (version < 5 ? 1 : 0) -
         (version < 6 ? 6 + 4 * enemyCount_ : 0)) return false;
     r.u8();
@@ -1315,6 +1332,15 @@ bool World::restore(const uint8_t *buf, size_t n)
         if (version < 5 && (c[0] > (uint8_t)Tile::BELT_LEFT || c[1] > (uint8_t)Obj::DOOR_CYAN ||
                             c[3] > (uint8_t)Obj::DOOR_CYAN)) return false;
         if (version < 6 && (c[1] == (uint8_t)Obj::SUCTION || c[3] == (uint8_t)Obj::SUCTION)) return false;
+        if (c[3] == (uint8_t)Obj::RESOURCE) return false;
+        if (c[1] == (uint8_t)Obj::RESOURCE) {
+            bool found = false;
+            for (int j = 0; j < resourceCount_; ++j) {
+                const auto &p = resourceDefs_[j];
+                if (p.x == i % w_ && p.y == i / w_ && p.item == c[2]) found = true;
+            }
+            if (version < 7 || !found) return false;
+        }
         if (c[1] == (uint8_t)Obj::NPC && (c[2] < 1 || c[2] > 9)) return false;
         if (groupedTile((Tile)c[0]) && c[2] >= PLATE_GROUPS)
             return false;

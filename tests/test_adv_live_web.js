@@ -21,6 +21,7 @@ const sandbox = {
     getElementById: element, createElement: () => element(Symbol()),
     addEventListener() {}
   },
+  Image: class { constructor() { this.complete = false; } },
   window: {matchMedia: () => ({matches: true}), addEventListener() {}, innerHeight: 700},
   localStorage: {getItem: () => null}, performance: {now: () => 1000},
   requestAnimationFrame() {}, setTimeout() {}, fetch: () => new Promise(() => {})
@@ -59,4 +60,19 @@ assert(element('items').innerHTML.includes('Skates'));
 run(`renderHud({energy:100,energy_max:100,lives:3,keys:0,gems:0,gems_total:0,
   suction:false,items:[],lang:0});`);
 assert(!element('items').innerHTML.includes('Sugkopp'));
+ops.length = 0;
+run(`drawResources(ctx, {resource_folder:'z_resource_test',
+  resource_types:[{name:'Stone',image:'stone.png'}],
+  resources:[{x:0,y:0,type:0},{x:2,y:0,type:0}]});`);
+assert(ops.some(o => o[1] === '#eb9b2d'), 'resource has a visible bag before PNG loads');
+assert.equal(run(`resourceImages.size`), 1, 'one image request per resource type');
+assert(run(`resourceImages.get('stone.png').src`).includes('z_resource_test%2Fbitmaps%2Fstone.png'));
+ops.length = 0;
+run(`const loadedStone=resourceImages.get('stone.png'); loadedStone.complete=true;
+  loadedStone.naturalWidth=loadedStone.naturalHeight=32;
+  drawResources(ctx, {resource_folder:'z_resource_test', resource_types:[{image:'stone.png'}],
+    resources:[{x:0,y:0,type:0},{x:2,y:0,type:0}]});`);
+assert.equal(ops.filter(o => o[0] === 'drawImage').length, 1, 'PNG visible, hidden resource suppressed');
+run(`renderHud({energy:8,energy_max:8,lives:3,items:[{name:'<Stone>',count:2,cap:2}],lang:1});`);
+assert(element('items').innerHTML.includes('&lt;Stone&gt;'), 'inventory escapes authored names');
 console.log('Adventure live production web: suction art/HUD, distinct enemy overlays and fog/darkness OK');

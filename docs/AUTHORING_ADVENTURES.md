@@ -2,7 +2,7 @@
 
 Den här referensen beskriver beteendet i produktionsladdaren
 `main/adv_loader.cpp` och motorn. I repot är äventyrsmotorns senaste
-dokumenterade firmwareversion **0.21.1**. Versionsetiketterna nedan anger när
+dokumenterade firmwareversion **0.21.2**. Versionsetiketterna nedan anger när
 en funktion först introducerades; de är inte separata formatprofiler.
 
 Vill du snabbt se vilka tecken och mekaniker som finns? Börja med
@@ -42,6 +42,12 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 >
 > **Nytt i v0.21.1:** sugpropp/Dra och turbaserade patruller/jagare —
 > avsnitt 10g. 0.21.0-mekanik och äldre demobanor finns kvar.
+
+> **Nytt i v0.21.2:** egna resurser fungerar nu som verkliga pickups med
+> innehavstak, `has`/`give`/`take`, föremålslista, valfri PNG, sparning och
+> carry/reset. Se avsnitt 9 och [det körbara resursprovet](adventures/z_resource_test/README.md).
+> [Flerkartsspecifikationen](ADVENTURE_MULTIMAP_FORMAT.md) beskriver
+> **framtida, ännu inte stödd syntax**. Dagens spelare har en karta per fil.
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -313,6 +319,10 @@ utlöses först) och håller kartan giltig. Den medföljande kampanjen `minkampa
 
 ## 5. @map – rita kartan
 
+Exakt en `@map` utan kart-id stöds per fil. Flera separata `.adv`-filer
+spelas som tidigare i filnamnsordning. `@map 2`, `map=2:` och portaler är
+**ännu inte stödda**; se [framtida formatspecifikation](ADVENTURE_MULTIMAP_FORMAT.md).
+
 Kartan är ett rutnät, en rad per textrad, **ett byte per ruta**. Alla rader
 måste vara **lika långa** (det blir kartans bredd) och antalet rader blir
 höjden. Radens inledande/avslutande blanktecken räknas som kartceller, inte
@@ -579,10 +589,13 @@ bort/knuffar objektet, precis som förut.
 ## 9. @resources – egna samlingsbara föremål (nytt i v0.17.0)
 
 Med `@resources` binder du en **ledig kartglyf** till ett eget samlingsbart
-föremåls metadata: en bild, ett namn och ett maxantal. Resurs-id:t registreras
+föremål: en bild, ett namn och ett maxantal. Resurs-id:t registreras
 som story-föremål och kan användas i villkor (`has:...`) och effekter
-(`take ... N`) precis som andra `@items`. Själva kartglyfen är inte ett
-`World`-pickup i nuvarande runtime; se statusnotisen nedan.
+(`give ... N`, `take ... N`) precis som andra `@items`.
+Sedan **0.21.2** plockas det upp genom att gå på rutan, direkt till samma
+storyinventory. Varje utplacering ger **ett** föremål. Vid fullt tak ligger
+objektet kvar och rutan går fortfarande att passera. Även `give` och carry
+klampar till taket; `take` går aldrig under noll.
 
 ```
 # glyf : id : namn.sv : namn.en : tak : bild
@@ -599,21 +612,23 @@ Fälten per rad:
 | `id` | föremåls-id; läggs automatiskt till i `@items` |
 | `namn.sv` / `namn.en` | visningsnamn |
 | `tak` | maxantal (0 eller tomt blir 1; värden under 1 blir 1 och över 255 blir 255) |
-| `bild` | valfritt filnamn, högst 39 byte; avsedd som 32×32 PNG i äventyrets `bitmaps/` |
+| `bild` | valfritt PNG-filnamn, högst 39 byte, i äventyrets `bitmaps/`; inga sökvägar eller `..` |
 
 Namn kan lämnas tomma: svenskt namn faller då tillbaka på id och engelskt namn
 saknas. Resurs-id läggs till i `@items`, så resurstyper räknas också mot
 gränsen **32 story-föremål**. Gränser: max **16** resurstyper och **160**
 utplaceringar per karta. Parsern kontrollerar glyfkollision med inbyggda
-tecken och dubblett bland resurser, men inte kollision mellan en resursglyf och
-`@legend`; återanvänd inte samma tecken där. Använd inte `@` eller blanktecken
-som glyfer eftersom de krockar med filsyntaxen.
+tecken och dubbletter bland resurser/item-id:n. Befintligt företräde behålls:
+om samma glyf också finns i `@legend` vinner legendbindningen, oavsett
+sektionsordning, och ingen resurs placeras där. Använd därför olika glyfer
+för resurser och legendobjekt. Resurs-id är högst 39 byte. Använd inte `@`, kontrolltecken,
+flerbytetecken eller blanktecken som glyfer.
 
 ### "Ge en resurs till en person"-mönstret
 
-När resursinventeringen är inkopplad kan storyflödet göra grindvakts-pusslet
+Resursinventeringen kan göra grindvakts-pusslet
 enklare – vakta stigen tills spelaren lämnar en resurs. Exemplet visar
-storyvillkoret/-effekten, inte en fungerande resursupphämtning i nuvarande runtime:
+storyvillkoret/-effekten; komplettera med NPC-, flagg- och resursdefinition:
 
 ```
 @node builder.start
@@ -624,12 +639,25 @@ choice: Här, en sten. | Here, a stone. => builder.open ?? has:stone !! take sto
 choice: Jag letar vidare. | I'll keep looking. => END
 ```
 
-> **Runtime-status:** produktionsladdaren läser resursdefinitioner och
-> placeringar och lägger id:n i storyns föremålslista. Motorns `World` saknar
-> dock resursobjekt; upphämtning/rendering av de registrerade placeringarna är
-> inte inkopplad i äventyrsvyn. Behandla därför `@resources` som metadata för
-> authoring/story-validering, inte som en fungerande spelpickup i nuvarande
-> runtime.
+**Runtime 0.21.2:** kartan visar PNG eller en gul samlarpåse. Meny → **Föremål**
+visar namn och `antal / tak`, även i filer helt utan dialognoder. Webblivevyn
+visar kartresurser och samma innehav. Resurser döljs av dimma/mörker enligt
+vanliga regler. Upplockning sker vid varje faktisk landning, även efter
+transportband/hopp, inte enbart vid den position där UI-animationen slutar.
+
+Sparning återställer både kvarvarande kartobjekt och storyantal. Checkpoint
+är en respawnpunkt; död återställer inte redan plockade resurser.
+`carry: items` i filen du **lämnar** för över innehav via id till nästa fil;
+deklarera samma id där också. Det nya taket gäller och okända id:n tappas
+enligt befintlig carryregel. `reset: items` vinner över carry. **Starta om**
+startar som tidigare hela äventyret från första filen, med tomt storyinventory
+och återställda resurser. Ingen undo finns eller tillkommer.
+
+Saveformat 7 stöder resursobjekt. Saves från format 1–6 kan fortsatt läsas på
+kartor **utan** resurser; en gammal save för en resurskarta avvisas tydligt
+och kräver nytt spel (annars skulle det gamla gräslagret tappa resurserna).
+Storyformatet och SD-containern är oförändrade.
+Kör [resursprovet](adventures/z_resource_test/README.md) för en exakt checklista.
 
 ---
 
@@ -668,6 +696,9 @@ Regler för `@dark`:
   upp. Det är tänkt för grottor, källare och nattkartor.
 
 Du kan även skriva rektangeln på samma rad som taggen: `@dark 2,2 9,6`.
+Det är fortfarande exakt två koordinatpar (fyra tal), inte en lista med
+fristående rutor. En enda mörk ruta skrivs med samma hörn två gånger:
+`@dark 4,3 4,3`. Något kart-id efter `@dark` stöds inte i nuvarande format.
 
 ### 10b. Ficklampa – lyser upp mörkret
 
@@ -794,6 +825,11 @@ Alternativt kan gruppen anges för redan placerade `o`-/`=`-rutor med koordinate
 ```
 
 Om en koordinat inte pekar på rätt ruttyp rapporteras ett fel med radnummer.
+Varje direktiv måste stå på en enda rad: efter kolon anges ett eller flera
+fristående koordinatpar, inte hörnen i en rektangel. Första raden ovan tilldelar
+alltså exakt tre plattor till grupp 1; rutorna mellan dem påverkas inte.
+Gruppen har inget fast antal plattor eller grindar. Ett avslutande kart-id
+stöds inte i nuvarande format.
 Ett spelbart exempel med fyra sekventiella rum i samma `.adv`-fil finns i
 [`docs/adventures/sokoban/sokoban.adv`](adventures/sokoban/sokoban.adv).
 Rum 1–2 använder `@legend`; rum 3–4 använder standardtecknen `o`/`=` med
@@ -943,8 +979,7 @@ G = gate 1
 #..!..........#
 ###############
 
-@plategroup
-1: 5,2
+@plategroup 1: 5,2
 ```
 
 #### Skridskor och rörelse
@@ -1191,10 +1226,17 @@ aktuell byggstatus i CI visas på PR:n. Releaseworkflow, tags och releases
 
 ## 11. Egna sprites – 32×32 PNG (nytt i v0.17.0)
 
-Du kan ge föremål, resurser och omslag egna bilder. Lägg **32×32 PNG med
-alfakanal** i äventyrets `bitmaps/`-mapp (och omslaget direkt i äventyrsmappen,
-se `@about: cover`). Saknas en bild ritar motorn föremålet proceduralt som
-tidigare – egna bilder är alltså helt valfria.
+Sedan **0.21.2** kan **egna resurser** få **32×32 PNG med alfakanal** i
+äventyrets `bitmaps/`-mapp, högst **16 KiB per bild**. Tomt bildfält ger
+en procedurritad gul påse. En angiven men saknad/ogiltig bild ger både
+loggvarning och skärmmeddelande, därefter samma synliga påse.
+PNG avkodas en gång per kartladdning i UI-tasken med LVGL; färg/alpha
+cachas i PSRAM och skalas till 16/32 px. Firmware behöver
+`CONFIG_LV_USE_LODEPNG=y` (ingår nu i `sdkconfig.defaults`; uppdatera en
+befintlig `sdkconfig` via menuconfig eller generera om den enligt projektets
+bygginstruktion). Webblivevyn använder samma fil via befintlig SD-filendpoint.
+Generell ersättning av standardobjektens sprites och visning av `cover`
+är **inte** implementerade av denna leverans; `cover` läses som metadata.
 
 ```
 /otr/adventure/stenhuggaren/
@@ -1231,8 +1273,9 @@ den bästa checklistan när du skrivit klart. Du får fel om:
 `Adv::parse()` bygger data men anropar inte dessa två validerare automatiskt.
 Kontrollera även resultatet med `Script::validate()` och `World::load()`:
 kartan måste ha lika långa rader, vara inom **80×80** och innehålla exakt ett
-`S`. `@legend`- och `@resources`-krock kontrolleras inte sinsemellan; använd
-olika glyfer.
+`S`. `@legend` har som tidigare företräde framför `@resources`; använd
+olika glyfer för att faktiskt placera resurser. SD-sessionen kör både
+script- och motorvalidering före spelstart.
 
 ---
 
