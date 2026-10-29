@@ -11,7 +11,7 @@ namespace Touch {
 
 struct Info {
     bool present;            // Controller answered at 0x55
-    uint8_t fwVersion;
+    uint16_t fwVersion;
     uint8_t fwRevision[4];
     uint16_t maxX, maxY;
     uint8_t maxTouches;
@@ -21,6 +21,7 @@ struct Info {
     uint32_t irqCount;
     uint32_t readErrors;
     uint32_t bridgedGaps;    // Short release glitches suppressed by the release debounce
+    uint8_t address;         // Actual responding I2C address (0 if unknown)
 };
 
 // Creates the I2C bus (400 kHz), scans it, resets and probes the controller and registers the

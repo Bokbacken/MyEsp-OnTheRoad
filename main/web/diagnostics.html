@@ -35,7 +35,7 @@
 <h2>System</h2>
 <div class="card table-wrap"><table id="sys"></table></div>
 
-<h2>Display (ST77922 QSPI)</h2>
+<h2 id="display-title">Display</h2>
 <div class="card table-wrap"><table id="disp"></table></div>
 
 <h2>Touch och I²C</h2>
@@ -95,10 +95,12 @@ async function refresh() {
   try {
     const i = await (await fetch('/api/info', {cache: 'no-store'})).json();
     const d = i.display, t = i.touch, w = i.wifi;
+    const touchAddress = Number.isInteger(t.address) ? '0x' + t.address.toString(16).toUpperCase().padStart(2, '0') : '–';
+    $('display-title').textContent = 'Display (' + d.model + ')';
     $('live-dot').className = 'dot ok';
     $('live-text').textContent = 'live';
     test('t-display', d.ok, (d.fps_x10 / 10).toFixed(1) + ' fps · TE ' + (d.te_active ? 'aktiv' : 'av'));
-    test('t-touch', t.present, t.present ? t.touches + ' tryck · fw ' + t.fw : 'ingen svar på 0x55');
+    test('t-touch', t.present, t.present ? t.touches + ' tryck · fw ' + t.fw : 'inget svar på ' + touchAddress);
     test('t-wifi', w.status !== 'error', w.connected ? w.ssid + ' ' + w.rssi + ' dBm' : (w.status === 'connecting' || w.status === 'searching' ? 'ansluter…' : 'inte ansluten'),
          w.status === 'failed' ? (w.last_error || 'kunde inte ansluta') : null);
     test('t-psram', i.psram_size > 0, mb(i.psram_size) + ' totalt');
@@ -112,7 +114,6 @@ async function refresh() {
       ['Heap ledigt / min / totalt', kb(i.heap_free) + ' / ' + kb(i.heap_min) + ' / ' + kb(i.heap_size)],
       ['PSRAM ledigt / totalt', kb(i.psram_free) + ' / ' + mb(i.psram_size)],
       ['Flash', mb(i.flash_size)],
-      ['Sketch / ledigt app-utrymme', kb(i.sketch_size) + ' / ' + kb(i.sketch_free)],
       ['App-partition (kör / nästa OTA)', esc(i.ota.running + ' / ' + i.ota.next) + ' · ' + kb(i.ota.slot_size)],
       ['Lagring (FFat)', i.storage.ok ? kb(i.storage.used) + ' av ' + kb(i.storage.total) + ' · ' + i.storage.players + ' spelare' : 'ej tillgänglig'],
       ['SD-kort', i.sd && i.sd.ok ? esc(i.sd.name) + ' · ' + i.sd.width + '-bit ' + (i.sd.freq_khz / 1000) + ' MHz · ' + mb(i.sd.free) + ' ledigt av ' + mb(i.sd.total) : '<span class="bad">' + esc(i.sd?.error || 'inget kort') + '</span>'],
@@ -130,14 +131,15 @@ async function refresh() {
     rows('disp', [
       ['Initierad', yes(d.ok)],
       ['Upplösning', d.width + ' × ' + d.height + ' RGB565'],
+      ['Buss', esc(d.bus)],
       ['Bildfrekvens', (d.fps_x10 / 10).toFixed(1) + ' fps'],
       ['Flushes / frames', d.flushes + ' / ' + d.frames],
-      ['TE-synk (GPIO42)', yes(d.te_active, 'aktiv', 'avstängd') + ' · ' + d.te_edges + ' flanker · ' + d.te_timeouts + ' timeouts'],
+      ['TE-synk', yes(d.te_active, 'aktiv', 'avstängd') + ' · ' + d.te_edges + ' flanker · ' + d.te_timeouts + ' timeouts'],
       ['LVGL-buffert', kb(d.buf_bytes) + ' × 2 i ' + (d.buf_psram ? 'PSRAM' : 'intern RAM')],
       ['Bakgrundsbelysning', d.brightness + ' %'],
     ]);
     rows('touch', [
-      ['Kontroller 0x55', yes(t.present, 'svarar', 'saknas')],
+      ['Kontroller ' + t.model + ' (' + touchAddress + ')', yes(t.present, 'svarar', 'saknas')],
       ['Firmware', esc(t.fw)],
       ['Upplösning / punkter', t.max_x + ' × ' + t.max_y + ' / ' + t.max_points],
       ['Senaste punkt', t.last_x + ', ' + t.last_y + (t.pressed ? ' <span class="ok">(nedtryckt)</span>' : '')],

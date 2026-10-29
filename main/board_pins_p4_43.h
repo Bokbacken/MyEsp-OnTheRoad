@@ -20,6 +20,8 @@ constexpr uint32_t LCD_DPI_CLK_MHZ = 30;
 constexpr int LCD_DSI_PHY_LDO_CHAN = 3;
 constexpr int LCD_DSI_PHY_LDO_MV = 2500;
 constexpr const char *LCD_BUS_DESC = "MIPI-DSI 2x500 Mbps";
+constexpr const char *LCD_MODEL = "ST7701 MIPI-DSI";
+constexpr const char *TOUCH_MODEL = "GT911";
 
 // ---------------------------------------------------------------------------
 // Shared I2C bus: GT911 touch (0x5D / 0x14), ES8311 (0x18), ES7210 (0x40)

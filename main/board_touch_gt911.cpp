@@ -167,7 +167,8 @@ bool begin()
     if (g_info.present) {
         memcpy(g_info.fwRevision, id, 4);   // Product ID, e.g. "911\0"
         const uint16_t fw = (uint16_t)(id[4] | (id[5] << 8));
-        g_info.fwVersion = (uint8_t)fw;
+        g_info.fwVersion = fw;
+        g_info.address = addr;
         g_info.maxX = (uint16_t)(id[6] | (id[7] << 8));
         g_info.maxY = (uint16_t)(id[8] | (id[9] << 8));
         readReg(REG_TOUCH_NUM, &g_info.maxTouches, 1);

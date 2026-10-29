@@ -22,6 +22,8 @@ constexpr int LCD_H_RES = 320;
 constexpr int LCD_V_RES = 480;
 constexpr uint32_t LCD_QSPI_HZ = 40UL * 1000UL * 1000UL;  // Proven clock (reference: 40 MHz)
 constexpr const char *LCD_BUS_DESC = "QSPI 40 MHz";
+constexpr const char *LCD_MODEL = "ST77922 QSPI";
+constexpr const char *TOUCH_MODEL = "ST77922";
 
 // ---------------------------------------------------------------------------
 // Shared I2C bus: touch (0x55), ES8311 codec (0x18), external I2C connector

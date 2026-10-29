@@ -370,7 +370,7 @@ extern const Entry LANG_EN[] = {
     {Str::WEB_ERR_ID_NAME, "id/name missing"},
     {Str::WEB_ERR_ID, "id missing"},
 
-    {Str::BOOT_TOUCH_NO_REPLY, "no reply at 0x55"},
+    {Str::BOOT_TOUCH_NO_REPLY, "no reply from touch controller"},
     {Str::BOOT_PSRAM_INFO, "%u kB, %u kB free"},
     {Str::BOOT_PSRAM_MISSING, "PSRAM missing"},
     {Str::BOOT_NO_DEVICES, "no devices"},

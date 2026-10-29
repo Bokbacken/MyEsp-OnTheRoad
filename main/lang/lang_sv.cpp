@@ -370,7 +370,7 @@ extern const Entry LANG_SV[] = {
     {Str::WEB_ERR_ID_NAME, "id/name saknas"},
     {Str::WEB_ERR_ID, "id saknas"},
 
-    {Str::BOOT_TOUCH_NO_REPLY, "ingen svar på 0x55"},
+    {Str::BOOT_TOUCH_NO_REPLY, "inget svar från touchkontrollern"},
     {Str::BOOT_PSRAM_INFO, "%u kB, %u kB ledigt"},
     {Str::BOOT_PSRAM_MISSING, "PSRAM saknas"},
     {Str::BOOT_NO_DEVICES, "inga enheter"},

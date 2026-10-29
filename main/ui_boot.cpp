@@ -6,6 +6,7 @@
 
 #include "app_config.h"
 #include "board_display.h"
+#include "board_pins.h"
 #include "lang.h"
 #include "my_theme.h"
 
@@ -14,9 +15,9 @@ namespace UiBoot {
 static const char *itemName(int i)
 {
     switch ((Item)i) {
-    case Item::DISP: return "Display (ST77922 QSPI)";
-    case Item::TOUCH: return "Touch (I2C 0x55)";
-    case Item::PSRAM: return "PSRAM (8 MB OPI)";
+    case Item::DISP: return LCD_MODEL;
+    case Item::TOUCH: return TOUCH_MODEL;
+    case Item::PSRAM: return "PSRAM";
     case Item::I2C: return tr(Str::BOOT_I2C);
     case Item::RTC: return tr(Str::BOOT_CLOCK);
     case Item::STORAGE: return tr(Str::BOOT_STORAGE);
@@ -112,6 +113,7 @@ void set(Item item, State state, const char *detail)
     case State::OK: sym = LV_SYMBOL_OK; col = Theme::GREEN; def = "OK"; break;
     case State::FAIL: sym = LV_SYMBOL_CLOSE; col = Theme::RED; def = tr(Str::BOOT_FAIL); break;
     case State::SKIP: sym = LV_SYMBOL_MINUS; col = Theme::MUTED; def = tr(Str::BOOT_SKIPPED); break;
+    case State::WAITING: sym = LV_SYMBOL_REFRESH; col = Theme::ACCENT; def = tr(Str::BOOT_WAITING); break;
     default: break;
     }
     lv_label_set_text(s_icon[i], sym);

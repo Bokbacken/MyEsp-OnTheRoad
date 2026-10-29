@@ -15,6 +15,7 @@
 #include "board_sd.h"
 #include "board_display.h"
 #include "board_touch.h"
+#include "board_pins.h"
 #include "battery_math.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -96,8 +97,10 @@ static void diagDisplay(cJSON *o)
     Display::Stats ds = Display::stats();
     MyLvgl::Stats ls = MyLvgl::stats();
     cJSON_AddBoolToObject(o, "ok", Display::ok());
-    cJSON_AddNumberToObject(o, "width", 320);
-    cJSON_AddNumberToObject(o, "height", 480);
+    cJSON_AddStringToObject(o, "model", LCD_MODEL);
+    cJSON_AddStringToObject(o, "bus", LCD_BUS_DESC);
+    cJSON_AddNumberToObject(o, "width", LCD_H_RES);
+    cJSON_AddNumberToObject(o, "height", LCD_V_RES);
     cJSON_AddNumberToObject(o, "fps_x10", (int)(ds.fps * 10));
     cJSON_AddNumberToObject(o, "flushes", ds.flushes);
     cJSON_AddNumberToObject(o, "frames", ds.frames);
@@ -121,9 +124,15 @@ static void diagTouch(cJSON *o)
 {
     Touch::Info ti = Touch::info();
     char fw[24];
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    snprintf(fw, sizeof(fw), "0x%04X (GT%.4s)", ti.fwVersion, (const char *)ti.fwRevision);
+#else
     snprintf(fw, sizeof(fw), "%u (%u.%u.%u.%u)", ti.fwVersion, ti.fwRevision[0], ti.fwRevision[1], ti.fwRevision[2],
              ti.fwRevision[3]);
+#endif
     cJSON_AddBoolToObject(o, "present", ti.present);
+    cJSON_AddStringToObject(o, "model", TOUCH_MODEL);
+    cJSON_AddNumberToObject(o, "address", ti.address ? ti.address : TOUCH_I2C_ADDR);
     cJSON_AddStringToObject(o, "fw", fw);
     cJSON_AddNumberToObject(o, "max_x", ti.maxX);
     cJSON_AddNumberToObject(o, "max_y", ti.maxY);
@@ -205,7 +214,7 @@ static void diagSd(cJSON *o)
 // Boot self-test results, as shown on the device's boot screen
 static void diagBoot(cJSON *o)
 {
-    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip"};
+    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip", "waiting"};
     cJSON *items = cJSON_AddArrayToObject(o, "items");
     for (int n = 0; n < (int)UiBoot::Item::COUNT; n++) {
         const UiBoot::Item it = (UiBoot::Item)n;

@@ -216,8 +216,13 @@ extern "C" void app_main(void)
         } else {
             snprintf(buf, sizeof(buf), "%s", MyRtc::stateText(rs.state));
         }
-        UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK : UiBoot::State::FAIL, buf);
-        if (!rtcOk) {   // 2 x orange blink on the LED
+        bool waiting = false;
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+        waiting = rs.present && rs.ticking && rs.state == MyRtc::State::TIME_INVALID;
+#endif
+        UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK :
+                    waiting ? UiBoot::State::WAITING : UiBoot::State::FAIL, buf);
+        if (!rtcOk && !waiting) {   // 2 x orange blink on the LED
             for (int i = 0; i < 2; i++) {
                 Rgb::setBase(200, 70, 0);
                 MySys::delayMs(180);
@@ -246,8 +251,14 @@ extern "C" void app_main(void)
             if (sdOk) snprintf(buf + len, sizeof(buf) - len, tr(Str::BOOT_SD_FREE), (unsigned)(BoardSd::info().freeBytes >> 20));
             else snprintf(buf + len, sizeof(buf) - len, "%s", tr(Str::BOOT_SD_NONE));
         }
-        UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    ok ? buf : tr(Str::BOOT_FS_FAIL));
+        if (!ok) {
+            const BoardSd::Info sd = BoardSd::info();
+            snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_FS_FAIL));
+            const size_t n = strlen(buf);
+            if (sd.mounted && n < sizeof(buf))
+                snprintf(buf + n, sizeof(buf) - n, tr(Str::BOOT_SD_FREE), (unsigned)(sd.freeBytes >> 20));
+        }
+        UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL, buf);
     }
     UiBoot::setProgress(55);
 

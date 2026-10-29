@@ -73,9 +73,9 @@ bool writeAtomic(const char *fullPath, const void *head, size_t headLen, const v
 // (non-printable) names - a sign of orphaned/ghost directory records.
 int corruptEntries();
 int totalEntries();
-// Reformats the mounted partition in place (erases everything, stays mounted). Caller must
-// handle backup/restore and reload any in-RAM registries. Returns false if not mounted or on
-// a format error. DESTRUCTIVE - gate behind admin authentication.
+// Reformats the partition selected by mount(), even if that mount failed, and mounts it.
+// Caller must handle backup/restore and reload in-RAM registries. False on format/mount error.
+// DESTRUCTIVE - gate behind explicit confirmation and admin authentication.
 bool format();
 
 }  // namespace MyFat

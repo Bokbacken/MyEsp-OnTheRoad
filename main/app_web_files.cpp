@@ -886,8 +886,6 @@ static esp_err_t handleFsRepair(httpd_req_t *r)
     char root[8] = "ffat";
     if (q.has("root") && !q.get("root", root, sizeof(root))) root[0] = 0;
     if (strcmp(root, "ffat") != 0) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
-    if (!MyFat::mounted()) return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_FS_NOCARD));
-
     const bool sdMounted = BoardSd::mounted();
     bool sdBackup = false;
     cJSON *o = cJSON_CreateObject();

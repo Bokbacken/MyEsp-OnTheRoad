@@ -45,6 +45,13 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - SD-kortets VDD styrs av Q1/AO3401 via **GPIO45, aktiv låg**.
   LDO4 försörjer SD-IO/pullups, inte själva kortets VDD.
 - Batteriets GPIO20 är **ADC1 kanal 4**, med R12/R15 = 200 kΩ/100 kΩ.
+- v0.22.2 på fysisk P4: ägaren bekräftar rätt batterivärden, Karaoke med
+  musik och fungerande äventyr från SD. Webbdiagnostiken visar monterat
+  SD (4-bit, 10 MHz), ES8311 igång och intern RTC `OK` efter NTP.
+- Intern FFat är fortfarande omonterad. Webbens gamla reparationsväg
+  krävde felaktigt en redan monterad FFat och hjälpte därför inte.
+  v0.22.3 tar bort det kravet och kan formatera/montera den tidigare
+  valda partitionen efter uttrycklig adminbekräftelse.
 
 ### Beslut
 
@@ -112,6 +119,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
   som Wi-Fi används, och att återmontering fungerar efter timeout.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
+- [x] **Hårdvara v0.22.2:** SD-läsning för Adventure/Karaoke, ljud och
+  batterimätning bekräftade av ägaren. Längre SD-stabilitetstest återstår.
+- [x] **Hårdvara v0.22.2:** intern RTC sätts av NTP och rapporterar `OK`.
+  Betrodd tid efter mjukvaruomstart och VBAT-retention återstår att prova.
 
 ## IV. Wi-Fi via ESP32-C6 (ESP-Hosted)
 
@@ -162,6 +173,27 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
 | 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1. S3 och P4 gröna för mergecommit `07b5853` (CI run 40887806090); hostkontroller för multimap, Adventure och Karaoke godkända. |
 | 2026-10-29 | Kringutrustning v0.22.2 | Intern RTC, P4 batteri-ADC, GPIO45 för SD-kortmatning och återhämtning implementerade i `2ac004b`. Båda targets och hosttester gröna (CI run 40893098350). OTA bekräftad av ägaren på föregående bygge; nytt hårdvarutest krävs. |
+| 2026-10-29 | Diagnostik och FFat v0.22.3 | Ägaren bekräftar SD, ljud, ADC och NTP→RTC med v0.22.2. Korrigerar RTC-vänteläge vid start, P4-identitet/upplösning, GT911 firmwarebredd samt uttrycklig reparation av omonterad intern FFat. |
+
+### FFat-reparation och startdiagnostik (v0.22.3)
+
+- OTA-appfil som vanligt, sedan **Filer → Intern flash → Reparera intern
+  flash**. Kräver admin-PIN om konfigurerad och uttrycklig bekräftelse.
+  Detta raderar intern FFat; läsbara profiler/loggar säkerhetskopieras
+  först till SD när möjligt. SD, Wi-Fi-inställningar i NVS och firmware
+  formateras inte. Ingen automatisk formatering vid uppstart införs.
+- Efter lyckad reparation ska aktuell FFat-status visa monterad direkt.
+  Startkontrollen är en historisk ögonblicksbild; starta om för ett nytt
+  starttest. Misslyckad formatering eller efterföljande mount rapporteras
+  som fel, inte som en lyckad reparation.
+- Kallstartad intern RTC med fungerande timer men utan betrodd UTC visas
+  som väntande, inte trasig. Aktuell RTC-status efter NTP finns under
+  Diagnostik; startresultatet skrivs inte om i efterhand.
+- Display/touch/PSRAM-namn är inte längre S3-hårdkodade. P4 visar
+  480×800, ST7701 MIPI-DSI och GT911 på faktisk I²C-adress. GT911:s
+  firmware visas som 16-bitars hex, inte trunkerad till 8 bitar eller
+  förväxlad med produkt-ID. Saknade `sketch_*`-fält visas inte som NaN;
+  appslotarnas verkliga partitionstorlek visas fortsatt.
 
 ### Nästa hårdvarutest (v0.22.2)
 

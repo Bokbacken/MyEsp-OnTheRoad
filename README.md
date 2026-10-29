@@ -4,10 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.22.2** – dual-target ESP32-S3/P4 builds, including the v0.21.3
+> **Status: v0.22.3** – dual-target ESP32-S3/P4 builds, including the v0.21.3
 > Adventure and UI changes below. The owner confirmed P4 startup and Wi-Fi with
-> v0.22.0 and app OTA with v0.22.1. This build adds internal P4 RTC support,
-> battery ADC and SD card power/recovery handling, pending hardware verification.
+> v0.22.0 and app OTA with v0.22.1. The owner confirmed ADC readings, SD-backed
+> Adventure/Karaoke playback and RTC synchronization after NTP with v0.22.2.
+> This build fixes explicit repair of unmounted FFat and board-aware diagnostics.
 > RTC/VBAT retention after loss of main power still needs controlled deep sleep.
 >
 > v0.21.3 – internal maps, named portal destinations and persistent
@@ -615,6 +616,8 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o te
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 python3 tests/test_board_peripherals.py   # P4 internal RTC, S3/P4 ADC/SD recovery and per-board NVS calibration defaults
+python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting
+node tests/test_board_diagnostics_web.js   # S3/P4 overview, RTC waiting and separate SD/FFat status
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine

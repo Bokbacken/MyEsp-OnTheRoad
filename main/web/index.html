@@ -102,7 +102,7 @@ function fmtUptime(s) {
 function kb(b) { return (b / 1024).toFixed(0) + ' kB'; }
 function size(b) { return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(0) + ' MB'; }
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
-const BOOT_STATE = {ok: ['ok', '✔ OK'], fail: ['bad', '✖ fel'], skip: ['muted', '– hoppades över'], running: ['warn', '… testas'], pending: ['muted', '… väntar']};
+const BOOT_STATE = {ok: ['ok', '✔ OK'], fail: ['bad', '✖ fel'], skip: ['muted', '– hoppades över'], running: ['warn', '… testas'], pending: ['muted', '… väntar'], waiting: ['warn', '… väntade på tid vid start']};
 function showSd(sd) {
   if (sd && sd.ok) {
     $('sd').innerHTML = size(sd.free) + ' <small>ledigt av ' + size(sd.total) + '</small>';
@@ -125,7 +125,7 @@ function showFfat(st) {
     $('ffat-info').className = 'muted';
   } else {
     $('ffat').innerHTML = '<small>ej tillgänglig</small>';
-    $('ffat-info').textContent = 'Internt filsystem kunde inte monteras';
+    $('ffat-info').textContent = 'Internt filsystem kunde inte monteras. Detta är separat från SD-kortet. Se Filer → Intern flash för manuell reparation (raderar intern flash).';
     $('ffat-info').className = 'bad';
   }
 }
@@ -136,8 +136,11 @@ function showBoot(b) {
     return '<tr><th>' + esc(it.name) + '</th><td><span class="' + cls + '">' + txt + '</span>' +
       (it.detail ? ' · ' + esc(it.detail) : '') + '</td></tr>';
   }).join('');
-  $('boot-sum').textContent = b.failures ? b.failures + ' kontroll(er) misslyckades vid start' : 'Alla kontroller vid start gick igenom';
-  $('boot-sum').className = b.failures ? 'bad' : 'muted';
+  const waiting = b.items.filter(it => it.state === 'waiting').length;
+  $('boot-sum').textContent = (b.failures ? b.failures + ' kontroll(er) misslyckades vid start' :
+    waiting ? 'Inga hårdvarufel vid start' : 'Alla kontroller vid start gick igenom') +
+    (waiting ? ' · ' + waiting + ' väntade på tid. Aktuell RTC-status finns under Diagnostik.' : '');
+  $('boot-sum').className = b.failures ? 'bad' : waiting ? 'warn' : 'muted';
 }
 function rssiPct(r) { return r ? Math.max(0, Math.min(100, 2 * (r + 100))) : 0; }
 function wifiBadge(w) {
