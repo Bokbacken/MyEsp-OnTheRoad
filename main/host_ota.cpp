@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#include "esp_app_format.h"
 #include "esp_hosted_ota.h"
 #include "eh_host_sys.h"
 #include "eh_host_api_types.h"
@@ -13,7 +12,10 @@
 namespace HostOta {
 namespace {
 constexpr size_t CHUNK_SIZE = 1500;
+constexpr size_t C6_IMAGE_HEADER_SIZE = 24;
 constexpr uint32_t MAX_C6_IMAGE_SIZE = 0x1C0000;
+constexpr uint8_t ESP_IMAGE_MAGIC = 0xE9;
+constexpr uint16_t ESP32C6_CHIP_ID = 0x000D;
 static const char *TAG = "host_ota";
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 bool s_busy = false;
@@ -80,14 +82,15 @@ esp_err_t handleUpload(httpd_req_t *r)
     if (!q.getInt("size", 1, MAX_C6_IMAGE_SIZE, announced, bad) ||
         bad || (size_t)announced != r->content_len)
         return fail(r, 400, "Ogiltig C6-firmwarestorlek", r->content_len);
-    if (r->content_len < sizeof(esp_image_header_t))
+    if (r->content_len < C6_IMAGE_HEADER_SIZE)
         return fail(r, 400, "Filen är för liten för en ESP32-C6-app", r->content_len);
 
-    esp_image_header_t header = {};
-    if (!recvExact(r, (uint8_t *)&header, sizeof(header)))
+    uint8_t header[C6_IMAGE_HEADER_SIZE] = {};
+    if (!recvExact(r, header, sizeof(header)))
         return MyWeb::sendError(r, 400, "Uppladdningen avbröts");
     const size_t afterHeader = r->content_len - sizeof(header);
-    if (header.magic != ESP_IMAGE_HEADER_MAGIC || header.chip_id != ESP_CHIP_ID_ESP32C6)
+    const uint16_t chipId = (uint16_t)header[12] | ((uint16_t)header[13] << 8);
+    if (header[0] != ESP_IMAGE_MAGIC || chipId != ESP32C6_CHIP_ID)
         return fail(r, 400, "Filen är inte ESP32-C6 firmware", afterHeader);
 
     eh_host_coprocessor_fwver_t currentVersion = {};
@@ -111,7 +114,7 @@ esp_err_t handleUpload(httpd_req_t *r)
         return fail(r, 500, "C6 kunde inte starta OTA. Kontrollera Host-firmwareversionen.", afterHeader);
     }
 
-    err = esp_hosted_slave_ota_write((const uint8_t *)&header, sizeof(header));
+    err = esp_hosted_slave_ota_write(header, sizeof(header));
     size_t remaining = r->content_len - sizeof(header);
     uint8_t chunk[CHUNK_SIZE];
     int timeouts = 0;

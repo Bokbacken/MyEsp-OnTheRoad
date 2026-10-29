@@ -144,7 +144,6 @@ with tempfile.TemporaryDirectory(prefix="otr-host-ota-") as directory:
     (work / "stubs.h").write_text(STUBS)
     headers = {
         "esp_http_server.h": '#include "stubs.h"\n',
-        "esp_app_format.h": '#include "stubs.h"\n',
         "esp_hosted_ota.h": '#include "stubs.h"\n',
         "eh_host_sys.h": '#include "stubs.h"\n',
         "eh_host_api_types.h": '#include "stubs.h"\n',
