@@ -17,6 +17,7 @@ static const char *TAG = "cfg";
 namespace {
 constexpr uint8_t CONFIG_SCHEMA = 1;
 constexpr uint8_t NETS_SCHEMA = 1;
+constexpr uint8_t KARA_VOICE_SCHEMA = 1;
 constexpr const char *DEFAULT_TZ = "CET-1CEST,M3.5.0,M10.5.0/3";
 AppConfig g_cfg;
 }  // namespace
@@ -61,6 +62,7 @@ void defaults(AppConfig &c)
 void begin()
 {
     defaults(g_cfg);
+    bool migrateKaraVoices = false;
     {
         MyNvs::Handle p(CFG_NVS_NS, true);
         if (!p) {
@@ -99,6 +101,10 @@ void begin()
             g_cfg.karaCho = p.getU8("kara_cho", g_cfg.karaCho);
             g_cfg.karaChoLvl = p.getU8("kara_chol", g_cfg.karaChoLvl);
             g_cfg.karaVoices = p.getU8("kara_voices", g_cfg.karaVoices);
+            if (p.getU8("kara_vver", 0) < KARA_VOICE_SCHEMA && g_cfg.karaVoices == 32) {
+                g_cfg.karaVoices = 96;
+                migrateKaraVoices = true;
+            }
             g_cfg.karaWebStream = p.getU8("kara_webstream", g_cfg.karaWebStream) ? 1 : 0;
             g_cfg.karaVolume = p.getU8("kara_vol", g_cfg.karaVolume);
             g_cfg.batteryScalePermille = p.getU16("bat_scale", g_cfg.batteryScalePermille);
@@ -116,6 +122,7 @@ void begin()
     if (!validTz(g_cfg.tz)) strcpy(g_cfg.tz, DEFAULT_TZ);
     if (!Lang::valid(g_cfg.lang)) strcpy(g_cfg.lang, "sv");
     sanitize(g_cfg);
+    if (migrateKaraVoices) save();
     ESP_LOGI(TAG, "loaded: host=%s bl=%u%% pin=%s", g_cfg.hostname, g_cfg.brightness, g_cfg.adminPin[0] ? "set" : "none");
 }
 
@@ -161,6 +168,7 @@ bool save()
     ok &= p.setU8("kara_cho", g_cfg.karaCho);
     ok &= p.setU8("kara_chol", g_cfg.karaChoLvl);
     ok &= p.setU8("kara_voices", g_cfg.karaVoices);
+    ok &= p.setU8("kara_vver", KARA_VOICE_SCHEMA);
     ok &= p.setU8("kara_webstream", g_cfg.karaWebStream);
     ok &= p.setU8("kara_vol", g_cfg.karaVolume);
     ok &= p.setU16("bat_scale", g_cfg.batteryScalePermille);
@@ -273,6 +281,13 @@ bool validScreenOffSeconds(uint16_t seconds)
     return false;
 }
 
+bool validKaraVoices(uint8_t voices)
+{
+    for (uint8_t option : KARA_VOICE_OPTIONS)
+        if (option == voices) return true;
+    return false;
+}
+
 void sanitize(AppConfig &c)
 {
     if (!validScreenOffSeconds(c.screenOffSeconds)) {
@@ -293,7 +308,7 @@ void sanitize(AppConfig &c)
     c.karaCho = c.karaCho ? 1 : 0;
     if (c.karaRevLvl > 100) c.karaRevLvl = 50;
     if (c.karaChoLvl > 100) c.karaChoLvl = 50;
-    if (c.karaVoices == 32 || c.karaVoices < 16 || c.karaVoices > 96) c.karaVoices = 96;
+    if (!validKaraVoices(c.karaVoices)) c.karaVoices = 96;
     c.karaWebStream = c.karaWebStream ? 1 : 0;
     if (c.karaVolume > 100) c.karaVolume = 70;
     c.batteryScalePermille = BatteryMath::sanitizeScale(c.batteryScalePermille);

@@ -32,7 +32,7 @@ struct tsf_hydra;
 
 namespace Sf {
 
-constexpr int MAX_VOICES = 96;                      // Voices allocated; setMaxVoices() can use fewer
+constexpr int MAX_VOICES = 192;                     // Voices allocated; setMaxVoices() can use fewer
 constexpr size_t MAX_SF2 = 7u * 1024 * 1024;        // Default whole-file limit (S3-compatible)
 constexpr size_t PSRAM_RESERVE = 512u * 1024;       // Default automatic prepare() reserve (S3-compatible)
 constexpr size_t HOST_BUDGET = 8u * 1024 * 1024;    // prepare() auto budget off target (tests/tools)

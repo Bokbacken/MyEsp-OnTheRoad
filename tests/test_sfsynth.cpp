@@ -314,14 +314,14 @@ static void testSelective()
 
     // Voice limit: applies at once, clamped to 1..MAX_VOICES
     s.reset();
-    CHECK(Sf::MAX_VOICES == 96);
+    CHECK(Sf::MAX_VOICES == 192);
     CHECK(s.maxVoices() == Sf::MAX_VOICES);
     s.setMaxVoices(2);
     for (int k = 0; k < 4; k++) s.midi(0x90, (uint8_t)(60 + k), 100);
     CHECK(s.maxVoices() == 2 && s.activeVoices() == 2);
     s.setMaxVoices(1);
     CHECK(s.activeVoices() == 1);
-    s.setMaxVoices(99);
+    s.setMaxVoices(Sf::MAX_VOICES + 1);
     CHECK(s.maxVoices() == Sf::MAX_VOICES);
     s.reset();
     for (int i = 0; i < Sf::MAX_VOICES + 4; i++) s.midi(0x90, 60, 100);

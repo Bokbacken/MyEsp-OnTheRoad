@@ -51,9 +51,10 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   per händelse), text från `.kar` (`@T`/`@L`-taggar hoppas över, `/` = ny rad, `\` = ny vers) och vanliga
   lyrics-händelser (FF 05). Stavelser grupperas till rader. `Player` sköter tid, tempo 50–150 % och sökning
   (spelar upp controller-, program- och pitch bend-händelser fram till målet så att kanalerna låter rätt).
-- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 96 samtidiga röster är allokerade; konfigurerade värden
-  under taket används som röstgräns. Röststrukturerna tar ytterligare ungefär tiotals kB jämfört med 32 röster;
-  CPU-belastning och ljudkvalitet vid 96 röster behöver verifieras på hårdvara. Patchar för ESP32-S3: sampel lagras som `int16` (halva minnet –
+- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 192 samtidiga röster är allokerade; valet 32, 64, 96,
+  128, 160 eller 192 är globalt och väljs i ljudbanksväljaren. Röststrukturerna tar ytterligare ungefär
+  tiotals kB jämfört med 32 röster; högre max kan öka CPU-belastningen även när färre röster spelar, så välj lägsta
+  tak som inte ger röststöld. Patchar för ESP32-S3: sampel lagras som `int16` (halva minnet –
   en ljudbank på 6 MB får plats i 8 MB PSRAM), lågpassfiltret i `float` (S3 har ingen double-FPU), egen
   fixpunktsloop (32.32) för monorendering, transponering ±12 (trumkanalen transponeras aldrig), röststöld (äldsta rösten återanvänds när den konfigurerade gränsen är nådd).
   -14 dB headroom i stället för -6 dB för täta arrangemang.
@@ -92,7 +93,7 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   tonarten inte plats behålls den gamla och ett meddelande visas.
 - **v0.13.4 – budget och diagnostik:** budgeten är största lediga PSRAM-block − 512 kB (inte längre fast 6 MB);
   spelets ljudklippscache frigörs först. Var 5:e sekund loggas renderbelastning (medel/max), underruns och röster.
-  NVS `kara_voices` (16–96, standard 96) begränsar antalet röster.
+  NVS `kara_voices` (32/64/96/128/160/192, standard 96) begränsar antalet röster.
 - **v0.13.5 – webbkaraoke:** mixerns färdiga monoblock går via `Audio::setTap()` till en låsfri ring
   (`main/kara_stream`, 32 kB i PSRAM) och skickas av `main/kara_web` som binärframes (512 sampel int16, 22 050 Hz)
   på WebSocket `/ws/karaoke`. Texten (`newrow`/`lyric`/`clear`, JSON) läggs i strömmen vid exakt rätt sampel av
@@ -298,7 +299,8 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
   | Jnsgm2 + Alan Parsons Time | 6,91 MB (för stort) | 5,50 MB | 3,85 MB | 1,65 MB |
 
   Ingen av låtarna behöver längre tunnas. Rel. skillnad mot ej omsamplat 0,011–0,067 (första 60 s, torrt).
-- Max 96 samtidiga röster (NVS `kara_voices`, 16–96); vid fler stjäls den äldsta rösten.
+- Max 192 samtidiga röster (NVS `kara_voices`, val 32–192); vid fler stjäls den äldsta rösten. Mät renderlast
+  vid större gränser och använd ett lägre val om CPU-belastningen närmar sig blockgränsen.
 - Mono 22 050 Hz (samma som mixern).
 - Ingen ljudbank ingår i repot (licens och storlek). Förslag: TimGM6mb.sf2 (GPL v2, ~5,7 MB).
 - Endast okomprimerade SF2 (version 2, 16-bitars sampel). SF3 (Ogg-komprimerade) avvisas.

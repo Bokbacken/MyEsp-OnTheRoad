@@ -524,6 +524,7 @@ extern const Entry LANG_SV[] = {
     {Str::KARA_FONT_NONE, "Inga .sf2-filer i /otr/sf2"},
     {Str::KARA_FONT_SAVED, "Sparas i inställningarna"},
     {Str::KARA_FONT_SONG_HINT, "Sparas för låten i karaoke.reg"},
+    {Str::KARA_VOICE_LIMIT, "Max samtidiga röster (alla ljudbanker)"},
     {Str::KARA_ALL_SONGS, "Alla låtar"},
     {Str::KARA_SEARCH_HINT, "Sök artist eller titel"},
     {Str::KARA_SEARCH_TITLE, "Sök låt (artist och/eller titel, alla mappar)"},

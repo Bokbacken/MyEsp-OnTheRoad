@@ -1071,6 +1071,23 @@ void showTracks()
 }
 
 // ---- Sound bank picker (global default from the list, per song from the player) ----------------
+void voicePickCb(lv_event_t *e)
+{
+    static uint32_t last = 0;
+    if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+    const uint8_t voices = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+    if (!Config::validKaraVoices(voices)) return;
+    Karaoke::setVoiceLimit(voices);
+    lv_obj_t *row = lv_obj_get_parent(lv_event_get_target(e));
+    for (uint32_t i = 0; i < KARA_VOICE_OPTION_COUNT; i++) {
+        lv_obj_t *button = lv_obj_get_child(row, (int32_t)i);
+        const bool selected = KARA_VOICE_OPTIONS[i] == voices;
+        lv_obj_set_style_bg_color(button, Theme::c(selected ? Theme::TEAL : Theme::LINE), 0);
+        lv_obj_set_style_border_width(button, selected ? 2 : 1, 0);
+        lv_obj_set_style_border_color(button, Theme::c(selected ? Theme::ACCENT : Theme::LINE), 0);
+    }
+}
+
 void fontPickCb(lv_event_t *e)
 {
     static uint32_t last = 0;
@@ -1104,6 +1121,27 @@ void showFonts(bool forSong)
     lv_obj_t *hint = Theme::label(c, tr(forSong ? Str::KARA_FONT_SONG_HINT : Str::KARA_FONT_SAVED), &my_font_14,
                                   Theme::MUTED);
     lv_obj_set_width(hint, LV_PCT(100));
+    lv_obj_t *voiceLabel = Theme::label(c, tr(Str::KARA_VOICE_LIMIT), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(voiceLabel, LV_PCT(100));
+    lv_obj_t *voiceRow = lv_obj_create(c);
+    lv_obj_remove_style_all(voiceRow);
+    lv_obj_set_size(voiceRow, LV_PCT(100), layout().buttonH);
+    lv_obj_set_flex_flow(voiceRow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(voiceRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(voiceRow, layout().gap, 0);
+    for (uint8_t i = 0; i < KARA_VOICE_OPTION_COUNT; i++) {
+        const uint8_t voices = KARA_VOICE_OPTIONS[i];
+        const bool selected = Config::get().karaVoices == voices;
+        char text[4];
+        snprintf(text, sizeof(text), "%u", (unsigned)voices);
+        lv_obj_t *button = Theme::button(voiceRow, text, 52, layout().buttonH,
+                                         selected ? Theme::TEAL : Theme::LINE);
+        lv_obj_set_width(button, 0);
+        lv_obj_set_flex_grow(button, 1);
+        lv_obj_set_style_border_width(button, selected ? 2 : 1, 0);
+        lv_obj_set_style_border_color(button, Theme::c(selected ? Theme::ACCENT : Theme::LINE), 0);
+        lv_obj_add_event_cb(button, voicePickCb, LV_EVENT_CLICKED, (void *)(intptr_t)voices);
+    }
     lv_obj_t *list = lv_obj_create(c);
     lv_obj_remove_style_all(list);
     lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);

@@ -765,6 +765,15 @@ void setDefaultFont(const char *name)
     Config::save();
 }
 
+void setVoiceLimit(uint8_t voices)
+{
+    if (!Config::validKaraVoices(voices)) return;
+    Config::get().karaVoices = voices;
+    Config::save();
+    Lock l;
+    s_synth.setMaxVoices(voices);
+}
+
 const char *songFont() { return s_songSf2.c_str(); }
 
 void setSongFont(const char *name)

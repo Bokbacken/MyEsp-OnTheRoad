@@ -524,6 +524,7 @@ extern const Entry LANG_EN[] = {
     {Str::KARA_FONT_NONE, "No .sf2 files in /otr/sf2"},
     {Str::KARA_FONT_SAVED, "Saved in the settings"},
     {Str::KARA_FONT_SONG_HINT, "Saved for the song in karaoke.reg"},
+    {Str::KARA_VOICE_LIMIT, "Max simultaneous voices (all sound banks)"},
     {Str::KARA_ALL_SONGS, "All songs"},
     {Str::KARA_SEARCH_HINT, "Search artist or title"},
     {Str::KARA_SEARCH_TITLE, "Search song (artist and/or title, all folders)"},

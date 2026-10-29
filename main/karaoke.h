@@ -86,6 +86,7 @@ Err fontError();
 const char *fontName();         // File name of the loaded font ("" if none)
 const char *defaultFont();      // Config::karaFont ("" = automatic)
 void setDefaultFont(const char *name);   // Saved in NVS; "" = automatic
+void setVoiceLimit(uint8_t voices);      // Saved globally; applies immediately
 const char *songFont();         // Per-song font of the open song ("" = use the default)
 void setSongFont(const char *name);      // Saved in the register; "" = use the default
 void unloadFont();              // Frees the PSRAM (leaving the karaoke menu)
