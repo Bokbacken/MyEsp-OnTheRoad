@@ -62,7 +62,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - Bara P4 rev v3.x stöds (`CONFIG_ESP32P4_REV_MIN_300`, CPU 400 MHz).
 - Första installation på ett kort: `build/merged.bin` från CI-artefakten
   skrivs på adress `0x0` med esptool/esptool.js. Därefter OTA-filen
-  (`MyEsp-OnTheRoad.bin`).
+  (`MyEsp_OnTheRoad.bin`).
 - Komponentlås per target: `dependencies.lock.esp32s3` och
   `dependencies.lock.esp32p4` (rot-`CMakeLists.txt`).
 
@@ -161,11 +161,14 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
 | 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
 | 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1. S3 och P4 gröna för mergecommit `07b5853` (CI run 40887806090); hostkontroller för multimap, Adventure och Karaoke godkända. |
-| 2026-10-29 | Kringutrustning v0.22.2 | Intern RTC, P4 batteri-ADC, GPIO45 för SD-kortmatning och återhämtning implementerade. OTA bekräftad av ägaren på föregående bygge; nytt hårdvarutest krävs. |
+| 2026-10-29 | Kringutrustning v0.22.2 | Intern RTC, P4 batteri-ADC, GPIO45 för SD-kortmatning och återhämtning implementerade i `2ac004b`. Båda targets och hosttester gröna (CI run 40893098350). OTA bekräftad av ägaren på föregående bygge; nytt hårdvarutest krävs. |
 
 ### Nästa hårdvarutest (v0.22.2)
 
-1. Installera P4-appfilen via den fungerande OTA-vägen; inte `merged.bin`.
+1. Hämta `firmware-esp32p4-v0.22.2-unverified` från
+   [CI run 40893098350](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40893098350).
+   Installera `build/MyEsp_OnTheRoad.bin` via den fungerande OTA-vägen;
+   inte `merged.bin`.
 2. Låt NTP synka. RTC-diagnostik ska visa `ESP32-P4 RTC`, `OK` och ingen
    temperatur. Starta om via mjukvara/OTA och kontrollera att RTC kan
    återställa tiden. Kallstart utan nät får fortsatt visa osäker tid.
