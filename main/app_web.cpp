@@ -96,6 +96,16 @@ static void diagWifi(cJSON *o)
     cJSON_AddStringToObject(o, "hostname", Config::get().hostname);
     cJSON_AddBoolToObject(o, "mdns", MyWifi::mdnsOk());
     cJSON_AddNumberToObject(o, "saved", MyWifi::savedCount());
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    if (HwProfile::active().hasHostRadio) {
+        const HostOta::VersionInfo &versions = HostOta::versionInfo();
+        cJSON *radio = cJSON_AddObjectToObject(o, "host_radio");
+        cJSON_AddBoolToObject(radio, "known", versions.known);
+        cJSON_AddStringToObject(radio, "host_version", versions.host);
+        cJSON_AddStringToObject(radio, "coprocessor_version", versions.coprocessor);
+        cJSON_AddBoolToObject(radio, "match", versions.match);
+    }
+#endif
 }
 
 static void diagDisplay(cJSON *o)
@@ -221,7 +231,7 @@ static void diagSd(cJSON *o)
 // Boot self-test results, as shown on the device's boot screen
 static void diagBoot(cJSON *o)
 {
-    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip", "waiting"};
+    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip", "waiting", "warn"};
     cJSON *items = cJSON_AddArrayToObject(o, "items");
     for (int n = 0; n < (int)UiBoot::Item::COUNT; n++) {
         const UiBoot::Item it = (UiBoot::Item)n;

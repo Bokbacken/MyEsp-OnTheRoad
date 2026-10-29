@@ -41,11 +41,13 @@ async function page(file, data) {
         width: p4 ? 480 : 320, height: p4 ? 800 : 480, bus: p4 ? 'MIPI-DSI 2x500 Mbps' : 'QSPI 40 MHz', fps_x10: 30},
       touch: {present: true, model: p4 ? 'GT911' : 'ST77922', address: p4 ? 0x5D : 0x55,
         fw: p4 ? '0x1060 (GT911)' : '96 (1.2.3.4)', touches: 50},
-      wifi: {status: 'connected', connected: true, rssi: -39, bars: 5, hostname: 'otr'},
+      wifi: {status: 'connected', connected: true, rssi: -39, bars: 5, hostname: 'otr',
+        ...(p4 ? {host_radio: {known: true, host_version: '3.0.10', coprocessor_version: '3.0.10', match: true}} : {})},
       i2c: ['0x18', '0x40', '0x5D'],
       battery: {supported: true, initialized: true, raw_adc: 1215, adc_calibrated: true, adc_mv: 1212,
         battery_mv: 3636, estimated_percent: 18, scale_permille: 3000, full_reference_mv: 4200, errors: 0},
-      boot: {failures: 1, items: [{name: 'RTC', state: 'waiting', detail: 'NTP'}, {name: 'FFat', state: 'fail'}]},
+      boot: {failures: 1, items: [{name: 'RTC', state: 'waiting', detail: 'NTP'}, {name: 'FFat', state: 'fail'},
+        ...(p4 ? [{name: 'Host-radio (ESP-Hosted)', state: 'warn', detail: '3.0.9 / 3.0.10'}] : [])]},
     };
     const diag = await page('main/web/diagnostics.html', data);
     assert.equal(diag.element('live-text').textContent, 'live');
@@ -54,6 +56,7 @@ async function page(file, data) {
     assert(diag.element('touch').innerHTML.includes(p4 ? 'GT911 (0x5D)' : 'ST77922 (0x55)'));
     assert(!diag.element('sys').innerHTML.includes('NaN'));
     assert.equal(diag.element('sys').innerHTML.includes('23.50 °C'), !p4);
+    assert.equal(diag.element('wifi').innerHTML.includes('3.0.10'), p4);
     assert(diag.element('battery').innerHTML.includes('3636 mV'));
     assert(diag.element('raw').textContent.includes('scale_permille'));
     data.display.sleeping = true;
@@ -61,7 +64,9 @@ async function page(file, data) {
     await diag.run('refresh()');
     assert(diag.element('disp').innerHTML.includes('Släckt · vald ljusstyrka 55 %'));
     const overview = await page('main/web/index.html', data);
+    assert.equal(overview.element('host-radio').textContent.includes('3.0.10'), p4);
     assert(overview.element('boot').innerHTML.includes('väntade på tid vid start'));
+    assert.equal(overview.element('boot').innerHTML.includes('⚠ varning'), p4);
     assert(overview.element('boot-sum').textContent.includes('1 kontroll(er) misslyckades'));
     assert(overview.element('ffat-info').textContent.includes('separat från SD-kortet'));
     assert(overview.element('sd-info').textContent.includes('Monterat'));

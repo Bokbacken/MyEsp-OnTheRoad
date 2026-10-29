@@ -1,0 +1,9 @@
+# P4 layout: 2x5 MB OTA app slots, 21.875 MB FFat, 64 kB coredump. Total 32 MB.
+# Existing P4 devices need a USB partition-table flash once; app OTA slots stay at their old offsets.
+# Name,   Type, SubType, Offset,   Size,    Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x500000,
+app1,     app,  ota_1,   0x510000, 0x500000,
+ffat,     data, fat,     0xA10000, 0x15E0000,
+coredump, data, coredump,0x1FF0000,0x10000,

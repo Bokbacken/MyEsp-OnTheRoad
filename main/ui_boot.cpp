@@ -7,6 +7,7 @@
 #include "app_config.h"
 #include "board_display.h"
 #include "board_pins.h"
+#include "hw_profile.h"
 #include "lang.h"
 #include "my_theme.h"
 #include "ui_metrics.h"
@@ -22,7 +23,7 @@ static const char *itemName(int i)
     case Item::I2C: return tr(Str::BOOT_I2C);
     case Item::RTC: return tr(Str::BOOT_CLOCK);
     case Item::STORAGE: return tr(Str::BOOT_STORAGE);
-    case Item::WIFI: return "Wi-Fi (STA)";
+    case Item::WIFI: return HwProfile::active().hasHostRadio ? "Host-radio (ESP-Hosted)" : "Wi-Fi (STA)";
     case Item::WEB: return tr(Str::BOOT_WEB);
     default: return "?";
     }
@@ -167,12 +168,14 @@ void set(Item item, State state, const char *detail)
     case State::FAIL: sym = LV_SYMBOL_CLOSE; col = Theme::RED; def = tr(Str::BOOT_FAIL); break;
     case State::SKIP: sym = LV_SYMBOL_MINUS; col = Theme::MUTED; def = tr(Str::BOOT_SKIPPED); break;
     case State::WAITING: sym = LV_SYMBOL_REFRESH; col = Theme::ACCENT; def = tr(Str::BOOT_WAITING); break;
+    case State::WARN: sym = LV_SYMBOL_WARNING; col = Theme::GOLD; def = "Varning"; break;
     default: break;
     }
     lv_label_set_text(s_icon[i], sym);
     lv_obj_set_style_text_color(s_icon[i], Theme::c(col), 0);
     lv_label_set_text(s_detail[i], detail && detail[0] ? detail : def);
-    lv_obj_set_style_text_color(s_detail[i], Theme::c(state == State::FAIL ? Theme::RED : Theme::MUTED), 0);
+    lv_obj_set_style_text_color(s_detail[i], Theme::c(state == State::FAIL ? Theme::RED :
+                                                     state == State::WARN ? Theme::GOLD : Theme::MUTED), 0);
 }
 
 void setProgress(int percent)

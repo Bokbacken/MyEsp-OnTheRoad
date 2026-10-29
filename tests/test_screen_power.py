@@ -15,6 +15,9 @@ constexpr int ESP_OK=0, ESP_FAIL=-1;
 #define ESP_LOGW(...) ((void)0)
 namespace MySys { inline uint32_t now=0; inline uint32_t millis() { return now; } }
 namespace MyOta { inline bool updating=false; inline bool busy() { return updating; } }
+namespace Karaoke { inline bool songPlaying=false; inline bool playing() { return songPlaying; } }
+namespace GameLive { inline bool gameRunning=false; inline bool running() { return gameRunning; } }
+namespace MyWifi { inline bool powerSave=false; inline void setScreenPowerSave(bool enabled) { powerSave=enabled; } }
 struct lv_timer_t {};
 inline void (*timerTick)(lv_timer_t *)=nullptr;
 inline lv_timer_t *lv_timer_create(void (*fn)(lv_timer_t *), uint32_t period, void *) {
@@ -54,12 +57,22 @@ TEST = r'''
 #include "board_backlight.h"
 #include "board_pins.h"
 #include "ui_screen_power.h"
+#include "screen_power_policy.h"
+namespace Karaoke { extern bool songPlaying; }
+namespace GameLive { extern bool gameRunning; }
+namespace MyWifi { extern bool powerSave; }
 namespace Config { AppConfig config{}; AppConfig &get() { return config; } }
 static bool sample(uint32_t now, bool pressed) {
     MySys::now=now; return MyLvgl::filter(pressed);
 }
 static void tick(uint32_t now) { MySys::now=now; timerTick(nullptr); }
 int main() {
+    assert(!ScreenPowerPolicy::shouldSleep(30, 30000, true, false));
+    assert(!ScreenPowerPolicy::shouldSleep(30, 29999, false, false));
+    assert(ScreenPowerPolicy::shouldSleep(30, 30000, false, false));
+    assert(!ScreenPowerPolicy::shouldSleep(30, 59999, false, true));
+    assert(ScreenPowerPolicy::shouldSleep(30, 60000, false, true));
+    assert(!ScreenPowerPolicy::shouldSleep(0, UINT32_MAX, false, true));
     assert(Backlight::begin(80) && Backlight::get()==80);
     assert(configuredPin==PIN_LCD_BL && inverted==LCD_BL_ACTIVE_LOW);
     const uint32_t normalDuty=duty;
@@ -128,6 +141,21 @@ int main() {
     assert(gpioLevel==LCD_BL_ACTIVE_LOW);
     Backlight::setSleeping(false);
     assert(gpioLevel==!LCD_BL_ACTIVE_LOW && Backlight::get()==40);
+    Config::get().screenOffSeconds=30;
+    Karaoke::songPlaying=true;
+    tick(1000000);
+    assert(!Backlight::sleeping());
+    Karaoke::songPlaying=false;
+    tick(1029999);
+    assert(!Backlight::sleeping());
+    tick(1030000);
+    assert(Backlight::sleeping() && MyWifi::powerSave);
+    assert(!sample(1030010,true) && !MyWifi::powerSave);
+    GameLive::gameRunning=true;
+    tick(1090009);
+    assert(!Backlight::sleeping());
+    tick(1090010);
+    assert(Backlight::sleeping() && MyWifi::powerSave);
 }
 '''
 
@@ -151,6 +179,7 @@ with tempfile.TemporaryDirectory(prefix="otr-screen-power-") as directory:
             "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
             * (["-DCONFIG_OTR_HW_PROFILE_P4_43=1"] if p4 else []),
             f"-I{work}", f"-I{ROOT / 'main'}", f"-I{ROOT / 'components/my_wifi/include'}",
+            f"-I{ROOT / 'components/otr_midi/include'}",
             str(ROOT / "main/ui_screen_power.cpp"), str(ROOT / "main/board_backlight.cpp"),
             str(work / "test.cpp"), "-o", str(binary),
         ], check=True)

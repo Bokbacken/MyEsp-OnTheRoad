@@ -51,10 +51,13 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   per händelse), text från `.kar` (`@T`/`@L`-taggar hoppas över, `/` = ny rad, `\` = ny vers) och vanliga
   lyrics-händelser (FF 05). Stavelser grupperas till rader. `Player` sköter tid, tempo 50–150 % och sökning
   (spelar upp controller-, program- och pitch bend-händelser fram till målet så att kanalerna låter rätt).
-- **`otr_synth`**: vendrad TinySoundFont (MIT). Patchar för ESP32-S3: sampel lagras som `int16` (halva minnet –
+- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 192 samtidiga röster är allokerade; valet 32, 64, 96,
+  128, 160 eller 192 är globalt och väljs i ljudbanksväljaren. Röststrukturerna tar ytterligare ungefär
+  tiotals kB jämfört med 32 röster; högre max kan öka CPU-belastningen även när färre röster spelar, så välj lägsta
+  tak som inte ger röststöld. Patchar för ESP32-S3: sampel lagras som `int16` (halva minnet –
   en ljudbank på 6 MB får plats i 8 MB PSRAM), lågpassfiltret i `float` (S3 har ingen double-FPU), egen
-  fixpunktsloop (32.32) för monorendering, transponering ±12 (trumkanalen transponeras aldrig), röststöld (äldsta rösten återanvänds när 32 röster är upptagna).
-  -14 dB headroom i stället för -6 dB eftersom täta arrangemang når 32 röster.
+  fixpunktsloop (32.32) för monorendering, transponering ±12 (trumkanalen transponeras aldrig), röststöld (äldsta rösten återanvänds när den konfigurerade gränsen är nådd).
+  -14 dB headroom i stället för -6 dB för täta arrangemang.
 - **`Audio::setExternal(fn, ctx)`**: extern musikkälla i mixern. Under karaoke pausas spelmusiken och fortsätter
   efteråt. `setExternal(nullptr)` väntar tills mixern lämnat callbacken innan kontexten släpps.
 - **SF2-laddning** sker i en egen task när karaokemenyn öppnas och frigörs när man lämnar den. Utan ljudbank
@@ -90,7 +93,15 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   tonarten inte plats behålls den gamla och ett meddelande visas.
 - **v0.13.4 – budget och diagnostik:** budgeten är största lediga PSRAM-block − 512 kB (inte längre fast 6 MB);
   spelets ljudklippscache frigörs först. Var 5:e sekund loggas renderbelastning (medel/max), underruns och röster.
-  NVS `kara_voices` (16–32, standard 32) begränsar antalet röster.
+  NVS `kara_voices` (32/64/96/128/160/192, standard 96) begränsar antalet röster.
+- **v0.23 – rösttak per kort:** S3-profilen förallokerar högst 96 röster och visar valen 32/64/96; P4-profilen
+  förallokerar högst 192 och visar valen 32–192. Standardvärdet är 96; 128+ på P4 är opt-in.
+- **Mätning på P4:** FluidR3 (151 MB), Alan Parsons Project “Time”, 96 röster: 0 underruns, cirka 45 % medellast,
+  97 % maxlast och långa perioder med 96/96 aktiva röster. En separat helsångsmätning med 192 som tak hade också
+  0 underruns, men 5-sekunders medellast varierade ungefär 33–78 %, maxlast nådde 134 % och topparna var 179/192.
+  Last över 100 % betyder att en mixerperiod tog längre än sin tidsbudget; att mätningen inte hade underruns är
+  inte en garanti mot framtida bortfall. Utdata är mono 22 050 Hz. Mindre eller förhandsomsamplade SoundFonts kan
+  minska renderarbetet och eventuellt tillåta högre rösttak; behöver mätas av ägaren på hårdvaran.
 - **v0.13.5 – webbkaraoke:** mixerns färdiga monoblock går via `Audio::setTap()` till en låsfri ring
   (`main/kara_stream`, 32 kB i PSRAM) och skickas av `main/kara_web` som binärframes (512 sampel int16, 22 050 Hz)
   på WebSocket `/ws/karaoke`. Texten (`newrow`/`lyric`/`clear`, JSON) läggs i strömmen vid exakt rätt sampel av
@@ -200,6 +211,51 @@ transport-/hamburgervägar, lång text/synk, ljud-av Ja/Nej och upprepad
 inträdes-/bank-/låtcykling med heap-/audiologg. Inget fysiskt godkännande eller
 uppmätt bytebesparing påstås av denna dokumentationsuppdatering.
 
+## 2.6 SoundFont-minne och P4-ljud
+
+`Sf::Synth::open()` läser bankens struktur och sampelpositioner från SD; den
+laddar inte hela `.sf2`-filen till PSRAM. `prepare()` läser bara sampelintervall
+som låten använder. Det är därför filstorleken på SD inte är samma sak som
+PSRAM-användningen. Den selektiva sampelbudgeten är största lediga PSRAM-blocket
+minus profilens reserv; överskridande ger först reducerade velocity-lager och
+därefter tunnare zonurval.
+
+| Profil | PSRAM | Reserv | Helt SF2 i minnet | Selektiv Karaoke |
+|---|---:|---:|---|---|
+| ES3C35P / S3 | 8 MB | 512 kB | Standardtak 7 MB, alltid begränsat av största lediga block minus reserv | Resampling på, som tidigare; native-rate-sampel kan därför kosta ungefär dubbelt så mycket som sampel omsamplade från 44.1 kHz till 22.05 kHz. |
+| P4_43 | 32 MB | 2 MB | Profilgräns 32 MB, dynamiskt begränsad av faktiskt ledigt block minus reserv | Resampling av; sampel hålls i källfrekvens. Effektiv sampelbudget är den lediga PSRAM som återstår efter reserv och andra allokeringar. |
+
+Detta är budgettak, inte löfte om att en viss fil ryms: P4 har andra stora
+PSRAM-användare, och en enda stor sammanhängande fri block kan vara mindre än
+totalt ledigt minne. Selektiv laddning kan öppna en SF2-fil som är större än
+profilens helt-i-minnet-tak eftersom bara använda sampelintervall laddas; den
+praktiska gränsen blir då sampelbudgeten och SD-läsningen.
+
+Resampling minskar minnet när källsampel ligger över utgångsfrekvensen och
+filtrerar bort innehåll som inte kan representeras vid 22.05 kHz. Det kan ge en
+liten kvalitetsförlust men har verifierade loop-/tonhöjdstester i
+`test_sfsynth.cpp`. P4 stänger av resampling för att undvika denna förlust när
+minnesbudgeten tillåter det; om sampel inte ryms väljer syntens befintliga
+reducerade lager i stället. P4 behåller för närvarande 22.05 kHz utgång:
+44.1 kHz skulle fördubbla antalet renderade sampel och webb-/I²S-datamängden,
+kräva ändrad ES8311-klockning och kräver CPU-/ljudmätning på hårdvara innan
+rekommendation.
+
+### Webbkaraoke i mono/stereo
+
+Nuvarande tap, ringbuffer, `Sf::Synth::render()` och browserprotokoll är mono.
+22.05 kHz PCM16 mono är 44.1 kB/s per klient. 22.05 kHz stereo skulle bli
+88.2 kB/s (705.6 kbit/s) per klient, cirka 2.12 Mbit/s för tre webbläsare före
+WebSocket/IP-overhead. 44.1 kHz stereo blir 176.4 kB/s (1.41 Mbit/s) per klient.
+Bandbredden är sannolikt hanterbar på P4:s nät, men render/mix/tap/ringbuffer
+och browseravkodning måste alla bli stereo; syntens nuvarande mono-utgång tappar
+panorering innan mixen. Inga CPU- eller ljudmätningar för P4-stereo finns.
+
+**Ägarbeslut v0.23:** behåll mono. En stereoleverans kräver först stereo-render
+med SoundFont-pan, stereomix och tap, formatidentifiering/bakåtkompatibilitet i
+WebSocket-protokollet samt browserstöd. Börja i så fall med 22.05 kHz stereo och
+mät P4-renderbelastning och faktisk flerklientbandbredd före 44.1 kHz.
+
 ## 3. Registret `karaoke.reg`
 
 Textfil i `/otr/karaoke/`, skapas automatiskt och kan redigeras för hand:
@@ -251,7 +307,8 @@ noter, textträff och spårnamn per kanal; valet sparas i registret.
   | Jnsgm2 + Alan Parsons Time | 6,91 MB (för stort) | 5,50 MB | 3,85 MB | 1,65 MB |
 
   Ingen av låtarna behöver längre tunnas. Rel. skillnad mot ej omsamplat 0,011–0,067 (första 60 s, torrt).
-- Max 32 samtidiga röster (NVS `kara_voices`, 16–32, v0.13.4); vid fler stjäls den äldsta rösten.
+- Max 192 samtidiga röster (NVS `kara_voices`, val 32–192); vid fler stjäls den äldsta rösten. Mät renderlast
+  vid större gränser och använd ett lägre val om CPU-belastningen närmar sig blockgränsen.
 - Mono 22 050 Hz (samma som mixern).
 - Ingen ljudbank ingår i repot (licens och storlek). Förslag: TimGM6mb.sf2 (GPL v2, ~5,7 MB).
 - Endast okomprimerade SF2 (version 2, 16-bitars sampel). SF3 (Ogg-komprimerade) avvisas.

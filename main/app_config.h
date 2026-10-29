@@ -13,6 +13,8 @@
 #endif
 
 constexpr const char *CFG_NVS_NS = "otr";
+constexpr uint8_t KARA_VOICE_OPTIONS[] = {32, 64, 96, 128, 160, 192};
+constexpr uint8_t KARA_VOICE_OPTION_COUNT = sizeof(KARA_VOICE_OPTIONS) / sizeof(KARA_VOICE_OPTIONS[0]);
 
 struct AppConfig {
     char hostname[32];       // mDNS name without ".local"
@@ -49,7 +51,7 @@ struct AppConfig {
     uint8_t karaRevLvl;      // Reverb level 0..100 (default 50)
     uint8_t karaCho;         // Chorus on (default 1)
     uint8_t karaChoLvl;      // Chorus level 0..100 (default 50)
-    // v0.13.4: karaoke voice limit 16..32 (default 32; NVS "kara_voices", no UI)
+    // Karaoke voice limit: KARA_VOICE_OPTIONS (default 96; NVS "kara_voices")
     uint8_t karaVoices;
     // v0.13.5: web karaoke stream /ws/karaoke (default 1; NVS "kara_webstream", no UI). 0 = the
     // endpoint is never registered (limited bandwidth)
@@ -93,4 +95,5 @@ bool validTz(const char *tz);
 // Clamps the sound / joystick fields into range (fast <= slow).
 void sanitize(AppConfig &c);
 bool validScreenOffSeconds(uint16_t seconds);
+bool validKaraVoices(uint8_t voices);
 }  // namespace Config

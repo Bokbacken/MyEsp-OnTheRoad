@@ -85,6 +85,7 @@ inline void cJSON_AddBoolToObject(cJSON *j, const char *name, bool v) {
 inline void cJSON_AddNumberToObject(cJSON *j, const char *, long n) { j->bytes = n; }
 inline cJSON *cJSON_CreateObject() { return new cJSON; }
 struct eh_host_coprocessor_fwver_t { uint32_t major1, minor1, patch1; };
+constexpr uint32_t ESP_HOSTED_VERSION_MAJOR_1 = 3, ESP_HOSTED_VERSION_MINOR_1 = 0, ESP_HOSTED_VERSION_PATCH_1 = 10;
 inline eh_host_coprocessor_fwver_t cpVersion{2, 6, 0};
 inline int versionResult = ESP_OK, otaBeginResult = ESP_OK, otaWriteResult = ESP_OK,
            otaEndResult = ESP_OK, otaActivateResult = ESP_OK;
@@ -115,6 +116,14 @@ TEST = r'''
 #include "host_ota.h"
 int main() {
     assert(HostOta::registerRoute() && MyWeb::registered);
+    cpVersion = {3, 0, 10};
+    HostOta::cacheVersionInfo();
+    HostOta::cacheVersionInfo();
+    assert(versionCalls == 1);
+    assert(HostOta::versionInfo().known && HostOta::versionInfo().match);
+    assert(!strcmp(HostOta::versionInfo().host, "3.0.10"));
+    assert(!strcmp(HostOta::versionInfo().coprocessor, "3.0.10"));
+    versionCalls = 0;
     uint8_t image[2048] = {};
     auto *header = reinterpret_cast<esp_image_header_t *>(image);
     header->magic = ESP_IMAGE_HEADER_MAGIC;
@@ -190,6 +199,7 @@ with tempfile.TemporaryDirectory(prefix="otr-host-ota-") as directory:
         "esp_hosted_ota.h": '#include "stubs.h"\n',
         "eh_host_sys.h": '#include "stubs.h"\n',
         "eh_host_api_types.h": '#include "stubs.h"\n',
+        "esp_hosted_host_fw_ver.h": '#include "stubs.h"\n',
         "esp_log.h": '#include "stubs.h"\n',
         "freertos/FreeRTOS.h": '#include "stubs.h"\n',
         "my_web.h": '#include "stubs.h"\n',

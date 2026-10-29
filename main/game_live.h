@@ -44,6 +44,7 @@ struct Snapshot {
 // Game-independent views of the snapshot (dispatch on gameType).
 bool started(const Snapshot &s);
 bool finished(const Snapshot &s);
+bool running();
 int playerCount(const Snapshot &s);
 int currentPlayer(const Snapshot &s);
 int diceCount(const Snapshot &s);

@@ -147,7 +147,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   artefakten `host-fw-esp32c6-78b1c1c`. C6-byggprojektets dubbla OTA-slots
   är 0x1C0000 byte; webb-OTA avvisar större filer.
 - [ ] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
-  vid uppstart (nu görs säkerhetskontrollen vid OTA-begäran).
+  vid uppstart. Flyttad till avsnitt X punkt 1.
 - [ ] Dokumentera återställning via C6:s 4-poliga flashkontakt.
 - [x] **Hårdvara:** C6-OTA från fabriksfirmware till 3.0.10 verifierad av
   ägaren; efter omstart rapporterar `eh_init_evt` host=3.0.10
@@ -213,9 +213,131 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 
+### Strömsparutredning (v0.23)
+
+- **Wi-Fi:** nuvarande S3-läge är `WIFI_PS_NONE` för låg webblatens. Den säkra
+  första kandidaten är `WIFI_PS_MIN_MODEM` endast när skärmen är släckt; det
+  är implementerat bakom skärmsläckningen. MIN_MODEM sover mellan access-
+  punktens DTIM-beacons. `WIFI_PS_MAX_MODEM` kan sova längre men kräver lämpligt
+  station-`listen_interval` och kan öka latens/missade paket. ESP-Hosted 3.0.10
+  har RPC-stöd för `esp_wifi_set_ps()` och stationens listen interval; OnTheRoad
+  sätter inte ett eget intervall. C6-beteende, strömvinst och återanslutning
+  måste mätas på våra S3 respektive P4+C6; inga projektspecifika mätvärden finns.
+- **DFS/automatisk light sleep:** `esp_pm_configure()` och
+  `CONFIG_PM_ENABLE` kan sänka CPU-frekvensen när lasten är låg, men ingen
+  frekvenspolicy är införd. S3 körs med sin befintliga frekvens och P4 med
+  400 MHz. I2S/Karaoke kan behöva högre frekvens under rendering; P4:s
+  DSI/DPI-vsync/DMA och S3:s QSPI-uppdatering måste verifieras mot PM-lås.
+  UART/USB-loggens beteende vid sleep/frekvensändring måste också provas. Ingen
+  säkert generaliserbar mW- eller batteritidsvinst är känd.
+- **Pausa Wi-Fi helt:** kan minska förbrukning mer än modem-sleep men bryter
+  webbtillgänglighet och kräver återanslutning vid väckning. Ingen av/på-
+  livscykel eller återanslutningstid är mätt; behåll därför Wi-Fi anslutet och
+  använd endast MIN_MODEM i v0.23.
+- **Deep sleep/touch:** deep sleep stänger av körande spel/ljud/Wi-Fi och
+  återstartar appen. Touch kan väcka endast om controllerens INT är kopplad till
+  en RTC/LP-wake-kompatibel GPIO; I2C är inte aktiv som wake-källa. S3 INT är
+  GPIO47, inte RTC GPIO på ESP32-S3. P4 touch INT är inte ansluten (`-1`), och
+  touch pollas. Deep-sleep touch-wake är därför inte tillgänglig med nuvarande
+  pinmap. Väcktiden omfattar boot, enhetsinitiering och Wi-Fi-anslutning; den är
+  inte mätt och blir längre än ren backlight-väckning.
+
 ## IX. Fler kort i framtiden
 
-- [ ] Guide: lägga till ett kort (profil, stift, drivrutiner, overlay, CI).
+### Guide: lägga till ett kort
+
+1. Lägg till ett ID och en rad i `HwProfile::Info` (`main/hw_profile.h/.cpp`):
+   namn, upplösning, periferikapacitet, flash/PSRAM, SoundFont-reserv och
+   resamplingsstandard. Applikationskod ska fråga profilen om kapacitet i stället
+   för att sprida kortvillkor.
+2. Lägg kortets GPIO- och busskarta i `main/board_pins_<id>.h`, välj den via
+   `main/board_pins.h` och håll kortdrivrutinerna bakom de gemensamma
+   `board_*.h`-API:erna.
+3. Binda profil till ESP-IDF-target i `main/Kconfig.projbuild`; lägg
+   targetflaggor i `sdkconfig.defaults.<target>`. Om kortet behöver annan flash-
+   layout ska det ha egen `partitions.<id>.csv`, vald av dess target-overlay.
+4. Lägg målberoenden i `idf_component.yml` med target-regler. Lägg till
+   drivrutinsfiler i `main/CMakeLists.txt` bakom profilen; undvik spridda
+   `CONFIG_IDF_TARGET_*`-villkor i funktionskod.
+5. Lägg target/profile-raden i CI-matrisen och verifiera att buildloggen väljer
+   rätt profil, SDK-defaults, partitionstabell och beroenden. Lägg till
+   hosttest för profilens kapabiliteter och minnesbudgets.
+6. Först när stegen är stabila: samla metadata och pin-namn i
+   `boards/<id>/board.h` och generera/validera profil- och konfigurationsdelarna
+   från den filen. Flytta inte byggval till generering innan CI kan bevisa att
+   genererade filer motsvarar targeten.
+
+**Rekommendation – hybridgränser:** härled tillgänglig budget från faktiskt
+ledigt/största PSRAM-block och flashpartitionernas storlek vid körning. Profilen
+anger rekommenderat tak, reserv och standardval för respektive funktion; en
+funktion får inte slås av automatiskt bara för att ett annat kort saknar minne.
+Varje funktion ska ha en dokumenterad miniminivå och ett kontrollerat
+reservbeteende. För Karaoke är nuvarande rekommendation 8 MB PSRAM, 512 kB
+SoundFont-reserv och nedsampling på S3; P4-profilen anger 32 MB, 2 MB reserv och
+nativ SoundFont-samplingsfrekvens. Större laddningar begränsas alltid av faktisk
+ledig PSRAM.
+
+## X. Nästa runda (v0.23, ägarens lista 2026-10-29)
+
+Underlag och detaljer finns i PR-beskrivningen för den här rundan. Ordningen
+nedan är arbetsordningen; utredningspunkter ska ge ett dokumenterat svar med
+rekommendation innan kod skrivs.
+
+1. **ESP-Hosted-version i webben.** Visa host-/coprocessor-version och
+   match/mismatch (samma info som `eh_init_evt: esp-hosted fw versions:
+   host=3.0.10 coprocessor=3.0.10 (match)`) i Översikt och Diagnostik, bara
+   för kort med Host-radio. Ersätter punkten "Kontrollera C6-version" i
+   avsnitt V.
+   - [x] Cacha versionen vid uppstart (ingen RPC per webbanrop).
+   - [x] Startkontroll/diagnostik: varning vid mismatch eller okänd version.
+   - [ ] **Hårdvara:** verifiera match, mismatch och okänd-version-varning på P4.
+2. **Karaoke på stor skärm.** P4 visar 4 textrader på övre halvan; resten är
+   svart.
+   - [x] Centrera texten horisontellt och vertikalt.
+   - [x] Antal rader beräknas från skärmhöjd och textstorlek (S3 oförändrat).
+   - [ ] **Hårdvara:** verifiera radantal, läsbarhet och vertikal centrering på
+     båda skärmarna.
+3. **Kortdefinitioner.** Utred och föreslå hur nästa kort läggs till med i
+   princip en definitionsfil (`hw_profile`, `board_pins_*.h`, sdkconfig,
+   partitionstabell, CI-matris, `idf_component.yml`-regler).
+   - [x] Dokumentera förslaget i "IX. Fler kort i framtiden"; capability- och
+     minnesbudgetar ligger i profilen.
+   - [x] Rekommendation: automatiska runtime-budgetar med profilens
+     funktionsvisa tak/reserver och standardval; ingen automatisk avstängning.
+4. **Flash, PSRAM och SoundFont.**
+   - [x] P4-tabell med 32 MB flash och 21.875 MB FFat; OTA-offsetar behålls.
+     S3-tabellen är oförändrad. **USB:** befintliga P4 måste flasha
+     partitionstabellen en gång; se "P4-partitionstabell: USB-migrering".
+   - [x] Profilstyrt SoundFont-tak/reserv; S3 behåller 7 MB/512 kB och
+     nedsampling, P4 får dynamiskt minnestak/2 MB reserv utan nedsampling.
+   - [x] Profilstyrt rösttak: S3 högst 96, P4 högst 192; väljaren visar bara
+     värden som ryms inom kortets gräns.
+   - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
+     kvalitet i `MUSIC_KARAOKE_PLAN.md`.
+   - [ ] **Hårdvara:** verifiera utökad P4-FFat, återstart/OTA och stora SF2.
+5. **Stereoljud till webbsidan i Karaoke.** Utred stereoström (idag mono
+   22050 Hz från mixen) för P4 och kommande kort; implementera om
+   bandbredd/CPU räcker, annars dokumentera varför inte.
+   - [x] Utredning och bandbreddsestimat dokumenterade i
+     `MUSIC_KARAOKE_PLAN.md`.
+   - [x] **Ägarbeslut:** behåll mono i v0.23; stereo kräver en stereo-synt,
+     mixer/tap, ringbuffer och webbavkodare, samt CPU-/ljudmätning på P4.
+6. **Strömsparning, nästa steg.**
+   - [x] Karaoke: håll vaken medan en låt spelar; inaktivitet räknas från
+     låtens slut.
+   - [x] Pågående spel: dubbel inaktivitetstid innan skärmsläckning.
+   - [x] Wi-Fi `MIN_MODEM` när skärmen släcks, av igen vid väckning. Styrs av
+     befintlig skärmtimeout/manuell släckning.
+   - [x] Utred Wi-Fi/DFS/deep sleep och dokumentera rekommendationerna nedan.
+     **Hårdvara:** mät effekt och verifiera återanslutning på båda korten.
+7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
+   och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
+   master. Bygger på befintlig webb-live-vy och WebSocket-platser.
+   - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
+     (PIN), återanslutning och Yatzy först.
+   - [x] mDNS annonserar `_ontheroad._tcp` med protokollversion och stödda spel.
+   - [ ] **Ägarbeslut / nästa steg:** ESP-enhetens upptäckts-/join-UI och
+     WebSocket-klient för fjärrsäte återstår; se designbeslutet.
 
 ## Leveranslogg
 
@@ -233,6 +355,30 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | OTA-skärm v0.22.4 | `e31311a`, CI run 40902453740 grön för S3/P4. P4-appfil nedladdad och SHA-256 verifierad: `a9b8b4c56d372dbaa96c37f4c3f07badc4848cc0d541dc5f52bb180a41e64f34`. Fysisk flimmerkontroll återstår. PR #23 är fortsatt draft, inte mergad; GitHub rapporterar konflikt med main som behöver hanteras inför merge. |
 | 2026-10-29 | Skärmsläckning v0.22.5 | Ägaren bekräftar OTA-skärmfixen i v0.22.4 samt de flesta spel och Karaoke på P4. `f7385e2`, CI run 40909089936 grön för båda targets. Automatisk/manuell släckning och väckfilter implementerade; fysisk verifiering på båda korten återstår. |
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
+| 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
+
+### P4-partitionstabell: USB-migrering
+
+P4-tabellen utökar FFat från 5.875 MiB till 21.875 MiB. Appslotarnas offset
+(`0x10000` och `0x510000`), `otadata`, NVS och FFat-start (`0xA10000`) är
+oförändrade, så app OTA använder samma slotar. En gammal installerad
+partitionstabell kan däremot inte ändras via app OTA: uppdateringen måste göras
+via USB en gång.
+
+1. Säkerhetskopiera innehåll från FFat innan migrering. Den befintliga FAT-
+   volymen kan fortsätta fungera eftersom startadressen inte flyttas, men FAT:s
+   egen volymstorlek kan förbli den gamla; utökad kapacitet kan kräva att FFat
+   formateras och filer återställs. Förlita dig inte på automatisk migrering.
+2. Bygg för `esp32p4` så att `partitions.esp32p4.csv` väljs. Anslut USB och kör
+   `idf.py -p PORT partition-table-flash` för att skriva den nya tabellen. Läs
+   tillbaka/validera loggen och starta om. En full USB `idf.py -p PORT flash`
+   från samma P4-build skriver också rätt tabell, men raderar mer firmwaredata.
+3. Kontrollera FFat, OTA till en appslot, omstart och coredump-partition.
+   Formatera FFat endast efter säkerhetskopiering och återställ därefter
+   användarfilerna. Testa inte migreringen på enda kopian av användardata.
+
+**Hårdvara:** ägaren behöver verifiera USB-uppdatering, befintlig FFat-data,
+utökad kapacitet, OTA och återstart på P4. Ingen P4-migrering har mätts här.
 
 OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
 

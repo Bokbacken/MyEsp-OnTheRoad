@@ -27,6 +27,9 @@ int main()
     CHECK(defaults.batteryScalePermille == defaultScale);
     CHECK(defaults.batteryFullMv == 4200);
     CHECK(defaults.karaVolume == 70);
+    CHECK(defaults.karaVoices == 96);
+    for (uint8_t voices : KARA_VOICE_OPTIONS) CHECK(Config::validKaraVoices(voices));
+    CHECK(!Config::validKaraVoices(16) && !Config::validKaraVoices(193));
     CHECK(defaults.screenOffSeconds == 0);
 
     TestNvs::numbers.clear();
@@ -34,6 +37,26 @@ int main()
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 70);
+
+    // Migrate the former implicit 32-voice default, then preserve an explicit 32 choice.
+    TestNvs::numbers["schema"] = 1;
+    TestNvs::numbers["kara_voices"] = 32;
+    Config::begin();
+    CHECK(Config::get().karaVoices == 96);
+    CHECK(TestNvs::numbers["kara_voices"] == 96 && TestNvs::numbers["kara_vver"] == 1);
+    Config::get().karaVoices = 32;
+    CHECK(Config::save());
+    TestNvs::numbers["kara_voices"] = 32;
+    Config::begin();
+    CHECK(Config::get().karaVoices == 32);
+    for (uint8_t voices : KARA_VOICE_OPTIONS) {
+        TestNvs::numbers["kara_voices"] = voices;
+        Config::begin();
+        CHECK(Config::get().karaVoices == voices);
+    }
+    TestNvs::numbers["kara_voices"] = 100;
+    Config::begin();
+    CHECK(Config::get().karaVoices == 96);
 
     // Older schema-1 configurations have no new keys and keep the safe defaults.
     TestNvs::numbers["schema"] = 1;

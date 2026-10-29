@@ -85,6 +85,13 @@ bool finished(const Snapshot &s)
     }
 }
 
+bool running()
+{
+    Snapshot s;
+    get(s);
+    return s.active && started(s) && !finished(s);
+}
+
 int playerCount(const Snapshot &s)
 {
     switch (s.gameType) {
