@@ -138,7 +138,7 @@ bool codecInit()
 void setAmp(bool on)
 {
     if (on == s_ampOn) return;
-    gpio_set_level((gpio_num_t)PIN_AMP_EN, on ? 0 : 1);   // Active LOW
+    gpio_set_level((gpio_num_t)PIN_AMP_EN, on == AMP_EN_ACTIVE_HIGH ? 1 : 0);
     s_ampOn = on;
 }
 
@@ -446,9 +446,9 @@ bool begin(i2c_master_bus_handle_t bus)
     gpio_config_t io = {};
     io.pin_bit_mask = 1ULL << PIN_AMP_EN;
     io.mode = GPIO_MODE_OUTPUT;
-    gpio_set_level((gpio_num_t)PIN_AMP_EN, 1);
+    gpio_set_level((gpio_num_t)PIN_AMP_EN, AMP_EN_ACTIVE_HIGH ? 0 : 1);
     gpio_config(&io);
-    gpio_set_level((gpio_num_t)PIN_AMP_EN, 1);
+    gpio_set_level((gpio_num_t)PIN_AMP_EN, AMP_EN_ACTIVE_HIGH ? 0 : 1);
     s_ampOn = false;
 
     // 2. Codec on the shared I2C bus

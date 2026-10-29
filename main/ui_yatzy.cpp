@@ -166,6 +166,7 @@ static void hookClickSound()
 
 void showMenu()
 {
+    UiSettings::applyTextSize();   // Picks up a text size saved on the device or from the web
     hookClickSound();
     Audio::music(Sound::Music::DICE);   // Dice music loops in the menus and the dice games
     lv_obj_t *scr = Theme::screen();

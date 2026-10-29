@@ -15,6 +15,7 @@
 #include "board_battery.h"
 #include "board_touch.h"
 #include "battery_math.h"
+#include "board_pins.h"
 #include "karaoke.h"
 #include "my_wifi.h"
 #include "ui_clock.h"
@@ -23,6 +24,8 @@
 #include "my_theme.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
+#include "ui_screen_power.h"
+#include "ui_metrics.h"
 
 namespace UiSettings {
 
@@ -41,8 +44,23 @@ static void applyRotation(bool r180)
     Touch::setRotation(r180);
 }
 
+uint8_t maxTextSize()
+{
+    const int32_t w = UiMetrics::screenW(), h = UiMetrics::screenH();
+    return (uint8_t)MyFonts::maxFor(w < h ? w : h);
+}
+
+void applyTextSize()
+{
+    static_assert((int)MyFonts::TextSize::COUNT == TEXT_SIZE_COUNT, "text size levels");
+    DisplayLock lock;
+    const int32_t w = UiMetrics::screenW(), h = UiMetrics::screenH();
+    MyFonts::apply((MyFonts::TextSize)Config::get().textSize, w < h ? w : h);
+}
+
 void applyHardware()
 {
+    DisplayLock lock;
     const AppConfig &c = Config::get();
     Backlight::set(c.brightness);
     Rgb::setEnabled(c.ledEnabled);
@@ -141,13 +159,13 @@ static void resetBatteryCalibration()
 {
     AppConfig &c = Config::get();
     const uint16_t previous = c.batteryScalePermille;
-    if (previous == 0) return;
-    c.batteryScalePermille = 0;
+    if (previous == BAT_DEFAULT_SCALE_PERMILLE) return;
+    c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     if (!Config::save()) {
         c.batteryScalePermille = previous;
         return;
     }
-    s_edit.batteryScalePermille = 0;
+    s_edit.batteryScalePermille = c.batteryScalePermille;
     refreshInfo(nullptr);
 }
 
@@ -246,12 +264,11 @@ static void onHold(lv_event_t *e)
 
 static void leave(bool save)
 {
-    if (s_timer) {
-        lv_timer_delete(s_timer);
-        s_timer = nullptr;
-    }
     if (save) {
+        const AppConfig previous = Config::get();
         Config::get().brightness = s_edit.brightness;
+        Config::get().screenOffSeconds = s_edit.screenOffSeconds;
+        Config::get().textSize = s_edit.textSize;
         Config::get().ledBrightness = s_edit.ledBrightness;
         Config::get().ledEnabled = s_edit.ledEnabled;
         Config::get().rollAnimMs = s_edit.rollAnimMs;
@@ -270,8 +287,19 @@ static void leave(bool save)
         Config::get().joyHoldMs = s_edit.joyHoldMs;
         Config::get().joyDiag = s_edit.joyDiag;
         snprintf(Config::get().lang, sizeof(Config::get().lang), "%s", s_edit.lang);
-        Config::save();
+        if (!Config::save()) {
+            Config::get() = previous;
+            lv_obj_t *mb = lv_msgbox_create(nullptr);
+            lv_msgbox_add_text(mb, tr(Str::SET_SAVE_FAILED));
+            lv_msgbox_add_close_button(mb);
+            Theme::msgboxFonts(mb);
+            return;
+        }
         Lang::setLang(Config::get().lang);
+    }
+    if (s_timer) {
+        lv_timer_delete(s_timer);
+        s_timer = nullptr;
     }
     applyHardware();   // Reverts the live preview when cancelled
     UiYatzy::showMenu();
@@ -329,8 +357,9 @@ void show()
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
+    const int32_t sw = UiMetrics::screenW(), sh = UiMetrics::screenH();
     lv_obj_set_pos(body, 0, 46);
-    lv_obj_set_size(body, 320, 480 - 46 - 56);
+    lv_obj_set_size(body, sw, sh - 46 - 56);
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, 8, 0);
     lv_obj_set_style_pad_row(body, 8, 0);
@@ -357,6 +386,33 @@ void show()
     lv_obj_t *disp = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(disp, LV_FLEX_FLOW_COLUMN);
     sliderRow(disp, tr(Str::SET_BRIGHTNESS), 5, 100, s_edit.brightness, &s_brightVal, onBright);
+    // Text size: applied on "Spara" (the menu is rebuilt with the new font roles).
+    Theme::label(disp, tr(Str::SET_TEXT_SIZE), &my_font_14, Theme::MUTED);
+    static char sizeOpts[96];
+    snprintf(sizeOpts, sizeof(sizeOpts), "%s", tr(Str::SET_TEXT_SIZE_OPTIONS));
+    {
+        int lines = 0;   // Keep options 0..maxTextSize()
+        for (char *p = sizeOpts; *p; ++p)
+            if (*p == '\n' && ++lines > maxTextSize()) { *p = 0; break; }
+    }
+    if (s_edit.textSize > maxTextSize()) s_edit.textSize = maxTextSize();
+    lv_obj_t *textSize = styledDropdown(disp, sizeOpts, s_edit.textSize);
+    lv_obj_add_event_cb(textSize, [](lv_event_t *e) {
+        s_edit.textSize = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+    Theme::label(disp, tr(Str::SCREEN_TIMEOUT), &my_font_14, Theme::MUTED);
+    uint32_t timeoutSelection = 0;
+    for (uint32_t i = 0; i < sizeof(SCREEN_OFF_SECONDS) / sizeof(SCREEN_OFF_SECONDS[0]); ++i)
+        if (SCREEN_OFF_SECONDS[i] == s_edit.screenOffSeconds) timeoutSelection = i;
+    lv_obj_t *timeout = styledDropdown(disp, tr(Str::SCREEN_TIMEOUT_OPTIONS), timeoutSelection);
+    lv_obj_add_event_cb(timeout, [](lv_event_t *e) {
+        s_edit.screenOffSeconds = SCREEN_OFF_SECONDS[lv_dropdown_get_selected(lv_event_get_target_obj(e))];
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(screenHelp, LV_PCT(100));
+    lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_t *screenOff = Theme::button(disp, tr(Str::SCREEN_SLEEP_NOW), LV_PCT(100), 44, Theme::LINE);
+    lv_obj_add_event_cb(screenOff, [](lv_event_t *) { UiScreenPower::sleepNow(); }, LV_EVENT_CLICKED, nullptr);
     switchRow(disp, tr(Str::SET_RGB_LED), s_edit.ledEnabled, [](lv_event_t *e) {
         s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
         Rgb::setEnabled(s_edit.ledEnabled);
@@ -486,11 +542,12 @@ void show()
         UiWifi::showNetworks();
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), 146, 44, Theme::MUTED);
-    lv_obj_set_pos(cancel, 8, 480 - 50);
+    const int32_t halfW = (sw - 22) / 2;
+    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), halfW - 3, 44, Theme::MUTED);
+    lv_obj_set_pos(cancel, 8, sh - 50);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) { leave(false); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *save = Theme::button(scr, trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE), 152, 44, Theme::ACCENT, true);
-    lv_obj_set_pos(save, 160, 480 - 50);
+    lv_obj_t *save = Theme::button(scr, trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE), halfW + 3, 44, Theme::ACCENT, true);
+    lv_obj_set_pos(save, sw - 8 - (halfW + 3), sh - 50);
     lv_obj_add_event_cb(save, [](lv_event_t *) { leave(true); }, LV_EVENT_CLICKED, nullptr);
 
     refreshInfo(nullptr);

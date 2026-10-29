@@ -169,10 +169,13 @@ bool begin()
     i2c_master_bus_add_device(g_bus, &dc, &g_dev);
 
     uint8_t info[5] = {};
-    g_info.present = readReg(REG_FW_VERSION, &g_info.fwVersion, 1) &&
+    uint8_t fw = 0;
+    g_info.present = readReg(REG_FW_VERSION, &fw, 1) &&
                      readReg(REG_FW_REVISION, g_info.fwRevision, 4) &&
                      readReg(REG_MAX_X_H, info, 5);
     if (g_info.present) {
+        g_info.fwVersion = fw;
+        g_info.address = TOUCH_I2C_ADDR;
         g_info.maxX = (uint16_t)((info[0] << 8) | info[1]);
         g_info.maxY = (uint16_t)((info[2] << 8) | info[3]);
         g_info.maxTouches = info[4];

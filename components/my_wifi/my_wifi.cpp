@@ -594,7 +594,7 @@ void loop()
         if (s_scanState > 0) {
             Network tmp[MAX_NETWORKS];
             int n = scanResults(tmp, MAX_NETWORKS);
-            for (int i = 0; i < n; i++) snprintf(s_visible[s_visibleCount++], 33, "%s", tmp[i].ssid);
+            for (int i = 0; i < n; i++) snprintf(s_visible[s_visibleCount++], 33, "%.32s", tmp[i].ssid);
         }
         s_autoNext = 0;
         autoTryNext();

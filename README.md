@@ -4,7 +4,24 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.21.3** – internal maps, named portal destinations and persistent
+> **Status: v0.22.6** – text size setting (Settings/web: Small, Normal, Large; Extra
+> large on the 480×800 P4) and boot/Wi-Fi/settings screens laid out from the panel size.
+> Earlier: dual-target ESP32-S3/P4 builds, including the v0.21.3
+> Adventure and UI changes below. The owner confirmed P4 startup and Wi-Fi with
+> v0.22.0 and app OTA with v0.22.1. The owner confirmed ADC readings, SD-backed
+> Adventure/Karaoke playback and RTC synchronization after NTP with v0.22.2.
+> This build fixes explicit repair of unmounted FFat and board-aware diagnostics.
+> OTA erases incrementally; P4 display refresh interrupts remain active during flash
+> operations. This takes effect for uploads performed after installing this version.
+> Screen power saving on both boards: Settings → screen-off timeout (off by default,
+> 30 seconds to 60 minutes), or turn the screen off manually in Settings. Touch wakes
+> without activating controls; release and a minimum 250 ms guard are required before
+> a new touch. Audio/games/network stay active; OTA wakes and keeps the screen on.
+> This switches off the backlight, not the CPU or display controller; battery savings
+> need physical measurement. The P4 power button is not remapped.
+> RTC/VBAT retention after loss of main power still needs controlled deep sleep.
+>
+> v0.21.3 – internal maps, named portal destinations and persistent
 > return visits. Player inventory and energy/lives are shared, inactive maps pause,
 > and blocked arrivals are rejected without moving obstacles.
 > See the [runtime format](docs/ADVENTURE_MULTIMAP_FORMAT.md) and copy the
@@ -329,20 +346,25 @@ lasts until it is empty; the boot checklist shows "tid ogiltig (batteri?)" when 
 
 ### Hardware profiles
 
-The board is selected at build time in `idf.py menuconfig` -> *OnTheRoad hardware profile*
-(`CONFIG_OTR_HW_PROFILE_*`). `main/hw_profile.*` exposes the active profile (name, logical
-display size, touch/audio/SD capabilities). The default is **ES3C35P**, the current 320x480
-board, so existing builds behave as before. `P4_43` (Waveshare ESP32-P4 4.3", 480x800) is only a
-placeholder and is not ported or verified yet. `main/ui_metrics.*` holds shared UI sizes
+The board profile follows the chip target (`idf.py set-target`): `ES3C35P` for `esp32s3` and
+`P4_43` (Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3, ST7701 MIPI-DSI 480x800, GT911 touch, Wi-Fi via
+an ESP32-C6 over ESP-Hosted) for `esp32p4` (`CONFIG_OTR_HW_PROFILE_*`). Pins live in
+`main/board_pins_<profile>.h`, board drivers behind the shared `main/board_*.h` APIs. The P4 port
+is in progress and tracked in [`docs/MULTI_BOARD_TODO.md`](docs/MULTI_BOARD_TODO.md).
+`main/hw_profile.*` exposes the active profile (name, logical display size, touch/audio/SD
+capabilities). `main/ui_metrics.*` holds shared UI sizes
 (margins, button sizes, card spacing) derived from the live display size; the main menu now uses
 an LVGL flex layout built on them. This is a first step towards more screen profiles - the other
 screens still use fixed 320x480 coordinates.
 
 ## Building
 
-Requires **ESP-IDF 6.1** (`idf.py`). Managed components (LVGL 9.6.0, mdns, cJSON, led_strip) are
-fetched automatically on the first build (`dependencies.lock` pins the versions). Board settings
-(16 MB flash, OPI PSRAM, custom partition table, app rollback, `-Os`) are in `sdkconfig.defaults`.
+Requires **ESP-IDF 6.1** (`idf.py`). Managed components (LVGL 9.6.0, mdns, cJSON, led_strip and,
+on ESP32-P4, ESP-Hosted) are fetched automatically on the first build; `dependencies.lock.<target>`
+pins the versions per target. Shared settings (custom partition table, app rollback, `-Os`) are in
+`sdkconfig.defaults`; board settings in `sdkconfig.defaults.esp32s3` (16 MB flash, octal PSRAM,
+USB console) and `sdkconfig.defaults.esp32p4` (chip rev v3.x, 32 MB flash, PSRAM, UART console,
+ESP-Hosted). Both boards currently use the same 16 MB partition layout:
 
 | Partition | Offset | Size |
 |---|---:|---:|
@@ -355,13 +377,24 @@ fetched automatically on the first build (`dependencies.lock` pins the versions)
 
 ```sh
 . ~/esp/esp-idf-v6.1/export.sh
-idf.py build                      # build/MyEsp_OnTheRoad.bin (= -ota.bin)
-idf.py merge-bin -o merged.bin    # build/merged.bin (= -merged.bin, flash at 0x0)
-idf.py -p /dev/ttyACM0 flash monitor
+# ES3C35P (ESP32-S3)
+idf.py -B build_esp32s3 -D SDKCONFIG=build_esp32s3/sdkconfig set-target esp32s3 build
+idf.py -B build_esp32s3 -D SDKCONFIG=build_esp32s3/sdkconfig merge-bin -o merged.bin
+idf.py -B build_esp32s3 -D SDKCONFIG=build_esp32s3/sdkconfig -p /dev/ttyACM0 flash monitor
+# Waveshare ESP32-P4 4.3" (flash/monitor via the USB-UART Type-C port)
+idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig set-target esp32p4 build
+idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig merge-bin -o merged.bin
+idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig -p /dev/ttyUSB0 flash monitor
 ```
 
+`<build dir>/MyEsp_OnTheRoad.bin` is the OTA image, `<build dir>/merged.bin` the complete image
+to flash at `0x0` (first install, e.g. with esptool.js in the browser). Once the firmware runs,
+later updates can use the OTA file through the web page.
+
 The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
-CI labels the build artifact `firmware-esp32s3-v<PROJECT_VER>`.
+CI builds both boards and labels the artifacts `firmware-esp32s3-v<PROJECT_VER>` and
+`firmware-esp32p4-v<PROJECT_VER>-unverified` (P4 hardware verification is incomplete;
+startup and Wi-Fi have been confirmed).
 This build label does not create a Git release tag.
 
 ### Firmware releases
@@ -464,18 +497,12 @@ python3 tools/firmware_release.py package --build-dir build_release_esp32s3 \
   --output build_release_esp32s3/release
 ```
 
-**P4 remains pending, not a green S3 build with a P4 display size.** `P4_43` in
-`main/hw_profile.h` and `main/Kconfig.projbuild` is still an unported placeholder.
-Before porting, obtain manufacturer documentation for the exact Waveshare model and
-PCB revision and verify schematics/pins, display interface/timing, touch controller,
-flash/PSRAM, partitions, audio, SD and the actual networking solution. Do not guess
-values or copy S3 defaults. A P4 BSP/drivers, real `esp32p4` target compilation and
-hardware validation are separate work. Once support exists, use a separate board,
-target, defaults file, build directory and artifact prefix, following the explicit
-S3 tuple here: `ES3C35P / esp32s3 / sdkconfig.defaults / build_release_esp32s3`.
-Initial real P4 target builds may precede hardware arrival, but must be labelled
-**experimental, not physically verified**, with any publication explicitly opt-in
-and separated from verified S3 releases. This workflow publishes no P4 firmware.
+**P4 support is in progress** (see `docs/MULTI_BOARD_TODO.md`). CI builds the real `esp32p4`
+target (`P4_43 / esp32p4 / sdkconfig.defaults.esp32p4`) as an artifact labelled
+**unverified** until the hardware checks in the plan pass. Releases stay S3-only: the release
+tooling only accepts the explicit S3 tuple
+`ES3C35P / esp32s3 / sdkconfig.defaults / build_release_esp32s3`, and any later P4 publication
+must be explicit, opt-in and separated from verified S3 releases. This workflow publishes no P4 firmware.
 
 Official references: [workflow triggering and GITHUB_TOKEN](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow),
 [release API](https://docs.github.com/en/rest/releases/releases),
@@ -598,6 +625,12 @@ INC="-Imain -Icomponents/my_wifi/include -Icomponents/my_ui/include"
 g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o tests/test_yatzy && ./tests/test_yatzy
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
+python3 tests/test_board_peripherals.py   # P4 internal RTC, S3/P4 ADC/SD recovery and per-board NVS calibration defaults
+python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting
+python3 tests/test_ota_stream.py   # incremental erase, progress and failed validation leave the boot slot unchanged
+python3 tests/test_screen_power.py   # S3/P4 idle/manual off, wake-only touch + 250 ms, OTA and brightness restoration
+python3 tests/test_text_size_layout.py   # boot/Wi-Fi layouts on 320x480 and 480x800 for every text size; font role switching
+node tests/test_board_diagnostics_web.js   # S3/P4 overview, RTC waiting and separate SD/FFat status
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine

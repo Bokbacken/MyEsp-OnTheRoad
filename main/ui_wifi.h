@@ -12,6 +12,8 @@
 // All functions must be called with the display lock held (LVGL task or DisplayLock).
 #pragma once
 
+#include <stdint.h>
+
 namespace UiWifi {
 
 void showNetworks();                       // Screen 1 (starts a scan)
@@ -19,5 +21,14 @@ void showPassword(const char *ssid);       // Screen 2
 // Screen 3. Starts a connection attempt unless `alreadyStarted` (boot auto-connect, where
 // MyWifi::begin() has already begun scanning for / connecting to the saved networks).
 void showConnecting(const char *ssid, const char *pass, bool alreadyStarted = false);
+
+// Geometry of screen 3 for a w x h panel and the current font line heights (pure; host-tested).
+struct ConnLayout {
+    int32_t textW, titleY, ssidY, spinner, arc, spinnerY, iconY;
+    int32_t barW, barH, barY, timeY, msgY, msgBottom;
+    int32_t btnW, btnH, btnY;
+};
+ConnLayout connLayout(int32_t w, int32_t h, int32_t titleLineH, int32_t bodyLineH, int32_t smallLineH,
+                      int32_t iconLineH);
 
 }  // namespace UiWifi

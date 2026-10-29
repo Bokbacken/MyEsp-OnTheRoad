@@ -1,4 +1,4 @@
-// MyEsp-OnTheRoad - Yatzy / Maxi-Yatzy travel console on the Heemol ES3C35P ESP32-S3 3.5" board
+// MyEsp-OnTheRoad - Yatzy / Maxi-Yatzy travel console (ES3C35P ESP32-S3 3.5" and Waveshare ESP32-P4 4.3" boards)
 // (ST77922 QSPI 320x480 + capacitive touch, WS2812 LED, Wi-Fi station + web UI).
 // ESP-IDF 6.1 + LVGL 9. Build: `idf.py build` (see README.md).
 //
@@ -19,6 +19,7 @@
 #include "lang.h"
 #include "board_backlight.h"
 #include "board_display.h"
+#include "board_pins.h"
 #include "board_rgb.h"
 #include "board_touch.h"
 #include "battery_math.h"
@@ -34,6 +35,7 @@
 #include "my_wifi.h"
 #include "ui_boot.h"
 #include "ui_ota.h"
+#include "ui_screen_power.h"
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -160,13 +162,18 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "touch %s", touchOk ? "ok" : "not found");
 
     if (displayOk) {
+        UiSettings::applyTextSize();
         UiBoot::show();
         Display::startTask();
     }
 
     // --- Self-test checklist ---
-    UiBoot::set(UiBoot::Item::DISP, displayOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                displayOk ? "320 x 480, QSPI 40 MHz, LVGL 9" : Display::failReason());
+    {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%d x %d, %s, LVGL 9", LCD_H_RES, LCD_V_RES, LCD_BUS_DESC);
+        UiBoot::set(UiBoot::Item::DISP, displayOk ? UiBoot::State::OK : UiBoot::State::FAIL,
+                    displayOk ? buf : Display::failReason());
+    }
     UiBoot::setProgress(20);
     {
         Touch::Info ti = Touch::info();
@@ -192,7 +199,7 @@ extern "C" void app_main(void)
             used += snprintf(buf + used, sizeof(buf) - used, "%s0x%02X", i ? " " : "", addrs[i]);
         UiBoot::set(UiBoot::Item::I2C, n > 0 ? UiBoot::State::OK : UiBoot::State::FAIL, n > 0 ? buf : tr(Str::BOOT_NO_DEVICES));
     }
-    // RTC (DS3231 on the shared I2C bus): function test, then it becomes the boot clock source.
+    // Board-selected RTC: function test, then it becomes the boot clock source.
     {
         time_t t = 0;
         const bool rtcOk = MyRtc::begin(Touch::bus(), &t);
@@ -202,15 +209,22 @@ extern "C" void app_main(void)
             MyTime::setFromRtc(t);
             struct tm tm;
             gmtime_r(&t, &tm);
-            snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d UTC, %.1f °C", tm.tm_year + 1900, tm.tm_mon + 1,
-                     tm.tm_mday, tm.tm_hour, tm.tm_min, (double)rs.tempC);
+            int n = snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d UTC", tm.tm_year + 1900, tm.tm_mon + 1,
+                             tm.tm_mday, tm.tm_hour, tm.tm_min);
+            if (MyRtc::temperatureAvailable() && n > 0 && n < (int)sizeof(buf))
+                snprintf(buf + n, sizeof(buf) - n, ", %.1f °C", (double)rs.tempC);
         } else if (rs.state == MyRtc::State::MISSING) {
             snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_RTC_MISSING));
         } else {
             snprintf(buf, sizeof(buf), "%s", MyRtc::stateText(rs.state));
         }
-        UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK : UiBoot::State::FAIL, buf);
-        if (!rtcOk) {   // 2 x orange blink on the LED
+        bool waiting = false;
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+        waiting = rs.present && rs.ticking && rs.state == MyRtc::State::TIME_INVALID;
+#endif
+        UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK :
+                    waiting ? UiBoot::State::WAITING : UiBoot::State::FAIL, buf);
+        if (!rtcOk && !waiting) {   // 2 x orange blink on the LED
             for (int i = 0; i < 2; i++) {
                 Rgb::setBase(200, 70, 0);
                 MySys::delayMs(180);
@@ -239,8 +253,14 @@ extern "C" void app_main(void)
             if (sdOk) snprintf(buf + len, sizeof(buf) - len, tr(Str::BOOT_SD_FREE), (unsigned)(BoardSd::info().freeBytes >> 20));
             else snprintf(buf + len, sizeof(buf) - len, "%s", tr(Str::BOOT_SD_NONE));
         }
-        UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    ok ? buf : tr(Str::BOOT_FS_FAIL));
+        if (!ok) {
+            const BoardSd::Info sd = BoardSd::info();
+            snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_FS_FAIL));
+            const size_t n = strlen(buf);
+            if (sd.mounted && n < sizeof(buf))
+                snprintf(buf + n, sizeof(buf) - n, tr(Str::BOOT_SD_FREE), (unsigned)(sd.freeBytes >> 20));
+        }
+        UiBoot::set(UiBoot::Item::STORAGE, ok ? UiBoot::State::OK : UiBoot::State::FAIL, buf);
     }
     UiBoot::setProgress(55);
 
@@ -290,6 +310,7 @@ extern "C" void app_main(void)
         else if (wifiOk) UiWifi::showNetworks();
         else UiYatzy::showMenu();
         UiOta::begin();
+        UiScreenPower::begin();
     }
 
     uint32_t lastRtcCheck = MySys::millis();

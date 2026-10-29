@@ -104,6 +104,7 @@ namespace Rgb {
 
 bool begin()
 {
+    if (PIN_WS2812 < 0) return false;   // Board without a status LED
     led_strip_config_t sc = {};
     sc.strip_gpio_num = PIN_WS2812;
     sc.max_leds = 1;

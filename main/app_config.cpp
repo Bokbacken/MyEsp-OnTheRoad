@@ -1,6 +1,7 @@
 #include "app_config.h"
 #include "lang.h"
 #include "battery_math.h"
+#include "board_pins.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -27,6 +28,7 @@ void defaults(AppConfig &c)
     memset(&c, 0, sizeof(c));
     strcpy(c.hostname, "ontheroad");
     c.brightness = 80;
+    c.textSize = TEXT_SIZE_DEFAULT;
     c.ledBrightness = 40;
     c.ledEnabled = true;
     c.defaultVariant = 0;
@@ -50,6 +52,7 @@ void defaults(AppConfig &c)
     c.karaVoices = 32;
     c.karaWebStream = 1;
     c.karaVolume = 70;
+    c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     c.batteryFullMv = BatteryMath::BATTERY_FULL_DEFAULT_MV;
     strcpy(c.tz, DEFAULT_TZ);
     strcpy(c.lang, "sv");
@@ -67,6 +70,8 @@ void begin()
         if (p.getU8("schema", 0) == CONFIG_SCHEMA) {
             p.getStr("host", g_cfg.hostname, sizeof(g_cfg.hostname));
             g_cfg.brightness = MySys::clamp<uint8_t>(p.getU8("bl", g_cfg.brightness), 5, 100);
+            g_cfg.screenOffSeconds = p.getU16("screen_off", 0);
+            g_cfg.textSize = p.getU8("text_size", TEXT_SIZE_DEFAULT);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
             g_cfg.defaultVariant = p.getU8("variant", 0) % 4;
@@ -96,7 +101,7 @@ void begin()
             g_cfg.karaVoices = p.getU8("kara_voices", g_cfg.karaVoices);
             g_cfg.karaWebStream = p.getU8("kara_webstream", g_cfg.karaWebStream) ? 1 : 0;
             g_cfg.karaVolume = p.getU8("kara_vol", g_cfg.karaVolume);
-            g_cfg.batteryScalePermille = p.getU16("bat_scale", 0);
+            g_cfg.batteryScalePermille = p.getU16("bat_scale", g_cfg.batteryScalePermille);
             g_cfg.batteryFullMv = p.getU16("bat_full", BatteryMath::BATTERY_FULL_DEFAULT_MV);
             // v0.10.0: the walking speed was halved. Settings saved by v0.9.0 with the
             // old defaults (150/75 ms) are upgraded; customised values are kept.
@@ -119,12 +124,15 @@ const char *hostname() { return g_cfg.hostname; }
 
 bool save()
 {
+    sanitize(g_cfg);
     MyNvs::Handle p(CFG_NVS_NS, false);
     if (!p) return false;
     bool ok = p.setU8("schema", CONFIG_SCHEMA);
     p.erase("ap_pass");   // Soft-AP removed in 0.2.0
     ok &= p.setStr("host", g_cfg.hostname);
     ok &= p.setU8("bl", g_cfg.brightness);
+    ok &= p.setU16("screen_off", g_cfg.screenOffSeconds);
+    ok &= p.setU8("text_size", g_cfg.textSize);
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);
     ok &= p.setU8("variant", g_cfg.defaultVariant);
@@ -136,7 +144,6 @@ bool save()
     ok &= p.setStr("lang", g_cfg.lang);
     ok &= p.setU8("adv_mode", g_cfg.advMode);
     ok &= p.setU16("rotation", g_cfg.rotation == 180 ? 180 : 0);
-    sanitize(g_cfg);
     ok &= p.setBool("snd_on", g_cfg.soundOn);
     ok &= p.setU8("sfx_vol", g_cfg.sfxVol);
     ok &= p.setBool("mus_on", g_cfg.musicOn);
@@ -259,8 +266,20 @@ bool validTz(const char *tz)
     return true;
 }
 
+bool validScreenOffSeconds(uint16_t seconds)
+{
+    for (uint16_t option : SCREEN_OFF_SECONDS)
+        if (option == seconds) return true;
+    return false;
+}
+
 void sanitize(AppConfig &c)
 {
+    if (!validScreenOffSeconds(c.screenOffSeconds)) {
+        ESP_LOGW(TAG, "invalid screen-off timeout %u; disabling", (unsigned)c.screenOffSeconds);
+        c.screenOffSeconds = 0;
+    }
+    if (c.textSize >= TEXT_SIZE_COUNT) c.textSize = TEXT_SIZE_DEFAULT;
     if (c.sfxVol > 100) c.sfxVol = 100;
     if (c.musicVol > 100) c.musicVol = 100;
     c.joyZones = MySys::clamp<uint8_t>(c.joyZones, 1, 4);
@@ -278,6 +297,7 @@ void sanitize(AppConfig &c)
     c.karaWebStream = c.karaWebStream ? 1 : 0;
     if (c.karaVolume > 100) c.karaVolume = 70;
     c.batteryScalePermille = BatteryMath::sanitizeScale(c.batteryScalePermille);
+    if (!c.batteryScalePermille) c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     c.batteryFullMv = BatteryMath::sanitizeFullVoltage(c.batteryFullMv);
     c.karaFont[sizeof(c.karaFont) - 1] = 0;
 }

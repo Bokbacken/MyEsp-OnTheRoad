@@ -10,9 +10,20 @@ permissions:
   contents: read
 
 jobs:
-  build-esp32s3:
+  build:
+    name: build-${{ matrix.target }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: es3c35p
+            target: esp32s3
+            label: ""
+          - board: p4-43
+            target: esp32p4
+            label: "-unverified"
 
     steps:
       - name: Checkout
@@ -21,7 +32,19 @@ jobs:
           persist-credentials: false
 
       - name: Test release tooling (no publication)
+        if: matrix.target == 'esp32s3'
         run: python3 -m unittest discover -s tests -p test_firmware_release.py
+
+      - name: Test board peripherals (host)
+        if: matrix.target == 'esp32s3'
+        run: |
+          python3 tests/test_board_peripherals.py
+          python3 tests/test_flash_repair.py
+          python3 tests/test_diag_mac.py
+          python3 tests/test_ota_stream.py
+          python3 tests/test_screen_power.py
+          python3 tests/test_text_size_layout.py
+          node tests/test_board_diagnostics_web.js
 
       - name: Read firmware version
         id: firmware
@@ -34,21 +57,25 @@ jobs:
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v6.1
-          target: esp32s3
+          target: ${{ matrix.target }}
           command: |
             idf.py --version
-            idf.py set-target esp32s3
+            idf.py set-target ${{ matrix.target }}
             idf.py build
+            idf.py merge-bin -o merged.bin
 
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-esp32s3-v${{ steps.firmware.outputs.version }}
+          name: firmware-${{ matrix.target }}-v${{ steps.firmware.outputs.version }}${{ matrix.label }}
           path: |
+            build/merged.bin
             build/*.bin
             build/*.elf
             build/*.map
             build/bootloader/bootloader.bin
             build/partition_table/partition-table.bin
+            build/flasher_args.json
+            dependencies.lock.${{ matrix.target }}
           if-no-files-found: warn

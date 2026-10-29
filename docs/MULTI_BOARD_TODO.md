@@ -33,6 +33,25 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   (GigaDevice, 32 MB). USB-UART-brygga CH343 (VID `0x1a86`, PID `0x55d3`).
 - Bygg därför med `CONFIG_ESP32P4_REV_MIN_300` (v3.0–v3.99). Ett v1.x-bygge
   behövs inte för detta kort.
+- Ägaren har startat v0.22.0 på P4 och anslutit till Wi-Fi. RTC fungerar
+  inte ännu och batteri-ADC saknas. Övriga hårdvarukontroller nedan är
+  inte automatiskt godkända av detta första test.
+- Ägaren har även bekräftat app-OTA med v0.22.1. SD-loggen visar att kortet
+  först monteras (4-bit, 20 MHz) och att kataloger skapas, men senare
+  förlorar kommunikationen (`ESP_ERR_TIMEOUT`); det är inte bara ett
+  visningsfel eller ett oläsbart filsystem.
+- Schemat visar ingen separat I²C-RTC. `RTC BAT` är kopplad till P4:s
+  `ESP_VBAT`. I²C-skanningen i bootloggen visar bara `0x18`, `0x40`, `0x5D`.
+- SD-kortets VDD styrs av Q1/AO3401 via **GPIO45, aktiv låg**.
+  LDO4 försörjer SD-IO/pullups, inte själva kortets VDD.
+- Batteriets GPIO20 är **ADC1 kanal 4**, med R12/R15 = 200 kΩ/100 kΩ.
+- v0.22.2 på fysisk P4: ägaren bekräftar rätt batterivärden, Karaoke med
+  musik och fungerande äventyr från SD. Webbdiagnostiken visar monterat
+  SD (4-bit, 10 MHz), ES8311 igång och intern RTC `OK` efter NTP.
+- Intern FFat är fortfarande omonterad. Webbens gamla reparationsväg
+  krävde felaktigt en redan monterad FFat och hjälpte därför inte.
+  v0.22.3 tar bort det kravet och kan formatera/montera den tidigare
+  valda partitionen efter uttrycklig adminbekräftelse.
 
 ### Beslut
 
@@ -50,7 +69,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - Bara P4 rev v3.x stöds (`CONFIG_ESP32P4_REV_MIN_300`, CPU 400 MHz).
 - Första installation på ett kort: `build/merged.bin` från CI-artefakten
   skrivs på adress `0x0` med esptool/esptool.js. Därefter OTA-filen
-  (`MyEsp-OnTheRoad.bin`).
+  (`MyEsp_OnTheRoad.bin`).
 - Komponentlås per target: `dependencies.lock.esp32s3` och
   `dependencies.lock.esp32p4` (rot-`CMakeLists.txt`).
 
@@ -73,7 +92,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   via LVGL-mjukvarurotation.
 - [x] Bakgrundsbelysning GPIO26, LEDC PWM, inverterad.
 - [x] GT911-touch på I²C GPIO7/8, adress `0x5D`/`0x14`, polling utan INT.
-- [x] I²C-skanning och RTC på delad buss.
+- [x] I²C-skanning på delad buss.
 - [x] Ingen RGB-lysdiod: `Rgb` blir no-op utan att påverka appen.
 - [x] Startskärmen visar rätt kortnamn/upplösning.
 - [x] CI-bygge för P4 grönt.
@@ -81,16 +100,34 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## III. P4-kringutrustning
 
-- [ ] microSD: SDMMC slot 0 (IO MUX), on-chip LDO kanal 4 som kortmatning;
+- [x] microSD: SDMMC slot 0 (IO MUX), on-chip LDO kanal 4 för IO-matning;
   avmontering får inte stänga SDMMC-värden som C6-länken använder.
 - [ ] Ljud: ES8311 med I²S MCLK13/BCLK12/WS10/DOUT9/DIN11, förstärkare
   GPIO53 (aktiv hög).
-- [ ] Batteri: ADC på GPIO20, delare 3:1 som förvald skala.
+- [x] Batteri: ADC-drivrutin väljer kanal från kortets GPIO (S3 GPIO8,
+  P4 GPIO20); P4 har förvald skala 3000 permille. Sparad egen kalibrering
+  behålls; noll/reset återgår till kortets standard. Hårdvarutest återstår.
+- [x] RTC: intern P4-timer bakom `MyRtc`, separat från S3:s DS3231.
+  NTP/manuell tid skapar en betrodd UTC-ankring i RTC-minne. Diagnostik
+  visar rätt källa och ingen påhittad temperatur. Hårdvarutest återstår.
+- [ ] RTC/VBAT: kontrollerad deep sleep och verifierad backup vid förlust
+  av huvudmatning. P4:s VBAT kräver rätt viloläges-/strömsekvens; en
+  plötslig avstängning får inte utlovas fungera som en fristående DS3231.
+- [x] SD: explicit styrning av kortmatning GPIO45, strömcykel vid
+  återmontering/fel, 10 MHz vid återhämtning och 1-bit-fallback.
+  Felkod exponeras i webbdiagnostik. Slot 1/C6 lämnas igång.
+- [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
+  som Wi-Fi används, och att återmontering fungerar efter timeout.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
+- [x] **Hårdvara v0.22.2:** SD-läsning för Adventure/Karaoke, ljud och
+  batterimätning bekräftade av ägaren. Längre SD-stabilitetstest återstår.
+- [x] **Hårdvara v0.22.2:** intern RTC sätts av NTP och rapporterar `OK`.
+  Betrodd tid efter mjukvaruomstart och VBAT-retention återstår att prova.
 
 ## IV. Wi-Fi via ESP32-C6 (ESP-Hosted)
 
-- [ ] `esp_hosted` 3.x (SDIO, C6 som slav) initieras på P4; länkas redan.
+- [x] `esp_hosted` 3.x (SDIO, C6 som slav) initieras på P4;
+  Wi-Fi-anslutning bekräftad av ägaren med v0.22.0.
 - [ ] `my_wifi`, mDNS, webbserver, NTP och webb-OTA fungerar oförändrat.
 - [ ] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
 - [ ] **Hårdvara:** anslutning, webbsida, klocka via NTP.
@@ -106,9 +143,31 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## VI. UI för 480×800 och fler upplösningar
 
+- [x] **Hårdvara v0.22.4:** ägaren bekräftar ren skärmväxling följd av
+  OTA-progress, utan tidigare startflimmer. De flesta spel samt Karaoke
+  har provats och fungerar; detta ersätter inte full layoutverifiering.
+- [x] v0.22.6: startskärm, Wi-Fi-nätlista, lösenordshjul och
+  anslutningsvy beräknar layout från skärmstorlek och aktuella
+  radhöjder. S3 Normal behåller tidigare startgeometri; P4 fyller
+  skärmen med större logga, rader och namn. Inställningsskärmen använder
+  också hela P4-skärmen.
+- [x] v0.22.6: sparad textstorlek (NVS `text_size`, enhet + webb/API):
+  Liten / Normal (standard) / Stor på båda korten, Extra stor bara på
+  skärmar med kortsida ≥ 400 px (P4). De fyra textrollerna
+  `my_font_14/18/24/36` byts tillsammans (12/16/20/32, 14/18/24/36,
+  16/20/28/40, 18/22/32/44 px) via `MyFonts::apply()`; typsnitten
+  genereras reproducerbart med `tools/gen_fonts.sh`. Ändringen gäller
+  när huvudmenyn byggs om (direkt efter Spara på enheten, nästa
+  menyvisning vid ändring från webben). `tests/test_text_size_layout.py`
+  kontrollerar start/Wi-Fi-layout för alla nivåer på båda upplösningarna.
+- [ ] **Hårdvara v0.22.6:** prova alla textstorlekar på båda korten i
+  meny, inställningar, Wi-Fi och varje spel/Karaoke/Äventyr. Notera
+  skärmar där text klipps eller täcker kontroller vid Stor/Extra stor;
+  de justeras med layout/scrollning, inte genom att låsa fontstorleken.
 - [ ] Ta bort fasta 320×480-koordinater (inställningar, Wi-Fi, Yatzy,
   Adventure-setup) och använd `ui_metrics`/aktuell skärmstorlek.
-- [ ] Typsnitt och träffytor skalas för större skärm.
+- [ ] Typsnitt och träffytor skalas för större skärm. Textstorlek finns
+  (v0.22.6); träffytor i spelen är kvar att skala.
 - [ ] Layouttester för 320×480 och 480×800 för alla huvudskärmar.
 - [ ] **Hårdvara:** alla appar användbara på båda korten.
 
@@ -120,6 +179,27 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## VIII. Prestanda och P4-möjligheter
 
+- [x] Strömsparning på båda korten: första steg är släckt bakgrundsljus
+  med touch kvar för väckning, inte deep sleep eller avstängning.
+  Första väcktrycket ska inte samtidigt aktivera en spelkontroll.
+- [x] Ägarens val: automatisk och manuell släckning, även i spel/Karaoke
+  med fortsatt spel/ljud. Väcktrycket får bara väcka; ett nytt tryck
+  kräver släppt finger och minst 250 ms efter väckning. Implementerat i
+  v0.22.5 med gemensamt filter före LVGL:s pointerhändelser.
+- [x] Sparad tidsgräns i enhetens inställningar och webb/API:
+  Av (standard), 30 s, 1/2/5/10/30/60 min. Manuell släckning finns i
+  Inställningar från huvudmenyn. Vald ljusstyrka bevaras även om den
+  ändras via webben medan skärmen är släckt. OTA väcker och håller tänt.
+- [ ] **Hårdvara v0.22.5:** verifiera auto/manuell släckning och väckning
+  i spel, Karaoke och menyer på båda korten. Första trycket/ett hållet
+  väcktryck får inte spela, navigera eller flytta något; prova även ett
+  snabbt andra tryck inom 250 ms. Starta OTA med skärmen släckt.
+- [ ] Utred P4:s fysiska powerknapp mot schema innan den får en
+  mjukvarufunktion; anta inte att den är en vanlig GPIO-knapp. S3 ska
+  kunna använda funktionen utan fysisk powerknapp.
+- [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
+  korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
+  deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 
@@ -133,3 +213,101 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 |---|---|---|
 | 2026-10-29 | Plan | Skapad. |
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
+| 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
+| 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1. S3 och P4 gröna för mergecommit `07b5853` (CI run 40887806090); hostkontroller för multimap, Adventure och Karaoke godkända. |
+| 2026-10-29 | Kringutrustning v0.22.2 | Intern RTC, P4 batteri-ADC, GPIO45 för SD-kortmatning och återhämtning implementerade i `2ac004b`. Båda targets och hosttester gröna (CI run 40893098350). OTA bekräftad av ägaren på föregående bygge; nytt hårdvarutest krävs. |
+| 2026-10-29 | Diagnostik och FFat v0.22.3 | Ägaren bekräftar SD, ljud, ADC och NTP→RTC med v0.22.2. Korrigerar RTC-vänteläge vid start, P4-identitet/upplösning, GT911 firmwarebredd samt uttrycklig reparation av omonterad intern FFat. |
+| 2026-10-29 | v0.22.3 byggverifiering | `9a0ea0d`, CI run 40901183845 grön för S3/P4 inklusive MAC-fixen. Ersätts vid leverans av v0.22.4 med OTA-skärmfixen nedan. |
+| 2026-10-29 | OTA-skärm v0.22.4 | `e31311a`, CI run 40902453740 grön för S3/P4. P4-appfil nedladdad och SHA-256 verifierad: `a9b8b4c56d372dbaa96c37f4c3f07badc4848cc0d541dc5f52bb180a41e64f34`. Fysisk flimmerkontroll återstår. PR #23 är fortsatt draft, inte mergad; GitHub rapporterar konflikt med main som behöver hanteras inför merge. |
+| 2026-10-29 | Skärmsläckning v0.22.5 | Ägaren bekräftar OTA-skärmfixen i v0.22.4 samt de flesta spel och Karaoke på P4. `f7385e2`, CI run 40909089936 grön för båda targets. Automatisk/manuell släckning och väckfilter implementerade; fysisk verifiering på båda korten återstår. |
+| 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
+
+OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
+
+- S3: `firmware-esp32s3-v0.22.5`, app
+  `91553aa60006bbd11bd6997697a3c84d9c021f53c176461926e42f2a78dd6864`.
+- P4: `firmware-esp32p4-v0.22.5-unverified`, app
+  `f7d00ace3b0f3a2e24527023cca32abc42ec4fc91bee4aca811a012e726aeaa4`.
+- Fil i respektive artefakt: `build/MyEsp_OnTheRoad.bin`, inte `merged.bin`.
+  Ingen merge utförd.
+
+### OTA-start och P4-flimmer (v0.22.4)
+
+- OTA läser uppladdningen och skriver flash i samma ström, inte först en
+  komplett nedladdning till RAM. Tidigare raderade `esp_ota_begin` hela
+  målområdet innan första skrivningen, vilket gav flera sekunders väntan.
+  Nu används IDF:s `OTA_WITH_SEQUENTIAL_WRITES` för stegvis radering;
+  storlekskontroll och verifiering före byte av startpartition behålls.
+- P4:s DPI-DMA startas om av avbrott varje bild. Aktiverar
+  `CONFIG_LCD_DSI_ISR_CACHE_SAFE` (väljer även cache-säker DW-GDMA) så
+  bildöverföringen kan fortsätta när flashoperationer stänger av cache.
+  S3-konfigurationen är oförändrad. Flimmerfrihet måste bekräftas på kortet.
+- Förändringen körs av installerad firmware: uppladdningen **till**
+  v0.22.4 kan fortfarande flimra; testa igen **från** v0.22.4.
+- IDF verifierar chip-ID i `esp_ota_end` innan startpartition väljs, så
+  S3-app på P4 och omvänt avvisas. Kortprofiler med samma chip skiljs
+  inte åt av detta skydd.
+
+### FFat-reparation och startdiagnostik (v0.22.3)
+
+- OTA-appfil som vanligt, sedan **Filer → Intern flash → Reparera intern
+  flash**. Kräver admin-PIN om konfigurerad och uttrycklig bekräftelse.
+  Detta raderar intern FFat; läsbara profiler/loggar säkerhetskopieras
+  först till SD när möjligt. SD, Wi-Fi-inställningar i NVS och firmware
+  formateras inte. Ingen automatisk formatering vid uppstart införs.
+- Efter lyckad reparation ska aktuell FFat-status visa monterad direkt.
+  Startkontrollen är en historisk ögonblicksbild; starta om för ett nytt
+  starttest. Misslyckad formatering eller efterföljande mount rapporteras
+  som fel, inte som en lyckad reparation.
+- Kallstartad intern RTC med fungerande timer men utan betrodd UTC visas
+  som väntande, inte trasig. Aktuell RTC-status efter NTP finns under
+  Diagnostik; startresultatet skrivs inte om i efterhand.
+- Display/touch/PSRAM-namn är inte längre S3-hårdkodade. P4 visar
+  480×800, ST7701 MIPI-DSI och GT911 på faktisk I²C-adress. GT911:s
+  firmware visas som 16-bitars hex, inte trunkerad till 8 bitar eller
+  förväxlad med produkt-ID. Saknade `sketch_*`-fält visas inte som NaN;
+  appslotarnas verkliga partitionstorlek visas fortsatt.
+- Återkommande `system_api: 0 mac type is incorrect (not found)` kom
+  från systemdiagnostikens lokala `WIFI_STA`-MAC-läsning på P4 utan radio.
+  Radiofria targets använder nu bas-MAC; Wi-Fi-providern rapporterar
+  fortfarande C6:s nätverks-MAC. Ingen sänkning av loggnivå döljer felet.
+
+### Nästa hårdvarutest (v0.22.6)
+
+OTA-artefakter från [CI run 40924732183](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40924732183),
+fil `build/MyEsp_OnTheRoad.bin`:
+
+- S3: `firmware-esp32s3-v0.22.6`, SHA-256
+  `93f52531098dde01d5461f3d5262df565637057b923f770f588ea437fb8b9389`
+- P4: `firmware-esp32p4-v0.22.6-unverified`, SHA-256
+  `3e6aba9944a7d71c92478a813ed9693ca12099fad25a5d639892569b968c379d`
+
+1. Starta om och se startskärmen; anslut Wi-Fi via enheten (nätlista,
+   lösenordshjul, anslutningsvy). P4 ska fylla skärmen, S3 se ut som förut.
+2. Inställningar → Textstorlek: prova varje nivå (Extra stor finns bara
+   på P4), spara och gå igenom meny, spel, Karaoke och Äventyr. Notera
+   skärmar där text klipps eller överlappar. Ändring via webben gäller
+   vid nästa visning av huvudmenyn.
+
+### Tidigare hårdvarutest (v0.22.5)
+
+1. Hämta rätt artefakt för kortet enligt ovan från
+   [CI run 40909089936](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40909089936).
+   Installera `build/MyEsp_OnTheRoad.bin` via den fungerande OTA-vägen;
+   inte `merged.bin`. På båda korten: välj 30 s i Inställningar, spara
+   och prova timeout samt manuell släckning. Väckning och 250 ms-spärr
+   provas enligt checklistan ovan; kontrollera sparad tid efter omstart.
+2. Låt NTP synka. RTC-diagnostik ska visa `ESP32-P4 RTC`, `OK` och ingen
+   temperatur. Starta om via mjukvara/OTA och kontrollera att RTC kan
+   återställa tiden. Kallstart utan nät får fortsatt visa osäker tid.
+3. Med anslutet batteri: kontrollera ADC-mV, beräknad batterispänning och
+   procent. Jämför mot multimeter och finjustera kalibrering vid behov.
+   3:1 är schemats nominella värde, inte en garanti om mätprecision.
+4. Läs/skriv filer på SD via webben medan Wi-Fi är aktivt, vänta minst
+   fem minuter och prova även återmonteringsknappen. Vid fel: exportera
+   logg och SD-diagnostik (`error`, `errors`, busbredd/frekvens).
+5. Prova **Filer → Intern flash → Reparera intern flash** enligt
+   beskrivningen ovan, efter att eventuell befintlig data har
+   säkerhetskopierats. Kontrollera monterad FFat direkt och efter omstart.
+   Låt Översikt/Diagnostik stå öppna och kontrollera att MAC-felet inte
+   längre fyller loggen.

@@ -12,9 +12,11 @@
 #include "app_web_files.h"
 #include "board_audio.h"
 #include "board_battery.h"
+#include "board_backlight.h"
 #include "board_sd.h"
 #include "board_display.h"
 #include "board_touch.h"
+#include "board_pins.h"
 #include "battery_math.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -25,7 +27,9 @@
 #include "kara_songs_web.h"
 #include "kara_web.h"
 #include "adv_live.h"
+#include "hw_profile.h"
 #include "my_diag.h"
+#include "my_fonts.h"
 #include "my_log.h"
 #include "my_ota.h"
 #include "my_rtc.h"
@@ -96,8 +100,10 @@ static void diagDisplay(cJSON *o)
     Display::Stats ds = Display::stats();
     MyLvgl::Stats ls = MyLvgl::stats();
     cJSON_AddBoolToObject(o, "ok", Display::ok());
-    cJSON_AddNumberToObject(o, "width", 320);
-    cJSON_AddNumberToObject(o, "height", 480);
+    cJSON_AddStringToObject(o, "model", LCD_MODEL);
+    cJSON_AddStringToObject(o, "bus", LCD_BUS_DESC);
+    cJSON_AddNumberToObject(o, "width", LCD_H_RES);
+    cJSON_AddNumberToObject(o, "height", LCD_V_RES);
     cJSON_AddNumberToObject(o, "fps_x10", (int)(ds.fps * 10));
     cJSON_AddNumberToObject(o, "flushes", ds.flushes);
     cJSON_AddNumberToObject(o, "frames", ds.frames);
@@ -107,6 +113,7 @@ static void diagDisplay(cJSON *o)
     cJSON_AddNumberToObject(o, "buf_bytes", ds.bufBytes);
     cJSON_AddBoolToObject(o, "buf_psram", ds.bufInPsram);
     cJSON_AddNumberToObject(o, "brightness", Config::get().brightness);
+    cJSON_AddBoolToObject(o, "sleeping", Backlight::sleeping());
     char ver[16];
     snprintf(ver, sizeof(ver), "%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     cJSON_AddStringToObject(o, "lvgl", ver);
@@ -121,9 +128,15 @@ static void diagTouch(cJSON *o)
 {
     Touch::Info ti = Touch::info();
     char fw[24];
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    snprintf(fw, sizeof(fw), "0x%04X (GT%.4s)", ti.fwVersion, (const char *)ti.fwRevision);
+#else
     snprintf(fw, sizeof(fw), "%u (%u.%u.%u.%u)", ti.fwVersion, ti.fwRevision[0], ti.fwRevision[1], ti.fwRevision[2],
              ti.fwRevision[3]);
+#endif
     cJSON_AddBoolToObject(o, "present", ti.present);
+    cJSON_AddStringToObject(o, "model", TOUCH_MODEL);
+    cJSON_AddNumberToObject(o, "address", ti.address ? ti.address : TOUCH_I2C_ADDR);
     cJSON_AddStringToObject(o, "fw", fw);
     cJSON_AddNumberToObject(o, "max_x", ti.maxX);
     cJSON_AddNumberToObject(o, "max_y", ti.maxY);
@@ -152,14 +165,15 @@ static void diagClock(cJSON *o)
 static void diagRtc(cJSON *o)
 {
     const MyRtc::Status s = MyRtc::status();
-    cJSON_AddStringToObject(o, "chip", "DS3231");
+    cJSON_AddStringToObject(o, "chip", MyRtc::chipName());
     cJSON_AddStringToObject(o, "state", MyRtc::stateText(s.state));
     cJSON_AddBoolToObject(o, "ok", s.state == MyRtc::State::OK);
     cJSON_AddBoolToObject(o, "present", s.present);
     cJSON_AddBoolToObject(o, "ticking", s.ticking);
     cJSON_AddBoolToObject(o, "osf_at_boot", s.osf);
     cJSON_AddBoolToObject(o, "time_valid", s.timeValid);
-    cJSON_AddNumberToObject(o, "temp_c", (double)s.tempC);
+    if (MyRtc::temperatureAvailable()) cJSON_AddNumberToObject(o, "temp_c", (double)s.tempC);
+    else cJSON_AddNullToObject(o, "temp_c");
     cJSON_AddNumberToObject(o, "boot_time", (double)s.bootTime);
     cJSON_AddNumberToObject(o, "last_write", (double)s.lastWrite);
     cJSON_AddNumberToObject(o, "writes", s.writes);
@@ -188,6 +202,8 @@ static void diagSd(cJSON *o)
 {
     const BoardSd::Info i = BoardSd::info();
     cJSON_AddBoolToObject(o, "ok", i.mounted);
+    cJSON_AddNumberToObject(o, "errors", i.errors);
+    cJSON_AddStringToObject(o, "error", i.lastError ? esp_err_to_name(i.lastError) : "");
     if (!i.mounted) return;
     cJSON_AddStringToObject(o, "name", i.name);
     cJSON_AddNumberToObject(o, "width", i.width);
@@ -202,7 +218,7 @@ static void diagSd(cJSON *o)
 // Boot self-test results, as shown on the device's boot screen
 static void diagBoot(cJSON *o)
 {
-    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip"};
+    static const char *const STATE[] = {"pending", "running", "ok", "fail", "skip", "waiting"};
     cJSON *items = cJSON_AddArrayToObject(o, "items");
     for (int n = 0; n < (int)UiBoot::Item::COUNT; n++) {
         const UiBoot::Item it = (UiBoot::Item)n;
@@ -288,6 +304,13 @@ static esp_err_t handleInfo(httpd_req_t *r)
 // ----------------------------------------------------------------------------------------
 // /api/config
 // ----------------------------------------------------------------------------------------
+// Largest text size for this panel (see MyFonts::maxFor); the 320 px panels stop at "large".
+static uint8_t maxTextSize()
+{
+    const HwProfile::Info &hw = HwProfile::active();
+    return (uint8_t)MyFonts::maxFor(hw.width < hw.height ? hw.width : hw.height);
+}
+
 static cJSON *configJson()
 {
     const AppConfig &c = Config::get();
@@ -298,6 +321,9 @@ static cJSON *configJson()
     cJSON_AddBoolToObject(o, "admin_pin_set", c.adminPin[0] != 0);
     cJSON_AddStringToObject(o, "tz", c.tz);
     cJSON_AddNumberToObject(o, "brightness", c.brightness);
+    cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
+    cJSON_AddNumberToObject(o, "text_size", c.textSize);
+    cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
     cJSON_AddBoolToObject(o, "led_enabled", c.ledEnabled);
     cJSON_AddNumberToObject(o, "default_variant", c.defaultVariant);
@@ -338,6 +364,11 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     long v;
     bool b;
     if (q.getInt("brightness", 5, 100, v, bad)) next.brightness = (uint8_t)v;
+    if (q.getInt("screen_off_seconds", 0, 3600, v, bad)) {
+        if (!Config::validScreenOffSeconds(static_cast<uint16_t>(v))) bad = true;
+        else next.screenOffSeconds = static_cast<uint16_t>(v);
+    }
+    if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
     if (q.getInt("led_brightness", 0, 255, v, bad)) next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;

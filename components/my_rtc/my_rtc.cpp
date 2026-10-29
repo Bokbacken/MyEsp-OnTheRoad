@@ -24,6 +24,9 @@ static constexpr time_t MAX_T = 4102444800;   // 2100-01-01
 static i2c_master_dev_handle_t s_dev = nullptr;
 static Status s_st = {};
 
+const char *chipName() { return "DS3231"; }
+bool temperatureAvailable() { return s_st.present; }
+
 static bool readRegs(uint8_t reg, uint8_t *buf, size_t n)
 {
     if (!s_dev) return false;

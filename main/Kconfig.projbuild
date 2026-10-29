@@ -2,15 +2,18 @@ menu "OnTheRoad hardware profile"
 
     choice OTR_HW_PROFILE
         prompt "Board profile"
+        default OTR_HW_PROFILE_P4_43 if IDF_TARGET_ESP32P4
         default OTR_HW_PROFILE_ES3C35P
         help
-            Selects the board profile used by the application layer. The default is the current
-            working board; other profiles are placeholders until ported.
+            Selects the board. Each profile is bound to its chip target, so the profile follows
+            `idf.py set-target`.
 
         config OTR_HW_PROFILE_ES3C35P
-            bool "ES3C35P (ESP32-S3, 320x480, current board)"
+            bool "ES3C35P (ESP32-S3, ST77922 QSPI 320x480)"
+            depends on IDF_TARGET_ESP32S3
         config OTR_HW_PROFILE_P4_43
-            bool "P4_43 (Waveshare ESP32-P4 4.3\", 480x800, placeholder / unverified)"
+            bool "P4_43 (Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3, ST7701 MIPI-DSI 480x800)"
+            depends on IDF_TARGET_ESP32P4
     endchoice
 
 endmenu

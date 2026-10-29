@@ -138,6 +138,7 @@ namespace MyFat {
 static bool s_mounted = false;
 static char s_base[16] = "";
 static char s_label[16] = "";
+static int s_maxFiles = 8;
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
 static int s_corruptEntries = 0;
 static int s_totalEntries = 0;
@@ -176,6 +177,14 @@ static void healthCheck()
 bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
 {
     if (s_mounted) return true;
+    if (!label || !base || !*label || !*base || strlen(label) >= sizeof(s_label) || strlen(base) >= sizeof(s_base)) {
+        ESP_LOGE(TAG, "invalid FAT mount target");
+        return false;
+    }
+    // Keep the intended target even when mounting fails, so explicit repair can format it.
+    memmove(s_label, label, strlen(label) + 1);
+    memmove(s_base, base, strlen(base) + 1);
+    s_maxFiles = maxFiles;
     esp_vfs_fat_mount_config_t cfg = {};
     cfg.format_if_mount_failed = formatIfFail;
     cfg.max_files = maxFiles;
@@ -185,8 +194,6 @@ bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
         ESP_LOGE(TAG, "FAT mount '%s' failed: %s", label, esp_err_to_name(err));
         return false;
     }
-    snprintf(s_base, sizeof(s_base), "%s", base);
-    snprintf(s_label, sizeof(s_label), "%s", label);
     s_mounted = true;
     ESP_LOGI(TAG, "FAT '%s' mounted at %s, %llu/%llu kB used", label, base, usedBytes() >> 10, totalBytes() >> 10);
     healthCheck();
@@ -198,14 +205,19 @@ int totalEntries() { return s_totalEntries; }
 
 bool format()
 {
-    if (!s_mounted) return false;
-    // Formats in place; FATFS re-mounts after formatting, so s_mounted stays valid.
+    if (!s_label[0] || !s_base[0]) {
+        ESP_LOGE(TAG, "FAT repair has no configured partition");
+        return false;
+    }
+    const bool wasMounted = s_mounted;
+    // IDF also supports an unmounted volume, but leaves it unmounted afterwards.
     esp_err_t err = esp_vfs_fat_spiflash_format_rw_wl(s_base, s_label);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "FAT format '%s' failed: %s", s_label, esp_err_to_name(err));
         return false;
     }
     ESP_LOGW(TAG, "FAT '%s' reformatted", s_label);
+    if (!wasMounted) return mount(s_label, s_base, false, s_maxFiles);
     healthCheck();
     return true;
 }
