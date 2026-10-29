@@ -35,6 +35,7 @@
 #include "my_wifi.h"
 #include "ui_boot.h"
 #include "ui_ota.h"
+#include "ui_screen_power.h"
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -308,6 +309,7 @@ extern "C" void app_main(void)
         else if (wifiOk) UiWifi::showNetworks();
         else UiYatzy::showMenu();
         UiOta::begin();
+        UiScreenPower::begin();
     }
 
     uint32_t lastRtcCheck = MySys::millis();

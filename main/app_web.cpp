@@ -12,6 +12,7 @@
 #include "app_web_files.h"
 #include "board_audio.h"
 #include "board_battery.h"
+#include "board_backlight.h"
 #include "board_sd.h"
 #include "board_display.h"
 #include "board_touch.h"
@@ -110,6 +111,7 @@ static void diagDisplay(cJSON *o)
     cJSON_AddNumberToObject(o, "buf_bytes", ds.bufBytes);
     cJSON_AddBoolToObject(o, "buf_psram", ds.bufInPsram);
     cJSON_AddNumberToObject(o, "brightness", Config::get().brightness);
+    cJSON_AddBoolToObject(o, "sleeping", Backlight::sleeping());
     char ver[16];
     snprintf(ver, sizeof(ver), "%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     cJSON_AddStringToObject(o, "lvgl", ver);
@@ -310,6 +312,7 @@ static cJSON *configJson()
     cJSON_AddBoolToObject(o, "admin_pin_set", c.adminPin[0] != 0);
     cJSON_AddStringToObject(o, "tz", c.tz);
     cJSON_AddNumberToObject(o, "brightness", c.brightness);
+    cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
     cJSON_AddBoolToObject(o, "led_enabled", c.ledEnabled);
     cJSON_AddNumberToObject(o, "default_variant", c.defaultVariant);
@@ -350,6 +353,10 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     long v;
     bool b;
     if (q.getInt("brightness", 5, 100, v, bad)) next.brightness = (uint8_t)v;
+    if (q.getInt("screen_off_seconds", 0, 3600, v, bad)) {
+        if (!Config::validScreenOffSeconds(static_cast<uint16_t>(v))) bad = true;
+        else next.screenOffSeconds = static_cast<uint16_t>(v);
+    }
     if (q.getInt("led_brightness", 0, 255, v, bad)) next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;

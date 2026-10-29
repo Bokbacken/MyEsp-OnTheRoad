@@ -24,6 +24,7 @@
 #include "my_theme.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
+#include "ui_screen_power.h"
 
 namespace UiSettings {
 
@@ -44,6 +45,7 @@ static void applyRotation(bool r180)
 
 void applyHardware()
 {
+    DisplayLock lock;
     const AppConfig &c = Config::get();
     Backlight::set(c.brightness);
     Rgb::setEnabled(c.ledEnabled);
@@ -247,12 +249,10 @@ static void onHold(lv_event_t *e)
 
 static void leave(bool save)
 {
-    if (s_timer) {
-        lv_timer_delete(s_timer);
-        s_timer = nullptr;
-    }
     if (save) {
+        const AppConfig previous = Config::get();
         Config::get().brightness = s_edit.brightness;
+        Config::get().screenOffSeconds = s_edit.screenOffSeconds;
         Config::get().ledBrightness = s_edit.ledBrightness;
         Config::get().ledEnabled = s_edit.ledEnabled;
         Config::get().rollAnimMs = s_edit.rollAnimMs;
@@ -271,8 +271,19 @@ static void leave(bool save)
         Config::get().joyHoldMs = s_edit.joyHoldMs;
         Config::get().joyDiag = s_edit.joyDiag;
         snprintf(Config::get().lang, sizeof(Config::get().lang), "%s", s_edit.lang);
-        Config::save();
+        if (!Config::save()) {
+            Config::get() = previous;
+            lv_obj_t *mb = lv_msgbox_create(nullptr);
+            lv_msgbox_add_text(mb, tr(Str::SET_SAVE_FAILED));
+            lv_msgbox_add_close_button(mb);
+            Theme::msgboxFonts(mb);
+            return;
+        }
         Lang::setLang(Config::get().lang);
+    }
+    if (s_timer) {
+        lv_timer_delete(s_timer);
+        s_timer = nullptr;
     }
     applyHardware();   // Reverts the live preview when cancelled
     UiYatzy::showMenu();
@@ -358,6 +369,19 @@ void show()
     lv_obj_t *disp = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(disp, LV_FLEX_FLOW_COLUMN);
     sliderRow(disp, tr(Str::SET_BRIGHTNESS), 5, 100, s_edit.brightness, &s_brightVal, onBright);
+    Theme::label(disp, tr(Str::SCREEN_TIMEOUT), &my_font_14, Theme::MUTED);
+    uint32_t timeoutSelection = 0;
+    for (uint32_t i = 0; i < sizeof(SCREEN_OFF_SECONDS) / sizeof(SCREEN_OFF_SECONDS[0]); ++i)
+        if (SCREEN_OFF_SECONDS[i] == s_edit.screenOffSeconds) timeoutSelection = i;
+    lv_obj_t *timeout = styledDropdown(disp, tr(Str::SCREEN_TIMEOUT_OPTIONS), timeoutSelection);
+    lv_obj_add_event_cb(timeout, [](lv_event_t *e) {
+        s_edit.screenOffSeconds = SCREEN_OFF_SECONDS[lv_dropdown_get_selected(lv_event_get_target_obj(e))];
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(screenHelp, LV_PCT(100));
+    lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_t *screenOff = Theme::button(disp, tr(Str::SCREEN_SLEEP_NOW), LV_PCT(100), 44, Theme::LINE);
+    lv_obj_add_event_cb(screenOff, [](lv_event_t *) { UiScreenPower::sleepNow(); }, LV_EVENT_CLICKED, nullptr);
     switchRow(disp, tr(Str::SET_RGB_LED), s_edit.ledEnabled, [](lv_event_t *e) {
         s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
         Rgb::setEnabled(s_edit.ledEnabled);

@@ -4,13 +4,19 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.22.4** – dual-target ESP32-S3/P4 builds, including the v0.21.3
+> **Status: v0.22.5** – dual-target ESP32-S3/P4 builds, including the v0.21.3
 > Adventure and UI changes below. The owner confirmed P4 startup and Wi-Fi with
 > v0.22.0 and app OTA with v0.22.1. The owner confirmed ADC readings, SD-backed
 > Adventure/Karaoke playback and RTC synchronization after NTP with v0.22.2.
 > This build fixes explicit repair of unmounted FFat and board-aware diagnostics.
 > OTA erases incrementally; P4 display refresh interrupts remain active during flash
 > operations. This takes effect for uploads performed after installing this version.
+> Screen power saving on both boards: Settings → screen-off timeout (off by default,
+> 30 seconds to 60 minutes), or turn the screen off manually in Settings. Touch wakes
+> without activating controls; release and a minimum 250 ms guard are required before
+> a new touch. Audio/games/network stay active; OTA wakes and keeps the screen on.
+> This switches off the backlight, not the CPU or display controller; battery savings
+> need physical measurement. The P4 power button is not remapped.
 > RTC/VBAT retention after loss of main power still needs controlled deep sleep.
 >
 > v0.21.3 – internal maps, named portal destinations and persistent
@@ -620,6 +626,7 @@ g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o t
 python3 tests/test_board_peripherals.py   # P4 internal RTC, S3/P4 ADC/SD recovery and per-board NVS calibration defaults
 python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting
 python3 tests/test_ota_stream.py   # incremental erase, progress and failed validation leave the boot slot unchanged
+python3 tests/test_screen_power.py   # S3/P4 idle/manual off, wake-only touch + 250 ms, OTA and brightness restoration
 node tests/test_board_diagnostics_web.js   # S3/P4 overview, RTC waiting and separate SD/FFat status
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew

@@ -17,6 +17,7 @@ namespace MyLvgl {
 using FlushFn = void (*)(int x1, int y1, int x2, int y2, const uint16_t *px, bool firstOfFrame);
 // Pointer read: return true while pressed and fill x/y (display coordinates).
 using PointerFn = bool (*)(int16_t *x, int16_t *y);
+using PointerFilterFn = bool (*)(bool pressed);
 
 struct Config {
     int hres = 320;
@@ -45,6 +46,8 @@ bool begin(const Config &cfg);  // lv_init(), tick, buffers, display
 bool ok();
 lv_display_t *display();
 lv_indev_t *addPointer(PointerFn fn);
+// Runs on every pointer sample, before LVGL sees it. Set with the LVGL lock held.
+void setPointerFilter(PointerFilterFn fn);
 // Software rotation (lv_display_set_rotation + rotation in the flush). The pointer keeps reporting
 // physical coordinates; LVGL maps them to the rotated screen. A rotation buffer of one draw-buffer
 // size is allocated (PSRAM) on the first non-zero rotation and kept. Call with the LVGL lock held.

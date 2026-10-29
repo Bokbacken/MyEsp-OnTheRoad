@@ -8,6 +8,11 @@ extern const Entry LANG_EN[] = {
     {Str::BTN_CANCEL, "Cancel"},
     {Str::BTN_SAVE, "Save"},
     {Str::BTN_BACK, "Back"},
+    {Str::SCREEN_TIMEOUT, "Screen off after inactivity"},
+    {Str::SCREEN_TIMEOUT_OPTIONS, "Off\n30 seconds\n1 minute\n2 minutes\n5 minutes\n10 minutes\n30 minutes\n60 minutes"},
+    {Str::SCREEN_SLEEP_NOW, "Turn screen off now"},
+    {Str::SCREEN_SLEEP_HELP, "Audio and games continue. Touch to wake, release and wait at least 250 ms before the next touch. OTA keeps the screen on."},
+    {Str::SET_SAVE_FAILED, "Could not save settings. Please try again."},
 
     {Str::BOOT_I2C, "I2C bus"},
     {Str::BOOT_CLOCK, "Clock (RTC)"},

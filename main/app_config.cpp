@@ -69,6 +69,7 @@ void begin()
         if (p.getU8("schema", 0) == CONFIG_SCHEMA) {
             p.getStr("host", g_cfg.hostname, sizeof(g_cfg.hostname));
             g_cfg.brightness = MySys::clamp<uint8_t>(p.getU8("bl", g_cfg.brightness), 5, 100);
+            g_cfg.screenOffSeconds = p.getU16("screen_off", 0);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
             g_cfg.defaultVariant = p.getU8("variant", 0) % 4;
@@ -121,12 +122,14 @@ const char *hostname() { return g_cfg.hostname; }
 
 bool save()
 {
+    sanitize(g_cfg);
     MyNvs::Handle p(CFG_NVS_NS, false);
     if (!p) return false;
     bool ok = p.setU8("schema", CONFIG_SCHEMA);
     p.erase("ap_pass");   // Soft-AP removed in 0.2.0
     ok &= p.setStr("host", g_cfg.hostname);
     ok &= p.setU8("bl", g_cfg.brightness);
+    ok &= p.setU16("screen_off", g_cfg.screenOffSeconds);
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);
     ok &= p.setU8("variant", g_cfg.defaultVariant);
@@ -138,7 +141,6 @@ bool save()
     ok &= p.setStr("lang", g_cfg.lang);
     ok &= p.setU8("adv_mode", g_cfg.advMode);
     ok &= p.setU16("rotation", g_cfg.rotation == 180 ? 180 : 0);
-    sanitize(g_cfg);
     ok &= p.setBool("snd_on", g_cfg.soundOn);
     ok &= p.setU8("sfx_vol", g_cfg.sfxVol);
     ok &= p.setBool("mus_on", g_cfg.musicOn);
@@ -261,8 +263,19 @@ bool validTz(const char *tz)
     return true;
 }
 
+bool validScreenOffSeconds(uint16_t seconds)
+{
+    for (uint16_t option : SCREEN_OFF_SECONDS)
+        if (option == seconds) return true;
+    return false;
+}
+
 void sanitize(AppConfig &c)
 {
+    if (!validScreenOffSeconds(c.screenOffSeconds)) {
+        ESP_LOGW(TAG, "invalid screen-off timeout %u; disabling", (unsigned)c.screenOffSeconds);
+        c.screenOffSeconds = 0;
+    }
     if (c.sfxVol > 100) c.sfxVol = 100;
     if (c.musicVol > 100) c.musicVol = 100;
     c.joyZones = MySys::clamp<uint8_t>(c.joyZones, 1, 4);

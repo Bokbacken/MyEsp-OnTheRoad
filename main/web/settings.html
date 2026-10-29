@@ -105,6 +105,18 @@
     <legend>Display och LED</legend>
     <label for="brightness">Skärmljusstyrka: <b id="brightness-val">–</b> %</label>
     <input type="range" id="brightness" name="brightness" min="5" max="100" step="1">
+    <label for="screen_off_seconds">Släck skärmen efter inaktivitet</label>
+    <select id="screen_off_seconds" name="screen_off_seconds">
+      <option value="0">Av</option>
+      <option value="30">30 sekunder</option>
+      <option value="60">1 minut</option>
+      <option value="120">2 minuter</option>
+      <option value="300">5 minuter</option>
+      <option value="600">10 minuter</option>
+      <option value="1800">30 minuter</option>
+      <option value="3600">60 minuter</option>
+    </select>
+    <p class="muted">Ljud och spel fortsätter. Touch väcker utan att aktivera en kontroll; släpp fingret och vänta minst 250 ms före nästa tryck. OTA håller skärmen tänd.</p>
     <label for="rotation">Skärmrotation</label>
     <select id="rotation" name="rotation">
       <option value="0">0° (USB nedåt)</option>
@@ -249,6 +261,7 @@ function fill(c) {
   $('pin-state').textContent = c.admin_pin_set ? '(satt)' : '(ingen – öppen åtkomst)';
   $('pin-old').disabled = !c.admin_pin_set;
   $('brightness').value = c.brightness; updB();
+  $('screen_off_seconds').value = c.screen_off_seconds ?? 0;
   if (c.rotation !== undefined) $('rotation').value = c.rotation;
   $('led_brightness').value = c.led_brightness; updL();
   $('led_enabled').checked = c.led_enabled;
@@ -473,6 +486,7 @@ $('cfg-form').addEventListener('submit', async e => {
   if (!/^[A-Za-z0-9-]{1,31}$/.test(host)) return toast('Värdnamn: 1–31 tecken a–z, 0–9 och -', false);
   const data = {
     brightness: $('brightness').value,
+    screen_off_seconds: $('screen_off_seconds').value,
     rotation: $('rotation').value,
     led_brightness: $('led_brightness').value,
     led_enabled: $('led_enabled').checked ? '1' : '0',

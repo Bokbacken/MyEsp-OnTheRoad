@@ -11,6 +11,7 @@ constexpr ledc_mode_t MODE = LEDC_LOW_SPEED_MODE;
 constexpr ledc_channel_t CH = LEDC_CHANNEL_0;
 uint8_t g_percent = 0;
 bool g_pwm = false;
+bool g_sleeping = false;
 }
 
 namespace Backlight {
@@ -44,6 +45,7 @@ void set(uint8_t percent)
 {
     if (percent > 100) percent = 100;
     g_percent = percent;
+    if (g_sleeping) percent = 0;
     if (g_pwm) {
         // Perceptual curve: squares the level so low settings are usable.
         uint32_t duty = (uint32_t)percent * percent * 255 / 10000;
@@ -56,5 +58,13 @@ void set(uint8_t percent)
 }
 
 uint8_t get() { return g_percent; }
+
+void setSleeping(bool sleeping)
+{
+    g_sleeping = sleeping;
+    set(g_percent);
+}
+
+bool sleeping() { return g_sleeping; }
 
 }  // namespace Backlight

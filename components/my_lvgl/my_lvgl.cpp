@@ -27,6 +27,7 @@ bool g_frameStart = true;
 uint32_t g_fpsWindowStart = 0;
 uint32_t g_fpsFrames = 0;
 MyLvgl::PointerFn g_pointer = nullptr;
+MyLvgl::PointerFilterFn g_pointerFilter = nullptr;
 uint8_t *g_rotBuf = nullptr;   // Software rotation target (PSRAM, one draw buffer), allocated on first use
 
 uint32_t tickMs() { return (uint32_t)(esp_timer_get_time() / 1000); }
@@ -85,7 +86,8 @@ void pointerCb(lv_indev_t *, lv_indev_data_t *d)
 {
     static int16_t lastX = 0, lastY = 0;
     int16_t x = lastX, y = lastY;
-    const bool pressed = g_pointer && g_pointer(&x, &y);
+    bool pressed = g_pointer && g_pointer(&x, &y);
+    if (g_pointerFilter) pressed = g_pointerFilter(pressed);
     if (pressed) {
         lastX = x;
         lastY = y;
@@ -197,6 +199,8 @@ lv_indev_t *addPointer(PointerFn fn)
     lv_indev_set_display(in, g_disp);
     return in;
 }
+
+void setPointerFilter(PointerFilterFn fn) { g_pointerFilter = fn; }
 
 bool startTask(int core, int prio, uint32_t stackBytes)
 {

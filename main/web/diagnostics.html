@@ -136,7 +136,7 @@ async function refresh() {
       ['Flushes / frames', d.flushes + ' / ' + d.frames],
       ['TE-synk', yes(d.te_active, 'aktiv', 'avstängd') + ' · ' + d.te_edges + ' flanker · ' + d.te_timeouts + ' timeouts'],
       ['LVGL-buffert', kb(d.buf_bytes) + ' × 2 i ' + (d.buf_psram ? 'PSRAM' : 'intern RAM')],
-      ['Bakgrundsbelysning', d.brightness + ' %'],
+      ['Bakgrundsbelysning', d.sleeping ? 'Släckt · vald ljusstyrka ' + d.brightness + ' %' : d.brightness + ' %'],
     ]);
     rows('touch', [
       ['Kontroller ' + t.model + ' (' + touchAddress + ')', yes(t.present, 'svarar', 'saknas')],

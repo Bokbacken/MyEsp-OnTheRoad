@@ -56,6 +56,10 @@ async function page(file, data) {
     assert.equal(diag.element('sys').innerHTML.includes('23.50 °C'), !p4);
     assert(diag.element('battery').innerHTML.includes('3636 mV'));
     assert(diag.element('raw').textContent.includes('scale_permille'));
+    data.display.sleeping = true;
+    data.display.brightness = 55;
+    await diag.run('refresh()');
+    assert(diag.element('disp').innerHTML.includes('Släckt · vald ljusstyrka 55 %'));
     const overview = await page('main/web/index.html', data);
     assert(overview.element('boot').innerHTML.includes('väntade på tid vid start'));
     assert(overview.element('boot-sum').textContent.includes('1 kontroll(er) misslyckades'));
@@ -65,5 +69,37 @@ async function page(file, data) {
     overview.run(`showBoot(${JSON.stringify(data.boot)})`);
     assert(!overview.element('boot-sum').textContent.includes('Alla kontroller'));
   }
-  console.log('S3/P4 overview and diagnostics: board identity, RTC wait, separate SD/FFat and battery passed');
+  // Run the real settings fill/submit path: old firmware defaults off, new values round-trip.
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      value: '', style: {}, events: {}, appendChild() {},
+      addEventListener(name, fn) { this.events[name] = fn; },
+    });
+    return elements.get(id);
+  };
+  let submitted;
+  const sandbox = {
+    document: {getElementById: element, createElement: () => element(Symbol())},
+    URLSearchParams, console, clearTimeout() {}, setTimeout() {},
+    fetch: async (url, options) => {
+      assert.equal(url, '/api/config');
+      submitted = options.body;
+      return {ok: true, json: async () => ({config: {hostname: 'otr', screen_off_seconds: 120}})};
+    },
+  };
+  vm.createContext(sandbox);
+  const settings = fs.readFileSync('main/web/settings.html', 'utf8')
+    .match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i)[1]
+    .replace(/load\(\);\s*loadNets\(\);\s*status\(\);\s*setInterval\(status, 4000\);/, '');
+  vm.runInContext(settings, sandbox);
+  vm.runInContext("fill({hostname:'otr'})", sandbox);
+  assert.equal(element('screen_off_seconds').value, 0);
+  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120})", sandbox);
+  assert.equal(element('screen_off_seconds').value, 120);
+  element('tz').value = 'CET-1';
+  await element('cfg-form').events.submit({preventDefault() {}});
+  assert.equal(submitted.get('screen_off_seconds'), '120');
+  assert.equal(element('toast').textContent, 'Inställningar sparade');
+  console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery and screen power passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -166,12 +166,21 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## VIII. Prestanda och P4-möjligheter
 
-- [ ] Strömsparning på båda korten: första steg är släckt bakgrundsljus
+- [x] Strömsparning på båda korten: första steg är släckt bakgrundsljus
   med touch kvar för väckning, inte deep sleep eller avstängning.
   Första väcktrycket ska inte samtidigt aktivera en spelkontroll.
-- [ ] Bestäm automatisk inaktivitetsgräns, manuell släckning och regler
-  för aktiva spel/Karaoke/OTA innan implementation. Användarval ska
-  sparas och väckning återställa vald ljusstyrka.
+- [x] Ägarens val: automatisk och manuell släckning, även i spel/Karaoke
+  med fortsatt spel/ljud. Väcktrycket får bara väcka; ett nytt tryck
+  kräver släppt finger och minst 250 ms efter väckning. Implementerat i
+  v0.22.5 med gemensamt filter före LVGL:s pointerhändelser.
+- [x] Sparad tidsgräns i enhetens inställningar och webb/API:
+  Av (standard), 30 s, 1/2/5/10/30/60 min. Manuell släckning finns i
+  Inställningar från huvudmenyn. Vald ljusstyrka bevaras även om den
+  ändras via webben medan skärmen är släckt. OTA väcker och håller tänt.
+- [ ] **Hårdvara v0.22.5:** verifiera auto/manuell släckning och väckning
+  i spel, Karaoke och menyer på båda korten. Första trycket/ett hållet
+  väcktryck får inte spela, navigera eller flytta något; prova även ett
+  snabbt andra tryck inom 250 ms. Starta OTA med skärmen släckt.
 - [ ] Utred P4:s fysiska powerknapp mot schema innan den får en
   mjukvarufunktion; anta inte att den är en vanlig GPIO-knapp. S3 ska
   kunna använda funktionen utan fysisk powerknapp.

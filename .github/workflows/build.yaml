@@ -42,6 +42,7 @@ jobs:
           python3 tests/test_flash_repair.py
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py
+          python3 tests/test_screen_power.py
           node tests/test_board_diagnostics_web.js
 
       - name: Read firmware version

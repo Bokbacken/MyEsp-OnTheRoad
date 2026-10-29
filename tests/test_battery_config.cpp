@@ -27,6 +27,7 @@ int main()
     CHECK(defaults.batteryScalePermille == defaultScale);
     CHECK(defaults.batteryFullMv == 4200);
     CHECK(defaults.karaVolume == 70);
+    CHECK(defaults.screenOffSeconds == 0);
 
     TestNvs::numbers.clear();
     Config::begin();
@@ -41,6 +42,19 @@ int main()
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 63);
+    CHECK(Config::get().screenOffSeconds == 0);
+    for (uint16_t seconds : SCREEN_OFF_SECONDS) {
+        CHECK(Config::validScreenOffSeconds(seconds));
+        Config::get().screenOffSeconds = seconds;
+        CHECK(Config::save());
+        Config::begin();
+        CHECK(Config::get().screenOffSeconds == seconds);
+    }
+    CHECK(!Config::validScreenOffSeconds(1));
+    CHECK(!Config::validScreenOffSeconds(65535));
+    TestNvs::numbers["screen_off"] = 65535;
+    Config::begin();
+    CHECK(Config::get().screenOffSeconds == 0);
 
     TestNvs::numbers["bat_scale"] = 0;
     Config::begin();

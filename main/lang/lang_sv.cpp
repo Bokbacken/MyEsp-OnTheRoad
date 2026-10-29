@@ -8,6 +8,11 @@ extern const Entry LANG_SV[] = {
     {Str::BTN_CANCEL, "Avbryt"},
     {Str::BTN_SAVE, "Spara"},
     {Str::BTN_BACK, "Tillbaka"},
+    {Str::SCREEN_TIMEOUT, "Släck efter inaktivitet"},
+    {Str::SCREEN_TIMEOUT_OPTIONS, "Av\n30 sekunder\n1 minut\n2 minuter\n5 minuter\n10 minuter\n30 minuter\n60 minuter"},
+    {Str::SCREEN_SLEEP_NOW, "Släck skärmen nu"},
+    {Str::SCREEN_SLEEP_HELP, "Ljud och spel fortsätter. Tryck för att väcka, släpp och vänta minst 250 ms innan nästa tryck. OTA håller skärmen tänd."},
+    {Str::SET_SAVE_FAILED, "Inställningarna kunde inte sparas. Försök igen."},
 
     {Str::BOOT_I2C, "I2C-buss"},
     {Str::BOOT_CLOCK, "Klocka (RTC)"},
