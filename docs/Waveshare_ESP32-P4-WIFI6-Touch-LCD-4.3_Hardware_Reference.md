@@ -321,14 +321,17 @@ The C6 runs its own "slave"/hosted firmware. Keep the P4 host firmware and the C
 The application CI builds `host_fw.bin` from the pinned Espressif
 ESP-Hosted MCU coprocessor-OTA example. On a working P4 Host-radio connection,
 upload that C6 app image under **Uppdatera → ESP32-C6 Host-radio (OTA)**.
-The uploader checks the ESP32-C6 image header and the running C6 firmware
-version before using the ESP-Hosted OTA RPCs. The C6 OTA app uses two
-`0x1C0000` app slots; the upload is size-limited accordingly. After activation,
-the P4 restarts to reconnect to the C6.
+The uploader checks the ESP32-C6 image header and queries the running C6
+firmware before using the ESP-Hosted OTA RPCs. If the installed firmware
+cannot report its version or is older than v2.6.0, OTA still proceeds but
+skips the explicit activation RPC; older slave firmware reboots after the
+OTA end/validation step. The first update can therefore be a bootstrap step
+before later updates use explicit activation. The C6 OTA app uses two
+`0x1C0000` app slots; the upload is size-limited accordingly. After activation
+or the legacy auto-reboot, the P4 restarts to reconnect to the C6.
 
-If the current C6 firmware cannot answer the version/System RPC or is older
-than v2.6.0, OTA is refused before writing. Recovery then requires the
-dedicated 4-pin C6 flashing pads and an ESP32-C6 serial flashing setup; use
+If the legacy firmware cannot start or complete the OTA RPCs, recovery requires
+the dedicated 4-pin C6 flashing pads and an ESP32-C6 serial flashing setup; use
 the board schematic to verify pad order and voltage rather than assuming the
 P4 USB-UART connector is wired to the C6.
 

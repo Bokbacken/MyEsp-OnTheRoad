@@ -23,6 +23,7 @@ using portMUX_TYPE = int;
 #define portENTER_CRITICAL(m) ((void)(m))
 #define portEXIT_CRITICAL(m) ((void)(m))
 #define ESP_LOGE(tag, ...) ((void)(tag))
+#define ESP_LOGW(tag, ...) ((void)(tag))
 inline const char *esp_err_to_name(int) { return "injected error"; }
 struct esp_image_header_t {
     uint8_t magic;
@@ -127,9 +128,23 @@ int main() {
 
     cpVersion = {2, 5, 9};
     auto oldFirmware = request();
-    assert(MyWeb::registered(&oldFirmware) == ESP_OK && oldFirmware.status == 409);
-    assert(oldFirmware.offset == sizeof(image) && beginCalls == 0);
+    assert(MyWeb::registered(&oldFirmware) == ESP_OK && oldFirmware.status == 200);
+    assert(oldFirmware.offset == sizeof(image));
+    assert(beginCalls == 1 && writeCalls == 3 && bytesWritten == sizeof(image));
+    assert(endCalls == 1 && activateCalls == 0 && MyWeb::rebootMs == 3000);
 
+    versionCalls = beginCalls = writeCalls = endCalls = activateCalls = 0;
+    bytesWritten = MyWeb::rebootMs = 0;
+    versionResult = ESP_FAIL;
+    auto unknownFirmware = request();
+    assert(MyWeb::registered(&unknownFirmware) == ESP_OK && unknownFirmware.status == 200);
+    assert(unknownFirmware.offset == sizeof(image));
+    assert(versionCalls == 1 && beginCalls == 1 && writeCalls == 3);
+    assert(bytesWritten == sizeof(image) && endCalls == 1 && activateCalls == 0);
+
+    versionResult = ESP_OK;
+    versionCalls = beginCalls = writeCalls = endCalls = activateCalls = 0;
+    bytesWritten = MyWeb::rebootMs = 0;
     cpVersion = {2, 6, 0};
     auto valid = request();
     assert(MyWeb::registered(&valid) == ESP_OK && valid.status == 200);

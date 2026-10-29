@@ -136,5 +136,10 @@ async function page(file, data) {
   assert.equal(footer.textContent, 'kitchen-console');
   assert.equal(home.textContent, '← kitchen-console');
 
+  for (const file of fs.readdirSync('main/web').filter(name => name.endsWith('.html'))) {
+    assert.match(fs.readFileSync(`main/web/${file}`, 'utf8'), /rel="icon"[^>]+href="\/favicon\.svg"/);
+  }
+  assert.match(fs.readFileSync('main/web_assets.h', 'utf8'), /"\/favicon\.ico", "image\/svg\+xml"/);
+
   console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery, screen power, text size and RGB availability passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

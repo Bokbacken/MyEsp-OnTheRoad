@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>OnTheRoad – Uppdatera firmware</title>
 <link rel="stylesheet" href="/style.css">
 <script src="/device-name.js" defer></script>
@@ -58,7 +59,9 @@
     <legend>ESP32-C6 Host-radio (OTA)</legend>
     <p class="muted">Uppdaterar Wi-Fi-radiomodulen via ESP-Hosted och startar sedan om enheten.
     Använd C6-appfilen <code>host_fw.bin</code> från CI, inte P4/S3-firmware eller <code>merged.bin</code>.
-    Maximal filstorlek är 1 835 008 byte. Behåll strömmen ansluten under hela uppdateringen.</p>
+    Maximal filstorlek är 1 835 008 byte. Behåll strömmen ansluten under hela uppdateringen.
+    Äldre C6-firmware kan sakna versionsrapportering; då utelämnas separat aktivering och den första
+    uppdateringen kan ta ett extra steg innan Host-radion är redo.</p>
     <label for="host-fw">C6 firmwarefil (.bin)</label>
     <input type="file" id="host-fw" accept=".bin,application/octet-stream">
     <progress id="host-prog" max="100" value="0" hidden></progress>

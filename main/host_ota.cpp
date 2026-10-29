@@ -95,17 +95,17 @@ esp_err_t handleUpload(httpd_req_t *r)
 
     eh_host_coprocessor_fwver_t currentVersion = {};
     const esp_err_t versionErr = eh_host_sys_get_cp_fw_version(&currentVersion);
+    bool canActivate = false;
     if (versionErr != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot read C6 firmware version: %s", esp_err_to_name(versionErr));
-        return fail(r, 409, "C6 svarar inte med firmwareversion. Flashning via C6:s 4-poliga kontakt kan krävas först.",
-                    afterHeader);
-    }
-    if (currentVersion.major1 < 2 || (currentVersion.major1 == 2 && currentVersion.minor1 < 6)) {
-        ESP_LOGE(TAG, "C6 firmware %lu.%lu.%lu does not support safe OTA activation",
+        ESP_LOGW(TAG, "Cannot read C6 firmware version (%s); proceeding without explicit activation",
+                 esp_err_to_name(versionErr));
+    } else if (currentVersion.major1 > 2 ||
+               (currentVersion.major1 == 2 && currentVersion.minor1 >= 6)) {
+        canActivate = true;
+    } else {
+        ESP_LOGW(TAG, "C6 firmware %lu.%lu.%lu predates explicit OTA activation",
                  (unsigned long)currentVersion.major1, (unsigned long)currentVersion.minor1,
                  (unsigned long)currentVersion.patch1);
-        return fail(r, 409, "C6-firmware är för gammal för OTA. Uppdatera först via C6:s 4-poliga kontakt.",
-                    afterHeader);
     }
 
     esp_err_t err = esp_hosted_slave_ota_begin();
@@ -141,10 +141,12 @@ esp_err_t handleUpload(httpd_req_t *r)
         ESP_LOGE(TAG, "C6 OTA validation failed: %s", esp_err_to_name(err));
         return MyWeb::sendError(r, 400, "C6 avvisade firmwarefilen");
     }
-    err = esp_hosted_slave_ota_activate();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "C6 OTA activation failed: %s", esp_err_to_name(err));
-        return MyWeb::sendError(r, 500, "C6 kunde inte aktivera den nya firmwareversionen");
+    if (canActivate) {
+        err = esp_hosted_slave_ota_activate();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "C6 OTA activation failed: %s", esp_err_to_name(err));
+            return MyWeb::sendError(r, 500, "C6 kunde inte aktivera den nya firmwareversionen");
+        }
     }
 
     cJSON *o = cJSON_CreateObject();
