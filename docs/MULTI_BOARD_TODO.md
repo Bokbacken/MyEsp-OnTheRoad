@@ -143,6 +143,15 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## VI. UI för 480×800 och fler upplösningar
 
+- [x] **Hårdvara v0.22.4:** ägaren bekräftar ren skärmväxling följd av
+  OTA-progress, utan tidigare startflimmer. De flesta spel samt Karaoke
+  har provats och fungerar; detta ersätter inte full layoutverifiering.
+- [ ] Nästa layoutsteg: startskärm och Wi-Fi-anslutningsvy ska utnyttja
+  P4:s större skärm bättre utan att försämra S3.
+- [ ] Utred befintliga fontresurser och gemensamma textroller. Lägg till
+  sparad användarinställning för textstorlek på båda korten; alternativ
+  och omfattning ska bestämmas innan implementation. Större text måste
+  få plats genom layout/scrollning, inte klippas eller täcka kontroller.
 - [ ] Ta bort fasta 320×480-koordinater (inställningar, Wi-Fi, Yatzy,
   Adventure-setup) och använd `ui_metrics`/aktuell skärmstorlek.
 - [ ] Typsnitt och träffytor skalas för större skärm.
@@ -157,6 +166,18 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## VIII. Prestanda och P4-möjligheter
 
+- [ ] Strömsparning på båda korten: första steg är släckt bakgrundsljus
+  med touch kvar för väckning, inte deep sleep eller avstängning.
+  Första väcktrycket ska inte samtidigt aktivera en spelkontroll.
+- [ ] Bestäm automatisk inaktivitetsgräns, manuell släckning och regler
+  för aktiva spel/Karaoke/OTA innan implementation. Användarval ska
+  sparas och väckning återställa vald ljusstyrka.
+- [ ] Utred P4:s fysiska powerknapp mot schema innan den får en
+  mjukvarufunktion; anta inte att den är en vanlig GPIO-knapp. S3 ska
+  kunna använda funktionen utan fysisk powerknapp.
+- [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
+  korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
+  deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 
