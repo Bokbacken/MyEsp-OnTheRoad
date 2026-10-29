@@ -149,9 +149,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
   vid uppstart (nu görs säkerhetskontrollen vid OTA-begäran).
 - [ ] Dokumentera återställning via C6:s 4-poliga flashkontakt.
-- [ ] **Hårdvara:** prova C6-OTA, versionskontroll, radiostart och Wi-Fi
-  efter omstart på P4. Återställ via 4-poliga pads om befintlig C6-version
-  saknar OTA/System-RPC.
+- [x] **Hårdvara:** C6-OTA från fabriksfirmware till 3.0.10 verifierad av
+  ägaren; efter omstart rapporterar `eh_init_evt` host=3.0.10
+  coprocessor=3.0.10 (match) och Wi-Fi fungerar.
 
 ## VI. UI för 480×800 och fler upplösningar
 
