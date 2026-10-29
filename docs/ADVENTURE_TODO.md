@@ -35,7 +35,10 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 ## I. Flerkartsformat och runtime
 
 Pågående leverans: `feat/adventure-multimap-portals`, PR #19, firmware
-`0.21.3`. Själva planen publicerades separat på `main` via PR #20.
+`0.21.3`. Kod och testbanor är pushade där men ännu inte mergade till
+`main`. Checklistans avbockningar avser implementation på den branchen;
+fysisk ESP-verifiering och slutlig firmwarekontroll återstår.
+Själva planen publicerades separat på `main` via PR #20.
 
 Bekräftade spelregler för denna leverans:
 
@@ -132,3 +135,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | Datum | Leverans | Verifiering/status |
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
+| 2026-10-29 | Implementation pågår i PR #19 | Kod och testbanor pushade; HUD och Karaoke-layout kontrollerade. Firmwarekontroll och ESP-test återstår. |
