@@ -4,9 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.22.1** – dual-target ESP32-S3/P4 builds, including the v0.21.3
+> **Status: v0.22.2** – dual-target ESP32-S3/P4 builds, including the v0.21.3
 > Adventure and UI changes below. The owner confirmed P4 startup and Wi-Fi with
-> v0.22.0; RTC and battery measurement remain unfinished on P4.
+> v0.22.0 and app OTA with v0.22.1. This build adds internal P4 RTC support,
+> battery ADC and SD card power/recovery handling, pending hardware verification.
+> RTC/VBAT retention after loss of main power still needs controlled deep sleep.
 >
 > v0.21.3 – internal maps, named portal destinations and persistent
 > return visits. Player inventory and energy/lives are shared, inactive maps pause,

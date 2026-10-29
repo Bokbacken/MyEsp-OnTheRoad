@@ -197,7 +197,7 @@ extern "C" void app_main(void)
             used += snprintf(buf + used, sizeof(buf) - used, "%s0x%02X", i ? " " : "", addrs[i]);
         UiBoot::set(UiBoot::Item::I2C, n > 0 ? UiBoot::State::OK : UiBoot::State::FAIL, n > 0 ? buf : tr(Str::BOOT_NO_DEVICES));
     }
-    // RTC (DS3231 on the shared I2C bus): function test, then it becomes the boot clock source.
+    // Board-selected RTC: function test, then it becomes the boot clock source.
     {
         time_t t = 0;
         const bool rtcOk = MyRtc::begin(Touch::bus(), &t);
@@ -207,8 +207,10 @@ extern "C" void app_main(void)
             MyTime::setFromRtc(t);
             struct tm tm;
             gmtime_r(&t, &tm);
-            snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d UTC, %.1f °C", tm.tm_year + 1900, tm.tm_mon + 1,
-                     tm.tm_mday, tm.tm_hour, tm.tm_min, (double)rs.tempC);
+            int n = snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d UTC", tm.tm_year + 1900, tm.tm_mon + 1,
+                             tm.tm_mday, tm.tm_hour, tm.tm_min);
+            if (MyRtc::temperatureAvailable() && n > 0 && n < (int)sizeof(buf))
+                snprintf(buf + n, sizeof(buf) - n, ", %.1f °C", (double)rs.tempC);
         } else if (rs.state == MyRtc::State::MISSING) {
             snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_RTC_MISSING));
         } else {

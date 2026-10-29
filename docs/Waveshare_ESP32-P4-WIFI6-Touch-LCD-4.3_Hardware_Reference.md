@@ -124,6 +124,20 @@ MX1.25 2-pin connector for a single-cell 3.7 V LiPo, with onboard charge/dischar
 
 Separate header for a **rechargeable** RTC backup cell only. Do not fit a non-rechargeable primary cell here.
 
+The board schematic connects this header to the P4's **ESP_VBAT**, not to
+an external I²C calendar RTC. ESP-IDF's VBAT example requires controlled
+deep sleep to switch to backup power and retain the RTC timer; do not
+assume calendar retention after abrupt main-power loss.
+See [Espressif's VBAT example](https://github.com/espressif/esp-idf/tree/v6.1/examples/lowpower/vbat).
+
+### microSD power switch
+
+The schematic's MicroSD section has Q1 (AO3401) switching card VDD from
+ESP_3V3, controlled by **GPIO45 (active low)**. Internal LDO4 supplies the
+SD IO bank/pullups; enabling LDO4 alone is not explicit card-VDD control.
+The card uses SDMMC slot 0 (CLK43/CMD44/D0–D3 = 39/40/41/42), separate
+from the C6 radio's SDIO slot 1.
+
 ### MIPI-DSI display connector
 
 Flex connector carrying the 2-lane MIPI-DSI link to the ST7701 panel (see §4). Not a GPIO breakout.

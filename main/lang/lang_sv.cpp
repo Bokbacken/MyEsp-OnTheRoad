@@ -10,7 +10,7 @@ extern const Entry LANG_SV[] = {
     {Str::BTN_BACK, "Tillbaka"},
 
     {Str::BOOT_I2C, "I2C-buss"},
-    {Str::BOOT_CLOCK, "Klocka (DS3231 RTC)"},
+    {Str::BOOT_CLOCK, "Klocka (RTC)"},
     {Str::BOOT_STORAGE, "Lagring (FFat)"},
     {Str::BOOT_WEB, "Webbserver"},
     {Str::BOOT_WAITING, "väntar"},

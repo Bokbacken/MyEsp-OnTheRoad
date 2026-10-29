@@ -17,15 +17,20 @@ static int passed = 0;
 
 int main()
 {
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    constexpr uint16_t defaultScale = 3000;
+#else
+    constexpr uint16_t defaultScale = 0;
+#endif
     AppConfig defaults{};
     Config::defaults(defaults);
-    CHECK(defaults.batteryScalePermille == 0);
+    CHECK(defaults.batteryScalePermille == defaultScale);
     CHECK(defaults.batteryFullMv == 4200);
     CHECK(defaults.karaVolume == 70);
 
     TestNvs::numbers.clear();
     Config::begin();
-    CHECK(Config::get().batteryScalePermille == 0);
+    CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 70);
 
@@ -33,9 +38,13 @@ int main()
     TestNvs::numbers["schema"] = 1;
     TestNvs::numbers["kara_vol"] = 63;
     Config::begin();
-    CHECK(Config::get().batteryScalePermille == 0);
+    CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 63);
+
+    TestNvs::numbers["bat_scale"] = 0;
+    Config::begin();
+    CHECK(Config::get().batteryScalePermille == defaultScale);
 
     TestNvs::numbers["bat_scale"] = 4000;
     Config::begin();
@@ -44,7 +53,7 @@ int main()
     TestNvs::numbers["bat_full"] = 3899;
     TestNvs::numbers["kara_vol"] = 255;
     Config::begin();
-    CHECK(Config::get().batteryScalePermille == 0);
+    CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 70);
 
@@ -59,6 +68,9 @@ int main()
     CHECK(Config::get().batteryScalePermille == 5000);
     CHECK(Config::get().batteryFullMv == 4150);
     CHECK(Config::get().karaVolume == 42);
+    Config::get().batteryScalePermille = 0;
+    CHECK(Config::save());
+    CHECK(Config::get().batteryScalePermille == defaultScale);
 
     std::printf("Battery config: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

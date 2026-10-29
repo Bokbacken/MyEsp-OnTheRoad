@@ -36,6 +36,15 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - Ägaren har startat v0.22.0 på P4 och anslutit till Wi-Fi. RTC fungerar
   inte ännu och batteri-ADC saknas. Övriga hårdvarukontroller nedan är
   inte automatiskt godkända av detta första test.
+- Ägaren har även bekräftat app-OTA med v0.22.1. SD-loggen visar att kortet
+  först monteras (4-bit, 20 MHz) och att kataloger skapas, men senare
+  förlorar kommunikationen (`ESP_ERR_TIMEOUT`); det är inte bara ett
+  visningsfel eller ett oläsbart filsystem.
+- Schemat visar ingen separat I²C-RTC. `RTC BAT` är kopplad till P4:s
+  `ESP_VBAT`. I²C-skanningen i bootloggen visar bara `0x18`, `0x40`, `0x5D`.
+- SD-kortets VDD styrs av Q1/AO3401 via **GPIO45, aktiv låg**.
+  LDO4 försörjer SD-IO/pullups, inte själva kortets VDD.
+- Batteriets GPIO20 är **ADC1 kanal 4**, med R12/R15 = 200 kΩ/100 kΩ.
 
 ### Beslut
 
@@ -84,13 +93,24 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## III. P4-kringutrustning
 
-- [ ] microSD: SDMMC slot 0 (IO MUX), on-chip LDO kanal 4 som kortmatning;
+- [x] microSD: SDMMC slot 0 (IO MUX), on-chip LDO kanal 4 för IO-matning;
   avmontering får inte stänga SDMMC-värden som C6-länken använder.
 - [ ] Ljud: ES8311 med I²S MCLK13/BCLK12/WS10/DOUT9/DIN11, förstärkare
   GPIO53 (aktiv hög).
-- [ ] Batteri: ADC på GPIO20, delare 3:1 som förvald skala.
-- [ ] RTC: identifiera P4-kortets RTC och lägg till rätt drivrutin bakom
-  befintligt API; nuvarande DS3231-stöd räcker inte för kortet.
+- [x] Batteri: ADC-drivrutin väljer kanal från kortets GPIO (S3 GPIO8,
+  P4 GPIO20); P4 har förvald skala 3000 permille. Sparad egen kalibrering
+  behålls; noll/reset återgår till kortets standard. Hårdvarutest återstår.
+- [x] RTC: intern P4-timer bakom `MyRtc`, separat från S3:s DS3231.
+  NTP/manuell tid skapar en betrodd UTC-ankring i RTC-minne. Diagnostik
+  visar rätt källa och ingen påhittad temperatur. Hårdvarutest återstår.
+- [ ] RTC/VBAT: kontrollerad deep sleep och verifierad backup vid förlust
+  av huvudmatning. P4:s VBAT kräver rätt viloläges-/strömsekvens; en
+  plötslig avstängning får inte utlovas fungera som en fristående DS3231.
+- [x] SD: explicit styrning av kortmatning GPIO45, strömcykel vid
+  återmontering/fel, 10 MHz vid återhämtning och 1-bit-fallback.
+  Felkod exponeras i webbdiagnostik. Slot 1/C6 lämnas igång.
+- [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
+  som Wi-Fi används, och att återmontering fungerar efter timeout.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
 
 ## IV. Wi-Fi via ESP32-C6 (ESP-Hosted)
@@ -141,3 +161,21 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
 | 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
 | 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1. S3 och P4 gröna för mergecommit `07b5853` (CI run 40887806090); hostkontroller för multimap, Adventure och Karaoke godkända. |
+| 2026-10-29 | Kringutrustning v0.22.2 | Intern RTC, P4 batteri-ADC, GPIO45 för SD-kortmatning och återhämtning implementerade. OTA bekräftad av ägaren på föregående bygge; nytt hårdvarutest krävs. |
+
+### Nästa hårdvarutest (v0.22.2)
+
+1. Installera P4-appfilen via den fungerande OTA-vägen; inte `merged.bin`.
+2. Låt NTP synka. RTC-diagnostik ska visa `ESP32-P4 RTC`, `OK` och ingen
+   temperatur. Starta om via mjukvara/OTA och kontrollera att RTC kan
+   återställa tiden. Kallstart utan nät får fortsatt visa osäker tid.
+3. Med anslutet batteri: kontrollera ADC-mV, beräknad batterispänning och
+   procent. Jämför mot multimeter och finjustera kalibrering vid behov.
+   3:1 är schemats nominella värde, inte en garanti om mätprecision.
+4. Läs/skriv filer på SD via webben medan Wi-Fi är aktivt, vänta minst
+   fem minuter och prova även återmonteringsknappen. Vid fel: exportera
+   logg och SD-diagnostik (`error`, `errors`, busbredd/frekvens).
+5. Loggen visar dessutom `No filesystem detected` på **intern FFat**.
+   Det är separat från SD-felet. Ingen automatisk formatering införs:
+   använd webbens uttryckliga återställning för intern flash först efter
+   att eventuell befintlig data har säkerhetskopierats.

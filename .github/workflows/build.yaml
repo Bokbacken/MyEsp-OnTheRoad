@@ -35,6 +35,10 @@ jobs:
         if: matrix.target == 'esp32s3'
         run: python3 -m unittest discover -s tests -p test_firmware_release.py
 
+      - name: Test board peripherals (host)
+        if: matrix.target == 'esp32s3'
+        run: python3 tests/test_board_peripherals.py
+
       - name: Read firmware version
         id: firmware
         run: |

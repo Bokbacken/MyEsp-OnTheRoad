@@ -10,7 +10,7 @@ extern const Entry LANG_EN[] = {
     {Str::BTN_BACK, "Back"},
 
     {Str::BOOT_I2C, "I2C bus"},
-    {Str::BOOT_CLOCK, "Clock (DS3231 RTC)"},
+    {Str::BOOT_CLOCK, "Clock (RTC)"},
     {Str::BOOT_STORAGE, "Storage (FFat)"},
     {Str::BOOT_WEB, "Web server"},
     {Str::BOOT_WAITING, "waiting"},

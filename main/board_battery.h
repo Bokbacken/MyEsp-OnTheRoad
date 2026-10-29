@@ -14,7 +14,7 @@ struct Status {
     uint32_t errors;
 };
 
-// ES3C35P only. Raw ADC sampling remains useful without divider calibration; battery voltage does not.
+// Board-selected ADC GPIO. Raw sampling remains useful without a known divider scale.
 bool begin();
 Status status();
 

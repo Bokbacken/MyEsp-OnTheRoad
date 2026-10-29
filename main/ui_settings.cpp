@@ -15,6 +15,7 @@
 #include "board_battery.h"
 #include "board_touch.h"
 #include "battery_math.h"
+#include "board_pins.h"
 #include "karaoke.h"
 #include "my_wifi.h"
 #include "ui_clock.h"
@@ -141,13 +142,13 @@ static void resetBatteryCalibration()
 {
     AppConfig &c = Config::get();
     const uint16_t previous = c.batteryScalePermille;
-    if (previous == 0) return;
-    c.batteryScalePermille = 0;
+    if (previous == BAT_DEFAULT_SCALE_PERMILLE) return;
+    c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     if (!Config::save()) {
         c.batteryScalePermille = previous;
         return;
     }
-    s_edit.batteryScalePermille = 0;
+    s_edit.batteryScalePermille = c.batteryScalePermille;
     refreshInfo(nullptr);
 }
 

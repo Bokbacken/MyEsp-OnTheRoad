@@ -38,7 +38,8 @@ constexpr uint8_t ES8311_I2C_ADDR = 0x18;
 constexpr int PIN_WS2812 = -1;
 
 // ---------------------------------------------------------------------------
-// microSD: SDMMC slot 0 (IO MUX pins), card powered by on-chip LDO channel 4.
+// microSD: SDMMC slot 0 (IO MUX pins), IO bank powered by on-chip LDO channel 4.
+// Card VDD is switched separately by GPIO45/Q1.
 // SDMMC slot 1 is used by ESP-Hosted for the ESP32-C6.
 // ---------------------------------------------------------------------------
 constexpr int PIN_SD_CLK = 43;
@@ -47,6 +48,7 @@ constexpr int PIN_SD_D0  = 39;
 constexpr int PIN_SD_D1  = 40;
 constexpr int PIN_SD_D2  = 41;
 constexpr int PIN_SD_D3  = 42;
+constexpr int PIN_SD_POWER = 45;   // Active-low gate of Q1 (AO3401), card VDD from ESP_3V3
 constexpr int SD_SLOT = 0;
 constexpr int SD_PWR_LDO_CHAN = 4;
 

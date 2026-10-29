@@ -152,14 +152,15 @@ static void diagClock(cJSON *o)
 static void diagRtc(cJSON *o)
 {
     const MyRtc::Status s = MyRtc::status();
-    cJSON_AddStringToObject(o, "chip", "DS3231");
+    cJSON_AddStringToObject(o, "chip", MyRtc::chipName());
     cJSON_AddStringToObject(o, "state", MyRtc::stateText(s.state));
     cJSON_AddBoolToObject(o, "ok", s.state == MyRtc::State::OK);
     cJSON_AddBoolToObject(o, "present", s.present);
     cJSON_AddBoolToObject(o, "ticking", s.ticking);
     cJSON_AddBoolToObject(o, "osf_at_boot", s.osf);
     cJSON_AddBoolToObject(o, "time_valid", s.timeValid);
-    cJSON_AddNumberToObject(o, "temp_c", (double)s.tempC);
+    if (MyRtc::temperatureAvailable()) cJSON_AddNumberToObject(o, "temp_c", (double)s.tempC);
+    else cJSON_AddNullToObject(o, "temp_c");
     cJSON_AddNumberToObject(o, "boot_time", (double)s.bootTime);
     cJSON_AddNumberToObject(o, "last_write", (double)s.lastWrite);
     cJSON_AddNumberToObject(o, "writes", s.writes);
@@ -188,6 +189,8 @@ static void diagSd(cJSON *o)
 {
     const BoardSd::Info i = BoardSd::info();
     cJSON_AddBoolToObject(o, "ok", i.mounted);
+    cJSON_AddNumberToObject(o, "errors", i.errors);
+    cJSON_AddStringToObject(o, "error", i.lastError ? esp_err_to_name(i.lastError) : "");
     if (!i.mounted) return;
     cJSON_AddStringToObject(o, "name", i.name);
     cJSON_AddNumberToObject(o, "width", i.width);

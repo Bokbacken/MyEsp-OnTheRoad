@@ -1,4 +1,4 @@
-// board_sd.h - microSD card on the 4-bit SDMMC slot (CLK 5, CMD 4, D0 6, D1 7, D2 2, D3 3),
+// board_sd.h - microSD card on the board-selected 4-bit SDMMC slot,
 // mounted as FAT at /sdcard. Tries 4-bit first and falls back to 1-bit. A missing card is
 // normal: everything that uses the card must cope with mounted() == false. There is no card
 // detect pin, so poll() checks the card status now and then and unmounts a removed card;
@@ -18,6 +18,8 @@ struct Info {
     uint64_t totalBytes, freeBytes;
     char name[8];           // Card product name
     uint32_t generation;    // Increments on every successful mount
+    int32_t lastError;      // ESP error from the last failed mount/status/unmount, 0 after success
+    uint32_t errors;
 };
 
 bool begin();                // Mount at boot (false = no card / failed, logged)

@@ -1,7 +1,6 @@
-// my_rtc.h - DS3231 battery-backed real-time clock on a shared i2c_master bus (shared MyEsp/MyPi
-// component).
+// my_rtc.h - board-selected RTC: DS3231 on S3, internal RTC timer on P4.
 //
-// The chip keeps UTC (24 h mode). begin() probes 0x68, reads the status and runs a function test:
+// The DS3231 keeps UTC (24 h mode). Its begin() probes 0x68 and runs a function test:
 //   - answers on the bus and the registers read back
 //   - OSF (oscillator stop flag) clear = the time survived on battery
 //   - date/time fields are valid and within 2024..2099
@@ -9,6 +8,10 @@
 //     the system clock to the RTC second boundary)
 //   - temperature register in -40..+85 degC
 // write() sets the time at the next second boundary and clears OSF.
+//
+// P4 uses the internal RTC counter with a trusted UTC anchor in retained RTC memory.
+// NTP/manual clock updates establish the anchor; software resets and deep sleep can retain it.
+// An abrupt loss of main power is NOT treated as a valid battery-backed calendar.
 #pragma once
 
 #include <stdint.h>
@@ -43,13 +46,15 @@ struct Status {
     int32_t lastDriftS;    // RTC - system time at the last sync check
 };
 
-// bus: an i2c_master bus already created by the board (e.g. Touch::bus()).
+// bus: an i2c_master bus already created by the board (unused by the P4 internal RTC).
 // Returns true when the RTC holds a valid time (outTime set, UTC).
 bool begin(i2c_master_bus_handle_t bus, time_t *outTime = nullptr);
 
 bool read(time_t &utc);                 // Current RTC time (UTC); false on bus error / invalid
 bool write(time_t utcNow);              // Waits for the next system-clock second edge, writes, clears OSF
 bool readTemp(float &c);
+const char *chipName();
+bool temperatureAvailable();
 // Compares the RTC with the (NTP-correct) system clock and writes it when the drift is >= 1 s,
 // the RTC was invalid, or force is set. Returns true when the RTC holds the system time after the call.
 bool syncFromSystem(bool force = false);
