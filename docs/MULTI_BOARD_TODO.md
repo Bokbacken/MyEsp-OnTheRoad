@@ -220,6 +220,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | v0.22.3 byggverifiering | `9a0ea0d`, CI run 40901183845 grön för S3/P4 inklusive MAC-fixen. Ersätts vid leverans av v0.22.4 med OTA-skärmfixen nedan. |
 | 2026-10-29 | OTA-skärm v0.22.4 | `e31311a`, CI run 40902453740 grön för S3/P4. P4-appfil nedladdad och SHA-256 verifierad: `a9b8b4c56d372dbaa96c37f4c3f07badc4848cc0d541dc5f52bb180a41e64f34`. Fysisk flimmerkontroll återstår. PR #23 är fortsatt draft, inte mergad; GitHub rapporterar konflikt med main som behöver hanteras inför merge. |
 | 2026-10-29 | Skärmsläckning v0.22.5 | Ägaren bekräftar OTA-skärmfixen i v0.22.4 samt de flesta spel och Karaoke på P4. `f7385e2`, CI run 40909089936 grön för båda targets. Automatisk/manuell släckning och väckfilter implementerade; fysisk verifiering på båda korten återstår. |
+| 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
 
 OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
 
@@ -271,7 +272,24 @@ OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
   Radiofria targets använder nu bas-MAC; Wi-Fi-providern rapporterar
   fortfarande C6:s nätverks-MAC. Ingen sänkning av loggnivå döljer felet.
 
-### Nästa hårdvarutest (v0.22.5)
+### Nästa hårdvarutest (v0.22.6)
+
+OTA-artefakter från [CI run 40924732183](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40924732183),
+fil `build/MyEsp_OnTheRoad.bin`:
+
+- S3: `firmware-esp32s3-v0.22.6`, SHA-256
+  `93f52531098dde01d5461f3d5262df565637057b923f770f588ea437fb8b9389`
+- P4: `firmware-esp32p4-v0.22.6-unverified`, SHA-256
+  `3e6aba9944a7d71c92478a813ed9693ca12099fad25a5d639892569b968c379d`
+
+1. Starta om och se startskärmen; anslut Wi-Fi via enheten (nätlista,
+   lösenordshjul, anslutningsvy). P4 ska fylla skärmen, S3 se ut som förut.
+2. Inställningar → Textstorlek: prova varje nivå (Extra stor finns bara
+   på P4), spara och gå igenom meny, spel, Karaoke och Äventyr. Notera
+   skärmar där text klipps eller överlappar. Ändring via webben gäller
+   vid nästa visning av huvudmenyn.
+
+### Tidigare hårdvarutest (v0.22.5)
 
 1. Hämta rätt artefakt för kortet enligt ovan från
    [CI run 40909089936](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40909089936).
