@@ -34,6 +34,21 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 
 ## I. Flerkartsformat och runtime
 
+Pågående leverans: `feat/adventure-multimap-portals`, PR #19, firmware
+`0.21.3`. Kod och testbanor är pushade där men ännu inte mergade till
+`main`. Checklistans avbockningar avser implementation på den branchen;
+fysisk ESP-verifiering och slutlig firmwarekontroll återstår.
+Själva planen publicerades separat på `main` via PR #20.
+
+Bekräftade spelregler för denna leverans:
+
+- Blockerad portalankomst avvisar resan; spelaren stannar på källkartan
+  och får ett meddelande. Ingen reservposition väljs.
+- Energi-/livregler hämtas från huvudkartan och aktuella värden är
+  gemensamma. Portalresa ger ingen påfyllning.
+- Bara aktiv karta tickar fiender och timers. Portalresan kostar ingen
+  extra tur.
+
 - [ ] Lås och dokumentera runtime-reglerna och kapacitetsgränserna.
 - [ ] Stöd `@map` för huvudkarta, `@map N` för extra kartor och explicit
   kartval enligt formatspecifikationen. Utelämnat kartval betyder alltid
@@ -54,7 +69,9 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [ ] Skydd mot omedelbar portalstuds, även efter save/restore och respawn.
 - [ ] Definierat beteende vid dynamiskt blockerad ankomst; inga tysta
   reservpositioner och inga raderade/flyttade objekt för att lyckas.
-- [ ] Reserverad HUD-remsa ovanför kartan; kartan ska inte döljas av HUD.
+- [x] Reserverad HUD-remsa ovanför kartan; kartan ska inte döljas av HUD.
+  Implementerad som 48 pixlar med titel och en delad rad för extra info.
+  Automatisk layoutkontroll klar; fysisk ESP-verifiering återstår.
 - [ ] Testäventyr på SD med hemlig karta, returresa, lokala grupper,
   flyttade objekt, resurser, checkpoints och spara/ladda.
 - [ ] Testinstruktioner och uppdaterade authoring-exempel.
@@ -63,10 +80,12 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 ## Småfixar i samma leverans
 
-- [ ] Karaoke: mindre, tydligt rektangulär volymknapp i den verkliga
+- [x] Karaoke: mindre, tydligt rektangulär volymknapp i den verkliga
   renderingen, inte bara ändrade stilvärden. Behåll fungerande touchyta.
-- [ ] Karaoke: batteriprocent inne i batterisymbolen, ingen procenttext
+  LVGL:s ritrektangel är 30 × 14 pixlar, touchytan minst 52 pixlar bred.
+- [x] Karaoke: batteriprocent inne i batterisymbolen, ingen procenttext
   bredvid. Behåll indikatorns nuvarande yttermått och procentstyrda färg.
+  Hela indikatorn är fortsatt 62 × 32 pixlar. ESP-verifiering återstår.
 
 ## III. Story-styrda kartförändringar
 
@@ -116,3 +135,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | Datum | Leverans | Verifiering/status |
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
+| 2026-10-29 | Implementation pågår i PR #19 | Kod och testbanor pushade; HUD och Karaoke-layout kontrollerade. Firmwarekontroll och ESP-test återstår. |
