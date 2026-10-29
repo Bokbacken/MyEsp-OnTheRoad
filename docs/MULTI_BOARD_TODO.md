@@ -206,6 +206,16 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | Diagnostik och FFat v0.22.3 | Ägaren bekräftar SD, ljud, ADC och NTP→RTC med v0.22.2. Korrigerar RTC-vänteläge vid start, P4-identitet/upplösning, GT911 firmwarebredd samt uttrycklig reparation av omonterad intern FFat. |
 | 2026-10-29 | v0.22.3 byggverifiering | `9a0ea0d`, CI run 40901183845 grön för S3/P4 inklusive MAC-fixen. Ersätts vid leverans av v0.22.4 med OTA-skärmfixen nedan. |
 | 2026-10-29 | OTA-skärm v0.22.4 | `e31311a`, CI run 40902453740 grön för S3/P4. P4-appfil nedladdad och SHA-256 verifierad: `a9b8b4c56d372dbaa96c37f4c3f07badc4848cc0d541dc5f52bb180a41e64f34`. Fysisk flimmerkontroll återstår. PR #23 är fortsatt draft, inte mergad; GitHub rapporterar konflikt med main som behöver hanteras inför merge. |
+| 2026-10-29 | Skärmsläckning v0.22.5 | Ägaren bekräftar OTA-skärmfixen i v0.22.4 samt de flesta spel och Karaoke på P4. `f7385e2`, CI run 40909089936 grön för båda targets. Automatisk/manuell släckning och väckfilter implementerade; fysisk verifiering på båda korten återstår. |
+
+OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
+
+- S3: `firmware-esp32s3-v0.22.5`, app
+  `91553aa60006bbd11bd6997697a3c84d9c021f53c176461926e42f2a78dd6864`.
+- P4: `firmware-esp32p4-v0.22.5-unverified`, app
+  `f7d00ace3b0f3a2e24527023cca32abc42ec4fc91bee4aca811a012e726aeaa4`.
+- Fil i respektive artefakt: `build/MyEsp_OnTheRoad.bin`, inte `merged.bin`.
+  Ingen merge utförd.
 
 ### OTA-start och P4-flimmer (v0.22.4)
 
@@ -248,13 +258,14 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Radiofria targets använder nu bas-MAC; Wi-Fi-providern rapporterar
   fortfarande C6:s nätverks-MAC. Ingen sänkning av loggnivå döljer felet.
 
-### Nästa hårdvarutest (v0.22.4)
+### Nästa hårdvarutest (v0.22.5)
 
-1. Hämta `firmware-esp32p4-v0.22.4-unverified` från
-   [CI run 40902453740](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40902453740).
+1. Hämta rätt artefakt för kortet enligt ovan från
+   [CI run 40909089936](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/40909089936).
    Installera `build/MyEsp_OnTheRoad.bin` via den fungerande OTA-vägen;
-   inte `merged.bin`. Gör därefter en till OTA från v0.22.4 för att prova
-   att uppdateringsstapeln visas snabbt och skärmen inte flimrar vid start.
+   inte `merged.bin`. På båda korten: välj 30 s i Inställningar, spara
+   och prova timeout samt manuell släckning. Väckning och 250 ms-spärr
+   provas enligt checklistan ovan; kontrollera sparad tid efter omstart.
 2. Låt NTP synka. RTC-diagnostik ska visa `ESP32-P4 RTC`, `OK` och ingen
    temperatur. Starta om via mjukvara/OTA och kontrollera att RTC kan
    återställa tiden. Kallstart utan nät får fortsatt visa osäker tid.
