@@ -1078,7 +1078,7 @@ void voicePickCb(lv_event_t *e)
     const uint8_t voices = (uint8_t)(intptr_t)lv_event_get_user_data(e);
     if (!Config::validKaraVoices(voices)) return;
     Karaoke::setVoiceLimit(voices);
-    lv_obj_t *row = lv_obj_get_parent(lv_event_get_target(e));
+    lv_obj_t *row = lv_obj_get_parent(static_cast<lv_obj_t *>(lv_event_get_target(e)));
     for (uint32_t i = 0; i < KARA_VOICE_OPTION_COUNT; i++) {
         lv_obj_t *button = lv_obj_get_child(row, (int32_t)i);
         const bool selected = KARA_VOICE_OPTIONS[i] == voices;
