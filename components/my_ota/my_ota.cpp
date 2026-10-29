@@ -47,7 +47,8 @@ bool begin(uint32_t total)
         setPhase(Phase::FAILED, "Filen är större än app-partitionen");
         return false;
     }
-    esp_err_t e = esp_ota_begin(s_target, total ? total : OTA_SIZE_UNKNOWN, &s_handle);
+    // Erase as this sequential stream advances, not the whole image before the UI can refresh.
+    esp_err_t e = esp_ota_begin(s_target, OTA_WITH_SEQUENTIAL_WRITES, &s_handle);
     if (e != ESP_OK) {
         setPhase(Phase::FAILED, esp_err_to_name(e));
         ESP_LOGE(TAG, "begin failed: %s", esp_err_to_name(e));

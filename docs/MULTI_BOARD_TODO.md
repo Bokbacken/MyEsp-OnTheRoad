@@ -174,6 +174,24 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | 2026-10-29 | Integration med main | PR #19:s multimap, portaler och UI-fixar integrerade i P4-branchen. Versionskonflikt löst till v0.22.1. S3 och P4 gröna för mergecommit `07b5853` (CI run 40887806090); hostkontroller för multimap, Adventure och Karaoke godkända. |
 | 2026-10-29 | Kringutrustning v0.22.2 | Intern RTC, P4 batteri-ADC, GPIO45 för SD-kortmatning och återhämtning implementerade i `2ac004b`. Båda targets och hosttester gröna (CI run 40893098350). OTA bekräftad av ägaren på föregående bygge; nytt hårdvarutest krävs. |
 | 2026-10-29 | Diagnostik och FFat v0.22.3 | Ägaren bekräftar SD, ljud, ADC och NTP→RTC med v0.22.2. Korrigerar RTC-vänteläge vid start, P4-identitet/upplösning, GT911 firmwarebredd samt uttrycklig reparation av omonterad intern FFat. |
+| 2026-10-29 | v0.22.3 byggverifiering | `9a0ea0d`, CI run 40901183845 grön för S3/P4 inklusive MAC-fixen. Ersätts vid leverans av v0.22.4 med OTA-skärmfixen nedan. |
+
+### OTA-start och P4-flimmer (v0.22.4)
+
+- OTA läser uppladdningen och skriver flash i samma ström, inte först en
+  komplett nedladdning till RAM. Tidigare raderade `esp_ota_begin` hela
+  målområdet innan första skrivningen, vilket gav flera sekunders väntan.
+  Nu används IDF:s `OTA_WITH_SEQUENTIAL_WRITES` för stegvis radering;
+  storlekskontroll och verifiering före byte av startpartition behålls.
+- P4:s DPI-DMA startas om av avbrott varje bild. Aktiverar
+  `CONFIG_LCD_DSI_ISR_CACHE_SAFE` (väljer även cache-säker DW-GDMA) så
+  bildöverföringen kan fortsätta när flashoperationer stänger av cache.
+  S3-konfigurationen är oförändrad. Flimmerfrihet måste bekräftas på kortet.
+- Förändringen körs av installerad firmware: uppladdningen **till**
+  v0.22.4 kan fortfarande flimra; testa igen **från** v0.22.4.
+- IDF verifierar chip-ID i `esp_ota_end` innan startpartition väljs, så
+  S3-app på P4 och omvänt avvisas. Kortprofiler med samma chip skiljs
+  inte åt av detta skydd.
 
 ### FFat-reparation och startdiagnostik (v0.22.3)
 
