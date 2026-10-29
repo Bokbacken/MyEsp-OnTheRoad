@@ -1523,7 +1523,8 @@ class StoryHost : public Otr::Story::Host {
 public:
     void worldAction(const char *verb, int argc, const int *a) override
     {
-        if (s_sd.hasInternalMaps()) {
+        if (s_sd.hasInternalMaps() &&
+            (!strcmp(verb, "npc_move") || !strcmp(verb, "npc_remove") || !strcmp(verb, "open"))) {
             worldActionOnMap(verb, 1, argc, a);
             return;
         }

@@ -88,6 +88,47 @@ void parser()
     CHECK(loaded->npcCount == 2 && loaded->script.npcByNum(1, 2));
     CHECK(loaded->map.id == 2);
 
+    const char *rowSelectors =
+        "@rules\nmap=2: lava_damage: 10\n"
+        "@treasures\nmap=2: 2 0 potion\n"
+        "@enemies\nmap=2: chaser 3 0\n"
+        "@resources\n"
+        "map=2: t : stone : Stone : Stone : 2 :\n"
+        "map=1: s : gem : Gem : Gem : 2 :\n"
+        "@dark 1,0 1,0 map=2\n"
+        "@destinations\n# return point\nhome 1,0\n"
+        "@portals\n# link\nmap=2: 1,0 -> home\n"
+        "@node scout.start\neffects: world npc_move map=2 1 4 6\n"
+        "@map\nS.....\n@map 2\nS.....\n";
+    CHECK(Adv::parseMap(rowSelectors, std::strlen(rowSelectors), 1, *loaded, err, sizeof(err)));
+    CHECK(loaded->resourceCount == 1 && loaded->resources[0].glyph == 's');
+    CHECK(loaded->itemCount == 2 && loaded->darkCount == 0 && loaded->treasureCount == 0);
+    CHECK(loaded->enemyCount == 0 && loaded->destinationCount == 1 && loaded->portalCount == 1);
+    CHECK(loaded->nodeCount == 1 &&
+          !std::strcmp(loaded->nodes[0].effects, "world npc_move map=2 1 4 6"));
+    CHECK(Adv::parseMap(rowSelectors, std::strlen(rowSelectors), 2, *loaded, err, sizeof(err)));
+    CHECK(loaded->map.rules.lavaDamage == 10 && loaded->treasureCount == 1);
+    CHECK(loaded->enemyCount == 1 && loaded->darkCount == 1);
+    CHECK(loaded->resourceCount == 1 && loaded->resources[0].glyph == 't' && loaded->itemCount == 2);
+
+    const char *resourceComment = "@resources\n# resource notes\ns : stone\n@map\nSs\n";
+    CHECK(Adv::parse(resourceComment, std::strlen(resourceComment), *loaded, err, sizeof(err)));
+    const char *namedComments =
+        "@destinations\n# return point\nhome 0,0\n@portals\n# link\n0,0 -> home\n@map\nS.\n";
+    CHECK(Adv::parse(namedComments, std::strlen(namedComments), *loaded, err, sizeof(err)));
+    const char *unknownAfterPortal = "@destinations\nhome 0,0\n@portals\n@enemeis\nchaser 1 0\n@map\nS..\n";
+    CHECK(!Adv::parse(unknownAfterPortal, std::strlen(unknownAfterPortal), *loaded, err, sizeof(err)));
+    CHECK(std::strstr(err, "unknown section"));
+    const char *unknownAfterDestination = "@destinations\n@enemeis\nchaser 1 0\n@map\nS..\n";
+    CHECK(!Adv::parse(unknownAfterDestination, std::strlen(unknownAfterDestination), *loaded, err, sizeof(err)));
+    CHECK(std::strstr(err, "unknown section"));
+
+    World mineWorld;
+    const char *mineMap = "@map\nSm.\n";
+    CHECK(Adv::parse(mineMap, std::strlen(mineMap), *loaded, err, sizeof(err)) &&
+          mineWorld.load(loaded->map));
+    CHECK(!mineWorld.safeArrivalAt(1, 0));
+
     for (const char *bad : {
         "@map 2\nS.\n",
         "@map\nS.\n@map 2\nS.\n@map 2\nS.\n",
@@ -209,6 +250,11 @@ void runtime(const char *root)
     const uint32_t pickup = world->move(Dir::DOWN);
     CHECK(pickup & EV_TREASURE);
     CHECK(story.items[0] == 2);
+    CHECK(session.afterAction(2, 1, pickup, *loaded, *world, story, script, err, sizeof(err)) ==
+          Adv::SdSession::PORTAL_NONE);
+    const size_t inactivePortalSave = session.save(*world, story, image.data(), image.size());
+    CHECK(inactivePortalSave > 0);
+    CHECK(session.restore(image.data(), inactivePortalSave, *loaded, *world, story, script, err, sizeof(err)));
 
     // Visit the cave checkpoint; it becomes the adventure-wide respawn point.
     CHECK(world->setPlayerPosition(4, 4));
@@ -392,6 +438,96 @@ void minesweeperInternalMapRejected()
     std::filesystem::remove_all("build_host_multimap/mine");
 }
 
+void multimapEdgeCases()
+{
+    const std::filesystem::path root = "build_host_multimap/edges";
+    const std::filesystem::path folder = root / "checkpoint";
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream file(folder / "01_checkpoint.adv", std::ios::binary);
+        file << "@destinations\nhome 1,1\nmap=2: cave 1,1\n"
+                "@map\n#########\n#S.Q..^X#\n#########\n"
+                "@map 2\n#########\n#S...Q..#\n#########\n";
+    }
+
+    auto loaded = std::make_unique<Adv::Loaded>();
+    auto world = std::make_unique<World>();
+    Story::StoryState story{};
+    const Story::Script *script = nullptr;
+    Adv::CatalogEntry e{};
+    std::snprintf(e.folder, sizeof(e.folder), "checkpoint");
+    e.mapCount = 1;
+    std::snprintf(e.maps[0], Adv::MAP_NAME_CAP, "01_checkpoint.adv");
+    Adv::SdSession session;
+    CHECK(session.start(root.c_str(), e, *loaded, *world, story, script, err, sizeof(err)));
+
+    CHECK(session.travelToDestination("cave", *loaded, *world, story, script, err, sizeof(err)));
+    CHECK(world->setPlayerPosition(4, 1));
+    uint32_t events = world->move(Dir::RIGHT);
+    CHECK(events & EV_CHECKPOINT);
+    CHECK(session.afterAction(4, 1, events, *loaded, *world, story, script, err, sizeof(err)) ==
+          Adv::SdSession::PORTAL_NONE);
+    CHECK(session.checkpointMapId() == 2);
+
+    CHECK(session.travelToDestination("home", *loaded, *world, story, script, err, sizeof(err)));
+    CHECK(world->setPlayerPosition(2, 1));
+    events = world->move(Dir::RIGHT);
+    CHECK(events & EV_CHECKPOINT);
+    CHECK(session.afterAction(2, 1, events, *loaded, *world, story, script, err, sizeof(err)) ==
+          Adv::SdSession::PORTAL_NONE);
+    CHECK(session.checkpointMapId() == 1);
+
+    CHECK(session.travelToDestination("cave", *loaded, *world, story, script, err, sizeof(err)));
+    CHECK(world->setPlayerPosition(4, 1));
+    events = world->move(Dir::RIGHT);
+    CHECK((events & EV_MOVED) && !(events & EV_CHECKPOINT));
+    CHECK(session.afterAction(4, 1, events, *loaded, *world, story, script, err, sizeof(err)) ==
+          Adv::SdSession::PORTAL_NONE);
+    CHECK(session.checkpointMapId() == 2);
+
+    CHECK(session.travelToDestination("home", *loaded, *world, story, script, err, sizeof(err)));
+    CHECK(world->setPlayerPosition(5, 1));
+    world->setEnergy(1);
+    events = world->move(Dir::RIGHT);
+    CHECK(events & EV_DIED);
+    CHECK(session.afterAction(5, 1, events, *loaded, *world, story, script, err, sizeof(err)) ==
+          Adv::SdSession::PORTAL_CHECKPOINT_RESPAWNED);
+    CHECK(session.currentMapId() == 2 && world->playerX() == 5 && world->playerY() == 1);
+
+    const std::filesystem::path exitFolder = root / "exit_source";
+    std::filesystem::create_directories(exitFolder);
+    {
+        std::ofstream file(exitFolder / "01_exit.adv", std::ios::binary);
+        file << "@destinations\nhome 1,1\n@portals\n2,1 -> home\n"
+                "@map\n####\n#SX#\n####\n";
+    }
+    std::snprintf(e.folder, sizeof(e.folder), "exit_source");
+    std::snprintf(e.maps[0], Adv::MAP_NAME_CAP, "01_exit.adv");
+    Adv::SdSession exitSession;
+    CHECK(!exitSession.start(root.c_str(), e, *loaded, *world, story, script, err, sizeof(err)));
+    CHECK(std::strstr(err, "portal source"));
+
+    const std::filesystem::path mixedFolder = root / "mixed";
+    std::filesystem::create_directories(mixedFolder);
+    {
+        std::ofstream file(mixedFolder / "01_single.adv", std::ios::binary);
+        file << "@map\nS.\n";
+    }
+    {
+        std::ofstream file(mixedFolder / "02_multimap.adv", std::ios::binary);
+        file << "@map\nS.\n@map 2\nS.\n";
+    }
+    std::snprintf(e.folder, sizeof(e.folder), "mixed");
+    e.mapCount = 2;
+    std::snprintf(e.maps[0], Adv::MAP_NAME_CAP, "01_single.adv");
+    std::snprintf(e.maps[1], Adv::MAP_NAME_CAP, "02_multimap.adv");
+    Adv::SdSession mixedSession;
+    CHECK(mixedSession.start(root.c_str(), e, *loaded, *world, story, script, err, sizeof(err)));
+    CHECK(!mixedSession.travel(*loaded, *world, story, script, err, sizeof(err)));
+    CHECK(std::strstr(err, "cannot be mixed"));
+    std::filesystem::remove_all(root);
+}
+
 } // namespace
 
 int main()
@@ -402,5 +538,6 @@ int main()
     legacy("docs/adventures");
     editedFileRejectsSave();
     minesweeperInternalMapRejected();
+    multimapEdgeCases();
     std::printf("Multimap: %d checks passed\n", checks);
 }

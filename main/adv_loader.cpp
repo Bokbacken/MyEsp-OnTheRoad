@@ -1384,7 +1384,7 @@ bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids
     Sec sec = NONE;
     Special special = ORDINARY;
     int currentMap = 1, sectionMap = 1;
-    bool sectionSelected = true, npcSection = false;
+    bool sectionSelected = true, npcSection = false, resourceShared = false;
     outLen = 0;
     size_t pos = 0;
     int lineNo = 0;
@@ -1463,7 +1463,6 @@ bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids
             }
             if (!known) {
                 // Let the production parser report unknown tags, including their line number.
-                if (special == DESTS || special == PORTAL) continue;
                 if (!appendLine(out, cap, outLen, line)) {
                     setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
                 }
@@ -1478,6 +1477,7 @@ bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids
             sectionMap = headerMap;
             sectionSelected = !mapScopedTag(tag) || headerMap == selectedMap || npcSection ||
                               rowScopedSection(newSec);
+            if (newSec == RESOURCES) resourceShared = headerMap != selectedMap;
             if (!sectionSelected) continue;
 
             char normalized[LINE_CAP];
@@ -1500,7 +1500,11 @@ bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids
                                             mapText, (size_t)mapDigits)));
             if (!normalizedOk) { setErr(err, errCap, lineNo, "section header too long"); return false; }
             normalized[normalizedLen] = 0;
-            if (newSec == RESOURCES && headerMap != selectedMap) {
+            if (newSec == DARK && headerMap != selectedMap) {
+                if (!appendLine(out, cap, outLen, "@dark")) {
+                    setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+                }
+            } else if (newSec == RESOURCES && headerMap != selectedMap) {
                 if (!appendLine(out, cap, outLen, "@shareditems")) {
                     setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
                 }
@@ -1527,25 +1531,19 @@ bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids
             }
             continue;
         }
-        if (strstr(body, "map=")) {
-            if (!mapScopedTag(sec == NPC ? "@npc" : sec == RULES ? "@rules" :
-                              sec == TREASURES ? "@treasures" : sec == ENEMIES ? "@enemies" :
-                              sec == RESOURCES ? "@resources" : sec == DARK ? "@dark" :
-                              sec == LEGEND ? "@legend" : sec == PLATEGROUP ? "@plategroup" :
-                              sec == GATEGROUP ? "@gategroup" : sec == TIMEDGATE ? "@timedgate" :
-                              sec == ANDGATE ? "@andgate" : "")) {
-                if (npcSection) { setErr(err, errCap, lineNo, "map selector belongs on @npc"); return false; }
-                int rowMap;
-                bool hasMap;
-                if (!getMapSelector(body, 1, rowMap, hasMap, err, errCap, lineNo)) return false;
-                if (!hasMap || !sameId(ids, mapCount, rowMap)) {
-                    setErr(err, errCap, lineNo, "map selector references undeclared map"); return false;
-                }
-                bodyMap = rowMap;
-                if (rowMap != selectedMap && sec != RESOURCES) continue;
-            } else {
-                setErr(err, errCap, lineNo, "map selector is not valid in this section"); return false;
+        if (rowScopedSection(sec) && !strncmp(body, "map=", 4)) {
+            char *colon = strchr(body, ':');
+            int rowMap;
+            if (!colon) {
+                setErr(err, errCap, lineNo, "map row needs 'map=N:'"); return false;
             }
+            *colon = 0;
+            if (!positiveId(body + 4, rowMap) || !sameId(ids, mapCount, rowMap)) {
+                setErr(err, errCap, lineNo, "map selector references undeclared map"); return false;
+            }
+            bodyMap = rowMap;
+            body = trimIn(colon + 1);
+            if (rowMap != selectedMap && sec != RESOURCES) continue;
         }
         if (mapScopedTag(sec == NPC ? "@npc" : sec == RULES ? "@rules" :
                          sec == TREASURES ? "@treasures" : sec == ENEMIES ? "@enemies" :
@@ -1555,6 +1553,13 @@ bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids
                          sec == ANDGATE ? "@andgate" : "") &&
             sec != NPC && bodyMap != selectedMap) {
             if (sec != RESOURCES) continue;
+        }
+        if (sec == RESOURCES && (bodyMap != selectedMap) != resourceShared) {
+            const char *tag = bodyMap == selectedMap ? "@resources" : "@shareditems";
+            if (!appendLine(out, cap, outLen, tag)) {
+                setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+            }
+            resourceShared = bodyMap != selectedMap;
         }
         if (sec == RESOURCES && bodyMap != selectedMap) {
             char resource[LINE_CAP];
@@ -1628,7 +1633,7 @@ bool validateGlobalResources(const char *text, size_t len, const int *mapIds, in
         memcpy(line, text + start, n);
         line[n] = 0;
         char *t = trimIn(line);
-        if (!t[0]) continue;
+        if (!t[0] || t[0] == '#') continue;
         if (t[0] == '@') {
             char *space = strpbrk(t, " \t");
             char *arg = nullptr;
@@ -1656,7 +1661,7 @@ bool validateGlobalResources(const char *text, size_t len, const int *mapIds, in
             t = trimIn(colon + 1);
         }
         stripCommentIn(t);
-        if (!t[0]) continue;
+        if (!t[0] || t[0] == '#') continue;
         char *f[6] = {};
         int nf = 0;
         char *part = t;
@@ -1728,7 +1733,7 @@ bool parseNamedLines(const char *text, size_t len, Loaded &out, const int *mapId
         memcpy(line, text + start, n);
         line[n] = 0;
         char *t = trimIn(line);
-        if (!t[0]) continue;
+        if (!t[0] || t[0] == '#') continue;
         if (t[0] == '@') {
             char *space = strpbrk(t, " \t");
             char *arg = nullptr;

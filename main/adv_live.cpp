@@ -85,7 +85,9 @@ void fillState(Snapshot &s, const Source &src)
     s.cpY = (uint8_t)w.checkpointY();
     s.steps = (uint32_t)w.steps();
     s.mapId=w.mapId();
-    s.activeMapId = (uint8_t)(src.activeMapId > 0 ? src.activeMapId : w.mapId());
+    s.activeMapId = (uint8_t)(src.activeMapId > 0 ? src.activeMapId :
+                              src.adventure && src.adventure->internalMapId > 0 ?
+                                  src.adventure->internalMapId : 1);
     if(src.worldId) s.worldId=(uint8_t)src.worldId;
     s.mineLevel=w.mineLevel(); s.completed=src.completed;
     s.bomb3=w.bombs(3); s.bomb4=w.bombs(4); s.safeLeft=w.safeLeft(); s.lang=src.lang;

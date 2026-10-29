@@ -190,6 +190,11 @@ bool SdSession::loadMapInto(int index, Loaded &scratch, Otr::World &w, Otr::Stor
         return false;
     }
     if (!parseFile(path, scratch, err, errCap)) return false;
+    if (mapCount_ != 1 &&
+        (scratch.internalMapCount > 1 || scratch.portalCount > 0 || scratch.destinationCount > 0)) {
+        snprintf(err, errCap, "internal maps cannot be mixed with separate .adv files");
+        return false;
+    }
     if (scratch.script.validate(err, errCap)) return false;
     if (!w.load(scratch.map)) {
         snprintf(err, errCap, "engine rejected %s", maps_[index]);
@@ -265,7 +270,8 @@ bool SdSession::validateInternalMaps(Loaded &scratch, char *err, size_t errCap)
         }
         for (int j = 0; ok && j < scratch.portalCount; ++j) {
             const Portal &p = scratch.portals[j];
-            if (p.mapId == internalMapIds_[i] && !candidate->safeArrivalAt(p.x, p.y)) {
+            if (p.mapId == internalMapIds_[i] &&
+                (candidate->tile(p.x, p.y) == Otr::Tile::EXIT || !candidate->safeArrivalAt(p.x, p.y))) {
                 snprintf(err, errCap, "portal source is not safe and walkable on map %d",
                          internalMapIds_[i]);
                 ok = false;
@@ -368,10 +374,12 @@ SdSession::PortalResult SdSession::afterAction(int oldX, int oldY, uint32_t even
                                                char *err, size_t errCap)
 {
     if (!multimap_) return PORTAL_NONE;
-    if (events & Otr::EV_CHECKPOINT) {
+    if ((events & Otr::EV_CHECKPOINT) ||
+        ((events & Otr::EV_MOVED) && !(events & (Otr::EV_DIED | Otr::EV_GAME_OVER)) &&
+         w.tile(w.playerX(), w.playerY()) == Otr::Tile::CHECKPOINT)) {
         checkpointIndex_ = internalIndex_;
-        checkpointX_ = (uint8_t)w.checkpointX();
-        checkpointY_ = (uint8_t)w.checkpointY();
+        checkpointX_ = (uint8_t)w.playerX();
+        checkpointY_ = (uint8_t)w.playerY();
     }
     if ((events & Otr::EV_DIED) && !w.gameOver()) {
         if (checkpointIndex_ != internalIndex_) {
@@ -925,8 +933,8 @@ size_t SdSession::save(const Otr::World &w, const Otr::Story::StoryState &story,
     out[pos + 2] = checkpointX_;
     out[pos + 3] = checkpointY_;
     out[pos + 4] = portalSuppressed_ ? suppressedMapId_ : 0;
-    out[pos + 5] = suppressedX_;
-    out[pos + 6] = suppressedY_;
+    out[pos + 5] = portalSuppressed_ ? suppressedX_ : 0;
+    out[pos + 6] = portalSuppressed_ ? suppressedY_ : 0;
     out[pos + 7] = portalSuppressed_ ? 1 : 0;
     put32(out + pos + 8, fileSignature_);
     pos += MULTIMAP_META;

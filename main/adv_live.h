@@ -146,7 +146,7 @@ struct Source {
     int worldId = 0, completed = 0, bombSize = 0, bombX = -1, bombY = -1;
     const Adv::Loaded *adventure = nullptr;    // Read only by UI publisher, copied under the mutex.
     const char *folder = nullptr;
-    int activeMapId = 0;                       // SdSession::currentMapId(); 0 defaults to World::mapId()
+    int activeMapId = 0;                       // SdSession::currentMapId(); 0 defaults to adventure map id or 1
 };
 
 // Pure: fills a snapshot from the source (no lock, no version). The map layers are rebuilt only
