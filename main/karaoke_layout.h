@@ -8,6 +8,16 @@ constexpr int32_t VOLUME_KNOB_WIDTH = 30;
 constexpr int32_t VOLUME_KNOB_HEIGHT = 14;
 constexpr int32_t VOLUME_TRACK_WIDTH = 12;
 
+constexpr int32_t visibleLyricLines(int32_t screenWidth, int32_t availableHeight, int32_t lineHeight,
+                                    int32_t gap)
+{
+    if (screenWidth <= 480) return 4;
+    if (lineHeight <= 0) return 1;
+    const int32_t rowGap = gap > 0 ? gap : 0;
+    const int32_t count = (availableHeight + rowGap) / (lineHeight + rowGap);
+    return count <= 0 ? 1 : count > 32 ? 32 : count;
+}
+
 struct VolumeRail {
     int32_t x, width, labelY, sliderY, height;
     int32_t lyricsWidth, seekWidth, timeX;

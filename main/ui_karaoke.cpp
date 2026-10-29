@@ -31,6 +31,7 @@ constexpr uint32_t TICK_MS = 40;
 constexpr uint32_t DEBOUNCE_MS = 500;
 struct Layout {
     int32_t w, h, inset, gap, buttonH, headerH, infoY, lyricsY, lyricsH;
+    int32_t visibleLines;
     int32_t lyricsW, seekY, seekH, seekW, timeX, bottomY, bottomW, listY, listW, jumpW, toolbarY, toolbarW;
     int32_t volumeX, volumeW, volumeLabelY, volumeSliderY, volumeH;
 };
@@ -51,6 +52,7 @@ Layout layout()
     l.seekH = std::max<int32_t>(28, my_font_14.line_height + 12);
     l.seekY = l.bottomY - l.gap - l.seekH;
     l.lyricsH = l.seekY - l.gap - l.lyricsY;
+    l.visibleLines = KaraokeLayout::visibleLyricLines(l.w, l.lyricsH, my_font_24.line_height, l.gap);
     constexpr int32_t timeW = 124;
     const KaraokeLayout::VolumeRail rail = KaraokeLayout::volumeRail(
         l.w, l.inset, l.gap, l.buttonH, l.infoY, l.bottomY, my_font_14.line_height,
@@ -93,8 +95,9 @@ bool s_fontForSong = false;
 
 // Player screen
 struct Player {
-    lv_obj_t *scr, *lyrics, *prev, *cur, *next, *next2, *slider, *volumeTrack, *volumeSlider, *volumeValue, *timeLbl,
+    lv_obj_t *scr, *lyrics, *cur, *slider, *volumeTrack, *volumeSlider, *volumeValue, *timeLbl,
         *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
+    std::vector<lv_obj_t *> before, after;
     lv_span_t *spSung, *spRest;
     lv_obj_t *cdRow;                                // v0.13.6 countdown dots (hidden outside pauses)
     lv_obj_t *cdDot[Karaoke::COUNTDOWN_MAX];
@@ -731,10 +734,10 @@ void showList()
 }
 
 // ---- Player ------------------------------------------------------------------------------------
-void setLine(lv_obj_t *l, int line)
+void setLine(lv_obj_t *label, int line)
 {
     const Midi::Song *s = Karaoke::song();
-    lv_label_set_text(l, s && line >= 0 && line < (int)s->lines.size() ? s->lineText(line).c_str() : "");
+    lv_label_set_text(label, s && line >= 0 && line < (int)s->lines.size() ? s->lineText(line).c_str() : "");
 }
 
 void updateLyrics(const Karaoke::View &v, bool force)
@@ -752,9 +755,10 @@ void updateLyrics(const Karaoke::View &v, bool force)
     int line = v.line;
     if (line != P.line || force) {
         P.line = line;
-        setLine(P.prev, line - 1);
-        setLine(P.next, line + 1);
-        setLine(P.next2, line + 2);
+        const int current = line < 0 ? 0 : line;
+        const int beforeCount = (int)P.before.size();
+        for (int i = 0; i < beforeCount; i++) setLine(P.before[i], current - beforeCount + i);
+        for (int i = 0; i < (int)P.after.size(); i++) setLine(P.after[i], current + i + 1);
         P.syl = -2;
     }
     if (v.syl != P.syl || force) {
@@ -762,8 +766,6 @@ void updateLyrics(const Karaoke::View &v, bool force)
         std::string sung, rest;
         if (line < 0) {
             s->lineSplit(0, -1, sung, rest);   // First line, nothing sung yet
-            setLine(P.next, 1);
-            setLine(P.next2, 2);
         } else {
             s->lineSplit(line, v.syl + 1, sung, rest);
         }
@@ -1232,13 +1234,13 @@ void showPlayer()
     lv_obj_set_style_text_align(P.diag, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_pos(P.diag, l.inset + infoW * 3 / 4, l.infoY);
 
-    // One scroll viewport; only the previous/current/two next lines are materialised.
+    // The line block fills the available lyric area and stays centered around the active line.
     P.lyrics = lv_obj_create(scr);
     lv_obj_remove_style_all(P.lyrics);
     lv_obj_set_pos(P.lyrics, l.inset, l.lyricsY);
     lv_obj_set_size(P.lyrics, l.lyricsW, l.lyricsH);
     lv_obj_set_flex_flow(P.lyrics, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(P.lyrics, l.gap, 0);
     lv_obj_set_scroll_dir(P.lyrics, LV_DIR_VER);
     lv_obj_set_scroll_chain(P.lyrics, false);
@@ -1250,7 +1252,10 @@ void showPlayer()
         lv_obj_set_style_text_line_space(label, 4, 0);
         return label;
     };
-    P.prev = lyricLabel(&my_font_18, Theme::LINE);
+    const int beforeCount = (l.visibleLines - 1) / 2;
+    const int afterCount = l.visibleLines - 1 - beforeCount;
+    for (int i = 0; i < beforeCount; i++)
+        P.before.push_back(lyricLabel(&my_font_18, Theme::LINE));
     P.cur = lv_spangroup_create(P.lyrics);
     lv_obj_set_width(P.cur, l.lyricsW);
     lv_obj_set_height(P.cur, LV_SIZE_CONTENT);
@@ -1281,8 +1286,9 @@ void showPlayer()
     }
     lv_obj_set_hidden(P.cdRow, true);
     P.cdDots = P.cdLit = -1;   // Forces the first update
-    P.next = lyricLabel(&my_font_18, Theme::MUTED);
-    P.next2 = lyricLabel(&my_font_14, Theme::LINE);
+    for (int i = 0; i < afterCount; i++)
+        P.after.push_back(lyricLabel(i == afterCount - 1 && l.visibleLines > 4 ? &my_font_14 : &my_font_18,
+                                     i == 0 ? Theme::MUTED : Theme::LINE));
 
     P.slider = lv_slider_create(scr);
     const int32_t timeW = 124;

@@ -289,17 +289,14 @@ extern "C" void app_main(void)
         UiBoot::State wifiState = wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL;
         if (wifiOk && HwProfile::active().hasHostRadio) {
             const HostOta::VersionInfo &versions = HostOta::versionInfo();
-            char radio[64];
             if (versions.known) {
-                snprintf(radio, sizeof(radio), "Host %s / C6 %s", versions.host, versions.coprocessor);
+                snprintf(buf, sizeof(buf), "Host %.10s / C6 %.10s%s", versions.host, versions.coprocessor,
+                         versions.match ? "" : " · Uppdatera → ESP32-C6 Host-radio");
                 if (!versions.match) wifiState = UiBoot::State::WARN;
             } else {
-                snprintf(radio, sizeof(radio), "okänd · Uppdatera → ESP32-C6 Host-radio");
+                snprintf(buf, sizeof(buf), "Okänd · Uppdatera → ESP32-C6 Host-radio");
                 wifiState = UiBoot::State::WARN;
             }
-            char detail[sizeof(buf)];
-            snprintf(detail, sizeof(detail), "%s · %s", buf, radio);
-            snprintf(buf, sizeof(buf), "%s", detail);
         }
         UiBoot::set(UiBoot::Item::WIFI, wifiState, wifiOk ? buf : tr(Str::BOOT_WIFI_FAIL));
     }

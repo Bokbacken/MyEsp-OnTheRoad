@@ -285,7 +285,9 @@ static void checkPlayer() {
     const auto l = layout();
     assert(P.scr == lv_screen_active());
     assert(l.lyricsH >= 150 && (l.w != 800 || l.lyricsH >= 290));
+    assert(l.visibleLines == KaraokeLayout::visibleLyricLines(l.w, l.lyricsH, my_font_24.line_height, l.gap));
     inside(P.lyrics, P.scr);
+    assert((int)P.before.size() + (int)P.after.size() + 1 == l.visibleLines);
     assert(lv_obj_get_height(P.lyrics) == l.lyricsH);
     assert(lv_obj_get_width(P.lyrics) == l.lyricsW);
     assert(lv_spangroup_get_mode(P.cur) == LV_SPAN_MODE_BREAK);
