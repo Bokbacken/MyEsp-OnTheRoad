@@ -69,33 +69,36 @@ void splitBi(char *s, char *&sv, char *&en)
     en = trimIn(bar + 3);
 }
 
-uint32_t maskFromTokens(const char *s)
+bool maskFromTokens(const char *s, uint32_t &mask)
 {
-    uint32_t m = 0;
+    mask = 0;
     char buf[32];
     size_t bi = 0;
+    bool valid = true;
     auto flush = [&]() {
         if (!bi) return;
         buf[bi] = 0;
         for (size_t i = 0; i < bi; i++)
             if (buf[i] >= 'A' && buf[i] <= 'Z') buf[i] = (char)(buf[i] - 'A' + 'a');
-        if (!strcmp(buf, "energy")) m |= CARRY_ENERGY;
-        else if (!strcmp(buf, "maxenergy") || !strcmp(buf, "max_energy") || !strcmp(buf, "maxhp")) m |= CARRY_MAXENERGY;
-        else if (!strcmp(buf, "items") || !strcmp(buf, "inventory")) m |= CARRY_ITEMS;
-        else if (!strcmp(buf, "lives") || !strcmp(buf, "life")) m |= CARRY_LIVES;
-        else if (!strcmp(buf, "suit")) m |= CARRY_SUIT;
-        else if (!strcmp(buf, "keys") || !strcmp(buf, "key")) m |= CARRY_KEYS;
-        else if (!strcmp(buf, "gems") || !strcmp(buf, "gem")) m |= CARRY_GEMS;
-        else if (!strcmp(buf, "boat")) m |= CARRY_BOAT;
+        if (!strcmp(buf, "energy")) mask |= CARRY_ENERGY;
+        else if (!strcmp(buf, "maxenergy") || !strcmp(buf, "max_energy") || !strcmp(buf, "maxhp")) mask |= CARRY_MAXENERGY;
+        else if (!strcmp(buf, "items") || !strcmp(buf, "inventory")) mask |= CARRY_ITEMS;
+        else if (!strcmp(buf, "lives") || !strcmp(buf, "life")) mask |= CARRY_LIVES;
+        else if (!strcmp(buf, "suit")) mask |= CARRY_SUIT;
+        else if (!strcmp(buf, "keys") || !strcmp(buf, "key")) mask |= CARRY_KEYS;
+        else if (!strcmp(buf, "gems") || !strcmp(buf, "gem")) mask |= CARRY_GEMS;
+        else if (!strcmp(buf, "boat")) mask |= CARRY_BOAT;
+        else valid = false;
         bi = 0;
     };
     for (const char *p = s; *p; p++) {
         char c = *p;
         if (c == ',' || c == ' ' || c == '\t') flush();
         else if (bi < sizeof(buf) - 1) buf[bi++] = c;
+        else valid = false;
     }
     flush();
-    return m;
+    return valid;
 }
 
 Otr::Obj objFromName(const char *name)
@@ -265,7 +268,7 @@ bool parseLegendLine(char *line, LegendDef *defs, int &count, int lineNo, char *
     return true;
 }
 
-enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, ENEMIES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, QUESTS, NPC, NODE, LEGEND,
+enum Sec { NONE, META, ABOUT, RULES, MAP, TREASURES, ENEMIES, RESOURCES, DARK, FLAGS, COUNTERS, ITEMS, SHARED_ITEMS, QUESTS, NPC, NODE, LEGEND,
            PLATEGROUP, GATEGROUP, TIMEDGATE, ANDGATE };
 
 // Maps a "@tag" (without any arg) to a section. Returns false for an unknown tag.
@@ -282,6 +285,7 @@ bool secFromTag(const char *tag, Sec &sec)
     else if (!strcmp(tag, "@flags")) sec = FLAGS;
     else if (!strcmp(tag, "@counters")) sec = COUNTERS;
     else if (!strcmp(tag, "@items")) sec = ITEMS;
+    else if (!strcmp(tag, "@shareditems")) sec = SHARED_ITEMS;
     else if (!strcmp(tag, "@quests")) sec = QUESTS;
     else if (!strcmp(tag, "@legend")) sec = LEGEND;
     else if (!strcmp(tag, "@plategroup")) sec = PLATEGROUP;
@@ -538,10 +542,10 @@ bool parseDarkTokens(const char *s, Otr::DarkRect &out)
     int nt = 0;
     for (char *p = strtok(buf, " ,\t"); p && nt < 5; p = strtok(nullptr, " ,\t")) tok[nt++] = p;
     if (nt != 4) return false;
-    out.x0 = (uint8_t)atoi(tok[0]);
-    out.y0 = (uint8_t)atoi(tok[1]);
-    out.x1 = (uint8_t)atoi(tok[2]);
-    out.y1 = (uint8_t)atoi(tok[3]);
+    uint8_t values[4];
+    for (int i = 0; i < 4; ++i)
+        if (!byteNumber(tok[i], values[i])) return false;
+    out = {values[0], values[1], values[2], values[3]};
     return true;
 }
 
@@ -563,7 +567,7 @@ void Loaded::reset()
     memset(static_cast<void *>(this), 0, sizeof(*this));
 }
 
-bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
+static bool parseSingleMap(const char *text, size_t len, int requestedMap, Loaded &out, char *err, size_t errCap)
 {
     out.reset();
     Otr::Rules rules = {8, 20, (int8_t)Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
@@ -604,7 +608,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
         if (rawN && line[rawN - 1] == '\r') rawN--;
         line[rawN] = 0;
 
-        // Inside @map, only a new section or a blank line ends/skips a row; '#' is map data.
+        // Inside @map, '#' followed by whitespace starts a comment; other '#' glyphs are map data.
         if (sec == MAP) {
             char tmp[LINE_CAP];
             memcpy(tmp, line, rawN + 1);
@@ -612,6 +616,8 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             if (t[0] == '@') {
                 sec = NONE;   // fall through to section handling below
             } else if (t[0] == 0) {
+                continue;
+            } else if (t[0] == '#' && (t[1] == ' ' || t[1] == '\t')) {
                 continue;
             } else {
                 if (out.rowCount >= MAX_ROWS) { setErr(err, errCap, lineNo, "too many map rows"); return false; }
@@ -634,11 +640,11 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             if (space) { *space = 0; arg = trimIn(space + 1); }
             Sec ns;
             if (!secFromTag(t, ns)) { setErr(err, errCap, lineNo, "unknown section"); return false; }
-            if (arg && strstr(arg, "map=")) {
-                setErr(err, errCap, lineNo, "map selectors are not supported yet"); return false;
+            if (arg && strstr(arg, "map=") && ns != NPC) {
+                setErr(err, errCap, lineNo, "unexpected map selector after preprocessing"); return false;
             }
             if (ns == MAP && ((arg && arg[0] && arg[0] != '#') || out.rowCount)) {
-                setErr(err, errCap, lineNo, "multiple maps / map ids are not supported yet"); return false;
+                setErr(err, errCap, lineNo, "unexpected map declaration after preprocessing"); return false;
             }
             if (ns == ENEMIES && arg && arg[0] && arg[0] != '#') {
                 setErr(err, errCap, lineNo, "@enemies takes no arguments"); return false;
@@ -685,16 +691,37 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
             }
             if (ns == DARK && arg && arg[0]) {
                 // v0.18.0: inline rect on the header ("@dark x0,y0 x1,y1"). More rects may follow as
-                // body lines. Over MAX_DARK rects are silently dropped (clipped later in World::load).
+                // body lines; exceeding MAX_DARK is a structural error.
                 Otr::DarkRect dr{};
                 if (!parseDarkTokens(arg, dr)) { setErr(err, errCap, lineNo, "@dark needs 'x0,y0 x1,y1'"); return false; }
-                if (out.darkCount < Otr::MAX_DARK) out.darks[out.darkCount++] = dr;
+                if (out.darkCount >= Otr::MAX_DARK) { setErr(err, errCap, lineNo, "too many dark rectangles"); return false; }
+                out.darks[out.darkCount++] = dr;
             }
             if (ns == NPC) {
+                uint8_t npcMap = 1;
+                if (arg) {
+                    char *selector = strstr(arg, " map=");
+                    if (selector) {
+                        char *end = selector + 5;
+                        unsigned value = 0;
+                        if (!*end) { setErr(err, errCap, lineNo, "invalid NPC map selector"); return false; }
+                        for (; *end && *end != ' ' && *end != '\t'; ++end) {
+                            if (*end < '0' || *end > '9' || value > (255u - (unsigned)(*end - '0')) / 10u) {
+                                setErr(err, errCap, lineNo, "invalid NPC map selector"); return false;
+                            }
+                            value = value * 10u + (unsigned)(*end - '0');
+                        }
+                        if (!value) { setErr(err, errCap, lineNo, "invalid NPC map selector"); return false; }
+                        npcMap = (uint8_t)value;
+                        *selector = 0;
+                        arg = trimIn(arg);
+                    }
+                }
                 if (out.npcCount >= MAX_NPCS) { setErr(err, errCap, lineNo, "too many npcs"); return false; }
                 Npc &n = out.npcs[out.npcCount];
                 n = Npc{};
                 n.id = IN(arg ? arg : "");
+                n.mapId = npcMap;
                 out.npcCount++;
                 curNpc = out.npcCount - 1;
             } else if (ns == NODE) {
@@ -746,6 +773,11 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                     break;
                 }
                 stripCommentIn(v);
+                if (requestedMap != 1 &&
+                    (!strcmp(k, "start_energy") || !strcmp(k, "energy_cap") || !strcmp(k, "lives") ||
+                     !strcmp(k, "carry") || !strcmp(k, "reset"))) {
+                    setErr(err, errCap, lineNo, "energy, lives, carry, and reset rules are main-map-only"); return false;
+                }
                 if (!strcmp(k, "par")) {
                     uint16_t steps;
                     if (!positiveSteps(v, steps)) { setErr(err, errCap, lineNo, "par must be 1..65535"); return false; }
@@ -762,7 +794,11 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 else if (!strcmp(k, "suit_per_extra_max")) rules.suitPerExtraMax = (uint8_t)n;
                 else if (!strcmp(k, "potion_default")) rules.potionDefault = (uint8_t)n;
                 else if (!strcmp(k, "heart_default")) rules.heartDefault = (uint8_t)n;
-                else if (!strcmp(k, "fog")) rules.fog = (!strcmp(v, "true") || !strcmp(v, "1"));
+                else if (!strcmp(k, "fog")) {
+                    if (!strcmp(v, "true") || !strcmp(v, "1")) rules.fog = true;
+                    else if (!strcmp(v, "false") || !strcmp(v, "0")) rules.fog = false;
+                    else { setErr(err, errCap, lineNo, "fog must be true or false"); return false; }
+                }
                 // True minesweeper activator: mine_level 1..12. Alias minesweeper: true/yes/1 == 1.
                 // Implies fog (also forced on in World::load). Must stay in sync with tools/adv_parse.cpp.
                 else if (!strcmp(k, "mine_level")) {
@@ -771,9 +807,15 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                     if (rules.mineLevel) rules.fog = true;
                 } else if (!strcmp(k, "minesweeper")) {
                     if (!strcmp(v, "true") || !strcmp(v, "yes") || !strcmp(v, "1")) { rules.mineLevel = 1; rules.fog = true; }
+                    else if (strcmp(v, "false") && strcmp(v, "no") && strcmp(v, "0")) {
+                        setErr(err, errCap, lineNo, "minesweeper must be true or false"); return false;
+                    }
+                } else if (!strcmp(k, "carry")) {
+                    if (!maskFromTokens(v, out.carryMask)) { setErr(err, errCap, lineNo, "unknown carry token"); return false; }
+                } else if (!strcmp(k, "reset")) {
+                    if (!maskFromTokens(v, out.resetMask)) { setErr(err, errCap, lineNo, "unknown reset token"); return false; }
                 }
-                else if (!strcmp(k, "carry")) out.carryMask = maskFromTokens(v);
-                else if (!strcmp(k, "reset")) out.resetMask = maskFromTokens(v);
+                else { setErr(err, errCap, lineNo, "unknown @rules key"); return false; }
                 break;
             }
             case FLAGS: {
@@ -791,6 +833,7 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 break;
             }
             case ITEMS:
+            case SHARED_ITEMS:
             case QUESTS: {
                 // id : sv : en
                 char *c1 = strchr(t, ':');
@@ -799,18 +842,59 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 char *idp = trimIn(t);
                 char *rest = c1 + 1;
                 char *c2 = strchr(rest, ':');
+                char *capText = nullptr;
                 char *sv, *en;
                 if (!c2) { sv = trimIn(rest); en = rest + strlen(rest); }
-                else { *c2 = 0; sv = trimIn(rest); en = trimIn(c2 + 1); }
-                const bool isItems = (sec == ITEMS);
+                else {
+                    *c2 = 0;
+                    sv = trimIn(rest);
+                    char *enText = c2 + 1;
+                    char *c3 = strchr(enText, ':');
+                    if (c3) {
+                        *c3 = 0;
+                        capText = trimIn(c3 + 1);
+                    }
+                    en = trimIn(enText);
+                }
+                const bool isItems = (sec == ITEMS || sec == SHARED_ITEMS);
                 int &cnt = isItems ? out.itemCount : out.questCount;
                 const int cap = isItems ? MAX_ITEMS : MAX_QUESTS;
+                if (sec == SHARED_ITEMS) {
+                    char *third = c2 ? trimIn(c2 + 1) : nullptr;
+                    char *fourth = third ? strchr(third, ':') : nullptr;
+                    if (fourth) { *fourth = 0; capText = trimIn(fourth + 1); }
+                    uint8_t itemCap = 255;
+                    if (capText && (!byteNumber(capText, itemCap) || itemCap == 0)) {
+                        setErr(err, errCap, lineNo, "item cap must be 1..255"); return false;
+                    }
+                    for (int i = 0; i < out.itemCount; ++i) {
+                        if (!strcmp(out.items[i].id, idp)) {
+                            if (strcmp(out.items[i].name.s[0] ? out.items[i].name.s[0] : "", sv) ||
+                                strcmp(out.items[i].name.s[1] ? out.items[i].name.s[1] : "", en) ||
+                                out.items[i].cap != itemCap) {
+                                setErr(err, errCap, lineNo, "resource id has conflicting name or cap"); return false;
+                            }
+                            break;
+                        }
+                    }
+                    bool found = false;
+                    for (int i = 0; i < out.itemCount; ++i)
+                        if (!strcmp(out.items[i].id, idp)) { found = true; break; }
+                    if (found) break;
+                }
                 if (cnt >= cap) { setErr(err, errCap, lineNo, isItems ? "too many items" : "too many quests"); return false; }
                 Named &nm = (isItems ? out.items : out.quests)[cnt];
                 nm = Named{};
                 nm.id = IN(idp);
                 nm.name.s[0] = IN(sv);
                 nm.name.s[1] = en[0] ? IN(en) : nullptr;
+                if (isItems && capText) {
+                    uint8_t itemCap;
+                    if (!byteNumber(capText, itemCap) || itemCap == 0) {
+                        setErr(err, errCap, lineNo, "item cap must be 1..255"); return false;
+                    }
+                    nm.cap = itemCap;
+                }
                 cnt++;
                 break;
             }
@@ -848,13 +932,13 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 enemyLines[out.enemyCount++] = lineNo;
                 break;
             case DARK: {
-                // One dark rectangle per body line: "x0,y0 x1,y1". Over MAX_DARK rects are silently
-                // dropped (consistent with the inline @dark form).
+                // One dark rectangle per body line: "x0,y0 x1,y1". Exceeding MAX_DARK is an error.
                 stripCommentIn(t);
                 if (!t[0]) break;
                 Otr::DarkRect dr{};
                 if (!parseDarkTokens(t, dr)) { setErr(err, errCap, lineNo, "@dark rect needs 'x0,y0 x1,y1'"); return false; }
-                if (out.darkCount < Otr::MAX_DARK) out.darks[out.darkCount++] = dr;
+                if (out.darkCount >= Otr::MAX_DARK) { setErr(err, errCap, lineNo, "too many dark rectangles"); return false; }
+                out.darks[out.darkCount++] = dr;
                 break;
             }
             case LEGEND:
@@ -884,6 +968,9 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 if (strlen(f[1]) >= 40) { setErr(err, errCap, lineNo, "resource id too long"); return false; }
                 for (int i = 0; i < out.resourceCount; i++)
                     if (out.resources[i].glyph == g) { setErr(err, errCap, lineNo, "duplicate resource glyph"); return false; }
+                    else if (!strcmp(out.resources[i].id, f[1])) {
+                        setErr(err, errCap, lineNo, "duplicate resource id on this map"); return false;
+                    }
                 if (out.resourceCount >= MAX_RESOURCES) { setErr(err, errCap, lineNo, "too many resources"); return false; }
                 Resource &r = out.resources[out.resourceCount++];
                 r = Resource{};
@@ -905,13 +992,27 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
                 }
                 copyStr(r.image, sizeof(r.image), image);
                 // The resource IS a story item (so has:/give/take validate).
-                if (out.itemCount >= MAX_ITEMS) { setErr(err, errCap, lineNo, "too many items (resource)"); return false; }
-                Named &nm = out.items[out.itemCount++];
-                nm = Named{};
-                nm.id = IN(f[1]);
-                nm.name.s[0] = IN(nsv);
-                nm.name.s[1] = nen ? IN(nen) : nullptr;
-                nm.cap = r.cap;
+                int itemIndex = -1;
+                for (int i = 0; i < out.itemCount; ++i)
+                    if (!strcmp(out.items[i].id, f[1])) { itemIndex = i; break; }
+                if (itemIndex < 0) {
+                    if (out.itemCount >= MAX_ITEMS) { setErr(err, errCap, lineNo, "too many items (resource)"); return false; }
+                    itemIndex = out.itemCount++;
+                    Named &nm = out.items[itemIndex];
+                    nm = Named{};
+                    nm.id = IN(f[1]);
+                    nm.name.s[0] = IN(nsv);
+                    nm.name.s[1] = nen ? IN(nen) : nullptr;
+                    nm.cap = r.cap;
+                } else {
+                    const Named &nm = out.items[itemIndex];
+                    const char *oldEn = nm.name.s[1] ? nm.name.s[1] : "";
+                    if (strcmp(nm.name.s[0] ? nm.name.s[0] : "", nsv) ||
+                        strcmp(oldEn, nen ? nen : "") || nm.cap != r.cap) {
+                        setErr(err, errCap, lineNo, "resource id has conflicting name, cap, or image");
+                        return false;
+                    }
+                }
                 break;
             }
             case NPC: {
@@ -1137,6 +1238,681 @@ bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
     return true;
 }
 
+namespace {
+
+bool positiveId(const char *s, int &id)
+{
+    if (!s || !*s) return false;
+    unsigned n = 0;
+    for (; *s && *s != ' ' && *s != '\t' && *s != '\r'; ++s) {
+        if (*s < '0' || *s > '9' || n > (255u - (unsigned)(*s - '0')) / 10u) return false;
+        n = n * 10u + (unsigned)(*s - '0');
+    }
+    if (*s || n == 0) return false;
+    id = (int)n;
+    return true;
+}
+
+bool sameId(const int *ids, int count, int id)
+{
+    for (int i = 0; i < count; ++i) if (ids[i] == id) return true;
+    return false;
+}
+
+bool mapScopedTag(const char *tag)
+{
+    Sec sec;
+    if (!secFromTag(tag, sec)) return false;
+    return sec == MAP || sec == RULES || sec == TREASURES || sec == ENEMIES ||
+           sec == RESOURCES || sec == DARK || sec == LEGEND || sec == NPC ||
+           sec == PLATEGROUP || sec == GATEGROUP || sec == TIMEDGATE || sec == ANDGATE;
+}
+
+bool rowScopedSection(Sec sec)
+{
+    return sec == RULES || sec == TREASURES || sec == ENEMIES || sec == RESOURCES ||
+           sec == DARK;
+}
+
+bool isDestinationTag(const char *tag) { return !strcmp(tag, "@destinations"); }
+bool isPortalTag(const char *tag) { return !strcmp(tag, "@portals"); }
+
+bool scanMapIds(const char *text, size_t len, int *ids, int &count, char *err, size_t errCap)
+{
+    count = 0;
+    bool main = false;
+    size_t pos = 0;
+    int lineNo = 0;
+    while (pos < len) {
+        const size_t start = pos;
+        while (pos < len && text[pos] != '\n') ++pos;
+        const size_t n = pos - start;
+        if (pos < len) ++pos;
+        ++lineNo;
+        if (n >= LINE_CAP) { setErr(err, errCap, lineNo, "line too long"); return false; }
+        char line[LINE_CAP];
+        memcpy(line, text + start, n);
+        line[n] = 0;
+        char *t = trimIn(line);
+        if (strncmp(t, "@map", 4) || (t[4] && t[4] != ' ' && t[4] != '\t')) continue;
+        char *arg = trimIn(t + 4);
+        if (!*arg || arg[0] == '#') {
+            if (main) { setErr(err, errCap, lineNo, "duplicate @map (main map)"); return false; }
+            main = true;
+            if (sameId(ids, count, 1)) { setErr(err, errCap, lineNo, "duplicate map id 1"); return false; }
+            if (count == MAX_INTERNAL_MAPS) { setErr(err, errCap, lineNo, "too many internal maps (maximum 4)"); return false; }
+            ids[count++] = 1;
+            continue;
+        }
+        char *end = arg;
+        while (*end && *end != ' ' && *end != '\t' && *end != '#') ++end;
+        char saved = *end;
+        *end = 0;
+        int id;
+        const bool ok = positiveId(arg, id);
+        *end = saved;
+        const char *tail = end;
+        while (*tail == ' ' || *tail == '\t') ++tail;
+        if (!ok || (*tail && *tail != '#')) {
+            setErr(err, errCap, lineNo, "@map needs a positive id from 1 to 255"); return false;
+        }
+        if (id == 1) { setErr(err, errCap, lineNo, "main map id 1 uses @map without a number"); return false; }
+        if (sameId(ids, count, id)) { setErr(err, errCap, lineNo, "duplicate map id"); return false; }
+        if (count == MAX_INTERNAL_MAPS) { setErr(err, errCap, lineNo, "too many internal maps (maximum 4)"); return false; }
+        ids[count++] = id;
+    }
+    if (!main) { setErr(err, errCap, 0, "missing main @map"); return false; }
+    for (int i = 0; i < count; ++i) {
+        if (ids[i] == 1) {
+            const int first = ids[0];
+            ids[0] = 1;
+            ids[i] = first;
+            break;
+        }
+    }
+    return true;
+}
+
+bool appendText(char *out, size_t cap, size_t &used, const char *s, size_t n)
+{
+    if (n > cap - used) return false;
+    memcpy(out + used, s, n);
+    used += n;
+    return true;
+}
+
+bool appendLine(char *out, size_t cap, size_t &used, const char *s)
+{
+    const size_t n = strlen(s);
+    return appendText(out, cap, used, s, n) && appendText(out, cap, used, "\n", 1);
+}
+
+bool getMapSelector(char *s, int defaultMap, int &mapId, bool &hasSelector, char *err, size_t errCap, int lineNo)
+{
+    mapId = defaultMap;
+    hasSelector = false;
+    char *p = strstr(s, "map=");
+    if (!p) return true;
+    if (hasSelector || (p != s && p[-1] != ' ' && p[-1] != '\t')) {
+        setErr(err, errCap, lineNo, "invalid map selector"); return false;
+    }
+    char *value = p + 4;
+    unsigned id = 0;
+    char *end = value;
+    while (*end >= '0' && *end <= '9') {
+        const unsigned digit = (unsigned)(*end - '0');
+        if (id > (255u - digit) / 10u) { setErr(err, errCap, lineNo, "map selector out of range"); return false; }
+        id = id * 10u + digit;
+        ++end;
+    }
+    if (!id || (*end && *end != ' ' && *end != '\t' && *end != ':' && *end != '\r')) {
+        setErr(err, errCap, lineNo, "map selector must be map=N (1..255)"); return false;
+    }
+    mapId = (int)id;
+    hasSelector = true;
+    char *remove = p;
+    while (remove > s && (remove[-1] == ' ' || remove[-1] == '\t')) --remove;
+    memmove(remove, end, strlen(end) + 1);
+    if (strstr(s, "map=")) { setErr(err, errCap, lineNo, "duplicate map selector"); return false; }
+    return true;
+}
+
+bool preprocessMap(const char *text, size_t len, int selectedMap, const int *ids, int mapCount,
+                   char *out, size_t cap, size_t &outLen, char *err, size_t errCap)
+{
+    enum Special { ORDINARY, DESTS, PORTAL };
+    Sec sec = NONE;
+    Special special = ORDINARY;
+    int currentMap = 1, sectionMap = 1;
+    bool sectionSelected = true, npcSection = false, resourceShared = false;
+    outLen = 0;
+    size_t pos = 0;
+    int lineNo = 0;
+    while (pos < len) {
+        const size_t start = pos;
+        while (pos < len && text[pos] != '\n') ++pos;
+        size_t n = pos - start;
+        if (pos < len) ++pos;
+        ++lineNo;
+        if (n >= LINE_CAP) { setErr(err, errCap, lineNo, "line too long"); return false; }
+        char line[LINE_CAP];
+        memcpy(line, text + start, n);
+        line[n] = 0;
+        char tmp[LINE_CAP];
+        copyStr(tmp, sizeof(tmp), line);
+        char *trimmed = trimIn(tmp);
+
+        if (trimmed[0] == '@') {
+            char *space = strpbrk(trimmed, " \t");
+            char *arg = nullptr;
+            if (space) { *space = 0; arg = trimIn(space + 1); }
+            const char *tag = trimmed;
+            if (!strcmp(tag, "@shareditems")) {
+                setErr(err, errCap, lineNo, "reserved internal loader directive");
+                return false;
+            }
+            if (!strcmp(tag, "@map")) {
+                int id = 1;
+                if (arg && arg[0] && arg[0] != '#') {
+                    char idText[8];
+                    copyStr(idText, sizeof(idText), arg);
+                    char *tail = strpbrk(idText, " \t#");
+                    if (tail) {
+                        const char *rest = tail;
+                        while (*rest == ' ' || *rest == '\t') ++rest;
+                        if (*rest && *rest != '#') {
+                            setErr(err, errCap, lineNo, "@map takes one id"); return false;
+                        }
+                        *tail = 0;
+                    }
+                    if (!positiveId(idText, id)) { setErr(err, errCap, lineNo, "@map needs a positive id from 1 to 255"); return false; }
+                }
+                if (!sameId(ids, mapCount, id)) { setErr(err, errCap, lineNo, "map declaration was not validated"); return false; }
+                currentMap = id;
+                sec = MAP;
+                special = ORDINARY;
+                sectionMap = id;
+                sectionSelected = (id == selectedMap);
+                npcSection = false;
+                if (sectionSelected && !appendLine(out, cap, outLen, "@map")) {
+                    setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+                }
+                continue;
+            }
+
+            if (isDestinationTag(tag) || isPortalTag(tag)) {
+                special = isDestinationTag(tag) ? DESTS : PORTAL;
+                sec = NONE;
+                sectionSelected = false;
+                continue;
+            }
+            Sec newSec;
+            const bool known = secFromTag(tag, newSec);
+            int headerMap = 1;
+            bool headerHasMap = false;
+            char headerArg[LINE_CAP] = {};
+            if (arg) copyStr(headerArg, sizeof(headerArg), arg);
+            if (known && strstr(headerArg, "map=")) {
+                if (!mapScopedTag(tag)) {
+                    setErr(err, errCap, lineNo, "map selector is not valid for this section"); return false;
+                }
+                if (!getMapSelector(headerArg, 1, headerMap, headerHasMap, err, errCap, lineNo)) return false;
+                if (!sameId(ids, mapCount, headerMap)) { setErr(err, errCap, lineNo, "map selector references undeclared map"); return false; }
+            } else if (known && mapScopedTag(tag)) {
+                headerMap = 1;
+            }
+            if (!known) {
+                // Let the production parser report unknown tags, including their line number.
+                if (!appendLine(out, cap, outLen, line)) {
+                    setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+                }
+                sec = NONE;
+                special = ORDINARY;
+                sectionSelected = true;
+                continue;
+            }
+            special = ORDINARY;
+            sec = newSec;
+            npcSection = (newSec == NPC);
+            sectionMap = headerMap;
+            sectionSelected = !mapScopedTag(tag) || headerMap == selectedMap || npcSection ||
+                              rowScopedSection(newSec);
+            if (newSec == RESOURCES) resourceShared = headerMap != selectedMap;
+            if (!sectionSelected) continue;
+
+            char normalized[LINE_CAP];
+            size_t normalizedLen = 0;
+            char mapText[3];
+            int mapDigits = 0;
+            int mapValue = headerMap;
+            do { mapText[mapDigits++] = (char)('0' + mapValue % 10); mapValue /= 10; } while (mapValue);
+            for (int i = 0; i < mapDigits / 2; ++i) {
+                const char t = mapText[i];
+                mapText[i] = mapText[mapDigits - 1 - i];
+                mapText[mapDigits - 1 - i] = t;
+            }
+            const bool normalizedOk = appendText(normalized, sizeof(normalized) - 1, normalizedLen, tag, strlen(tag)) &&
+                (!(arg && arg[0]) || (appendText(normalized, sizeof(normalized) - 1, normalizedLen, " ", 1) &&
+                                       appendText(normalized, sizeof(normalized) - 1, normalizedLen,
+                                                  headerArg, strlen(headerArg)))) &&
+                (!npcSection || (appendText(normalized, sizeof(normalized) - 1, normalizedLen, " map=", 5) &&
+                                 appendText(normalized, sizeof(normalized) - 1, normalizedLen,
+                                            mapText, (size_t)mapDigits)));
+            if (!normalizedOk) { setErr(err, errCap, lineNo, "section header too long"); return false; }
+            normalized[normalizedLen] = 0;
+            if (newSec == DARK && headerMap != selectedMap) {
+                if (!appendLine(out, cap, outLen, "@dark")) {
+                    setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+                }
+            } else if (newSec == RESOURCES && headerMap != selectedMap) {
+                if (!appendLine(out, cap, outLen, "@shareditems")) {
+                    setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+                }
+            } else if (!appendLine(out, cap, outLen, normalized)) {
+                setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+            }
+            continue;
+        }
+
+        if (special != ORDINARY) continue;
+        if (sec == MAP) {
+            if (currentMap == selectedMap &&
+                !appendLine(out, cap, outLen, line)) {
+                setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+            }
+            continue;
+        }
+        if (!sectionSelected) continue;
+        char *body = trimIn(line);
+        int bodyMap = sectionMap;
+        if (body[0] == 0 || body[0] == '#') {
+            if (!appendLine(out, cap, outLen, line)) {
+                setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+            }
+            continue;
+        }
+        if (rowScopedSection(sec) && !strncmp(body, "map=", 4)) {
+            char *colon = strchr(body, ':');
+            int rowMap;
+            if (!colon) {
+                setErr(err, errCap, lineNo, "map row needs 'map=N:'"); return false;
+            }
+            *colon = 0;
+            if (!positiveId(body + 4, rowMap) || !sameId(ids, mapCount, rowMap)) {
+                setErr(err, errCap, lineNo, "map selector references undeclared map"); return false;
+            }
+            bodyMap = rowMap;
+            body = trimIn(colon + 1);
+            if (rowMap != selectedMap && sec != RESOURCES) continue;
+        }
+        if (mapScopedTag(sec == NPC ? "@npc" : sec == RULES ? "@rules" :
+                         sec == TREASURES ? "@treasures" : sec == ENEMIES ? "@enemies" :
+                         sec == RESOURCES ? "@resources" : sec == DARK ? "@dark" :
+                         sec == LEGEND ? "@legend" : sec == PLATEGROUP ? "@plategroup" :
+                         sec == GATEGROUP ? "@gategroup" : sec == TIMEDGATE ? "@timedgate" :
+                         sec == ANDGATE ? "@andgate" : "") &&
+            sec != NPC && bodyMap != selectedMap) {
+            if (sec != RESOURCES) continue;
+        }
+        if (sec == RESOURCES && (bodyMap != selectedMap) != resourceShared) {
+            const char *tag = bodyMap == selectedMap ? "@resources" : "@shareditems";
+            if (!appendLine(out, cap, outLen, tag)) {
+                setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+            }
+            resourceShared = bodyMap != selectedMap;
+        }
+        if (sec == RESOURCES && bodyMap != selectedMap) {
+            char resource[LINE_CAP];
+            copyStr(resource, sizeof(resource), body);
+            stripCommentIn(resource);
+            char *field[6] = {};
+            int count = 0;
+            char *part = resource;
+            while (count < 6) {
+                char *colon = strchr(part, ':');
+                if (colon) *colon = 0;
+                field[count++] = trimIn(part);
+                if (!colon) break;
+                part = colon + 1;
+            }
+            if (count < 2 || !field[1][0]) {
+                setErr(err, errCap, lineNo, "resource needs 'glyph : id : name.sv : name.en : max : image'"); return false;
+            }
+            const char *sv = count >= 3 && field[2][0] ? field[2] : field[1];
+            const char *en = count >= 4 ? field[3] : "";
+            const char *capText = count >= 5 && field[4][0] ? field[4] : "1";
+            char shared[LINE_CAP];
+            snprintf(shared, sizeof(shared), "%s : %s : %s : %s", field[1], sv, en, capText);
+            if (!appendLine(out, cap, outLen, shared)) {
+                setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+            }
+            continue;
+        }
+        if (!appendLine(out, cap, outLen, body)) {
+            setErr(err, errCap, lineNo, "map preprocessing capacity exceeded"); return false;
+        }
+    }
+    return true;
+}
+
+bool validEntityName(const char *name)
+{
+    if (!name || !*name || strlen(name) >= DESTINATION_NAME_CAP) return false;
+    for (const char *p = name; *p; ++p)
+        if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+               (*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) return false;
+    return true;
+}
+
+uint32_t hashText(const char *s)
+{
+    uint32_t hash = 2166136261u;
+    for (; *s; ++s) hash = (hash ^ (uint8_t)*s) * 16777619u;
+    return hash;
+}
+
+bool validateGlobalResources(const char *text, size_t len, const int *mapIds, int mapCount,
+                             char *err, size_t errCap)
+{
+    struct Identity {
+        char id[40];
+        uint32_t nameSv, nameEn, image;
+        uint8_t cap;
+    } identities[MAX_ITEMS] = {};
+    int identityCount = 0, lineNo = 0, sectionMap = 1;
+    bool resources = false;
+    size_t pos = 0;
+    while (pos < len) {
+        const size_t start = pos;
+        while (pos < len && text[pos] != '\n') ++pos;
+        const size_t n = pos - start;
+        if (pos < len) ++pos;
+        ++lineNo;
+        if (n >= LINE_CAP) { setErr(err, errCap, lineNo, "line too long"); return false; }
+        char line[LINE_CAP];
+        memcpy(line, text + start, n);
+        line[n] = 0;
+        char *t = trimIn(line);
+        if (!t[0] || t[0] == '#') continue;
+        if (t[0] == '@') {
+            char *space = strpbrk(t, " \t");
+            char *arg = nullptr;
+            if (space) { *space = 0; arg = trimIn(space + 1); }
+            resources = !strcmp(t, "@resources");
+            sectionMap = 1;
+            if (resources && arg && strstr(arg, "map=")) {
+                bool found;
+                if (!getMapSelector(arg, 1, sectionMap, found, err, errCap, lineNo) ||
+                    !found || !sameId(mapIds, mapCount, sectionMap)) {
+                    setErr(err, errCap, lineNo, "resource references undeclared map"); return false;
+                }
+            }
+            continue;
+        }
+        if (!resources) continue;
+        int map = sectionMap;
+        if (!strncmp(t, "map=", 4)) {
+            char *colon = strchr(t, ':');
+            if (!colon) { setErr(err, errCap, lineNo, "resource row needs 'map=N:'"); return false; }
+            *colon = 0;
+            if (!positiveId(t + 4, map) || !sameId(mapIds, mapCount, map)) {
+                setErr(err, errCap, lineNo, "resource references undeclared map"); return false;
+            }
+            t = trimIn(colon + 1);
+        }
+        stripCommentIn(t);
+        if (!t[0] || t[0] == '#') continue;
+        char *f[6] = {};
+        int nf = 0;
+        char *part = t;
+        while (nf < 6) {
+            char *colon = strchr(part, ':');
+            if (colon) *colon = 0;
+            f[nf++] = trimIn(part);
+            if (!colon) break;
+            part = colon + 1;
+        }
+        if (nf < 2 || strlen(f[0]) != 1 || !f[1][0] || strlen(f[1]) >= sizeof(identities[0].id)) {
+            setErr(err, errCap, lineNo, "resource needs 'glyph : id : name.sv : name.en : max : image'"); return false;
+        }
+        const char *sv = nf >= 3 && f[2][0] ? f[2] : f[1];
+        const char *en = nf >= 4 ? f[3] : "";
+        unsigned cap = nf >= 5 && f[4][0] ? 0u : 1u;
+        if (nf >= 5 && f[4][0]) {
+            for (const char *p = f[4]; *p; ++p) {
+                if (*p < '0' || *p > '9' || cap > (255u - (unsigned)(*p - '0')) / 10u) {
+                    setErr(err, errCap, lineNo, "resource cap must be 1..255"); return false;
+                }
+                cap = cap * 10u + (unsigned)(*p - '0');
+            }
+            if (!cap) { setErr(err, errCap, lineNo, "resource cap must be 1..255"); return false; }
+        }
+        const char *image = nf >= 6 ? f[5] : "";
+        const size_t imageLen = strlen(image);
+        if (imageLen >= 40 || strstr(image, "..") || strpbrk(image, "/\\:") ||
+            (image[0] && (imageLen < 5 || strcasecmp(image + imageLen - 4, ".png")))) {
+            setErr(err, errCap, lineNo, "resource image must be a PNG filename (max 39 bytes)"); return false;
+        }
+        const uint32_t svHash = hashText(sv), enHash = hashText(en), imageHash = hashText(image);
+        int found = -1;
+        for (int i = 0; i < identityCount; ++i)
+            if (!strcmp(identities[i].id, f[1])) { found = i; break; }
+        if (found >= 0) {
+            const Identity &identity = identities[found];
+            if (identity.nameSv != svHash || identity.nameEn != enHash ||
+                identity.image != imageHash || identity.cap != cap) {
+                setErr(err, errCap, lineNo, "resource id has conflicting name, cap, or image"); return false;
+            }
+        } else {
+            if (identityCount >= MAX_ITEMS) { setErr(err, errCap, lineNo, "too many global resource ids"); return false; }
+            Identity &identity = identities[identityCount++];
+            copyStr(identity.id, sizeof(identity.id), f[1]);
+            identity.nameSv = svHash;
+            identity.nameEn = enHash;
+            identity.image = imageHash;
+            identity.cap = (uint8_t)cap;
+        }
+        (void)map;
+    }
+    return true;
+}
+
+bool parseNamedLines(const char *text, size_t len, Loaded &out, const int *mapIds, int mapCount,
+                     char *err, size_t errCap)
+{
+    size_t pos = 0;
+    int lineNo = 0, section = 0, sectionMap = 1;
+    while (pos < len) {
+        const size_t start = pos;
+        while (pos < len && text[pos] != '\n') ++pos;
+        size_t n = pos - start;
+        if (pos < len) ++pos;
+        ++lineNo;
+        if (n >= LINE_CAP) { setErr(err, errCap, lineNo, "line too long"); return false; }
+        char line[LINE_CAP];
+        memcpy(line, text + start, n);
+        line[n] = 0;
+        char *t = trimIn(line);
+        if (!t[0] || t[0] == '#') continue;
+        if (t[0] == '@') {
+            char *space = strpbrk(t, " \t");
+            char *arg = nullptr;
+            if (space) { *space = 0; arg = trimIn(space + 1); }
+            if (!strcmp(t, "@destinations")) section = 1;
+            else if (!strcmp(t, "@portals")) section = 2;
+            else { section = 0; continue; }
+            sectionMap = 1;
+            if (arg && strstr(arg, "map=")) {
+                bool found;
+                if (!getMapSelector(arg, 1, sectionMap, found, err, errCap, lineNo) ||
+                    !found || !sameId(mapIds, mapCount, sectionMap)) {
+                    setErr(err, errCap, lineNo, "invalid or undeclared map selector"); return false;
+                }
+            } else if (arg && arg[0]) {
+                setErr(err, errCap, lineNo, "destination/portal section takes only map=N"); return false;
+            }
+            continue;
+        }
+        if (!section) continue;
+        int map = sectionMap;
+        if (!strncmp(t, "map=", 4)) {
+            char *colon = strchr(t, ':');
+            if (!colon) { setErr(err, errCap, lineNo, "map row needs 'map=N:'"); return false; }
+            *colon = 0;
+            if (!positiveId(t + 4, map) || !sameId(mapIds, mapCount, map)) {
+                setErr(err, errCap, lineNo, "destination/portal references undeclared map"); return false;
+            }
+            t = trimIn(colon + 1);
+        }
+        stripCommentIn(t);
+        if (!t[0]) continue;
+        if (section == 1) {
+            char *name = strtok(t, " \t");
+            char *coordinate = strtok(nullptr, " \t");
+            if (!validEntityName(name) || !coordinate || strtok(nullptr, " \t")) {
+                setErr(err, errCap, lineNo, "destination needs 'name x,y'"); return false;
+            }
+            int x, y;
+            if (!parseCoordinate(coordinate, x, y) || out.destinationCount >= MAX_DESTINATIONS) {
+                setErr(err, errCap, lineNo, out.destinationCount >= MAX_DESTINATIONS ? "too many destinations (maximum 32)" : "invalid destination coordinate");
+                return false;
+            }
+            for (int i = 0; i < out.destinationCount; ++i)
+                if (!strcmp(out.destinations[i].name, name)) {
+                    setErr(err, errCap, lineNo, "duplicate destination name"); return false;
+                }
+            Destination &d = out.destinations[out.destinationCount++];
+            copyStr(d.name, sizeof(d.name), name);
+            d.mapId = (uint8_t)map;
+            d.x = (uint8_t)x;
+            d.y = (uint8_t)y;
+        } else {
+            char *arrow = strstr(t, "->");
+            if (!arrow) { setErr(err, errCap, lineNo, "portal needs 'x,y -> destination'"); return false; }
+            *arrow = 0;
+            char *source = trimIn(t);
+            char *destination = trimIn(arrow + 2);
+            if (!validEntityName(destination) || strtok(destination, " \t") == nullptr ||
+                strtok(nullptr, " \t")) {
+                setErr(err, errCap, lineNo, "portal needs one destination name"); return false;
+            }
+            int x, y;
+            if (!parseCoordinate(source, x, y) || out.portalCount >= MAX_PORTALS) {
+                setErr(err, errCap, lineNo, out.portalCount >= MAX_PORTALS ? "too many portals (maximum 32)" : "invalid portal source coordinate");
+                return false;
+            }
+            for (int i = 0; i < out.portalCount; ++i)
+                if (out.portals[i].mapId == map && out.portals[i].x == x && out.portals[i].y == y) {
+                    setErr(err, errCap, lineNo, "duplicate portal source"); return false;
+                }
+            Portal &p = out.portals[out.portalCount++];
+            p.mapId = (uint8_t)map;
+            p.x = (uint8_t)x;
+            p.y = (uint8_t)y;
+            copyStr(p.destination, sizeof(p.destination), destination);
+        }
+    }
+    for (int i = 0; i < out.portalCount; ++i) {
+        bool found = false;
+        for (int j = 0; j < out.destinationCount; ++j)
+            if (!strcmp(out.portals[i].destination, out.destinations[j].name)) found = true;
+        if (!found) { setErr(err, errCap, 0, "portal references missing destination"); return false; }
+    }
+    return true;
+}
+
+bool validateTravelEffects(const Loaded &out, char *err, size_t errCap)
+{
+    auto check = [&](const char *effects) {
+        if (!effects) return true;
+        const char *p = effects;
+        while (*p) {
+            while (*p == ' ' || *p == ';') ++p;
+            const char *end = strchr(p, ';');
+            const size_t n = end ? (size_t)(end - p) : strlen(p);
+            if (n >= LINE_CAP) return false;
+            char line[LINE_CAP];
+            memcpy(line, p, n);
+            line[n] = 0;
+            char *word = strtok(line, " \t");
+            char *verb = strtok(nullptr, " \t");
+            char *name = strtok(nullptr, " \t");
+            char *extra = strtok(nullptr, " \t");
+            if (word && verb && name && !strcmp(word, "world") && !strcmp(verb, "travel")) {
+                if (extra) return false;
+                bool found = false;
+                for (int i = 0; i < out.destinationCount; ++i)
+                    if (!strcmp(name, out.destinations[i].name)) found = true;
+                if (!found) return false;
+            }
+            p = end ? end + 1 : p + n;
+        }
+        return true;
+    };
+    for (int i = 0; i < out.nodeCount; ++i) {
+        if (!check(out.nodes[i].effects)) { setErr(err, errCap, 0, "story travel references unknown destination"); return false; }
+        for (int j = 0; j < Otr::Story::MAX_CHOICES; ++j)
+            if (!check(out.nodes[i].choices[j].effects)) {
+                setErr(err, errCap, 0, "story travel references unknown destination"); return false;
+            }
+    }
+    return true;
+}
+
+} // namespace
+
+bool parseMap(const char *text, size_t len, int internalMapId, Loaded &out, char *err, size_t errCap)
+{
+    if (!text || internalMapId < 1 || internalMapId > 255) {
+        if (err && errCap) snprintf(err, errCap, "invalid map input or id");
+        return false;
+    }
+    if (len > MAX_FILE) {
+        if (err && errCap) snprintf(err, errCap, "file too large (maximum 64 KiB)");
+        return false;
+    }
+    int ids[MAX_INTERNAL_MAPS] = {};
+    int mapCount = 0;
+    if (!scanMapIds(text, len, ids, mapCount, err, errCap)) return false;
+    if (!sameId(ids, mapCount, internalMapId)) {
+        if (err && errCap) snprintf(err, errCap, "requested internal map %d is not declared", internalMapId);
+        return false;
+    }
+    void *memory = nullptr;
+#if defined(ESP_PLATFORM)
+    memory = heap_caps_malloc(MAX_FILE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    memory = malloc(MAX_FILE * 2);
+#endif
+    if (!memory) {
+        if (err && errCap) snprintf(err, errCap, "out of memory preprocessing maps");
+        return false;
+    }
+    size_t preparedLen = 0;
+    const bool prepared = preprocessMap(text, len, internalMapId, ids, mapCount,
+                                        static_cast<char *>(memory), MAX_FILE * 2, preparedLen, err, errCap);
+    bool ok = false;
+    if (prepared) {
+        ok = parseSingleMap(static_cast<const char *>(memory), preparedLen, internalMapId, out, err, errCap);
+        if (ok) {
+            out.internalMapId = internalMapId;
+            out.internalMapCount = mapCount;
+            memcpy(out.internalMapIds, ids, sizeof(ids));
+            if (mapCount > 1) out.map.id = (uint8_t)internalMapId;
+            if (!parseNamedLines(text, len, out, ids, mapCount, err, errCap) ||
+                !validateGlobalResources(text, len, ids, mapCount, err, errCap) ||
+                !validateTravelEffects(out, err, errCap)) ok = false;
+        }
+    }
+    free(memory);
+    return ok;
+}
+
+bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap)
+{
+    return parseMap(text, len, 1, out, err, errCap);
+}
+
 bool parseFile(const char *path, Loaded &out, char *err, size_t errCap)
 {
     FILE *f = fopen(path, "rb");
@@ -1158,6 +1934,30 @@ bool parseFile(const char *path, Loaded &out, char *err, size_t errCap)
     buf[n] = 0;
     const bool ok = parse(buf, n, out, err, errCap);
     free(buf);   // free() handles heap_caps_malloc pointers on ESP-IDF
+    return ok;
+}
+
+bool parseMapFile(const char *path, int internalMapId, Loaded &out, char *err, size_t errCap)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) { if (err && errCap) snprintf(err, errCap, "cannot open %s", path); return false; }
+    fseek(f, 0, SEEK_END);
+    const long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0 || (size_t)sz > MAX_FILE) { fclose(f); if (err && errCap) snprintf(err, errCap, "file too large"); return false; }
+    char *buf = nullptr;
+#if defined(ESP_PLATFORM)
+    buf = (char *)heap_caps_malloc((size_t)sz + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) buf = (char *)heap_caps_malloc((size_t)sz + 1, MALLOC_CAP_8BIT);
+#else
+    buf = (char *)malloc((size_t)sz + 1);
+#endif
+    if (!buf) { fclose(f); if (err && errCap) snprintf(err, errCap, "out of memory"); return false; }
+    const size_t n = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[n] = 0;
+    const bool ok = parseMap(buf, n, internalMapId, out, err, errCap);
+    free(buf);
     return ok;
 }
 

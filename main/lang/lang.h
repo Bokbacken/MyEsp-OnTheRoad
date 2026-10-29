@@ -322,6 +322,7 @@
     X(ADV_DIED_LEFT) \
     X(ADV_GAME_OVER_Q) \
     X(ADV_CHECKPOINT) \
+    X(ADV_PORTAL_BLOCKED) \
     X(ADV_EXIT) \
     X(ADV_SAVED) \
     X(ADV_SAVE_FAIL) \

@@ -22,6 +22,22 @@ namespace Adv {
 
 class SdSession : public Otr::ItemCollector {
 public:
+    enum PortalResult : uint8_t {
+        PORTAL_NONE,
+        PORTAL_TRAVELLED,
+        PORTAL_BLOCKED,
+        PORTAL_CHECKPOINT_RESPAWNED,
+        PORTAL_FAILED
+    };
+
+    static constexpr size_t WORLD_IMAGE_CAP =
+        16 + 32 + 7 * Otr::MAX_W * Otr::MAX_H + 6 + 8 + 2 * Otr::PLATE_GROUPS +
+        1 + 6 + 4 * Otr::MAX_ENEMIES + 4;
+    static constexpr size_t SAVE_CAP = 56 + WORLD_IMAGE_CAP + Otr::Story::StoryState::SAVE_BYTES +
+        12 + (MAX_INTERNAL_MAPS - 1) * (6 + WORLD_IMAGE_CAP);
+
+    ~SdSession() { clear(); }
+
     bool collect(uint8_t item) override;
     // Loads the first map of adventure `e` (found under `root`) into `w`, clears `story`, builds the
     // script into `scratch` and points `outScript` at it (nullptr when the map has no dialogue).
@@ -40,6 +56,22 @@ public:
     // first to tell "adventure complete" from "load error".
     bool travel(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
                 const Otr::Story::Script *&outScript, char *err, size_t errCap);
+
+    int currentMapId() const;
+    bool hasInternalMaps() const { return internalMapCount_ > 1; }
+    int internalMapCount() const { return internalMapCount_; }
+    int checkpointMapId() const;
+    PortalResult afterAction(int oldX, int oldY, uint32_t events, Loaded &scratch, Otr::World &w,
+                             Otr::Story::StoryState &story, const Otr::Story::Script *&outScript,
+                             char *err, size_t errCap);
+    bool travelToDestination(const char *name, Loaded &scratch, Otr::World &w,
+                             Otr::Story::StoryState &story, const Otr::Story::Script *&outScript,
+                             char *err, size_t errCap);
+    bool applyWorldActionOnMap(const char *verb, int mapId, int argc, const int *argv,
+                               Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
+                               const Otr::Story::Script *&outScript, char *err, size_t errCap);
+    bool respawnAtCheckpoint(Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
+                             const Otr::Story::Script *&outScript, char *err, size_t errCap);
 
     bool hasNext() const { return mapIndex_ + 1 < mapCount_; }
     int mapIndex() const { return mapIndex_; }
@@ -61,7 +93,7 @@ public:
     void clear();
 
     static constexpr uint32_t SAVE_MAGIC = 0x53564441;   // "ADVS"
-    static constexpr uint16_t SAVE_VERSION = 1;
+    static constexpr uint16_t SAVE_VERSION = 2;
 
 private:
     Otr::Story::StoryState *inventory_ = nullptr;
@@ -69,6 +101,18 @@ private:
     // Parses map `index` into scratch, loads it into the world/story, points outScript at it.
     bool loadMapInto(int index, Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
                      const Otr::Story::Script *&outScript, char *err, size_t errCap);
+    bool loadInternalMap(int index, Loaded &scratch, Otr::World &w, Otr::Story::StoryState &story,
+                         const Otr::Story::Script *&outScript, char *err, size_t errCap);
+    bool saveInternalWorld(int index, const Otr::World &w);
+    bool switchInternalMap(int index, int x, int y, Loaded &scratch, Otr::World &w,
+                           Otr::Story::StoryState &story, const Otr::Story::Script *&outScript,
+                           char *err, size_t errCap);
+    bool validateInternalMaps(Loaded &scratch, char *err, size_t errCap);
+    bool destination(const Loaded &loaded, const char *name, int &mapId, int &x, int &y) const;
+    bool applySharedPlayer(const Otr::World &source, Otr::World &destination) const;
+    bool restoreMultimap(const uint8_t *data, size_t n, Loaded &scratch, Otr::World &w,
+                         Otr::Story::StoryState &story, const Otr::Story::Script *&outScript,
+                         char *err, size_t errCap);
 
     char root_[64] = {0};
     char folder_[FOLDER_CAP] = {0};
@@ -76,6 +120,19 @@ private:
     int mapCount_ = 0;
     int mapIndex_ = 0;
     bool completed_ = false;
+    bool multimap_ = false;
+    int internalMapIds_[MAX_INTERNAL_MAPS] = {};
+    int internalMapCount_ = 0;
+    int internalIndex_ = 0;
+    uint8_t *worldImages_[MAX_INTERNAL_MAPS] = {};
+    size_t worldImageSizes_[MAX_INTERNAL_MAPS] = {};
+    bool visited_[MAX_INTERNAL_MAPS] = {};
+    uint32_t fileSignature_ = 0;
+    int checkpointIndex_ = 0;
+    uint8_t checkpointX_ = 0, checkpointY_ = 0;
+    bool portalSuppressed_ = false;
+    uint8_t suppressedMapId_ = 0, suppressedX_ = 0, suppressedY_ = 0;
+    Otr::Rules mainRules_{};
 };
 
 }  // namespace Adv

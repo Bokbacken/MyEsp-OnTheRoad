@@ -14,10 +14,13 @@ Versionsnumren i demohänvisningarna anger när respektive mekanik introducerade
 inte att den bara stöds i den versionen. I repot är äventyrsmotorns senaste
 dokumenterade version 0.21.2; tidigare mekanik finns kvar.
 
-**0.21.2:** `@resources` är nu spelbara pickups, inte bara metadata.
+**0.21.2:** `@resources` är spelbara pickups, inte bara metadata.
 [Resursprovet](adventures/z_resource_test/README.md) kan kopieras direkt till SD.
-[Flerkartsformatet](ADVENTURE_MULTIMAP_FORMAT.md) är **enbart framtida
-specifikation**; `@map 2`, `map=2:` och portaler stöds ännu inte.
+[Flerkartor och portaler](ADVENTURE_MULTIMAP_FORMAT.md) stöds också i
+produktionsladdaren. Upp till fyra interna kartor kan dela story/inventory,
+ha egna grupper/fiender/regler och bevara ändringar vid återbesök. Se det
+[spelbara portalprovet](adventures/multimap_portals/README.md). Hostens
+referensparser `tools/adv_parse.*` är äldre och stöder inte syntaxen.
 
 Exempel på en fristående resurskarta i dagens format:
 
@@ -194,7 +197,12 @@ eller flera enskilda rutor, inte en rektangel:
 
 Detta tilldelar tre plattor och två grindar till grupp 1. Koordinaterna måste
 peka på redan placerade plattor respektive grindar på din karta. Exemplen
-anger inget kart-id; flera kartor i samma fil stöds ännu inte.
+pekar på vald karta. Ange `map=2` på taggraden för en annan karta:
+
+```text
+@plategroup 1 map=2: 4,3
+@gategroup 1 map=2: 5,3
+```
 
 För att blanda plattor och spakar krävs
 `@andgate <grupp>` (även `@group <grupp>: and`): spaken måste vara ON **och** alla plattor rätt täckta.
@@ -226,7 +234,8 @@ hörn, inklusive båda:
 
 Här blir två rektanglar mörka. En enda mörk ruta anges som `4,3 4,3`.
 En rektangel kan också skrivas direkt på taggraden: `@dark 2,2 9,6`.
-Koordinaterna är nollbaserade, och något kart-id stöds inte ännu. Se
+Koordinaterna är nollbaserade. I en flerkartsfil kan sektionen anges med
+`@dark map=2` eller enstaka rad med `map=2:`. Se
 [mörker och ficklampa](AUTHORING_ADVENTURES.md#10a-dark--mörka-områden)
 för fullständiga regler.
 
@@ -280,9 +289,24 @@ minor; `X` behövs inte för seger i minsveparläge. Gör en separat `.adv`-fil 
 kampanjnivå och ge dem numrerade filnamn. Ett komplett 12-banors exempel finns i
 [`docs/adventures/generated/minkampanj/`](adventures/generated/minkampanj/).
 
-## 6. Kontrollera filen
+## 6. Flerkartor och portaler
+
+En fil kan ha huvudkartan `@map` (id 1) och upp till tre extra kartor:
+`@map 2`, `@map 3` osv. Varje karta är fortfarande max 80×80 och kräver en
+`S`. Väljare som saknas betyder alltid huvudkartan, oavsett var direktivet
+står. Sektioner som `@rules`, `@enemies`, `@resources` och `@dark` kan välja
+karta på taggen; flera listor accepterar även `map=2:` per rad.
+
+Destinationer namnges i `@destinations`, och rutor i `@portals` länkar till
+namnen. Portalresor kostar ingen extra tur; en blockerad ankomst avvisas utan
+att ändra hindret. Besökta kartor och tvärkart-checkpoint sparas tillsammans.
+Energi/liv och resursinventory delas; kartlokala grupper, fiender och
+mörkerlag behåller separata tillstånd. Fullständig syntax, kapaciteter och
+save-buffer-krav finns i [flerkartsreferensen](ADVENTURE_MULTIMAP_FORMAT.md).
+
+## 7. Kontrollera filen
 
 Ny syntax ska kontrolleras med produktionsladdaren. `tools/adv_parse.*` är
 fortfarande en S1-referensparser och validerar inte S2–S4. Kör hosttestet för
 produktionsloadern eller motsvarande demo enligt kommandona i
-[författarguidens valideringsavsnitt](AUTHORING_ADVENTURES.md#13-importexport-status).
+[författarguidens valideringsavsnitt](AUTHORING_ADVENTURES.md#14-importexport-status).

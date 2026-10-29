@@ -13,6 +13,7 @@
 //   -o tests/test_adv_loader && ./tests/test_adv_loader
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -95,6 +96,28 @@ static void testGenerated()
         "docs/adventures/sokoban/sokoban.adv",
     };
     for (const char *f : files) crossCheck(f);
+}
+
+static void testMapComment()
+{
+    const char *path = "/tmp/adv_map_comment.adv";
+    {
+        std::ofstream file(path);
+        file << "@map\n"
+                "S###\n"
+                "....\n"
+                "...X\n"
+                "# This comment follows the map.\n"
+                "@dark\n"
+                "1,1 2,1\n";
+    }
+
+    crossCheck(path);
+    auto L = std::make_unique<Adv::Loaded>();
+    char err[128] = {0};
+    CHECK(Adv::parseFile(path, *L, err, sizeof err));
+    CHECK(L->rowCount == 3);
+    CHECK(std::strcmp(L->rowPtrs[0], "S###") == 0);
 }
 
 // Also cross-check the SD bundle copies (the files that actually ship on the card).
@@ -334,15 +357,15 @@ static void testDarkFlashPogo()
         CHECK(!Adv::parse(bad, std::strlen(bad), *L, err, sizeof err));
     }
 
-    // More than MAX_DARK rects: the overflow is silently dropped, count caps at MAX_DARK.
+    // Exceeding MAX_DARK is rejected instead of silently dropping map data.
     {
         std::string m = "@dark\n";
         for (int i = 0; i < Otr::MAX_DARK + 5; i++) m += "1,1 1,1\n";
         m += "@map\nS...\n....\n....\n...X\n";
         auto L = std::make_unique<Adv::Loaded>();
         char err[128] = {0};
-        CHECK(Adv::parse(m.c_str(), m.size(), *L, err, sizeof err));
-        CHECK(L->darkCount == Otr::MAX_DARK);
+        CHECK(!Adv::parse(m.c_str(), m.size(), *L, err, sizeof err));
+        CHECK(strstr(err, "too many dark rectangles") != nullptr);
     }
 
     // f/j glyphs become flashlight / pogo pickups on the map (level 1).
@@ -771,6 +794,7 @@ static void testZeroTreasureAmounts()
 int main()
 {
     testGenerated();
+    testMapComment();
     testSdBundle();
     testResourcesDemo();
     testMinesweeper();

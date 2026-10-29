@@ -35,8 +35,8 @@ static void testMap(G::Rect canvas)
     float fx, fy;
     CHECK(G::worldPoint(canvas, {canvas.x, canvas.y}, 37, 91, 16, fx, fy));
     CHECK(fx == 2.3125f && fy == 5.6875f);
-    CHECK(G::worldPoint(canvas, {canvas.x + 319, canvas.y + 319}, 37, 91, 32, fx, fy));
-    CHECK(fx == 11.125f && fy == 12.8125f);
+    CHECK(G::worldPoint(canvas, {canvas.x + canvas.w - 1, canvas.y + canvas.h - 1}, 37, 91, 32, fx, fy));
+    CHECK(fx == float(canvas.w - 1 + 37) / 32 && fy == float(canvas.h - 1 + 91) / 32);
     CHECK(!G::worldPoint(canvas, {canvas.x, canvas.y}, 0, 0, 0, fx, fy));
 }
 
@@ -103,18 +103,18 @@ static void testBlit(G::Rect view)
 int main()
 {
     auto l = G::layout(320, 480);
-    CHECK(l.view.x == 0 && l.view.y == 0 && l.view.w == 320 && l.view.h == 320);
+    CHECK(l.view.x == 0 && l.view.y == 48 && l.view.w == 320 && l.view.h == 272);
     CHECK(l.joystick.x == 80 && l.joystick.y == 320);
-    CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 204800);
+    CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 174080);
     l = G::layout(480, 800);  // Logical profile dimensions, not a physical P4 assertion.
-    CHECK(l.view.x == 0 && l.view.y == 0 && l.view.w == 480 && l.view.h == 560);
+    CHECK(l.view.x == 0 && l.view.y == 48 && l.view.w == 480 && l.view.h == 512);
     CHECK(l.controls.h == 240 && l.joystick.w == 240 && l.joystick.x == 120 && l.joystick.y == 560);
     const auto joy = G::joyGeometry(l.joystick);
     CHECK(joy.cx == 120 && joy.cy == 120 && joy.radius == 111 && joy.stopRadius == 34 && joy.knobRadius == 30);
     CHECK(l.controlPx(36) == 54 && l.controlPx(48) == 72);
-    CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 537600);
+    CHECK(G::frameBytes(l.view.w * 2, l.view.h) == 491520);
     l = G::layout(481, 801);
-    CHECK(l.view.w == 481 && l.view.h == 561 && l.controls.h == 240 && l.joystick.x == 120);
+    CHECK(l.view.w == 481 && l.view.h == 513 && l.controls.h == 240 && l.joystick.x == 120);
     l = G::layout(240, 320);
     CHECK(l.width == 320 && l.height == 480);  // No new small-screen layout.
     CHECK(G::frameBytes(0, 640) == 0 && G::frameBytes(960, 0) == 0);
@@ -122,7 +122,9 @@ int main()
     for (G::Point size : {G::Point{320, 480}, G::Point{480, 800}, G::Point{481, 801}, G::Point{600, 1024}}) {
         const auto layout = G::layout(size.x, size.y);
         CHECK(layout.width == size.x && layout.height == size.y);
-        CHECK(layout.view.h + layout.controls.h == size.y && layout.controls.h == size.x / 2);
+        CHECK(layout.hud.h + layout.view.h + layout.controls.h == size.y && layout.controls.h == size.x / 2);
+        CHECK(layout.hud.y == 0 && layout.hud.h == G::HUD_HEIGHT && layout.hud.w == layout.view.w);
+        CHECK(layout.view.y == layout.hud.y + layout.hud.h);
         CHECK(layout.controls.y == layout.view.y + layout.view.h && layout.controls.w == layout.view.w);
         CHECK(layout.joystick.y == layout.controls.y && layout.joystick.h == layout.controls.h);
         CHECK(layout.joystick.w == layout.controls.h);

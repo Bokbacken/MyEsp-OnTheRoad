@@ -222,12 +222,14 @@ bool parseAdvFile(const std::string &path, AdvDoc &doc, std::string &err)
     while (std::getline(in, line)) {
         lineNo++;
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        // Inside @map, only a new section or a blank line ends/skips a row; '#' is map data.
+        // Inside @map, '#' followed by whitespace starts a comment; other '#' glyphs are map data.
         if (sec == MAP) {
             const std::string t = trim(line);
             if (!t.empty() && t[0] == '@') {
                 sec = NONE;  // fall through to section handling below
             } else if (t.empty()) {
+                continue;
+            } else if (t[0] == '#' && t.size() > 1 && (t[1] == ' ' || t[1] == '\t')) {
                 continue;
             } else {
                 rawRows.push_back(line);

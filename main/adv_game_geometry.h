@@ -18,10 +18,11 @@ struct Rect {
 constexpr int32_t JOY_SIZE = 160;
 constexpr int32_t JOY_CX = JOY_SIZE / 2, JOY_CY = JOY_SIZE / 2;
 constexpr int32_t JOY_R = 74, JOY_STOP_R = JOY_R * 17 / 53, JOY_KNOB_R = JOY_R * 15 / 53;
+constexpr int32_t HUD_HEIGHT = 48;
 
 struct Layout {
     int32_t width, height;
-    Rect view, controls, joystick;
+    Rect view, controls, joystick, hud;
     int32_t controlPx(int32_t baseline) const {
         return int32_t(int64_t(baseline) * controls.h / JOY_SIZE);
     }
@@ -42,8 +43,9 @@ inline Layout layout(int32_t screenW, int32_t screenH) {
     const int32_t panelH = w / 2;
     const int32_t h = screenH < 480 ? 480 : screenH;
     const int32_t height = h > panelH ? h : panelH + 1;
-    return {w, height, {0, 0, w, height - panelH}, {0, height - panelH, w, panelH},
-            {(w - panelH) / 2, height - panelH, panelH, panelH}};
+    return {w, height, {0, HUD_HEIGHT, w, height - panelH - HUD_HEIGHT},
+            {0, height - panelH, w, panelH},
+            {(w - panelH) / 2, height - panelH, panelH, panelH}, {0, 0, w, HUD_HEIGHT}};
 }
 
 inline size_t frameBytes(size_t strideBytes, int32_t height) {

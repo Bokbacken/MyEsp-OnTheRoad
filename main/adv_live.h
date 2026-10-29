@@ -18,6 +18,7 @@
 //    "energy":..,"energy_max":..,"lives":-1|n,"lives_used":..,"keys":..,"gems":..,"gems_total":..,
 //    "suit":..,"boat":false,"gates_open":false,"game_over":false,"exit":false,
 //    "checkpoint":[x,y],"steps":..,
+//    "active_map_id":N,"portals":[{"x":..,"y":..}],                   active map portal sources
 //    "npcs":[{"num":1,"x":..,"y":..,"look":0,"name":"..","talking":false}],
 //    "items":[{"name":"Bulle","count":2}],
 //    "suction":false,"skates":false,"flashlight":0,"pogo":0,
@@ -69,6 +70,7 @@ struct ResourceType {
     char name[NAME_CAP], image[40];
 };
 struct ResourceInfo { uint8_t x, y, type; };
+struct PortalInfo { uint8_t x, y; };
 
 struct EnemyInfo {
     uint8_t x, y;
@@ -124,6 +126,8 @@ struct Snapshot {
     uint8_t resourceTypeCount, resourceCount;
     ResourceType resourceTypes[Adv::MAX_RESOURCES];
     ResourceInfo resources[Adv::MAX_RES_PLACE];
+    uint8_t activeMapId, portalCount;
+    PortalInfo portals[Adv::MAX_PORTALS];
     DialogInfo dialog;
 };
 
@@ -142,6 +146,7 @@ struct Source {
     int worldId = 0, completed = 0, bombSize = 0, bombX = -1, bombY = -1;
     const Adv::Loaded *adventure = nullptr;    // Read only by UI publisher, copied under the mutex.
     const char *folder = nullptr;
+    int activeMapId = 0;                       // SdSession::currentMapId(); 0 defaults to adventure map id or 1
 };
 
 // Pure: fills a snapshot from the source (no lock, no version). The map layers are rebuilt only

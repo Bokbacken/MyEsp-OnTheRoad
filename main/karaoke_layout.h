@@ -6,6 +6,7 @@ namespace KaraokeLayout {
 
 constexpr int32_t VOLUME_KNOB_WIDTH = 30;
 constexpr int32_t VOLUME_KNOB_HEIGHT = 14;
+constexpr int32_t VOLUME_TRACK_WIDTH = 12;
 
 struct VolumeRail {
     int32_t x, width, labelY, sliderY, height;

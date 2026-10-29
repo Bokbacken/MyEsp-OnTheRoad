@@ -1,12 +1,11 @@
 // adv_loader.h - Firmware-safe on-device parser for the ASCII adventure format (.adv).
 //
 // This is the device-side twin of the host reference parser (tools/adv_parse.*), extended with
-// S2 lever/timer, motion, colored-key and par syntax (not yet in the reference parser). It builds an
-// Otr::MapDef (+ rows) and an Otr::Story::Script - but uses ONLY fixed, bounded storage: no
-// std::string / std::vector / std::deque / std::ifstream, no dynamic allocation inside the
-// parser. Everything lives in the caller-owned Adv::Loaded object, which is large (~70 kB) and
-// MUST be allocated in PSRAM on the ESP32-S3 (heap_caps_malloc). On the host it compiles as plain
-// C++ for unit testing, including legacy parity checks against the reference parser.
+// S2 lever/timer, motion, colored-key, resource and multimap syntax (not yet in the reference
+// parser). It builds an Otr::MapDef (+ rows) and an Otr::Story::Script in bounded storage. The
+// parser uses a bounded PSRAM scratch allocation to preprocess map selectors; it avoids STL
+// containers. Adv::Loaded is caller-owned (88 kB on host) and MUST be allocated in PSRAM on the
+// ESP32-S3 (heap_caps_malloc). On the host it compiles as plain C++ for unit testing.
 //
 // Usage (device):
 //   auto *L = (Adv::Loaded*)heap_caps_malloc(sizeof(Adv::Loaded), MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
@@ -42,12 +41,16 @@ constexpr int MAX_QUESTS = Otr::Story::MAX_QUESTS;       // 16
 constexpr int MAX_TREASURES = 48;
 constexpr int MAX_RESOURCES = 16;
 constexpr int MAX_RES_PLACE = Otr::MAX_RESOURCE_PICKUPS;
+constexpr int MAX_INTERNAL_MAPS = 4;
+constexpr int MAX_DESTINATIONS = 32;
+constexpr int MAX_PORTALS = 32;
+constexpr int DESTINATION_NAME_CAP = 32;
 static_assert(MAX_ITEMS <= Otr::MAX_RESOURCE_ITEMS, "resource indices must fit the engine inventory");
 constexpr int ARENA_CAP = 28 * 1024;                 // interned strings (dialogue is text-heavy)
 constexpr int LINE_CAP = 1200;                       // longest source line we accept
 
-// carry/reset tokens recognised by @rules. Unknown tokens parse fine but are ignored at apply
-// time. The session applies carry to the next level and resets the rest (see adv_sd_session).
+// carry/reset tokens recognised by @rules. Unknown tokens are parse errors. The session applies
+// carry to the next level and resets the rest (see adv_sd_session).
 enum CarryBit : uint32_t {
     CARRY_ENERGY    = 1u << 0,   // current energy
     CARRY_MAXENERGY = 1u << 1,   // permanent max-energy (hearts)
@@ -72,6 +75,14 @@ struct Resource {
 // A placed resource on the map (glyph + cell). The map cell itself is translated to grass so
 // World::load() accepts it; map.resources then installs a real resource object here.
 struct ResourcePlace { char glyph; uint8_t x, y; };
+struct Destination {
+    char name[DESTINATION_NAME_CAP];
+    uint8_t mapId, x, y;
+};
+struct Portal {
+    uint8_t mapId, x, y;
+    char destination[DESTINATION_NAME_CAP];
+};
 
 // One fully-parsed .adv map. Big; allocate in PSRAM.
 struct Loaded {
@@ -79,6 +90,9 @@ struct Loaded {
     char id[40];
     int world;
     int mapId;
+    int internalMapId;
+    int internalMapCount;
+    int internalMapIds[MAX_INTERNAL_MAPS];
 
     // @about (what the SD menu shows). Falls back to legacy @meta name.*/desc.*.
     char titleSv[80], titleEn[80];
@@ -118,6 +132,11 @@ struct Loaded {
     Otr::ResourcePickup pickups[MAX_RES_PLACE];
     int placementCount;
 
+    Destination destinations[MAX_DESTINATIONS];
+    int destinationCount;
+    Portal portals[MAX_PORTALS];
+    int portalCount;
+
     // ---- backing storage (stable addresses) ----
     char arena[ARENA_CAP];
     size_t arenaUsed;
@@ -149,12 +168,14 @@ struct Loaded {
 // `err` on any structural error. Does NOT run World::load() / Script::validate() - the caller
 // does that to confirm engine-level validity.
 bool parse(const char *text, size_t len, Loaded &out, char *err, size_t errCap);
+bool parseMap(const char *text, size_t len, int internalMapId, Loaded &out, char *err, size_t errCap);
 
-// Convenience: reads the whole file at `path` into a bounded temp buffer and parses it. Uses
-// stdio (works on ESP-IDF VFS and the host). The temp buffer is on the heap (freed before
-// return). Returns false (with err) if the file cannot be opened or is larger than MAX_FILE.
+// Convenience: reads the whole file at `path` into a bounded PSRAM temp buffer and parses it.
+// Uses stdio (works on ESP-IDF VFS and the host). Temporary buffers are freed before return.
+// Returns false (with err) if the file cannot be opened or is larger than MAX_FILE.
 constexpr size_t MAX_FILE = 64 * 1024;
 bool parseFile(const char *path, Loaded &out, char *err, size_t errCap);
+bool parseMapFile(const char *path, int internalMapId, Loaded &out, char *err, size_t errCap);
 
 // Parses ONLY the @about / @meta header of a file (title, description, author, world, map_id) for
 // the menu catalog - cheap, no map/story building, stops at the first map/section body. `out` is a
