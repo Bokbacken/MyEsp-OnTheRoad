@@ -1,13 +1,18 @@
 # Snabbguide: skapa äventyr (.adv)
 
 Den här guiden följer arbetsordningen och samlar standardtecken, `@legend`,
-grupperade Sokoban-pussel och minsvepare på ett ställe. För dialoger, skatter,
-resurser, grafik och fullständiga regler, se
+grupperade Sokoban-pussel och minsvepare på ett ställe. Tabellerna är uppdelade
+efter terräng, föremål och personer så att tecken med olika funktion inte blandas.
+För dialoger, skatter, resurser, grafik och fullständiga regler, se
 [den detaljerade författarguiden](AUTHORING_ADVENTURES.md). Fungerande banor
 finns i [Sokoban-demot](adventures/sokoban/sokoban.adv) och
 [S2-demot](adventures/s2_demo/README.md),
 [0.21.0-demot](adventures/s3_demo/README.md) och
 [0.21.1-demot](adventures/s4_demo/README.md).
+
+Versionsnumren i demohänvisningarna anger när respektive mekanik introducerades,
+inte att den bara stöds i den versionen. I repot är äventyrsmotorns senaste
+dokumenterade version 0.21.1; tidigare mekanik finns kvar.
 
 ## 1. Börja med en karta
 
@@ -39,33 +44,48 @@ lives: infinite
 ```
 
 Kartan är ett tecken per ruta, högst 80×80, med lika långa rader och exakt ett
-`S`. `X` är vanlig utgång. Inuti `@map` är `#` alltid en vägg, inte en kommentar.
-En tom rad hoppas över; en rad som efter trimning börjar med `@` avslutar
-kartan. Skriv kommentarer utanför `@map`.
+`S` (kontrolleras när motorn laddar kartan). `X` är vanlig utgång men krävs inte
+av själva motorn; minsveparläget vinner utan att nå `X`. Inuti `@map` är `#`
+alltid en vägg, inte en kommentar. En tom rad hoppas över; en rad som efter
+trimning börjar med `@` avslutar kartan. Skriv kommentarer utanför `@map`.
 
 ## 2. Inbyggda karttecken
+
+### Terräng
 
 | Tecken | Betydelse |
 |---|---|
 | `.` `,` `_` | Gräs, sand, stengolv |
 | `#` `%` `T` | Vägg, sprucken vägg (två slag), träd |
 | `~` `^` | Vatten (båt eller bro krävs), lava |
-| `o` `=` | Tryckplatta och grupp-0-grind |
-| `Q` `S` `X` | Checkpoint, start, utgång |
+| `o` `=` | Neutral tryckplatta och grupp-0-grind |
+| `Q` `S` `X` | Checkpoint, start och utgång |
+
+### Föremål och upphämtningar
+
+| Tecken | Betydelse |
+|---|---|
 | `R` / `r` | Knuffbar sten på gräs / golv |
 | `c` / `C` | Låda som slås sönder, på gräs / golv |
-| `k` / `K` `D` | Generisk nyckel på gräs / golv, generisk låst dörr |
+| `k` / `K` | Generisk nyckel på gräs / golv |
+| `D` | Generisk låst dörr |
 | `B` | Båt på sand |
 | `*` `+` `$` | Ädelsten på gräs / golv / sand |
 | `b` `p` `h` `u` `l` | Buske, dryck, hjärta, skyddsdräkt, extraliv |
 | `f` `j` | Ficklampa nivå 1, hoppstylta nivå 1 |
 | `m` `a` `z` | Mina, 3×3-bomb, 4×4-bomb |
+
+### Personer
+
+| Tecken | Betydelse |
+|---|---|
 | `1`–`9` | Person kopplad till motsvarande `num` i `@npc` |
 
-Stor/liten bokstav spelar roll. Alla andra lediga tecken kan användas som
-resurs-glyfer med `@resources`.
+Stor/liten bokstav spelar roll. Tecken som inte är inbyggda, `@` eller
+mellanslag kan bindas som resurs-glyfer med `@resources`; använd inte
+blanktecken eller `@` som glyf.
 
-## 3. `@legend`: terräng och objekt
+## 3. `@legend`: egna tecken för stödda mekaniker
 
 Definiera ett eget karttecken per rad:
 
@@ -80,26 +100,36 @@ q = key red
 H = door red
 ```
 
-Laddaren accepterar dessa typer:
+Laddaren accepterar följande grupper av typer:
 
-| Värde till höger om `=` | Betydelse / argument |
+**Gruppmekanik och rörelseterräng**
+
+| Värde till höger om `=` | Betydelse |
 |---|---|
-| `plate <grupp>` | Tryckplatta; grupp 0–35 |
-| `gate <grupp>` | Grind; grupp 0–35 |
-| `lever <grupp>` | Spak; grupp 0–35 |
-| `ice` | Is; inget argument |
-| `belt up\|right\|down\|left` | Band i en av de fyra riktningarna |
-| `key <färg>` / `door <färg>` | Färgnyckel / färgdörr: `red`, `green`, `blue`, `yellow`, `purple`, `cyan` |
-| `skates` / `suction` | Permanenta skridskor / sugpropp |
+| `plate [<grupp>]` / `gate [<grupp>]` | Tryckplatta / grind i grupp 0–35; utan grupp används 0 |
+| `lever <grupp>` | Spak i grupp 0–35 |
+| `ice` | Is |
+| `belt up\|right\|down\|left` | Transportband i angiven riktning |
+
+**Färgmekanik, utrustning och farlig terräng**
+
+| Värde till höger om `=` | Betydelse |
+|---|---|
+| `key <färg>` / `door <färg>` | Färgnyckel / färgdörr |
+| `box <färg>` / `plate <färg>` | Flyttbar färglåda / färgmatchande platta |
+| `plate <grupp> <färg>` | Färgplatta i grupp 0–35 |
+| `skates` / `suction` | Permanent skridsko- / sugproppsutrustning |
 | `poison` / `swamp` / `sharp_rocks` | Giftmark / träsk / vassa stenar |
-| `box <färg>` / `plate <färg>` | Flyttbar färglåda / matchande färgplatta |
-| `plate <grupp> <färg>` | Färgplatta i en uttrycklig grindgrupp |
+
+Färgerna är `red`, `green`, `blue`, `yellow`, `purple`, `cyan`.
 
 Grupp skrivs som `0`–`9` eller `A`–`Z` (`A`=10, `Z`=35); gruppbokstäver och
 nyckelord är skiftlägesokänsliga. Karttecknet självt är skiftlägeskänsligt.
 Platta och grind utan grupp får grupp 0. `@legend` ersätter även betydelsen av
 ett inbyggt tecken, men inte `S`; mellanslag, `@` och radslut är också
-reserverade. Dubbletter och ogiltiga värden ger fel med radnummer.
+reserverade. Detta är inte en godtycklig tile/object-id-tabell: bara typerna
+ovan kan skapas med `@legend`. Dubbletter och ogiltiga värden ger fel med
+radnummer.
 
 ## 4. Grupperade Sokoban-pussel
 
@@ -132,7 +162,7 @@ på vanliga `o`-/`=`-rutor med nollbaserade kartkoordinater (`x,y`):
 ```
 
 En koordinat måste peka på rätt ruttyp. För att blanda plattor och spakar krävs
-`@andgate <grupp>`: spaken måste vara ON **och** alla plattor rätt täckta.
+`@andgate <grupp>` (även `@group <grupp>: and`): spaken måste vara ON **och** alla plattor rätt täckta.
 Utan detta direktiv är blandningen ett fel. En tidsgrupp
 (`@timedgate <grupp>: N`, `N`=1–65535 steg) kräver minst en
 grind och exakt en platta eller spak. Timern tickar på lyckade förflyttningar,

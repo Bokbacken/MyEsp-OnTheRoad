@@ -2,7 +2,9 @@
 
 Jämförelse mot klassiska 2D rutnätsmotorer (Chip's Challenge, Boulder Dash,
 Sokoban-varianter, Zelda-likes, Baba Is You, enkla roguelikes). Listan tar **bara**
-upp sådant motorn *inte* redan har.
+upp sådant motorn *inte* redan har. Statusen är kontrollerad mot parsern och
+motorn i repot, som anger firmwareversion 0.21.1; versionsnummer i listan
+beskriver när befintliga funktioner introducerades.
 
 **Svårighetsskala (för just denna kodbas):**
 `1` = trivialt, en glyph/regel. `2` = liten motor- eller loaderändring, host-testbar.
@@ -10,14 +12,20 @@ upp sådant motorn *inte* redan har.
 system. `5` = stort, ny delsystemsarkitektur (t.ex. realtid/AI).
 
 ## Motorn har redan
-Rutnätsgång, skjuta sten (sokoban), sten→bro/basalt, grupperade tryckplattor/grindar,
-spakar och tidsgrindar, is och transportband, generiska och färgade nycklar/dörrar,
-par-bedömning, dimma/minsvepare, minor, bomber, båt/vatten, lava, skyddsdräkt,
-energi/liv/checkpoints, dolda skatter, mörker+ficklampa, hoppstylta (pogo-vault),
-NPC-dialog med flaggor/räknare/quests/villkor/effekter och utgång.
-Sedan v0.21.1 även sugpropp/Dra, turbaserad patrull och BFS-jagare med
-valfria områden; se [syntax och gränser](AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211).
-Sugpropp är inte generell undo.
+Rutnätsgång, knuffbara stenar (sokoban), sten→bro/basalt, neutrala och
+grupperade tryckplattor/grindar, spakar, tidsgrindar och spak+platta-AND,
+is och transportband, generiska och färgade nycklar/dörrar, färglådor med
+matchande plattor, par-bedömning, dimma/minsvepare, minor, bomber, båt/vatten,
+lava, skyddsdräkt, giftmark/träsk/vassa stenar, energi/liv/checkpoints, dolda
+skatter, mörker+ficklampa, hoppstylta, skridskor, NPC-dialog med
+flaggor/räknare/uppdrag/villkor/effekter och utgång.
+
+Från v0.21.1 stöds också sugpropp/Dra och turbaserade patruller samt
+BFS-jagare med valfria områden; se
+[syntax och gränser](AUTHORING_ADVENTURES.md#10g-sugpropp-och-turbaserade-fiender-v0211).
+Sugpropp är inte generell undo. `@legend` kan mappa ett urval av befintliga
+mekaniker, men är ännu inte en generell tabell för valfri terräng eller
+objekt-id.
 
 ---
 
@@ -35,7 +43,6 @@ Sugpropp är inte generell undo.
 |---|----------|-------------|:--------:|
 | 8 | **Räknardörr** | Dörr som kräver N ädelstenar/föremål istället för nyckel | 2 |
 | 9 | **Riktade/tyngdstyrda block** | Boulder Dash-stenar som faller när stödet tas bort | 4 |
-| 10 | **Färgkodade block+mål** | Skjut rätt färgs låda till rätt färgs mål (sokoban-variant) | 2 |
 
 ## Fiender & fara
 
@@ -43,7 +50,6 @@ Sugpropp är inte generell undo.
 |---|----------|-------------|:--------:|
 | 13 | **Projektiler / fällor** | Pilfälla, eldpelare som tänds i intervall | 3 |
 | 14 | **Enkel strid / HP på fiende** | Slå-knappen finns redan; ge fiender träfftålighet | 3 |
-| 15 | **Giftig/skadande terräng (ej lava)** | Taggar, träsk som tär energi – nästan gratis via Rules | 1 |
 
 ## Föremål & ekonomi
 
@@ -63,17 +69,17 @@ Sugpropp är inte generell undo.
 | 22 | **Namngivna checkpoints / varp** | Hoppa till utpekad checkpoint via effekt (story-driven) | 2 |
 | 23 | **Villkorliga rutor** | Ruta ändras när en flagga sätts (t.ex. bro byggs av story) – `world VERB` finns redan | 3 |
 | 24 | **Slumpmässig utplacering** | Markera ett område, motorn strösslar föremål/fiender – rejält omspelsvärde | 3 |
-| 25 | **Legend för alla rutor/objekt** | Utöka S2-legendens begränsade urval till all terräng/objekt + id | 2 |
+| 25 | **Generell kartlegend** | Utöka nuvarande legend för ett urval av mekaniker till valfri terräng/objekt och egna id:n | 2 |
 
 ## Presentation & känsla
 
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
-| 26 | **Enkel animering (vatten/eld/fiende)** | 2-bilders cykel ni redan har mönster för (`S_WATER0/1`, `S_LAVA0/1`) | 2 |
+| 26 | **Animerade fiender/objekt** | Vatten och lava har redan två bildrutor; fiender och fler objekt saknar egna rörelse-/idle-animationer | 2 |
 | 27 | **Mjuk kamerapanorering** | Glid mellan rutor istället för hopp – ren UI-polish | 3 |
 | 28 | **Väder/ljuslägen per karta** | Natt/dis utöver `@dark` – stämning | 3 |
 | 29 | **Rikare HUD (minikarta/quest-logg)** | Översikt i stora banor | 3 |
-| 30 | **Fler ljudeffekter per event** | Event-biten finns; mappa fler Sfx | 1 |
+| 30 | **Fler dedikerade ljudeffekter** | Vanliga rörelser och händelser har redan ljud; ge fler händelser, exempelvis fiendekontakt och drag, egna ljud | 1 |
 
 ## Progression & meta
 
@@ -86,9 +92,9 @@ Sugpropp är inte generell undo.
 
 ---
 
-## Mina topp-rekommendationer (bäst värde för insatsen)
-- **Ångra drag (#34)** – det enskilt mest efterfrågade i seriösa sokoban-banor; dyrare
-  men lyfter hela pusseldelen.
+## Möjliga nästa steg (värde för insatsen)
+- **Ångra drag (#34)** – större förändring, men skulle stärka pusseldelen.
 - **Teleport-par (#4)** – bygger vidare på grupp-id-tänket och kan ge nya pussel.
 
-Allt ovan är host-testbart utan hårdvara, i linje med "minimal ändring, kompilera, testa".
+Motorlogik kan i regel host-testas utan hårdvara. UI- och presentationsändringar
+behöver dessutom relevanta UI-/enhetskontroller.

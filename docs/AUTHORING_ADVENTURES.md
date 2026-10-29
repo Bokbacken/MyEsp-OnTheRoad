@@ -1,5 +1,10 @@
 # Skriva egna äventyr i ASCII (.adv)
 
+Den här referensen beskriver beteendet i produktionsladdaren
+`main/adv_loader.cpp` och motorn. I repot är äventyrsmotorns senaste
+dokumenterade firmwareversion **0.21.1**. Versionsetiketterna nedan anger när
+en funktion först introducerades; de är inte separata formatprofiler.
+
 Vill du snabbt se vilka tecken och mekaniker som finns? Börja med
 [snabbguiden](ADVENTURE_AUTHORING_QUICKSTART.md). Den här sidan är den
 fullständiga referensen för formatet och alla avsnitt.
@@ -18,13 +23,13 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 > - `@about` – det SD-menyn visar (titel/beskrivning/författare/omslag) — avsnitt 3
 > - Kartor upp till **80×80** med **gångbar ram** — avsnitt 5
 > - `@treasures` – dolda skatter under täckande objekt — avsnitt 8
-> - `@resources` – egna samlingsbara föremål (glyf → bild + tak) — avsnitt 9
+> - `@resources` – resursmetadata (glyf → story-id, namn, bild + tak) — avsnitt 9
 > - `carry`/`reset` i `@rules` – vad som följer med mellan nivåer — avsnitt 4
 > - Egna **32×32 PNG-sprites** i `bitmaps/` — avsnitt 11
 >
 > **Nytt i v0.18.0** (avsnitt 10):
 > - `@dark` – mörka områden som bara lyses upp av ficklampan — avsnitt 10
-> - **Ficklampa** (`f` / `@treasures ... flashlight N`) – lyser upp mörkret i en kon framåt
+> - **Ficklampa** (`f` / `@treasures ... flash N`) – lyser upp mörkret i en kon framåt
 > - **Hoppstylta** (`j` / `@treasures ... pogo N`) – studsar automatiskt över hinder
 >
 > **Nytt i v0.20.0:** oberoende grupper av Sokoban-tryckplattor och grindar — avsnitt 10d.
@@ -99,8 +104,10 @@ En `.adv`-fil är vanlig text (UTF-8, max 64 KB) och består av **sektioner** so
 börjar med `@`. Rader som börjar med `#` är kommentarer utanför `@map`. Inuti
 `@map` finns inga kommentarer: `#` är ett karttecken (vägg), och endast en rad
 som efter trimning börjar med `@` avslutar kartsektionen. Tomma rader ignoreras.
+En enskild källrad får vara högst 1199 byte. Kartan är ASCII-rutdata: använd
+ett byte/tecken per ruta, inte flerbytes-UTF-8-glyfer.
 
-Sektionerna, i ordning:
+Vanlig sektionsordning (laddaren kräver inte denna ordning):
 
 ```
 @meta        id, värld-id, kart-id
@@ -117,7 +124,7 @@ Sektionerna, i ordning:
 @quests      deklarera uppdrag (id + namn SV/EN)
 @npc <id>    en person (upprepas per person)
 @node <id>   en dialograd (upprepas många gånger)
-@legend      glyph-mappning för grupperade tiles, S2-terräng och färgnycklar
+@legend      glyph-mappning för stödda grupp-, rörelse-, färg- och terrängmekaniker
 @timedgate   tidsgräns för en grupp (valfri, S2)
 @plategroup  grupp-id på tryckplattor via koordinater
 @gategroup   grupp-id på grindar via koordinater
@@ -130,14 +137,16 @@ Sektionerna, i ordning:
 ```
 @meta
 id: 01_lager             # internt id för kartan
-world: 4                 # WorldId 1..255 (Josef = 4)
+world: 4                 # numerisk metadata för världen (Josef = 4)
 map_id: 4                # stabilt kart-id som sparfiler använder
 ```
 
-`world` är världens id. `map_id` är kartans stabila id som sparfilen refererar
-till – varje karta i samma äventyr måste ha ett unikt `map_id`. (I Josef:
-lägret = 4, vägen = 5.) För ett helt eget äventyr, välj ett `world` som inte
-krockar med de inbyggda (1..4) – t.ex. 90 och uppåt.
+`world` är metadata och parsern kontrollerar inte dess intervall. `map_id` blir
+motorns 8-bitars kart-id; håll det inom **0–255** och ge kartorna stabila,
+unika värden. (I Josef: lägret = 4, vägen = 5.) För ett eget äventyr är 90+
+ett praktiskt val som undviker de inbyggda exemplens värden. Båda fälten läses
+som heltal; välj giltiga tal i stället för att förlita dig på parserns
+tillåtande konvertering.
 
 ---
 
@@ -159,12 +168,14 @@ cover: cover.png         # valfritt: 32x32 PNG i äventyrsmappen
 
 | Fält | Visas som | Max |
 |------|-----------|-----|
-| `title.sv` / `title.en` | rubrik i menyn (språk efter enhetens inställning) | 79 tecken |
-| `desc.sv` / `desc.en`   | beskrivning under rubriken | – |
-| `author`                | upphovsperson | – |
-| `cover`                 | filnamn på omslagsbild i äventyrsmappen (valfritt) | 39 tecken |
+| `title.sv` / `title.en` | rubrik i menyn (språk efter enhetens inställning) | 79 byte per språk |
+| `desc.sv` / `desc.en`   | beskrivning under rubriken | 199 byte per språk |
+| `author`                | upphovsperson | 63 byte |
+| `cover`                 | filnamn på omslagsbild i äventyrsmappen (valfritt) | 39 byte |
 
 Saknas den engelska varianten faller menyn tillbaka på den svenska.
+Laddaren trunkerar längre värden till dessa buffertstorlekar; den ger inte
+parsefel. Gränserna gäller byte, inte antal UTF-8-tecken.
 
 ---
 
@@ -189,6 +200,13 @@ carry: energy, maxenergy, items, lives   # vad som FÖLJER MED till nästa nivå
 reset: suit                              # vad som NOLLSTÄLLS vid nivåbyte
 ```
 
+Värdena i den här sektionen konverteras till motorns bytefält. Motorn avvisar
+`start_energy` under 1, `energy_cap` under `start_energy`, `lives` utanför
+`1..9` (förutom `infinite`) och `mine_level` över 12. För övriga bytefält ska
+du ange ett tal 0..255. Parsern gör inte strikt sifferkontroll för de vanliga
+regelfälten (`atoi`-konvertering); en editor bör därför validera talvärden
+innan den skriver filen.
+
 ### carry / reset – status mellan nivåer (nytt i v0.17.0)
 
 När spelaren går från en karta till nästa i samma äventyr bestämmer `carry` och
@@ -204,13 +222,16 @@ något (de två får överlappa, `reset` vinner).
 | `lives` | liv (använda/kvar) |
 | `suit` | dräktladdningar (lava- och terrängskydd, se 10f) |
 | `keys` | nycklar |
-| `gems` | ädelstenar – **förs aldrig över** (nollas alltid mellan nivåer) |
+| `gems` | accepteras som token men påverkar inte nivåbyte; ädelstenar är kartlokala |
 | `boat` | båt |
 
 Story-föremål, flaggor, räknare och uppdrag matchas **på namn** mellan kartor,
 så samma `@items`/`@flags`-id i nästa karta behåller sitt värde när `items`
 ingår i `carry`. (Så fungerar Josef: `carry: energy, maxenergy, items, lives`
 och `reset: suit`.)
+
+`carry` och `reset` delar upp token på kommatecken/mellanslag och ignorerar
+okända token. `reset` vinner när samma stödda resurs finns i båda listorna.
 
 ### 4b. Äkta minsvepare – `mine_level` (nytt)
 
@@ -292,15 +313,17 @@ utlöses först) och håller kartan giltig. Den medföljande kampanjen `minkampa
 
 ## 5. @map – rita kartan
 
-Kartan är ett rutnät, en rad per textrad, **ett tecken per ruta**. Alla rader
+Kartan är ett rutnät, en rad per textrad, **ett byte per ruta**. Alla rader
 måste vara **lika långa** (det blir kartans bredd) och antalet rader blir
-höjden.
+höjden. Radens inledande/avslutande blanktecken räknas som kartceller, inte
+som indrag eller utfyllnad.
 
 **Gränser (från motorn, `otr_world.h`):**
 - Max bredd **80**, max höjd **80** (`MAX_W` / `MAX_H`) – höjt från 64 i
   v0.17.0. Kartrutorna ligger i PSRAM.
 - Exakt **ett** `S` (startruta) krävs.
-- Minst ett `X` (utgång/mål) om kartan ska kunna klaras.
+- `X` (utgång) är valfritt i motorn; en vanlig bana utan utgång kan inte klaras
+  genom att gå i mål. I minsveparläge krävs inte `X`.
 - Högst **9 talbara personer** per karta (siffrorna `1`..`9`).
 
 ### Gångbar ram (nytt i v0.17.0)
@@ -420,7 +443,7 @@ senare. En nod `<npc>.start` är ingången när man pratar med personen.
 
 ```
 @node jakob.start
-cond: !met_jakob                 # villkor (utelämna = alltid). Se avsnitt 8.
+cond: !met_jakob                 # villkor (utelämna = alltid). Se villkorssyntax nedan.
 speaker: jakob                   # npc-id. Utelämna = berättare.
 ref: 1 Mos 37:3                  # bibelreferens under texten (valfri)
 quote: 1Mo37:3                   # nyckel till citatfil (valfri)
@@ -451,6 +474,39 @@ choice: <sv> | <en> => <mål> ?? <villkor> !! <effekter> ~~ <tips.sv> | <tips.en
 - `!!` effekter – tillämpas när man väljer raden
 - `~~` tips – om satt visas raden **gråad med tipset** när villkoret inte
   stämmer (annars döljs den helt)
+
+### Villkor och effekter
+
+Samma villkorssyntax används på `@node` och `choice`. Villkor separeras med
+`&` och måste alla stämma. Ett inledande `!` negerar ett enskilt villkor.
+
+| Villkor | Exempel | Betydelse |
+|---|---|---|
+| Flagga | `met_jakob`, `!met_jakob` | Flaggan är satt / inte satt |
+| Föremål | `has:robe`, `!has:robe` | Minst en / ingen av föremålet finns |
+| Uppdrag | `quest:dotan=active` | Uppdragets tillstånd är `none`, `active` eller `done` |
+| Räknare | `trust>=2`, `trust<=5`, `trust=3` | Jämför deklarerad räknare med heltal |
+
+Exempel på flera villkor: `has:robe & quest:dotan=active & trust>=2`.
+Flaggor, föremål, uppdrag och räknare måste deklareras i respektive sektion.
+
+Effekter separeras med semikolon. Parsern/storymotorn stöder dessa former:
+
+| Effekt | Funktion |
+|---|---|
+| `set <flagga>` / `clear <flagga>` | Sätt / rensa en deklarerad flagga |
+| `add <räknare> <tal>` | Lägg till ett heltal i räknaren |
+| `cnt <räknare> <tal>` | Sätt räknaren till ett heltal |
+| `give <föremål> [antal]` / `take <föremål> [antal]` | Ändra deklarerat föremålsantal; utelämnat antal är 1 |
+| `quest <uppdrag> none\|active\|done` | Ändra uppdragets tillstånd |
+| `world <åtgärd> [heltal ...]` | Skicka åtgärd och upp till tre heltal till äventyrsvärden |
+| `sound <namn>` | Skicka namngiven ljudeffekt till värden |
+
+`give`/`take` tillåter uttryckligt antal 1–255. Ogiltiga namn, jämförelser,
+effekter eller odeklarerade story-id:n gör att `Script::validate()` underkänner
+äventyrsskriptet. `world`-åtgärdens och ljudeffektens namn skickas vidare till
+värden; valideringen bekräftar inte att värden har en implementation för just
+det namnet.
 
 Exempel (att ge bort manteln):
 
@@ -483,15 +539,19 @@ exponerar det nu direkt.
 
 Varje rad är `x y id antal`:
 - `x` / `y` – rutans koordinater (0-indexerat, `x` = kolumn, `y` = rad).
-- `id` – `gem` för ädelsten, annars ett föremåls-id från `@items` eller en
-  resurs från `@resources`. Sedan v0.18.0 även `flashlight` (ficklampa) eller
-  `pogo` (hoppstylta) – se avsnitt 10.
-- `antal` – hur många (oftast 1). För `flashlight`/`pogo` är fältet i stället
-  **nivån** (1–3).
+- `id` – ett av de inbyggda föremålsnamnen: `key`, `gem`, `boat`, `potion`,
+  `heart`, `suit`, `life`, `bomb3`, `bomb4`, `flash`, `pogo`, `skates` eller
+  `suction`. `flashlight` är inte ett giltigt skatt-id; använd `flash`.
+  `pogostick` är också alias för `pogo`. Story-id från `@items` och egna
+  resurs-id från `@resources` stöds inte som skatter.
+- `antal` – valfritt bytevärde 0..255, standard 1. Det används som mängd för
+  dryck/hjärta; för `flash`/`pogo` blir det nivå (0 betyder nivå 1, högre värden
+  begränsas till nivå 3). Övriga föremål använder inte mängden.
 
-Max **48** skatter per karta. Lägg skatten under ett objekt som går att slå bort
-(buske, låda, sprucken vägg) så avtäcks den när objektet försvinner. Ligger rutan
-fri (eller har bara en plockbar glyf, se nedan) är skatten synlig direkt.
+Max **48** skatter per karta. Koordinaterna måste peka inom kartan, och en ruta
+får inte ha mer än en skatt. Lägg skatten under ett täckande objekt (buske, låda,
+sprucken vägg, sten eller dörr) så avtäcks den när objektet försvinner. Ligger
+rutan fri (eller har bara en plockbar glyf, se nedan) är skatten synlig direkt.
 
 ### @treasures har företräde över kartglyfen (nytt i v0.18.5)
 
@@ -508,8 +568,9 @@ nivå 2–3 med en skatt på samma ruta:
 2 0 pogo 3        # rutan visar j, men spelaren får nivå 3
 ```
 
-Detta gäller alla **plockbara** glyfer (ficklampa, hoppstylta, ädelsten, nyckel
-osv.) – glyfen ersätts av skatten. **Täckande objekt** påverkas inte: en skatt
+Detta gäller kartans upphämtningsföremål (bland annat ficklampa, hoppstylta,
+ädelsten och generisk nyckel) – glyfen ersätts av skatten. **Täckande objekt**
+påverkas inte: en skatt
 under buske `b`, låda, sten eller sprucken vägg ligger kvar dold tills du slår
 bort/knuffar objektet, precis som förut.
 
@@ -518,9 +579,10 @@ bort/knuffar objektet, precis som förut.
 ## 9. @resources – egna samlingsbara föremål (nytt i v0.17.0)
 
 Med `@resources` binder du en **ledig kartglyf** till ett eget samlingsbart
-föremål: en egen bild, ett eget namn och ett eget maxantal. Resurserna
-återanvänder motorns föremålssystem, så de fungerar i villkor (`has:...`) och
-effekter (`take ... N`) precis som vanliga `@items`.
+föremåls metadata: en bild, ett namn och ett maxantal. Resurs-id:t registreras
+som story-föremål och kan användas i villkor (`has:...`) och effekter
+(`take ... N`) precis som andra `@items`. Själva kartglyfen är inte ett
+`World`-pickup i nuvarande runtime; se statusnotisen nedan.
 
 ```
 # glyf : id : namn.sv : namn.en : tak : bild
@@ -533,19 +595,25 @@ Fälten per rad:
 
 | Fält | Betyder |
 |------|---------|
-| `glyf` | ett ledigt tecken på kartan (inte en inbyggd terräng/objekt/siffra) |
+| `glyf` | ett ledigt tecken på kartan (inte en inbyggd terräng/objekt/siffra eller en `@legend`-glyf) |
 | `id` | föremåls-id; läggs automatiskt till i `@items` |
 | `namn.sv` / `namn.en` | visningsnamn |
-| `tak` | hur många spelaren kan bära (1..255) |
-| `bild` | filnamn på en 32×32 PNG i äventyrets `bitmaps/` (se avsnitt 10) |
+| `tak` | maxantal (0 eller tomt blir 1; värden under 1 blir 1 och över 255 blir 255) |
+| `bild` | valfritt filnamn, högst 39 byte; avsedd som 32×32 PNG i äventyrets `bitmaps/` |
 
-Gränser: max **16** resurstyper, och max **160** utplaceringar av resurs-glyfer
-totalt på en karta.
+Namn kan lämnas tomma: svenskt namn faller då tillbaka på id och engelskt namn
+saknas. Resurs-id läggs till i `@items`, så resurstyper räknas också mot
+gränsen **32 story-föremål**. Gränser: max **16** resurstyper och **160**
+utplaceringar per karta. Parsern kontrollerar glyfkollision med inbyggda
+tecken och dubblett bland resurser, men inte kollision mellan en resursglyf och
+`@legend`; återanvänd inte samma tecken där. Använd inte `@` eller blanktecken
+som glyfer eftersom de krockar med filsyntaxen.
 
 ### "Ge en resurs till en person"-mönstret
 
-Resurser gör grindvakts-pusslet ännu enklare – vakta stigen tills spelaren
-lämnar en resurs:
+När resursinventeringen är inkopplad kan storyflödet göra grindvakts-pusslet
+enklare – vakta stigen tills spelaren lämnar en resurs. Exemplet visar
+storyvillkoret/-effekten, inte en fungerande resursupphämtning i nuvarande runtime:
 
 ```
 @node builder.start
@@ -556,11 +624,12 @@ choice: Här, en sten. | Here, a stone. => builder.open ?? has:stone !! take sto
 choice: Jag letar vidare. | I'll keep looking. => END
 ```
 
-> **Not (v0.17.0):** Resurserna **parsas och laddas** fullt ut och fungerar i
-> story-logiken. Upplockning sker via föremålssystemet, men ett särskilt
-> HUD-lager som visar resursräknare i spelet är ännu inte inkopplat (står på
-> ROADMAP). Resurs-glyfer som inte laddas ritas som gräs så att motorn aldrig
-> kraschar.
+> **Runtime-status:** produktionsladdaren läser resursdefinitioner och
+> placeringar och lägger id:n i storyns föremålslista. Motorns `World` saknar
+> dock resursobjekt; upphämtning/rendering av de registrerade placeringarna är
+> inte inkopplad i äventyrsvyn. Behandla därför `@resources` som metadata för
+> authoring/story-validering, inte som en fungerande spelpickup i nuvarande
+> runtime.
 
 ---
 
@@ -593,7 +662,8 @@ Regler för `@dark`:
 - Koordinaterna är 0-indexerade (`x` = kolumn, `y` = rad), samma som `@map`.
 - Du får ange **flera** rektanglar (en per rad), max **16** (`MAX_DARK`).
 - Rektanglar **klipps mot kartans kant** – delar utanför kartan ignoreras, och
-  en rektangel som ligger helt utanför kastas bort.
+  en rektangel som ligger helt utanför kastas bort. Rektanglar efter de första
+  16 parsas men ignoreras tyst; håll dig till gränsen.
 - Mörkret döljer terräng, föremål, skatter och personer i rutan tills det lyses
   upp. Det är tänkt för grottor, källare och nattkartor.
 
@@ -618,9 +688,9 @@ Du kan lägga skatten på **samma ruta** som glyfen `f` – skatten vinner och s
 nivån (se avsnitt 8, *@treasures har företräde*):
 
 ```
-# x  y  flashlight  nivå
+# x  y  flash  nivå
 @treasures
-3 1 flashlight 2
+3 1 flash 2
 ```
 
 Konens form och räckvidd:
@@ -1156,10 +1226,13 @@ den bästa checklistan när du skrivit klart. Du får fel om:
 - nodtext > 200 tecken eller valtext > 36 tecken,
 - villkor/effekt har felaktig syntax,
 - en `@treasures`/`@resources`-rad har fel antal fält eller en resurs-glyf
-  krockar med en inbyggd terräng/objekt.
+  krockar med en inbyggd terräng/objekt, eller resursantalet överskrids.
 
-Kartan kontrolleras av `World::load()`: lika långa rader, inom **80×80**, exakt
-ett `S`.
+`Adv::parse()` bygger data men anropar inte dessa två validerare automatiskt.
+Kontrollera även resultatet med `Script::validate()` och `World::load()`:
+kartan måste ha lika långa rader, vara inom **80×80** och innehålla exakt ett
+`S`. `@legend`- och `@resources`-krock kontrolleras inte sinsemellan; använd
+olika glyfer.
 
 ---
 
