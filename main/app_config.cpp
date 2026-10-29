@@ -49,7 +49,7 @@ void defaults(AppConfig &c)
     c.karaRevLvl = 50;
     c.karaCho = 1;
     c.karaChoLvl = 50;
-    c.karaVoices = 32;
+    c.karaVoices = 96;
     c.karaWebStream = 1;
     c.karaVolume = 70;
     c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
@@ -293,7 +293,7 @@ void sanitize(AppConfig &c)
     c.karaCho = c.karaCho ? 1 : 0;
     if (c.karaRevLvl > 100) c.karaRevLvl = 50;
     if (c.karaChoLvl > 100) c.karaChoLvl = 50;
-    if (c.karaVoices < 16 || c.karaVoices > 32) c.karaVoices = 32;
+    if (c.karaVoices == 32 || c.karaVoices < 16 || c.karaVoices > 96) c.karaVoices = 96;
     c.karaWebStream = c.karaWebStream ? 1 : 0;
     if (c.karaVolume > 100) c.karaVolume = 70;
     c.batteryScalePermille = BatteryMath::sanitizeScale(c.batteryScalePermille);

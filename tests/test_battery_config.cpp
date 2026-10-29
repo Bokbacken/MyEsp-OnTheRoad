@@ -27,6 +27,7 @@ int main()
     CHECK(defaults.batteryScalePermille == defaultScale);
     CHECK(defaults.batteryFullMv == 4200);
     CHECK(defaults.karaVolume == 70);
+    CHECK(defaults.karaVoices == 96);
     CHECK(defaults.screenOffSeconds == 0);
 
     TestNvs::numbers.clear();
@@ -34,6 +35,18 @@ int main()
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 70);
+
+    // The previous default voice cap was 32; upgrade it to the new default.
+    TestNvs::numbers["schema"] = 1;
+    TestNvs::numbers["kara_voices"] = 32;
+    Config::begin();
+    CHECK(Config::get().karaVoices == 96);
+    TestNvs::numbers["kara_voices"] = 64;
+    Config::begin();
+    CHECK(Config::get().karaVoices == 64);
+    TestNvs::numbers["kara_voices"] = 97;
+    Config::begin();
+    CHECK(Config::get().karaVoices == 96);
 
     // Older schema-1 configurations have no new keys and keep the safe defaults.
     TestNvs::numbers["schema"] = 1;

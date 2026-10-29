@@ -132,7 +132,7 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 > (keeping the previous key if the new one does not fit). The per-song budget is now the largest free PSRAM block
 > minus 512 kB, and the game sound-clip cache is freed first. Host-measured: GeneralUser-GS + Ainbusk 6.03 → 3.10 MB,
 > with Alan Parsons "Time" 7.60 → 4.64 MB, Jnsgm2 + "Time" 6.91 → 3.85 MB – all fit now. Dropout diagnostics: every 5 s
-> the log shows render load (avg/peak), underruns and voices; NVS `kara_voices` (16–32, default 32) caps the voices.
+> the log shows render load (avg/peak), underruns and voices; NVS `kara_voices` (16–96, default 96) caps the voices.
 > **Not hardware-tested yet.**
 >
 > Previous: v0.13.3 – **halving of high-rate samples**: when a song is prepared, samples recorded at ≥ 1.8 × the
