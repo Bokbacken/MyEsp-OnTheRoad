@@ -7,7 +7,8 @@ Wi-Fi station mode (on-device network setup) and a web UI for status, settings a
 > **Status: v0.22.7** – configurable device name shown across web pages and used for
 > DHCP hostname/mDNS; RGB LED controls are omitted on P4; P4 Host-radio C6 firmware
 > can be uploaded and updated over ESP-Hosted OTA. CI builds `host_fw.bin` from the
-> pinned latest ESP-Hosted MCU source. v0.22.6 boot/Wi-Fi scaling and all text sizes
+> pinned latest ESP-Hosted MCU source. The owner updated the factory C6 to ESP-Hosted
+> 3.0.10 over OTA (host and co-processor versions now match). v0.22.6 boot/Wi-Fi scaling and all text sizes
 > were tested by the owner on both boards.
 > Earlier: dual-target ESP32-S3/P4 builds, including the v0.21.3
 > Adventure and UI changes below. The owner confirmed P4 startup and Wi-Fi with

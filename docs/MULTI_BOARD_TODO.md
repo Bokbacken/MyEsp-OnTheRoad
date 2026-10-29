@@ -222,7 +222,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | Datum | Steg | Status |
 |---|---|---|
 | 2026-10-29 | v0.22.6 hårdvarutest + merge | Ägaren bekräftar att båda enheterna är testade; PR #23 mergad till `main`. Start/Wi-Fi/textstorlek fungerar. |
-| 2026-10-29 | v0.22.7 Host OTA, namn och P4-inställningar | Pågående: Host-OTA och `host_fw.bin` CI från ESP-Hosted MCU, enhetsnamn för web/mDNS/DHCP, RGB-kontroller dolda på P4. OTA-hårdvarutest återstår. |
+| 2026-10-29 | v0.22.7 Host OTA, namn och P4-inställningar | Host-OTA och `host_fw.bin` CI från ESP-Hosted MCU, enhetsnamn för web/mDNS/DHCP, RGB-kontroller dolda på P4. Första C6-OTA föll på för stora chunkar (1500 B > ~1480 B gräns); efter fix till 1400 B uppdaterade ägaren C6 från fabriksfirmware till 3.0.10 (host=3.0.10 coprocessor=3.0.10, match). |
 | 2026-10-29 | Plan | Skapad. |
 | 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
 | 2026-10-29 | Första P4-test | Ägaren bekräftar uppstart och Wi-Fi med v0.22.0 (CI run 40885750801). RTC och batterimätning återstår. |
