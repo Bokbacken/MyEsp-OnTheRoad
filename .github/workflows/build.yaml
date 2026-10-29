@@ -40,6 +40,7 @@ jobs:
         run: |
           python3 tests/test_board_peripherals.py
           python3 tests/test_flash_repair.py
+          python3 tests/test_diag_mac.py
           node tests/test_board_diagnostics_web.js
 
       - name: Read firmware version

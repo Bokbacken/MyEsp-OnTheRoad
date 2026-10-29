@@ -139,9 +139,22 @@ void fill(cJSON *root)
     uint32_t flash = 0;
     esp_flash_get_size(nullptr, &flash);
     uint8_t mac[6] = {0};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    char macs[18];
-    snprintf(macs, sizeof(macs), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    // Radio-less hosts have no local WIFI_STA MAC; their radio provider reports its own MAC.
+#if CONFIG_SOC_WIFI_SUPPORTED
+    const esp_err_t macErr = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+#else
+    const esp_err_t macErr = esp_read_mac(mac, ESP_MAC_BASE);
+#endif
+    char macs[18] = "";
+    if (macErr == ESP_OK)
+        snprintf(macs, sizeof(macs), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    else {
+        static bool logged = false;
+        if (!logged) {
+            ESP_LOGE(TAG, "system MAC unavailable: %s", esp_err_to_name(macErr));
+            logged = true;
+        }
+    }
 
     cJSON_AddStringToObject(root, "fw", s_fw);
     cJSON_AddStringToObject(root, "version", s_ver);

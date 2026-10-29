@@ -194,6 +194,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   firmware visas som 16-bitars hex, inte trunkerad till 8 bitar eller
   förväxlad med produkt-ID. Saknade `sketch_*`-fält visas inte som NaN;
   appslotarnas verkliga partitionstorlek visas fortsatt.
+- Återkommande `system_api: 0 mac type is incorrect (not found)` kom
+  från systemdiagnostikens lokala `WIFI_STA`-MAC-läsning på P4 utan radio.
+  Radiofria targets använder nu bas-MAC; Wi-Fi-providern rapporterar
+  fortfarande C6:s nätverks-MAC. Ingen sänkning av loggnivå döljer felet.
 
 ### Nästa hårdvarutest (v0.22.2)
 
