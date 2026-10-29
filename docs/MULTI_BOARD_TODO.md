@@ -44,32 +44,39 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   `CONFIG_IDF_TARGET` i den gemensamma filen. Bygg med separata katalogen
   `build_esp32s3` / `build_esp32p4`.
 - Firmwareartefakter namnges per kort. En OTA-fil för fel kort ska avvisas.
-- Wi-Fi-API:t i `my_wifi` behålls; på P4 levereras det av
-  `esp_wifi_remote` + `esp_hosted` mot C6.
+- Wi-Fi-API:t i `my_wifi` behålls; på P4 levereras det av `esp_hosted` 3.x
+  mot C6 (IDF ≥ 6.1 kopplar `esp_wifi` direkt till esp_hosted, så
+  `esp_wifi_remote` behövs inte).
+- Bara P4 rev v3.x stöds (`CONFIG_ESP32P4_REV_MIN_300`, CPU 400 MHz).
+- Första installation på ett kort: `build/merged.bin` från CI-artefakten
+  skrivs på adress `0x0` med esptool/esptool.js. Därefter OTA-filen
+  (`MyEsp-OnTheRoad.bin`).
+- Komponentlås per target: `dependencies.lock.esp32s3` och
+  `dependencies.lock.esp32p4` (rot-`CMakeLists.txt`).
 
 ## I. Byggsystem för två targets
 
 - [x] Plan och återstartsdokument (detta dokument).
-- [ ] Kconfig: profil bunden till target (`ES3C35P` ↔ S3, `P4_43` ↔ P4).
-- [ ] `sdkconfig.defaults` uppdelad i gemensam + `.esp32s3` + `.esp32p4`.
-- [ ] Stift per profil (`board_pins_es3c35p.h`, `board_pins_p4_43.h`).
-- [ ] Källfiler per profil i `main/CMakeLists.txt`; P4-beroenden bara för P4.
-- [ ] CI-matris: S3 och P4 byggs i varje PR, artefakter
+- [x] Kconfig: profil bunden till target (`ES3C35P` ↔ S3, `P4_43` ↔ P4).
+- [x] `sdkconfig.defaults` uppdelad i gemensam + `.esp32s3` + `.esp32p4`.
+- [x] Stift per profil (`board_pins_es3c35p.h`, `board_pins_p4_43.h`).
+- [x] Källfiler per profil i `main/CMakeLists.txt`; P4-beroenden bara för P4.
+- [x] CI-matris: S3 och P4 byggs i varje PR, artefakter
   `firmware-esp32s3-…` och `firmware-esp32p4-…`.
-- [ ] README: byggkommandon för båda korten.
+- [x] README: byggkommandon för båda korten.
 
 ## II. Första körbara P4-bygget: grafik
 
-- [ ] MIPI-DSI-buss, LDO för DSI-PHY, ST7701-initiering, DPI-panel 480×800
+- [x] MIPI-DSI-buss, LDO för DSI-PHY, ST7701-initiering, DPI-panel 480×800
   RGB565 (timing från Waveshare-BSP 1.0.1).
-- [ ] `my_lvgl` flush mot DPI-ramminnet, rotation 180° och karaoke-landskap
+- [x] `my_lvgl` flush mot DPI-ramminnet, rotation 180° och karaoke-landskap
   via LVGL-mjukvarurotation.
-- [ ] Bakgrundsbelysning GPIO26, LEDC PWM, inverterad.
-- [ ] GT911-touch på I²C GPIO7/8, adress `0x5D`/`0x14`, polling utan INT.
-- [ ] I²C-skanning och RTC på delad buss.
-- [ ] Ingen RGB-lysdiod: `Rgb` blir no-op utan att påverka appen.
-- [ ] Startskärmen visar rätt kortnamn/upplösning.
-- [ ] CI-bygge för P4 grönt.
+- [x] Bakgrundsbelysning GPIO26, LEDC PWM, inverterad.
+- [x] GT911-touch på I²C GPIO7/8, adress `0x5D`/`0x14`, polling utan INT.
+- [x] I²C-skanning och RTC på delad buss.
+- [x] Ingen RGB-lysdiod: `Rgb` blir no-op utan att påverka appen.
+- [x] Startskärmen visar rätt kortnamn/upplösning.
+- [x] CI-bygge för P4 grönt.
 - [ ] **Hårdvara:** färgtest, startskärm och huvudmeny syns; touch träffar rätt.
 
 ## III. P4-kringutrustning
@@ -83,7 +90,7 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 ## IV. Wi-Fi via ESP32-C6 (ESP-Hosted)
 
-- [ ] `esp_wifi_remote` + `esp_hosted` (SDIO, C6 som slav) för P4.
+- [ ] `esp_hosted` 3.x (SDIO, C6 som slav) initieras på P4; länkas redan.
 - [ ] `my_wifi`, mDNS, webbserver, NTP och webb-OTA fungerar oförändrat.
 - [ ] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
 - [ ] **Hårdvara:** anslutning, webbsida, klocka via NTP.
@@ -125,3 +132,4 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 | Datum | Steg | Status |
 |---|---|---|
 | 2026-10-29 | Plan | Skapad. |
+| 2026-10-29 | I + II (PR #23) | Kod klar, CI grön för S3 och P4 (run 40884855527). Väntar på hårdvarutest av `merged.bin`. |
