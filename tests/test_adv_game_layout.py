@@ -338,11 +338,15 @@ int main() {
             lv_obj_update_layout(s_scr);
             auto root = AdvUi::gameBounds(s_gameRoot), canvas = AdvUi::gameBounds(s_canvas);
             assert(root.x == 0 && root.y == 0 && root.w == size.x && root.h == size.y);
-            assert(canvas.x == 0 && canvas.y == 0 && canvas.w == size.x && canvas.h == size.y - size.x / 2);
+            assert(canvas.x == 0 && canvas.y == Game::HUD_HEIGHT && canvas.w == size.x &&
+                   canvas.h == size.y - size.x / 2 - Game::HUD_HEIGHT);
             const auto *drawBuffer = lv_canvas_get_draw_buf(s_canvas);
             assert(drawBuffer->header.stride == stride && drawBuffer->data == reinterpret_cast<uint8_t *>(s_fb));
             auto stage = AdvUi::gameBounds(s_stageLabel);
             assert(stage.x == 4 && stage.y == 4);
+            const auto hud = AdvUi::gameBounds(lv_obj_get_parent(s_stageLabel));
+            assert(contains(s_layout.hud, hud) && separate(hud, canvas));
+            assert(contains(hud, stage));
             assert(stage.w < canvas.w - 8); // The base title is compact, not a full-width HUD bar.
             assert(hidden(s_progressLabel) && hidden(s_timerLabel));
             if (!mine) checkHud();
@@ -352,22 +356,21 @@ int main() {
             lv_obj_update_layout(s_scr);
             auto progress = AdvUi::gameBounds(s_progressLabel);
             assert(progress.x == 4 && progress.y == 24);
-            assert(progress.x + progress.w <= size.x && progress.y + progress.h < canvas.h);
+            assert(contains(hud, progress) && separate(progress, canvas));
             assert(lv_obj_get_y(s_stageLabel) + lv_obj_get_height(s_stageLabel) <= progress.y);
             lv_obj_set_hidden(s_timerLabel, false);
             lv_label_set_text(s_timerLabel, "Gate steps: 0:65535 A:0 Z:65535");
             lv_obj_update_layout(s_scr);
             const auto timer = AdvUi::gameBounds(s_timerLabel);
-            assert(timer.x == 4 && timer.y == 44 && timer.w == size.x - 8);
-            assert(timer.x + timer.w <= size.x && timer.y + timer.h < canvas.h);
-            assert(progress.y + progress.h <= timer.y);
+            assert(timer.x == size.x / 2 + 2 && timer.y == 24);
+            assert(contains(hud, timer) && separate(timer, canvas) && separate(progress, timer));
             assert(lv_label_get_long_mode(s_timerLabel) == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
             assert(lv_obj_get_parent(s_toast) == s_gameRoot);
-            assert(lv_obj_get_y(s_toast) == canvas.h - 64);
+            assert(lv_obj_get_y(s_toast) == canvas.y + canvas.h - 64);
             assert(lv_obj_get_width(s_toast) == canvas.w - 24);
             auto *controlPanel = lv_obj_get_parent(s_hitBtn);
             const auto controlBounds = AdvUi::gameBounds(controlPanel);
-            assert(controlBounds.x == 0 && controlBounds.y == canvas.h);
+            assert(controlBounds.x == 0 && controlBounds.y == canvas.y + canvas.h);
             assert(controlBounds.w == size.x && controlBounds.h == size.x / 2);
             const auto px = [](int v) { return s_layout.controlPx(v); };
             const auto action = AdvUi::gameBounds(s_hitBtn);
@@ -391,8 +394,8 @@ int main() {
             lv_obj_update_layout(s_scr);
             const auto panel = AdvUi::gameBounds(s_talkPanel);
             assert(lv_obj_get_parent(s_talkBox) == s_gameRoot);
-            assert(panel.x == 0 && panel.y == canvas.h && panel.w == size.x && panel.h == size.x / 2);
-            assert(lv_obj_get_y(s_toast) == 8);
+            assert(panel.x == 0 && panel.y == canvas.y + canvas.h && panel.w == size.x && panel.h == size.x / 2);
+            assert(lv_obj_get_y(s_toast) == canvas.y + 8);
             assert(lv_obj_has_flag(s_talkPanel, LV_OBJ_FLAG_CLICKABLE));
             addChoice(0, 0, "Answer", nullptr, true);
             addChoice(1, 1, "Locked answer", "Hint", false);
@@ -405,8 +408,8 @@ int main() {
                 assert(lv_obj_get_width(answer) == size.x - 2 * px(6));
             }
             const int before = stops;
-            touch(indev, size.x / 2, canvas.h + panel.h / 2, true);
-            touch(indev, size.x / 2, canvas.h + panel.h / 2, false);
+            touch(indev, size.x / 2, panel.y + panel.h / 2, true);
+            touch(indev, size.x / 2, panel.y + panel.h / 2, false);
             assert(stops == before && !s_joy.held());  // Panel covers the translated joystick.
             lv_obj_delete(s_talkBox);
             lv_obj_delete(s_talkPanel);

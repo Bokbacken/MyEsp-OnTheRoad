@@ -16,6 +16,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORK = pathlib.Path(tempfile.mkdtemp(prefix="adv-s2-ui-", dir=sys.argv[1] if len(sys.argv) > 1 else ROOT))
 atexit.register(shutil.rmtree, WORK)
+FIXTURE = pathlib.Path(tempfile.mkdtemp(prefix="adv-ui-portal-"))
+atexit.register(shutil.rmtree, FIXTURE)
 source = (ROOT / "main/ui_adventure.cpp").read_text()
 
 
@@ -40,6 +42,7 @@ code = r'''
 #include "otr_joystick.h"
 #include "otr_story.h"
 #include "adv_loader.h"
+#include "adv_sd_session.h"
 #include "adv_resource_art.h"
 #include "sound_bank.h"
 #include "lang/lang.h"
@@ -126,7 +129,12 @@ static int s_bombSize, s_bombX=-1, s_bombY=-1, s_talkNum, s_pathPos=-1, s_walkTa
 static Otr::JoyController s_joy;
 static const Otr::Story::Script *s_story;
 static Otr::Story::StoryState s_storyState;
-static Adv::Loaded *s_adv;
+static Adv::Loaded activeLoaded;
+static Adv::Loaded *s_adv = &activeLoaded;
+static struct SdStub : Adv::SdSession {
+    bool enabled=false;
+    bool active() const { return enabled || Adv::SdSession::active(); }
+} s_sd;
 static Adv::ResourceArt *s_resourceArt;
 static lv_obj_t *s_talkPanel;
 static lv_obj_t *s_dialog;
@@ -174,7 +182,8 @@ static void buildInventory(lv_obj_t *pan, int32_t COL_R_X, int32_t COL_R_W) {
     const auto px=[](int32_t baseline) { return s_layout.controlPx(baseline); };
 /*ITEM_CONSTRUCTION*/
 }
-static void toast(const char *, uint32_t=Theme::TEXT, uint32_t=2200) {}
+static std::string lastToast;
+static void toast(const char *text, uint32_t=Theme::TEXT, uint32_t=2200) { lastToast=text; }
 static void eventToasts(uint32_t) {}
 static void bombAction() {}
 namespace Audio {
@@ -187,9 +196,15 @@ static void post(int command, uint8_t sound) {
 /*AUDIO_PLAY*/
 }
 /*SOUND*/
-static struct SdStub { bool enabled=false; bool active() const { return enabled; } } s_sd;
+static bool s_saveWanted;
+static int imageRefreshes, mapInvalidations;
+static int32_t s_lastCamX, s_lastCamY;
+static void loadResourceImages() { ++imageRefreshes; }
+namespace AdvLive { static void invalidateMap() { ++mapInvalidations; } }
+#define ESP_LOGW(...) ((void)0)
 static int travels;
 static void sdExitAdvance() { ++travels; }
+/*SD_ACTION*/
 /*MOVE*/
 static bool talking() { return false; }
 static void menuPause() {
@@ -201,6 +216,7 @@ static void menuPause() {
 /*PERFORMANCE*/
 static std::vector<std::string> rows;
 static void load(int par=0) {
+    s_adv = &activeLoaded;
     rows.assign(10,std::string(14,'.'));
     for (int x=0;x<14;++x) rows[0][x]=rows[9][x]='#';
     for (int y=0;y<10;++y) rows[y][0]=rows[y][13]='#';
@@ -215,6 +231,38 @@ static void reload(int par=0) {
     const char *ptr[10]; for (int y=0;y<10;++y) ptr[y]=rows[y].c_str();
     assert(world.load(Otr::MapDef{90,ptr,10,Otr::CLASSIC_RULES,nullptr,0,nullptr,0,nullptr,0,par}));
     snapPlayer(); s_bumpT0=0; Audio::heard.clear();
+}
+static void portalUiTests() {
+    s_adv = &activeLoaded;
+    Adv::CatalogEntry entry{};
+    strcpy(entry.folder, "portal_ui");
+    strcpy(entry.maps[0], "01_test.adv");
+    entry.mapCount = 1;
+    char err[160];
+    const bool started = s_sd.start(ADV_TEST_ROOT, entry, *s_adv, world, s_storyState, s_story, err, sizeof err);
+    if (!started) fprintf(stderr, "portal UI fixture: %s\n", err);
+    assert(started);
+    snapPlayer();
+    s_joy.cancel();
+    s_bombSize = 0;
+    const int images = imageRefreshes, invalidations = mapInvalidations;
+    doMove(Dir::RIGHT);
+    finishMovement(clockMs + 1000);
+    doMove(Dir::RIGHT);
+    assert(s_sd.currentMapId() == 2 && world.playerX() == 2 && world.playerY() == 1);
+    assert(!s_moveMs && !s_moveEvents && s_pathPos < 0 && !s_joy.held());
+    assert(s_lastCamX == -1 && s_lastCamY == -1);
+    assert(imageRefreshes == images + 1 && mapInvalidations == invalidations + 1 && s_saveWanted);
+    // Arriving on the return portal must not immediately bounce back.
+    finishMovement(clockMs + 1000);
+    assert(s_sd.currentMapId() == 2);
+    doMove(Dir::RIGHT);
+    finishMovement(clockMs + 1000);
+    doMove(Dir::LEFT);
+    assert(s_sd.currentMapId() == 1 && world.playerX() == 2 && world.playerY() == 1);
+    assert(imageRefreshes == images + 2 && mapInvalidations == invalidations + 2);
+    s_sd.clear();
+    s_story = nullptr;
 }
 static void soundTests() {
     using Sound::Sfx;
@@ -773,6 +821,7 @@ int main() {
         assert(Lang::setLang(language));
         actionTests(); pullTests(); movementTests(); inventoryTests(); timerTests();
     }
+    portalUiTests();
     rendererTests();
     puts("S2/v0.21 production UI: hazard shapes, skates pickup/HUD/ice controls, six box/plate badges and push animations, renderer (3 sizes/2 zooms), inventory (2 languages), actions/HUD/SFX OK");
 }
@@ -787,6 +836,7 @@ replacements = {
     "MOVE_STATE": section("static Otr::MoveTrace s_moveTrace", "static bool s_rockAnim"),
     "SOUND": section("static void playEvents(", "// Dialogue").rsplit("// -----", 1)[0],
     "MOVE": section("static void finishMovement(", "// v0.18.4: the split"),
+    "SD_ACTION": section("static void refreshInternalMap()", "static void pendingStoryTravel()"),
     "MENU_PAUSE": section("    if (s_dialog || talking()) return;   // Already open", "    lv_obj_t *mb = dialog(nullptr);"),
     "DIALOG": section("static lv_obj_t *dialog(const char *text)", "static void performanceText("),
     "INVENTORY": section("static void showInventory()", "static const char *extraHudText()"),
@@ -808,12 +858,34 @@ replacements["AUDIO_PLAY"] = audio[audio.index("void play(Sound::Sfx s)"):audio.
 for marker, replacement in replacements.items():
     code = code.replace(f"/*{marker}*/", replacement)
 (WORK / "test.cpp").write_text(code)
+(FIXTURE / "portal_ui").mkdir()
+(FIXTURE / "portal_ui/01_test.adv").write_text("""@meta
+id: portal_ui
+@map
+########
+#S..X..#
+#......#
+########
+@map 2
+########
+#S....X#
+#......#
+########
+@destinations
+home 2,1
+map=2: cave 2,1
+@portals
+3,1 -> cave
+map=2: 2,1 -> home
+""")
 subprocess.run([
     "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
     "-Wno-unused-variable", "-g", "-fno-omit-frame-pointer",
     *(["-fsanitize=address,undefined"] if os.environ.get("ADV_UI_SANITIZE", "1") != "0" else []),
     "-Imain", "-Icomponents/otr_engine/include", "-Icomponents/otr_story/include",
+    f'-DADV_TEST_ROOT="{FIXTURE}"',
     str(WORK / "test.cpp"), "components/otr_engine/otr_world.cpp", "components/otr_story/otr_story.cpp",
+    "main/adv_loader.cpp", "main/adv_sd_session.cpp",
     "main/lang/lang.cpp", "main/lang/lang_sv.cpp", "main/lang/lang_en.cpp",
     "-o", str(WORK / "test")
 ], cwd=ROOT, check=True)

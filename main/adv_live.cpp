@@ -85,6 +85,7 @@ void fillState(Snapshot &s, const Source &src)
     s.cpY = (uint8_t)w.checkpointY();
     s.steps = (uint32_t)w.steps();
     s.mapId=w.mapId();
+    s.activeMapId = (uint8_t)(src.activeMapId > 0 ? src.activeMapId : w.mapId());
     if(src.worldId) s.worldId=(uint8_t)src.worldId;
     s.mineLevel=w.mineLevel(); s.completed=src.completed;
     s.bomb3=w.bombs(3); s.bomb4=w.bombs(4); s.safeLeft=w.safeLeft(); s.lang=src.lang;
@@ -105,7 +106,7 @@ void fillState(Snapshot &s, const Source &src)
         if (!w.findNpc(num, x, y)) continue;
         if ((w.fog() && !w.revealed(x, y)) || w.darkHidden(x, y)) continue;
         NpcInfo &n = s.npcs[s.npcCount++];
-        const Otr::Story::Npc *def = src.story ? src.story->npcByNum(num) : nullptr;
+        const Otr::Story::Npc *def = src.story ? src.story->npcByNum(num, s.activeMapId) : nullptr;
         n.num = (uint8_t)num;
         n.x = (uint8_t)x;
         n.y = (uint8_t)y;
@@ -127,7 +128,16 @@ void fillState(Snapshot &s, const Source &src)
         }
     }
     s.resourceTypeCount = s.resourceCount = 0;
+    s.portalCount = 0;
     copyStr(s.resourceFolder, sizeof s.resourceFolder, src.folder);
+    if (src.adventure) {
+        const auto &adv = *src.adventure;
+        for (int i = 0; i < adv.portalCount && s.portalCount < Adv::MAX_PORTALS; ++i) {
+            const auto &portal = adv.portals[i];
+            if (portal.mapId == s.activeMapId)
+                s.portals[s.portalCount++] = {portal.x, portal.y};
+        }
+    }
     if (src.adventure && src.story) {
         const auto &adv = *src.adventure;
         for (int i = 0; i < adv.resourceCount && i < Adv::MAX_RESOURCES; ++i) {
@@ -307,7 +317,13 @@ size_t toJson(const Snapshot &s, uint32_t clientMapRev, char *buf, size_t cap)
     o.boolean(s.gameOver);
     o.put(",\"exit\":");
     o.boolean(s.exitReached);
-    o.fmt(",\"checkpoint\":[%u,%u],\"steps\":%u,\"npcs\":[", (unsigned)s.cpX, (unsigned)s.cpY, (unsigned)s.steps);
+    o.fmt(",\"checkpoint\":[%u,%u],\"steps\":%u,\"active_map_id\":%u,\"portals\":[",
+          (unsigned)s.cpX, (unsigned)s.cpY, (unsigned)s.steps, (unsigned)s.activeMapId);
+    for (int i = 0; i < s.portalCount; ++i) {
+        if (i) o.put(",");
+        o.fmt("{\"x\":%u,\"y\":%u}", (unsigned)s.portals[i].x, (unsigned)s.portals[i].y);
+    }
+    o.put("],\"npcs\":[");
     for (int i = 0; i < s.npcCount; i++) {
         const NpcInfo &n = s.npcs[i];
         if (i) o.put(",");

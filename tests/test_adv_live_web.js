@@ -45,6 +45,10 @@ ops.length = 0;
 run(`terrain(ctx, '#', 3, 0)`);
 assert(ops.some(o => o[1] === '#06060c'), 'darkness uses its distinct out-of-range marker');
 ops.length = 0;
+run(`drawPortalMarkers(ctx, [{x:0,y:0},{x:1,y:1},{x:2,y:0},{x:3,y:0}]);`);
+assert.equal(ops.filter(o => o[0] === 'stroke' && o[1] === '#25e0d0').length, 2,
+  'visible portal sources get ring markers while fog/dark sources stay hidden');
+ops.length = 0;
 run(`object(ctx, 'f')`);
 assert(ops.some(o => o[1] === '#37cdd7'), 'suction pickup has its own art');
 ops.length = 0;

@@ -63,7 +63,8 @@ bool webStream() { return false; }
 }
 namespace KaraWeb { int clients() { return 0; } }
 static int menus;
-static Theme::BatteryIndicator sampleBatteryIndicator() { return {true, 50}; }
+static Theme::BatteryIndicator batterySample{true, 50};
+static Theme::BatteryIndicator sampleBatteryIndicator() { return batterySample; }
 namespace UiYatzy { void showMenu() { ++menus; Theme::loadScreen(Theme::screen()); } }
 static bool rotateOK = true;
 namespace Display {
@@ -217,6 +218,69 @@ static void makeLyrics(const char *word) {
     for (auto &ch : s.ch) snprintf(ch.trackName, sizeof(ch.trackName), "Långt spårnamn Åäö");
     Karaoke::state = {1000000, s.lengthUs, 1, 60, 0, 0, false, false, 1, 32, 10};
 }
+static void checkBattery(lv_obj_t *battery) {
+    auto *body = lv_obj_get_child(battery, 0);
+    auto *percent = lv_obj_get_child(body, 0);
+    assert(lv_obj_get_width(battery) == Theme::BATTERY_STATUS_WIDTH && lv_obj_get_height(battery) == 32);
+    assert(lv_obj_get_child_count(battery) == 2 && lv_obj_get_child_count(body) == 1);
+    for (unsigned value : {0, 4, 5, 9, 10, 30, 31, 50, 100, 101}) {
+        batterySample = {true, uint8_t(value)};
+        settle();
+        inside(percent, body);
+        const uint32_t color = value > 100 ? Theme::MUTED :
+            value > 30 ? Theme::GREEN : value >= 10 ? Theme::ACCENT : Theme::RED;
+        assert(lv_color_eq(lv_obj_get_style_bg_color(body, LV_PART_MAIN), Theme::c(color)));
+        char expected[8];
+        if (value <= 100) snprintf(expected, sizeof expected, "%u%%", value);
+        else strcpy(expected, "?");
+        assert(!strcmp(lv_label_get_text(percent), expected));
+        lv_point_t textSize;
+        lv_text_get_size(&textSize, expected, &my_font_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        assert(textSize.x <= lv_obj_get_width(percent) && textSize.y <= lv_obj_get_height(percent));
+    }
+    batterySample = {false, 0};
+    settle();
+    assert(!strcmp(lv_label_get_text(percent), "?"));
+    batterySample = {true, 50};
+    settle();
+}
+static void checkDrawnVolumeKnob() {
+    lv_area_t drawn{};
+    auto capture = [](lv_event_t *event) {
+        auto *task = lv_event_get_draw_task(event);
+        if (!task) return;
+        auto *dsc = static_cast<lv_draw_dsc_base_t *>(lv_draw_task_get_draw_dsc(task));
+        if (dsc->part == LV_PART_KNOB)
+            lv_draw_task_get_area(task, static_cast<lv_area_t *>(lv_event_get_user_data(event)));
+    };
+    lv_obj_set_send_draw_task_events(P.volumeSlider, true);
+    lv_obj_add_event_cb(P.volumeSlider, capture, LV_EVENT_DRAW_TASK_ADDED, &drawn);
+    for (bool pressed : {false, true}) {
+        if (pressed) lv_obj_add_state(P.volumeSlider, LV_STATE_PRESSED);
+        for (int value : {0, 50, 100}) {
+            lv_slider_set_value(P.volumeSlider, value, LV_ANIM_OFF);
+            lv_layer_t layer;
+            lv_layer_init(&layer);
+            layer.display = lv_display_get_default();
+            layer._clip_area = layer.buf_area = layer.phy_clip_area =
+                {0, 0, UiMetrics::screenW() - 1, UiMetrics::screenH() - 1};
+            layer.color_format = LV_COLOR_FORMAT_RGB565;
+            lv_obj_send_event(P.volumeSlider, LV_EVENT_DRAW_MAIN, &layer);
+            lv_draw_layer_deinit(&layer);
+            if (lv_area_get_width(&drawn) != KaraokeLayout::VOLUME_KNOB_WIDTH ||
+                lv_area_get_height(&drawn) != KaraokeLayout::VOLUME_KNOB_HEIGHT)
+                fprintf(stderr, "drawn volume knob at %d pressed=%d: %dx%d\n", value, pressed,
+                        int(lv_area_get_width(&drawn)), int(lv_area_get_height(&drawn)));
+            assert(lv_area_get_width(&drawn) == KaraokeLayout::VOLUME_KNOB_WIDTH);
+            assert(lv_area_get_height(&drawn) == KaraokeLayout::VOLUME_KNOB_HEIGHT);
+            assert(lv_area_get_width(&drawn) > 2 * lv_area_get_height(&drawn));
+        }
+    }
+    lv_obj_remove_state(P.volumeSlider, LV_STATE_PRESSED);
+    lv_obj_remove_event_cb(P.volumeSlider, capture);
+    lv_obj_set_send_draw_task_events(P.volumeSlider, false);
+    lv_slider_set_value(P.volumeSlider, Karaoke::volume(), LV_ANIM_OFF);
+}
 static void checkPlayer() {
     const auto l = layout();
     assert(P.scr == lv_screen_active());
@@ -242,9 +306,7 @@ static void checkPlayer() {
     inside(lv_obj_get_child(header, 0), header);
     auto *battery = lv_obj_get_child(header, 1);
     inside(battery, header);
-    auto *batteryBody = lv_obj_get_child(battery, 0);
-    assert(lv_obj_get_width(lv_obj_get_child(batteryBody, 0)) == 5);
-    assert(!strcmp(lv_label_get_text(lv_obj_get_child(battery, 2)), "~50%"));
+    checkBattery(battery);
     lv_area_t titleArea, batteryArea, volumeArea, lyricsArea, timeArea;
     lv_obj_get_coords(lv_obj_get_child(header, 0), &titleArea);
     lv_obj_get_coords(battery, &batteryArea);
@@ -259,9 +321,16 @@ static void checkPlayer() {
     inside(P.volumeSlider, P.scr);
     inside(P.volumeValue, P.scr);
     inside(P.volumeTrack, P.scr);
-    assert(lv_obj_get_width(P.volumeSlider) >= 52 && lv_obj_get_height(P.volumeSlider) >= 100);
-    assert(lv_obj_get_style_width(P.volumeSlider, LV_PART_KNOB) == KaraokeLayout::VOLUME_KNOB_WIDTH);
-    assert(lv_obj_get_style_height(P.volumeSlider, LV_PART_KNOB) == KaraokeLayout::VOLUME_KNOB_HEIGHT);
+    assert(lv_obj_get_width(P.volumeSlider) == KaraokeLayout::VOLUME_TRACK_WIDTH &&
+           lv_obj_get_height(P.volumeSlider) >= 100);
+    lv_area_t clickArea;
+    lv_obj_get_click_area(P.volumeSlider, &clickArea);
+    assert(lv_area_get_width(&clickArea) >= l.volumeW && l.volumeW >= 52);
+    for (int x : {l.volumeX, l.volumeX + l.volumeW - 1}) {
+        lv_point_t point{x, l.volumeSliderY + l.volumeH / 2};
+        assert(lv_indev_search_obj(lv_screen_active(), &point) == P.volumeSlider);
+    }
+    checkDrawnVolumeKnob();
     assert(lv_obj_get_style_radius(P.volumeSlider, LV_PART_KNOB) == 3);
     lv_obj_get_coords(P.volumeSlider, &volumeArea);
     lv_obj_get_coords(P.lyrics, &lyricsArea);

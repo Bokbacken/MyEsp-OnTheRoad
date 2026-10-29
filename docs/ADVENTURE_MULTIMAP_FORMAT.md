@@ -1,232 +1,161 @@
-# Framtida flerkartsformat — specifikation, INTE runtime-stöd
+# Flerkartor och portaler i `.adv`
 
-**Status 0.21.2:** steg 1 är denna formatspecifikation. Spelaren stöder
-fortfarande exakt **en karta per `.adv`-fil**. Steg 3+4 ska implementera
-flerkartor och portaler tillsammans i nästa leverans. Alla exempel med
-kartval, extra `@map`, destinationer och portaler nedan är **ännu inte
-stödda** och får inte kopieras till dagens körbara banor.
-Det spelbara [resursprovet](adventures/z_resource_test/README.md) använder
-enbart dagens syntax och separata filer.
+**Status:** runtime-stöd från äventyrsmotorn 0.21.2. En fil kan innehålla
+huvudkartan (`@map`, internt id 1) och upp till tre extra kartor. Portaler,
+namngivna destinationer, kartlokala regler/aktörer, gemensamt story-innehav,
+återbesök och sparning stöds. Hostens `tools/adv_parse.*` är fortfarande en
+äldre referensparser; använd produktionsladdaren och hosttestet i
+[författarguiden](AUTHORING_ADVENTURES.md#14-importexport-status).
 
-## 1. Identiteter, kartval och bakåtkompatibilitet
+Ett litet körbart exempel finns i
+[multimap_portals](adventures/multimap_portals/README.md). Kopiera mappen
+`multimap_portals` till `/otr/adventure/` på SD-kortet.
 
-- En fil har en huvudkarta, deklarerad med vanlig `@map`; dess **interna
-  kart-id är 1**. `@map 2`, `@map 3` osv deklarerar extra kartor med explicita,
-  unika positiva heltals-id:n. Deklarationsordning ändrar inte identiteten.
-- `@meta map_id` behåller sin befintliga betydelse för den separata filens
-  identitet. Det är inte ett implicit val av intern karta. Framtida save
-  behöver både filidentitet och internt kart-id; dessa får inte blandas ihop.
-- **Utelämnat kartval betyder ALLTID huvudkartan**, även efter `@map 2`
-  eller en kartkvalificerad sektion/rad. Inget globalt ”senaste karta”-läge.
-  Kartkoordinater är fortsatt nollbaserade, lokala `x,y`.
-- Sektionsbundet kartval skrivs `map=2` på taggraden när hela sektionen är
-  lokal. För blandade koordinatrader används prefixet `map=2:` på den
-  enskilda raden. Grupper behåller gruppnumret före kartvalet.
-- Gamla filer utan kartval ska bete sig exakt som förr: en huvudkarta,
-  samma grupper, koordinater, NPC-siffror, story och övergång mellan filer.
-  Dagens loader avvisar extra/numrerade `@map` i stället för att låtsas stöd.
-- Referens till saknad karta, dubbel kartdeklaration, fel ruttyp, ogiltig
-  koordinat eller överskriden kapacitet ska ge ett tydligt valideringsfel.
-  Ingen tyst klippning, felkarta eller tillbakafall till kartan man står på.
+## 1. Kartidentiteter och väljarregler
 
-## 2. Överenskommen grundsyntax — ännu inte stödd
+En `.adv`-fil har exakt en huvudkarta med id 1, deklarerad med vanlig `@map`,
+och högst tre ytterligare kartor med explicita, unika id:n 2–255:
 
 ```text
 @map
-...huvudkarta...
-@map 2
-...extrakarta...
+...huvudkartans rader...
+@map 7
+...karta 7:s rader...
+```
 
-@plategroup 1 map=2: 4,1 8,8
-@gategroup 1 map=2: 9,4
+Varje karta måste vara högst 80×80 och innehålla exakt ett `S`. `@meta
+map_id` är fortsatt filens vanliga separata kartidentitet och ändras inte av
+internkart-id:n. Deklarationsordningen för extrakartor kan väljas fritt.
+
+Utelämnat kartval betyder **alltid huvudkartan**, inte aktiv eller senast
+deklarerad karta. Det gäller även om sektionen står efter `@map 7`.
+Koordinater är lokala och nollbaserade. Väljare stöds som `map=7` på
+sektionstaggen, eller som `map=7:` på enskilda rader i `@rules`,
+`@treasures`, `@enemies`, `@resources` och `@dark`. `@legend`, `@npc`,
+`@plategroup`, `@gategroup`, `@andgate` och `@timedgate` använder väljaren
+på sin taggrad:
+
+```text
+@legend map=7
+g = plate 2
+@plategroup 2 map=7: 3,3
+@timedgate 2 map=7: 12
 
 @treasures
-2 0 pogo 3
-map=2: 3 1 flash 2
-
-@dark
-2,2 9,6
-map=2: 3,4 4,6
+2 1 pogo 2
+map=7: 3 2 flash 1
 ```
 
-Karttexterna ovan är platshållare, inte giltiga kartor. Skatten på första
-raden och den första mörkerrektangeln hör till **huvudkartan** trots att
-`@map 2` står tidigare. `@plategroup`/`@gategroup` anger listor med enskilda
-rutor. `@dark` anger exakt två hörn per rektangel, inklusive båda.
+Koordinatrader väljer karta endast för den raden; valet spiller inte över
+till nästa rad. Referens till odeklarerat kart-id, duplikat
+kartadeklaration eller för många kartor ger fel.
 
-Grupper är **kartlokala**: `(karta 1, grupp 1)` och `(karta 2, grupp 1)`
-är oberoende. Samma gäller lokala timer-/spak-/AND-tillstånd. Förslaget:
+## 2. Kartlokala sektioner och delade identiteter
+
+Varje karta får egna terräng-/objektglyfer, legend, grupper, timer/spakläge,
+skatter, resurspickups, fiender, dimma, mörker och NPC-placeringar.
+NPC-siffrorna 1–9 är lokala per karta; `@npc id map=7` binder definitionen
+till karta 7. NPC-id och story-noder är gemensamma för filen.
+
+Resursens glyf och pickup är lokal, men dess inventory-id är gemensamt.
+Samma resurs-id får deklareras på flera kartor endast om svenskt/engelskt
+namn, tak och bildfil är identiska. Bildfilen ligger i äventyrsmappens
+`bitmaps/`. Olika kartor får använda olika glyfer för samma id.
+
+`@rules map=7` och radval av regler gäller bara vald karta. Saknade lokala
+regler använder motorns standardvärden, inte huvudkartans lokala värden.
+`start_energy`, `energy_cap`, `lives`, `carry` och `reset` är däremot
+huvudkartspolicy: samma energi-/livregler och aktuella värden delas under
+intern resa. En sådan regel i en extrakarta avvisas. `carry`/`reset` fortsätter
+bara styra övergångar mellan separata `.adv`-filer.
+
+Grupper är lokala: grupp 2 på karta 1 och grupp 2 på karta 7 är separata.
+En fiende, timer eller annan kartaktör följer inte spelaren genom portaler.
+Endast aktiv karta uppdateras/tickar. Kartpåverkande story-effekter kan ange
+`map=N`; utan väljare avses huvudkartan:
 
 ```text
-@timedgate 1 map=2: 8
-@andgate 3 map=2
-@group 3 map=2: and
+effects: world open map=7 4 2
+effects: world npc_move map=7 1 4 6
+effects: world npc_remove map=7 1
+effects: world travel cave
 ```
 
-Ovanstående tillägg är också **ännu inte stödda**. Befintliga regler för
-vilka plattor/spakar en timer-/AND-grupp kräver ska gälla inom vald karta.
+`world travel NAME` använder samma destinationstabell som portaler. Stödda
+kartverb är `open`, `npc_move` och `npc_remove`. Effekter på ej besökt karta
+utgår från dess grundläge och sparar ändringen; de tickar inte dess fiender.
+Global story, flaggor, räknare, quests och inventory fortsätter vara delade.
 
-## 3. Fiender, NPC, resurser, legend, regler och story
+## 3. Destinationer och portaler
 
-### Fiender — föreslagen, ännu inte stödd syntax
-
-```text
-@enemies
-patrol 2 3 loop route 2,3 8,3
-map=2: chaser 4 5 area 1 1 9 8
-```
-
-Position, område och samtliga ruttpunkter på samma rad hör till samma
-valda karta. En rutt får inte korsa kartgräns/portal. Första raden hör till
-huvudkartan. Fiender är lokala aktörer, inte automatiskt portalresenärer.
-
-### NPC — föreslagen, ännu inte stödd syntax
-
-```text
-@npc guard map=2
-name: Vakten | Guard
-num: 1
-look: 0
-```
-
-`num: 1` binds till siffran `1` på karta 2. `@npc guard` utan kartval
-binds alltid till huvudkartan. Siffrorna 1–9 är lokala per karta; det globala
-story-id:t `guard` är unikt inom filen. En NPC-definition har en statisk
-kartbindning i detta enkla förslag. Samma siffra på en annan karta måste
-bindas till en annan NPC-definition; samma person på flera kartor eller
-NPC-resor är inte ett implicit extrastöd.
-
-### Resurser och legend — föreslagen, ännu inte stödd syntax
-
-```text
-@resources map=2
-s : stone : Sten : Stone : 9 : stone.png
-@legend map=2
-a = plate 1
-g = gate 1
-```
-
-Glyfbindningar gäller bara vald karta. Definition utan kartval gäller
-**bara huvudkartan**, inte alla kartor eller nästa `@map`.
-Resursens inventory-id är däremot filgemensamt, så `stone` på två kartor
-är samma innehav. Återdeklaration av samma id måste ha samma namn, tak och
-bild; motstridiga definitioner är fel, inte en implicit omdefiniering.
-Vanliga `@items` behöver inte en glyfbindning. Bildsökvägen är fortsatt
-äventyrsmappens `bitmaps/`, inte en ny mapp per intern karta.
-
-### Regler — föreslagen, ännu inte stödd syntax
-
-```text
-@rules map=2
-lava_damage: 3
-fog: false
-par: 20
-```
-
-Lokala spelregler hör till vald karta. Utelämnade lokala regler använder
-motorns standardvärden, inte närmast föregående `@rules` eller huvudkartans
-värden. Spelarens aktuella innehav och permanenta utrustning är gemensamma
-inom filen; portalresa ska inte återställa dem.
-`carry`/`reset` avser dagens resa till **nästa separata fil**. I förslaget
-deklareras de på huvudkartan och är filpolicy; att placera dem i
-`@rules map=2` är ett valideringsfel. Exakta regler för olika energi-/livtak
-vid interna kartbyten måste beslutas, se öppna frågor.
-
-### Story — föreslagen, ännu inte stödd kartkvalificering
-
-Flaggor, räknare, item-id:n, quests, NPC-id:n och nod-id:n är gemensamma
-inom filen; `has:stone`, `give stone` och `take stone` väljer inget kartlager.
-Nodens placering i textfilen ändrar aldrig kartval.
-
-Kartpåverkande `world`-effekter behöver däremot ett explicit val:
-
-```text
-effects: world npc_move map=2 1 4 6
-effects: world open map=2 4 6
-```
-
-Förslaget behåller befintliga verb/argument efter valfri `map=N`.
-Utan `map=N` avses **huvudkartan**, inte aktiv karta eller NPC:ns hemkarta.
-Varje befintligt kartpåverkande verb måste få dokumenterad mål-/kartkontroll
-i implementationen; dessa exempel introducerar inga nya verb i 0.21.2.
-Globala effekter som energi/innehav accepterar inte meningslösa kartval.
-Första effekten ovan flyttar NPC-siffra 1 *inom* karta 2; den flyttar inte
-personen mellan kartor. Effekter på en ej besökt karta måste initiera
-kartans grundtillstånd innan ändringen sparas — aldrig tappas bort.
-
-## 4. Namngivna portaldestinationer — förslag, ännu inte stödda
+Destinationsnamn är unika inom filen. Destinationer och portaler kan välja
+karta på taggen eller på enskild rad; om väljare saknas används karta 1:
 
 ```text
 @destinations
-home 3,1
-map=2: cave 2,3
+home 1,1
+map=7: cave 2,1
 
 @portals
-8,4 -> cave
-map=2: 1,3 -> home
+2,1 -> cave
+map=7: 7,1 -> home
 ```
 
-En destination är ett **filunikt namn** bundet till `(kart-id, x, y)`.
-Prefixet väljer destinationens karta respektive portalens källkarta.
-Ingen automatisk namnkoppling eller implicit returportal; en enkelriktad
-portal är en rad, tvåvägsresa är två uttryckliga rader.
+En portal är enkelriktad om ingen returportal anges. Källa och destination
+måste vara säker, gångbar mark vid laddning. Om ett rörligt objekt blockerar
+ankomsten senare avvisas resan atomiskt: spelaren stannar på källrutan och
+objektet flyttas/raderas inte. Portalresan ingår i den handling som gick in
+på källan och kostar ingen extra tur. En portal på ankomstrutan utlöses inte
+omedelbart; ankomstspärren släpps när spelaren lämnar rutan.
 
-Källan är en koordinatmarkering på gångbar mark. Destinationer kräver
-säker, gångbar ankomst; saknat namn, dubbelt källfält eller blockerad
-destination ger fel. Portalen får varken radera objekt eller skjuta bort
-en aktör för att lyckas.
+## 4. Återbesök, checkpoints, restart och saves
 
-**Ingen portalstuds:** ankomst ska inte utlösa en portal som ligger under
-spelaren. Portalutlösning återaktiveras först efter att spelaren lämnat
-ankomstrutan. Detta tillstånd måste överleva save/restore och checkpoint-
-respawn; det får inte gå att skapa en oändlig returloop genom Fortsätt.
+Besökta kartor behåller sina ändringar: flyttade objekt, pickups, grindar,
+timer-/spakläge, fiendepositioner och andra sparade World-data. Endast aktiv
+karta tickar. Delat inventory följer med utan carry/reset och energi/liv
+fylls inte på eller klampas av destinationens regler.
 
-## 5. Tillstånd, återbesök, checkpoints och sparning
+`Q`-checkpoint sparar karta och lokala koordinater. Dödsrespawn kan därför
+byta tillbaka till checkpointens karta. Checkpoint är inte undo: andra
+världsändringar och inventory rullas inte tillbaka. Ankomstspärren mot
+portalstuds överlever save/restore och checkpointrespawn. **Restart** behåller
+det befintliga beteendet: hela äventyret börjar om från första kartan.
 
-- Varje besökt karta behåller sina ändrade rutor, kvarvarande resurser,
-  skatter, grindar/spakar/timers, fiender, dimma och NPC-placeringar.
-  Återbesök är **inte omladdning till ursprungsläge**.
-- Innehavet finns fortsatt bara en gång i story/inventory-systemet.
-  Internt kartbyte får inte göra name-keyed carry/reset som mellan filer.
-- Checkpointen innehåller minst **filidentitet + kart-id + x,y**.
-  Dödsrespawn kan därför återvända till en annan intern karta.
-  Checkpoint är som idag en respawnpunkt, **inte undo** av värld/innehav.
-- Save måste omfatta aktiv karta, alla bevarade karttillstånd, gemensam
-  story/spelare, checkpoint och ankomstspärr mot portalstuds.
-  Fil-/kartreferenser valideras innan save tas i bruk. Äldre enkartsfiler
-  och saves utan nya funktioner behöver en uttryckligt testad migrering.
-- Ingen stor kartstack på ESP-taskstacken: fasta gränser och PSRAM, med
-  tydligt fel vid överskridande. Slutliga kapaciteter och save-version är
-  ännu inte beslutade och får inte ”lösas” med tysta bortfall.
+Multimap-save v2 innehåller aktiv karta, besökta kartor, gemensam StoryState,
+checkpoint och portalspärr. Restore är transaktionell och kontrollerar
+äventyrsmapp, kart-id:n, save-innehåll och filsignatur; redigerad källfil ger
+tydligt fel i stället för att tillämpa gammalt karttillstånd på nya data.
+Legacy v1-save återställs fortsatt för gamla enkarts-/separatfiläventyr; v1
+kan inte användas för ett multimap-äventyr.
 
-## 6. Verkliga öppna beslut inför steg 3+4
+## 5. Kapacitet och validering
 
-Detta dokument är tillräckligt för att författa grundreferenser, men följande
-är **inte färdigbeslutade runtime-regler**:
+- Högst **4 interna kartor** inklusive huvudkartan; kart-id 1–255.
+- Högst **32 destinationsnamn** och **32 portalrader** per fil.
+- `.adv`-fil högst **64 KiB**; en källrad högst 1199 byte.
+- Varje karta högst **80×80**, en `S`; högst 36 plattgrupper, 48 skatter,
+  8 fiender, 16 mörkerrektanglar, 16 resursglyfdefinitioner och 160
+  resursplaceringar per karta.
+- Per fil gäller även 16 NPC-definitioner, 128 story-noder, 64 flaggor,
+  16 räknare, 32 inventory-id:n och 16 quests. Befintliga gränser för
+  patrol-rutter och andra sektioner gäller också.
+- Varje karta valideras av `World::load()`. Okända sektioner/direktiv,
+  saknade destinationer, ogiltiga/odeklarerade kartval, motstridiga
+  resursdefinitioner, felaktiga koordinater och överskridna kapaciteter ska
+  ge tydliga laddningsfel; de hoppas inte tyst över.
 
-1. **Budget:** högsta antal interna kartor, sammanlagd rut-/aktörsbudget,
-   residenta kontra serialiserade PSRAM-bilder och övre save-/filstorlek.
-   Dagens kapaciteter per fil kan inte bara multipliceras obegränsat.
-2. **Turordning:** kostar portalresa en ytterligare tur, tickar inaktiva
-   kartors timers/fiender, och i vilken ordning sker fiendekontakt,
-   transportband, checkpoint och portal vid samma handling? Förslag:
-   endast aktiv karta tickar, ingen extra tur, men detta måste beslutas
-   och testas tillsammans — inte antas i implementeringen.
-3. **Ankomst som blockeras efter validering:** en rörlig fiende/sten kan
-   stå på destinationen vid återbesök. Ska resan avvisas atomiskt, vänta,
-   eller använda en explicit reservdestination? Ingen tyst teleportering
-   till ”närmaste fria ruta”.
-4. **Liv/energi och start:** hur hanteras olika `energy_cap`, startenergi
-   och livregler mellan interna kartor? Behöver extrakartor egna `S`,
-   eller enbart namngivna ankomster? Gamla kartors exakta ett `S` gäller
-   oförändrat tills detta avgjorts.
-5. **Omstartens gräns:** dagens SD-knapp startar **hela äventyret från
-   första filen**. Ska framtida flerkartsvy dessutom erbjuda omstart av
-   aktiv karta eller aktuell fil, och vad händer då med delat inventory
-   och en checkpoint på annan karta? Befintlig omstart får inte försvinna.
-6. **Kompatibilitet med redigerat innehåll:** bindning av sparade interna
-   kartor till reviderade filer samt atomisk restore av alla kartor måste
-   få ett uttalat kontrakt (identitet/signatur, migrering eller tydligt fel).
+På ESP ligger `Adv::Loaded` och de serialiserade kartbilderna i PSRAM. Allokera
+inte `Loaded` eller `Otr::World` på taskstacken. Hoststorlekar i denna
+version: `sizeof(Loaded)=88,088`, `sizeof(World)=71,544`,
+`sizeof(SdSession)=1,032`; en serialiserad World-bild ryms inom 44,977 byte.
+`SdSession::SAVE_CAP` är **180,122 byte** för fyra maximalt stora bilder.
+UI:ts save-buffer måste minst vara `Adv::SdSession::SAVE_CAP`; den gamla
+65,536-bytegränsen räcker inte för multimap.
 
-NPC-resor, flera placeringar av samma person och kartövergång över en kant
-ingår inte automatiskt i detta portalformat. Utökningar behöver egna beslut.
+## 6. Spelbart prov
+
+Kopiera [`docs/adventures/multimap_portals/`](adventures/multimap_portals/)
+till SD-kortets `/otr/adventure/multimap_portals/`. Det provar portal till
+gömd grotta, retur, blockerad ankomst, gemensam resurs, kartlokala grupper,
+NPC/fiende/mörker, story travel, tvärkart-checkpoint samt save/restore.
+Hosttestet `tests/test_adv_multimap.cpp` kör både källmappen och SD-bundle.

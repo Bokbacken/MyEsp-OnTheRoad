@@ -46,8 +46,10 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 > **Nytt i v0.21.2:** egna resurser fungerar nu som verkliga pickups med
 > innehavstak, `has`/`give`/`take`, föremålslista, valfri PNG, sparning och
 > carry/reset. Se avsnitt 9 och [det körbara resursprovet](adventures/z_resource_test/README.md).
-> [Flerkartsspecifikationen](ADVENTURE_MULTIMAP_FORMAT.md) beskriver
-> **framtida, ännu inte stödd syntax**. Dagens spelare har en karta per fil.
+> En `.adv`-fil kan nu innehålla upp till fyra interna kartor med namngivna
+> destinationer, portaler och gemensamt story/inventory. Se avsnitt 12,
+> [flerkartsreferensen](ADVENTURE_MULTIMAP_FORMAT.md) och det körbara
+> [portalprovet](adventures/multimap_portals/README.md).
 
 Formatet är avsiktligt **nära motorns verkliga datastrukturer** så att det är
 realistiskt importbart:
@@ -98,8 +100,10 @@ Reglerna menyn följer:
 - **En mapp under `/otr/adventure/` = ett äventyr.** Mappnamnet är äventyrets
   interna id och det som sparfiler knyts till (byt aldrig namn på en mapp om du
   vill behålla sparningar – t.ex. måste Josef-mappen heta `josef`).
-- **Filerna i mappen är kartorna (nivåerna), i bokstavsordning.** Döp dem med
-  ett numrerat prefix – `01_...adv`, `02_...adv` – så spelas de i den ordningen.
+- **Flera `.adv`-filer i mappen är separata nivåer i bokstavsordning.** Döp
+  dem med numrerat prefix – `01_...adv`, `02_...adv` – så spelas de i ordning.
+  En fil kan också innehålla interna kartor som länkas med portaler; de ersätter
+  inte eller blandas med separata filer.
 - **Menytiteln och beskrivningen hämtas från den *första* kartans `@about`**
   (avsnitt 3). Saknas `@about` används mappnamnet.
 - Undermapparna `saves/`, `maps/` och `bitmaps/` hoppas över vid skanningen.
@@ -319,9 +323,10 @@ utlöses först) och håller kartan giltig. Den medföljande kampanjen `minkampa
 
 ## 5. @map – rita kartan
 
-Exakt en `@map` utan kart-id stöds per fil. Flera separata `.adv`-filer
-spelas som tidigare i filnamnsordning. `@map 2`, `map=2:` och portaler är
-**ännu inte stödda**; se [framtida formatspecifikation](ADVENTURE_MULTIMAP_FORMAT.md).
+En enkartafil har en `@map` utan kart-id. En flerkartsfil kan dessutom ha
+`@map 2` … `@map 255`; väljare, destinationer och portaler beskrivs i
+[avsnitt 12](#12-flerkartor-och-portaler). Flera separata `.adv`-filer
+spelas fortfarande i filnamnsordning.
 
 Kartan är ett rutnät, en rad per textrad, **ett byte per ruta**. Alla rader
 måste vara **lika långa** (det blir kartans bredd) och antalet rader blir
@@ -690,15 +695,15 @@ Regler för `@dark`:
 - Koordinaterna är 0-indexerade (`x` = kolumn, `y` = rad), samma som `@map`.
 - Du får ange **flera** rektanglar (en per rad), max **16** (`MAX_DARK`).
 - Rektanglar **klipps mot kartans kant** – delar utanför kartan ignoreras, och
-  en rektangel som ligger helt utanför kastas bort. Rektanglar efter de första
-  16 parsas men ignoreras tyst; håll dig till gränsen.
+  en rektangel som ligger helt utanför kastas bort. Den sjuttonde rektangeln
+  ger ett parserfel.
 - Mörkret döljer terräng, föremål, skatter och personer i rutan tills det lyses
   upp. Det är tänkt för grottor, källare och nattkartor.
 
 Du kan även skriva rektangeln på samma rad som taggen: `@dark 2,2 9,6`.
 Det är fortfarande exakt två koordinatpar (fyra tal), inte en lista med
 fristående rutor. En enda mörk ruta skrivs med samma hörn två gånger:
-`@dark 4,3 4,3`. Något kart-id efter `@dark` stöds inte i nuvarande format.
+`@dark 4,3 4,3`. I en flerkartsfil kan taggen skrivas `@dark map=2`.
 
 ### 10b. Ficklampa – lyser upp mörkret
 
@@ -1255,7 +1260,109 @@ om den som mall för dina egna.
 
 ---
 
-## 12. Validering
+## 12. Flerkartor och portaler
+
+En `.adv`-fil kan innehålla en huvudkarta (`@map`, internt id 1) och högst
+tre extra kartor (`@map 2` … `@map 255`, med unika id:n). Varje karta är
+fortfarande högst 80×80 och måste ha exakt ett `S`. `@meta map_id` fortsätter
+vara filens separata identitet. Kartorna i en fil är inte samma sak som flera
+separata `.adv`-filer i äventyrsmappen.
+
+Kartval saknas som standard och betyder då alltid huvudkartan, även efter
+deklaration av en extrakarta:
+
+```text
+@treasures
+2 1 pogo 2
+map=2: 3 2 flash 1
+
+@legend map=2
+g = plate 1
+
+@rules map=2
+lava_damage: 3
+
+@npc guard map=2
+name: Väktaren | Guard
+num: 1
+
+@destinations
+home 1,1
+map=2: cave 2,1
+
+@portals
+2,1 -> cave
+map=2: 7,1 -> home
+
+@map
+########
+#S....X#
+########
+@map 2
+##########
+#S......1#
+##########
+```
+
+`map=N` på taggraden väljer hela sektionen. `map=N:` väljer enskilda rader
+i `@rules`, `@treasures`, `@enemies`, `@resources` och `@dark`. `@legend`,
+`@npc`, `@plategroup`, `@gategroup`, `@andgate` och `@timedgate` använder
+taggradsväljare. Väljaren gäller bara där den skrivs; den skapar inget
+"senaste karta"-läge. Id måste vara deklarerat. Koordinaterna är lokala och
+nollbaserade.
+
+Legend, terräng, resurser/pickups, skatter, fiender, dimma, mörker och
+grupptillstånd är kartlokala. NPC-siffror 1–9 är också lokala; NPC- och
+story-id:n/noder delas i filen. Resursglyfen är lokal, men inventory-id:t är
+globalt och kan återdeklareras på annan karta bara med samma namn, tak och
+bild. Story-inventory, flaggor, räknare och quests delas.
+
+Huvudkartans `start_energy`, `energy_cap`, `lives`, `carry` och `reset` anger
+de delade energi-/livreglerna och carry/reset-policyn. Att ange någon av dessa
+i en extrakartas `@rules` är ett fel. Övriga regler är lokala; utelämnade
+värden använder motorns standard. Intern resa bevarar aktuell energi, liv och
+utrustning. `carry`/`reset` påverkar bara resa till nästa separata fil.
+
+Destinationer har filunika namn. En portalrad `x,y -> namn` använder
+destinationstabellen; utan `map=` avses huvudkartan. Källa och destination
+kontrolleras som säker, gångbar ruta vid start. Om objekt senare blockerar
+ankomsten avvisas resan atomiskt och spelaren stannar på portalkällan. Resan
+kostar ingen extra tur, och endast aktiv karta tickar. Ankomst spärras från
+att genast utlösa en portal till dess att spelaren lämnar ankomstrutan.
+
+`effects: world travel cave` använder samma destinationer. Kartverb kan
+rikta sig till vald karta:
+
+```text
+effects: world open map=2 4 2
+effects: world npc_move map=2 1 4 6
+effects: world npc_remove map=2 1
+```
+
+Stödda kartverb är `open`, `npc_move` och `npc_remove`; utan `map=N` avses
+huvudkartan. En ej besökt målbild startas från kartans grundläge före ändring.
+
+Besökta kartor bevarar ändringar och World-tillstånd. Checkpoints är
+äventyrsgemensamma och innehåller kart-id plus koordinat; dödsrespawn kan byta
+karta utan att rulla tillbaka andra ändringar. Restart startar om hela
+äventyret. Multimap-save v2 innehåller alla besökta kartbilder, aktiv karta,
+story, checkpoint och portalskydd. Restore avvisar filsignatur som ändrats
+sedan sparning; v1-save stöds fortsatt för äldre enkarts-/separatfiläventyr,
+inte som multimap-migrering.
+
+Begränsningar: högst 4 interna kartor, 32 destinationsnamn, 32 portalrader
+och 64 KiB per `.adv`-fil. Varje karta måste kunna laddas av motorn; övriga
+befintliga begränsningar för kartor, NPC:er, fiender, resurser och storydata
+gäller fortfarande. På ESP måste `Adv::Loaded` och `Otr::World` ligga i PSRAM;
+UI-save-bufferten måste vara minst `Adv::SdSession::SAVE_CAP` (180,122 byte).
+Se [formatreferensen](ADVENTURE_MULTIMAP_FORMAT.md) för minnesmått och
+fullständiga kapaciteter.
+
+Körande exempel: [multimap_portals](adventures/multimap_portals/README.md).
+
+---
+
+## 13. Validering
 
 Motorns `Script::validate()` plus `.adv`-laddaren kontrollerar äventyret och är
 den bästa checklistan när du skrivit klart. Du får fel om:
@@ -1279,14 +1386,14 @@ script- och motorvalidering före spelstart.
 
 ---
 
-## 13. Import/export-status
+## 14. Import/export-status
 
 `.adv`-formatet läses på enheten med produktionsladdaren. Hostens
 referensparser är inte funktionellt likvärdig för alla formatversioner.
 
-- **På enheten:** `main/adv_loader.{h,cpp}` är en firmware-säker parser (inga
-  dynamiska allokeringar, `Adv::Loaded` ligger i PSRAM) som läser `.adv` rakt in
-  i motorns strukturer. `main/adv_catalog.{h,cpp}` skannar `/otr/adventure/` och
+- **På enheten:** `main/adv_loader.{h,cpp}` är en firmware-säker parser med
+  fast gräns och PSRAM-scratch för `.adv`-förbehandling; `Adv::Loaded`
+  (88,088 byte på host) ligger i PSRAM. `main/adv_catalog.{h,cpp}` skannar `/otr/adventure/` och
   bygger menyn; `main/adv_sd_session.{h,cpp}` sköter spara-per-mapp och
   carry/reset. Detta ingår i firmware-bygget (`idf.py build`).
 - **På värddator:** `tools/adv_parse.{h,cpp}` är fortfarande en S1-parser och
@@ -1314,6 +1421,12 @@ g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
     -Icomponents/otr_story/include tests/test_s2_demo.cpp main/adv_loader.cpp \
     main/adv_catalog.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp \
     components/otr_story/otr_story.cpp -o tests/test_s2_demo && ./tests/test_s2_demo
+
+# Flerkartor/portaler: parser, portals, blocked arrivals, checkpoint and v1 regression
+g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
+    -Icomponents/otr_story/include tests/test_adv_multimap.cpp main/adv_loader.cpp \
+    main/adv_sd_session.cpp components/otr_engine/otr_world.cpp \
+    components/otr_story/otr_story.cpp -o tests/test_adv_multimap && ./tests/test_adv_multimap
 ```
 
 > **Hårdvarustatus:** Ägaren har testat PR #11 på hårdvara och rapporterat att
@@ -1322,7 +1435,7 @@ g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
 
 ---
 
-## 14. Kompletta exempel
+## 15. Kompletta exempel
 
 - **Hebron-lägret (Josef, 1 Mos 37):**
   [`docs/adventures/example_joseph_hebron.adv`](adventures/example_joseph_hebron.adv)

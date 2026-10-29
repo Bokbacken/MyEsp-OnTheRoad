@@ -1311,8 +1311,8 @@ void showPlayer()
     lv_obj_set_pos(P.volumeValue, l.volumeX, l.volumeLabelY);
     P.volumeTrack = lv_obj_create(scr);
     lv_obj_remove_style_all(P.volumeTrack);
-    lv_obj_set_size(P.volumeTrack, 12, l.volumeH);
-    lv_obj_set_pos(P.volumeTrack, l.volumeX + (l.volumeW - 12) / 2, l.volumeSliderY);
+    lv_obj_set_size(P.volumeTrack, KaraokeLayout::VOLUME_TRACK_WIDTH, l.volumeH);
+    lv_obj_set_pos(P.volumeTrack, l.volumeX + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
     lv_obj_set_style_radius(P.volumeTrack, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(P.volumeTrack, Theme::c(Theme::LINE), 0);
     lv_obj_set_style_bg_opa(P.volumeTrack, LV_OPA_30, 0);
@@ -1320,14 +1320,13 @@ void showPlayer()
     lv_obj_set_scrollable(P.volumeTrack, false);
     P.volumeSlider = lv_slider_create(scr);
     lv_obj_remove_style_all(P.volumeSlider);
-    lv_obj_set_size(P.volumeSlider, l.volumeW, l.volumeH);
-    lv_obj_set_pos(P.volumeSlider, l.volumeX, l.volumeSliderY);
+    lv_obj_set_size(P.volumeSlider, KaraokeLayout::VOLUME_TRACK_WIDTH, l.volumeH);
+    lv_obj_set_pos(P.volumeSlider, l.volumeX + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
+    lv_obj_set_ext_click_area(P.volumeSlider, (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH + 1) / 2);
     lv_slider_set_orientation(P.volumeSlider, LV_SLIDER_ORIENTATION_VERTICAL);
     lv_slider_set_range(P.volumeSlider, 0, 100);
     lv_slider_set_value(P.volumeSlider, Karaoke::volume(), LV_ANIM_OFF);
     lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_pad_left(P.volumeSlider, (l.volumeW - 12) / 2, LV_PART_MAIN);
-    lv_obj_set_style_pad_right(P.volumeSlider, (l.volumeW - 12) / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_40, LV_PART_INDICATOR);
     lv_obj_set_style_border_width(P.volumeSlider, 0, LV_PART_MAIN);
@@ -1337,8 +1336,15 @@ void showPlayer()
     lv_obj_set_style_border_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_KNOB);
     lv_obj_set_style_border_width(P.volumeSlider, 2, LV_PART_KNOB);
     lv_obj_set_style_radius(P.volumeSlider, 3, LV_PART_KNOB);
-    lv_obj_set_style_width(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_WIDTH, LV_PART_KNOB);
-    lv_obj_set_style_height(P.volumeSlider, KaraokeLayout::VOLUME_KNOB_HEIGHT, LV_PART_KNOB);
+    // LVGL derives the drawn knob from the slider width plus padding, not knob width/height styles.
+    lv_obj_set_style_pad_left(P.volumeSlider,
+        (KaraokeLayout::VOLUME_KNOB_WIDTH - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+    lv_obj_set_style_pad_right(P.volumeSlider,
+        (KaraokeLayout::VOLUME_KNOB_WIDTH - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+    lv_obj_set_style_pad_top(P.volumeSlider,
+        (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+    lv_obj_set_style_pad_bottom(P.volumeSlider,
+        (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
     lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
         P.volumeDragging = true;
         P.volumeChanged = false;

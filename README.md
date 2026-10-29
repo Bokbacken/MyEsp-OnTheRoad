@@ -4,19 +4,24 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.21.2** – custom `@resources` now work in the player:
-> real pickups, shared story inventory, caps (including `give` and carry),
-> PNG/bag rendering, inventory menu, save/restore and web live view.
-> Copy the [resource check](docs/adventures/z_resource_test/README.md) from the
-> SD bundle to test collection, dialogue, checkpoints and carry/reset on ESP.
-> Engine saves use format 7; old saves remain readable on maps without resources.
-> Old resource-map saves require a new game. Story and SD-container versions are unchanged.
-> The [multi-map format specification](docs/ADVENTURE_MULTIMAP_FORMAT.md) is
-> **future syntax, not implemented**. Multi-map runtime and portals are the next delivery.
-> Existing suction/**Pull**, enemies and S2/S3/S4 demos are preserved; no undo was added.
-> **Verification:** physical ESP32/display/touch testing remains necessary;
-> this sandbox has no ESP-IDF toolchain for a firmware build.
-> No undo, editor, release-workflow changes, tags or GitHub Releases are included.
+> **Status: v0.21.3** – internal maps, named portal destinations and persistent
+> return visits. Player inventory and energy/lives are shared, inactive maps pause,
+> and blocked arrivals are rejected without moving obstacles.
+> See the [runtime format](docs/ADVENTURE_MULTIMAP_FORMAT.md) and copy the
+> [portal test adventure](docs/adventures/multimap_portals/README.md) from the SD bundle.
+> The Adventure HUD has a reserved 48-pixel strip above the map. Karaoke now has
+> an actually rectangular 30×14-pixel volume knob with its large touch target
+> preserved, and percentage inside the battery symbol's existing footprint.
+> Physical ESP32-S3 verification remains necessary; no editor or general undo
+> is included in this delivery.
+>
+> The durable [Adventure checklist and session recovery instructions](docs/ADVENTURE_TODO.md)
+> record what is implemented, published and hardware-tested.
+>
+> Previous: v0.21.2 – custom `@resources`: real pickups, shared story inventory,
+> caps, PNG/bag rendering, inventory menu, persistence and live web view.
+> The owner completed the [resource check](docs/adventures/z_resource_test/README.md) on ESP.
+> Engine saves use format 7; old resource-map saves require a new game.
 >
 > Previous: v0.21.0 – adventure skates, poison ground/swamp/sharp rocks,
 > six colored push-box/plate pairs and explicit lever+plate AND groups.
@@ -507,6 +512,24 @@ python3 tools/embed_web.py --check  # CI: fails if web_assets.h is stale
 ```
 
 ### Tests (host)
+
+Adventure v0.21.3 multimap and UI checks (from the repository root):
+
+```sh
+mkdir -p build_host_multimap
+g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_multimap.cpp main/adv_loader.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o build_host_multimap/multimap
+build_host_multimap/multimap
+python3 tests/test_adv_s2_ui.py build_host_multimap
+python3 tests/test_adv_game_layout.py build_host_multimap/layout
+python3 tests/test_karaoke_layout.py build_host_multimap/karaoke
+```
+
+The UI action harness executes real internal-map portal travel, checks camera,
+animation, resource-image and live-map refresh, and prevents an immediate return
+portal bounce. The Karaoke harness inspects LVGL's actual knob draw rectangles
+at 0/50/100%, including pressed state, rather than unused knob size styles.
+It also checks battery percentage placement and colors, unknown readings and
+the retained touch area at both landscape sizes and both rotations.
 
 Adventure v0.21.2 resource checks (from the repository root):
 

@@ -262,6 +262,17 @@ function drawPerson(c, px, py, look, talking, label) {
   c.fillStyle = '#1a1a1a'; c.font = 'bold 8px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
   c.fillText(label, px + 12, py + 17);
 }
+function drawPortalMarkers(c, portals) {
+  for (const p of portals || []) {
+    if (!visibleCell(p.x, p.y)) continue;
+    const x = p.x * CELL, y = p.y * CELL;
+    c.save();
+    c.strokeStyle = '#25e0d0'; c.fillStyle = '#25e0d0'; c.lineWidth = 2.5;
+    c.beginPath(); c.arc(x + 12, y + 12, 9, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.arc(x + 12, y + 12, 2, 0, Math.PI * 2); c.fill();
+    c.restore();
+  }
+}
 function drawPlayer(c, px, py, dir, sailing) {
   if (sailing) poly(c, [px + 1, py + 15, px + 23, py + 15, px + 19, py + 23, px + 5, py + 23], '#8b5a2b');
   circ(c, px + 12, py + 12, 9.5, '#ff9c3d');
@@ -340,6 +351,7 @@ function draw() {
   wctx.drawImage(layer, 0, 0);
   drawResources(wctx, st);
   drawDynamicCells(wctx);
+  drawPortalMarkers(wctx, st.portals);
   for (const n of st.npcs) if (visibleCell(n.x, n.y)) drawPerson(wctx, n.x * CELL, n.y * CELL, n.look, n.talking, (n.name || '?').charAt(0).toUpperCase());
   for (const e of st.enemies || []) drawEnemy(wctx, e);
   drawPlayer(wctx, ax * CELL, ay * CELL, st.player.dir, st.player.sailing);

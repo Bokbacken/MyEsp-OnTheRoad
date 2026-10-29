@@ -334,15 +334,15 @@ static void testDarkFlashPogo()
         CHECK(!Adv::parse(bad, std::strlen(bad), *L, err, sizeof err));
     }
 
-    // More than MAX_DARK rects: the overflow is silently dropped, count caps at MAX_DARK.
+    // Exceeding MAX_DARK is rejected instead of silently dropping map data.
     {
         std::string m = "@dark\n";
         for (int i = 0; i < Otr::MAX_DARK + 5; i++) m += "1,1 1,1\n";
         m += "@map\nS...\n....\n....\n...X\n";
         auto L = std::make_unique<Adv::Loaded>();
         char err[128] = {0};
-        CHECK(Adv::parse(m.c_str(), m.size(), *L, err, sizeof err));
-        CHECK(L->darkCount == Otr::MAX_DARK);
+        CHECK(!Adv::parse(m.c_str(), m.size(), *L, err, sizeof err));
+        CHECK(strstr(err, "too many dark rectangles") != nullptr);
     }
 
     // f/j glyphs become flashlight / pogo pickups on the map (level 1).

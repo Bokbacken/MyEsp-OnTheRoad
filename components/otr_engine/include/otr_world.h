@@ -322,6 +322,8 @@ public:
     void revive();          // After game over ("continue"): one life, full energy, at the checkpoint
 
     bool playerCanEnter(int x, int y) const;     // Terrain + object check (no side effects)
+    bool safeArrivalAt(int x, int y) const;      // Portal/checkpoint landing: walkable, hazard-free, no enemy
+    bool setPlayerPosition(int x, int y);        // No-turn teleport; does not change this map's checkpoint
 
     // People (v0.11.0). A person stands on a cell like a rock that cannot be pushed; walking into
     // it or hitting it returns EV_TALK and remembers its number in talkNpc().

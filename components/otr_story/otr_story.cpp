@@ -179,12 +179,12 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
     Span rest{effects, strlen(effects)}, eff;
     while (nextPart(rest, ';', eff)) {
         if (!eff.n) return false;
-        Span w[5];
+        Span w[6];
         int wc = 0;
         Span r = eff, word;
         while (nextPart(r, ' ', word)) {
             if (!word.n) continue;   // Double spaces
-            if (wc == 5) return false;
+            if (wc == 6) return false;
             w[wc++] = word;
         }
         if (!wc) return false;
@@ -224,14 +224,40 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
             }
         } else if (verb.eq("world")) {
             if (wc < 2 || !validName(w[1]) || w[1].n >= 16) return false;
+            if (w[1].eq("travel")) {
+                if (wc != 3 || !validName(w[2]) || w[2].n >= 32) return false;
+                if (st && host) {
+                    char destination[32];
+                    memcpy(destination, w[2].p, w[2].n);
+                    destination[w[2].n] = 0;
+                    host->worldTravel(destination);
+                }
+                continue;
+            }
             int argv[3] = {0, 0, 0};
-            for (int i = 2; i < wc; i++)
-                if (!parseInt(w[i], argv[i - 2])) return false;
+            int mapId = 1, argc = 0;
+            bool hasMap = false;
+            for (int i = 2; i < wc; i++) {
+                if (w[i].n > 4 && !memcmp(w[i].p, "map=", 4)) {
+                    if (hasMap || i != 2 || w[i].n > 7) return false;
+                    int parsed;
+                    if (!parseInt(Span{w[i].p + 4, w[i].n - 4}, parsed) || parsed < 1 || parsed > 255)
+                        return false;
+                    mapId = parsed;
+                    hasMap = true;
+                } else {
+                    if (argc == 3 || !parseInt(w[i], argv[argc])) return false;
+                    argc++;
+                }
+            }
+            if (hasMap && !verb.eq("open") && !verb.eq("npc_move") && !verb.eq("npc_remove"))
+                return false;
             if (st && host) {
                 char v[16];
                 memcpy(v, w[1].p, w[1].n);
                 v[w[1].n] = 0;
-                host->worldAction(v, wc - 2, argv);
+                if (hasMap) host->worldActionOnMap(v, mapId, argc, argv);
+                else host->worldAction(v, argc, argv);
             }
         } else if (verb.eq("sound")) {
             if (wc != 2 || !validName(w[1]) || w[1].n >= 24) return false;
@@ -298,10 +324,10 @@ const Npc *Script::npc(const char *id) const
     return nullptr;
 }
 
-const Npc *Script::npcByNum(int num) const
+const Npc *Script::npcByNum(int num, int mapId) const
 {
     for (int i = 0; i < npcCount; i++)
-        if (npcs[i].num == num) return &npcs[i];
+        if (npcs[i].num == num && npcs[i].mapId == mapId) return &npcs[i];
     return nullptr;
 }
 
@@ -330,8 +356,10 @@ int Script::validate(char *err, size_t cap) const
         if (!p.id || !validName(Span{p.id, strlen(p.id)}) || strlen(p.id) > 24) e.add("npc %d: bad id", i);
         if (!p.name.s[0]) e.add("npc '%s': no name", p.id);
         if (p.num < 1 || p.num > 9) e.add("npc '%s': map number must be 1..9", p.id);
+        if (p.mapId < 1) e.add("npc '%s': invalid internal map", p.id);
         for (int j = 0; j < i; j++) {
-            if (p.num == npcs[j].num) e.add("npc '%s': map number %d used twice", p.id, p.num);
+            if (p.num == npcs[j].num && p.mapId == npcs[j].mapId)
+                e.add("npc '%s': map number %d used twice on map %d", p.id, p.num, p.mapId);
             if (p.id && npcs[j].id && strcmp(p.id, npcs[j].id) == 0) e.add("npc '%s': duplicate", p.id);
         }
     }
