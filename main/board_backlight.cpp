@@ -29,6 +29,7 @@ bool begin(uint8_t percent)
     c.channel = CH;
     c.timer_sel = LEDC_TIMER_0;
     c.duty = 0;
+    c.flags.output_invert = LCD_BL_ACTIVE_LOW ? 1 : 0;
     g_pwm = ledc_timer_config(&t) == ESP_OK && ledc_channel_config(&c) == ESP_OK;
     if (!g_pwm) {
         ESP_LOGW("bl", "LEDC failed, using GPIO on/off");
@@ -50,7 +51,7 @@ void set(uint8_t percent)
         ledc_set_duty(MODE, CH, duty);
         ledc_update_duty(MODE, CH);
     } else {
-        gpio_set_level((gpio_num_t)PIN_LCD_BL, percent ? 1 : 0);
+        gpio_set_level((gpio_num_t)PIN_LCD_BL, (percent != 0) != LCD_BL_ACTIVE_LOW);
     }
 }
 

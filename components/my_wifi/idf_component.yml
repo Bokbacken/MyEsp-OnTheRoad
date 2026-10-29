@@ -1,0 +1,9 @@
+## Boards without native Wi-Fi (ESP32-P4) reach a Wi-Fi co-processor (ESP32-C6) through ESP-Hosted.
+## With ESP-IDF >= 6.1, IDF's esp_wifi routes esp_wifi_* into the hooks implemented by esp_hosted;
+## esp_wifi_remote is only needed on older IDF versions.
+dependencies:
+  idf: ">=6.1"
+  espressif/esp_hosted:
+    version: "^3.0.10"
+    rules:
+      - if: "target in [esp32p4]"

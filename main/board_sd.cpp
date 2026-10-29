@@ -14,6 +14,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "sdmmc_cmd.h"
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+#include "sd_pwr_ctrl_by_on_chip_ldo.h"
+#endif
 
 static const char *TAG = "sd";
 
@@ -26,11 +29,28 @@ sdmmc_card_t *s_card = nullptr;
 Info s_info{};
 uint32_t s_nextPoll = 0;
 bool s_logMissing = true;
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+sd_pwr_ctrl_handle_t s_pwr = nullptr;   // Card IO power from on-chip LDO, kept for the whole runtime
+#endif
 
 bool tryMount(int width)
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;   // 20 MHz: robust on long board traces
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    // Slot 1 belongs to ESP-Hosted (ESP32-C6); deinit_p only releases our slot on unmount.
+    host.slot = SD_SLOT;
+    if (!s_pwr) {
+        sd_pwr_ctrl_ldo_config_t ldo = {};
+        ldo.ldo_chan_id = SD_PWR_LDO_CHAN;
+        if (sd_pwr_ctrl_new_on_chip_ldo(&ldo, &s_pwr) != ESP_OK) {
+            s_pwr = nullptr;
+            if (s_logMissing) ESP_LOGW(TAG, "SD power LDO %d failed", SD_PWR_LDO_CHAN);
+            return false;
+        }
+    }
+    host.pwr_ctrl_handle = s_pwr;
+#endif
     sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
     slot.width = (uint8_t)width;
     slot.clk = (gpio_num_t)PIN_SD_CLK;

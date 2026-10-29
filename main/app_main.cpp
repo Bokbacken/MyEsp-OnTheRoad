@@ -1,4 +1,4 @@
-// MyEsp-OnTheRoad - Yatzy / Maxi-Yatzy travel console on the Heemol ES3C35P ESP32-S3 3.5" board
+// MyEsp-OnTheRoad - Yatzy / Maxi-Yatzy travel console (ES3C35P ESP32-S3 3.5" and Waveshare ESP32-P4 4.3" boards)
 // (ST77922 QSPI 320x480 + capacitive touch, WS2812 LED, Wi-Fi station + web UI).
 // ESP-IDF 6.1 + LVGL 9. Build: `idf.py build` (see README.md).
 //
@@ -19,6 +19,7 @@
 #include "lang.h"
 #include "board_backlight.h"
 #include "board_display.h"
+#include "board_pins.h"
 #include "board_rgb.h"
 #include "board_touch.h"
 #include "battery_math.h"
@@ -165,8 +166,12 @@ extern "C" void app_main(void)
     }
 
     // --- Self-test checklist ---
-    UiBoot::set(UiBoot::Item::DISP, displayOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                displayOk ? "320 x 480, QSPI 40 MHz, LVGL 9" : Display::failReason());
+    {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%d x %d, %s, LVGL 9", LCD_H_RES, LCD_V_RES, LCD_BUS_DESC);
+        UiBoot::set(UiBoot::Item::DISP, displayOk ? UiBoot::State::OK : UiBoot::State::FAIL,
+                    displayOk ? buf : Display::failReason());
+    }
     UiBoot::setProgress(20);
     {
         Touch::Info ti = Touch::info();

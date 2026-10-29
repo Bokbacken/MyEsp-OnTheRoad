@@ -1,9 +1,9 @@
-# MyEsp-OnTheRoad - ESP-IDF 6.1 defaults for the ES3C35P (ESP32-S3 N16R8).
+# MyEsp-OnTheRoad - ESP-IDF 6.1 defaults shared by all boards.
+# Target-specific settings: sdkconfig.defaults.esp32s3 / sdkconfig.defaults.esp32p4 (applied
+# automatically by ESP-IDF after `idf.py set-target <target>`).
 # After changing this file: delete sdkconfig (or run `idf.py fullclean`) so the defaults are re-applied.
-CONFIG_IDF_TARGET="esp32s3"
 
 # --- CPU / FreeRTOS ---
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
@@ -11,27 +11,22 @@ CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 
-# --- Flash: 16 MB QIO, same partition layout as the Arduino builds (NVS + FFat preserved) ---
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# --- Flash: QIO, 16 MB partition layout as the Arduino builds (NVS + FFat preserved) ---
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# --- PSRAM: 8 MB octal. Large/non time-critical buffers (LVGL heap + draw buffers, player DB,
+# --- PSRAM. Large/non time-critical buffers (LVGL heap + draw buffers, player DB,
 # log ring) live here; malloc() above 4 KB may land in PSRAM, 64 KB internal kept for DMA/stacks.
 CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y
-CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
-# --- Console: native USB (USB Serial/JTAG), like "USB CDC on Boot" in the Arduino builds ---
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# --- Logging (console selection is per target) ---
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
 
