@@ -36,6 +36,8 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 
 Pågående leverans: `feat/adventure-multimap-portals`, PR #19, firmware
 `0.21.3`. Själva planen publicerades separat på `main` via PR #20.
+Avbockningar avser implementerat och automatiskt kontrollerat stöd på
+leveransbranchen, inte fysisk ESP-verifiering eller merge till `main`.
 
 Bekräftade spelregler för denna leverans:
 
@@ -46,33 +48,39 @@ Bekräftade spelregler för denna leverans:
 - Bara aktiv karta tickar fiender och timers. Portalresan kostar ingen
   extra tur.
 
-- [ ] Lås och dokumentera runtime-reglerna och kapacitetsgränserna.
-- [ ] Stöd `@map` för huvudkarta, `@map N` för extra kartor och explicit
+- [x] Lås och dokumentera runtime-reglerna och kapacitetsgränserna.
+  Högst fyra kartor och 64 KiB källfil. Savebuffer 180 122 byte i PSRAM.
+- [x] Stöd `@map` för huvudkarta, `@map N` för extra kartor och explicit
   kartval enligt formatspecifikationen. Utelämnat kartval betyder alltid
   huvudkartan, aldrig senast deklarerad eller aktiv karta.
-- [ ] Kartlokala grupper, regler, resurspickups, NPC:er och fiender;
+- [x] Kartlokala grupper, regler, resurspickups, NPC:er och fiender;
   filgemensamt inventory och storytillstånd.
-- [ ] Bevara kartornas ändringar vid återbesök utan att dubblera inventory.
-- [ ] Kartmedvetna checkpoints och beständig save/restore.
-- [ ] Avvisa saknade kartor, felaktiga referenser och kapacitetsöverskridanden
+- [x] Bevara kartornas ändringar vid återbesök utan att dubblera inventory.
+- [x] Kartmedvetna checkpoints och beständig save/restore.
+- [x] Avvisa saknade kartor, felaktiga referenser och kapacitetsöverskridanden
   med begripliga fel. Bevara gamla enkartsäventyrs beteende.
 
 ## II. Portaler, destinationer och spelbar leverans
 
 Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
-- [ ] Filunika namngivna destinationer och portaler inom/mellan kartor.
-- [ ] Dialogstyrd förflyttning använder samma destinationsmodell.
-- [ ] Skydd mot omedelbar portalstuds, även efter save/restore och respawn.
-- [ ] Definierat beteende vid dynamiskt blockerad ankomst; inga tysta
+- [x] Filunika namngivna destinationer och portaler inom/mellan kartor.
+- [x] Dialogstyrd förflyttning använder samma destinationsmodell.
+- [x] Skydd mot omedelbar portalstuds, även efter save/restore och respawn.
+- [x] Definierat beteende vid dynamiskt blockerad ankomst; inga tysta
   reservpositioner och inga raderade/flyttade objekt för att lyckas.
 - [x] Reserverad HUD-remsa ovanför kartan; kartan ska inte döljas av HUD.
   Implementerad som 48 pixlar med titel och en delad rad för extra info.
   Automatisk layoutkontroll klar; fysisk ESP-verifiering återstår.
-- [ ] Testäventyr på SD med hemlig karta, returresa, lokala grupper,
+- [x] Testäventyr på SD med hemlig karta, returresa, lokala grupper,
   flyttade objekt, resurser, checkpoints och spara/ladda.
-- [ ] Testinstruktioner och uppdaterade authoring-exempel.
-- [ ] Relevanta automatiska tester, firmwareversionsbump och publicerad PR.
+  `sdcard_bundle/otr/adventure/multimap_portals/`.
+- [x] Testinstruktioner och uppdaterade authoring-exempel.
+- [x] Relevanta automatiska tester, firmwareversionsbump och publicerad PR.
+  Multimapkontroller, ASan/UBSan, tidigare resurser och SD-sessioner samt
+  Adventure/Karaoke-layout är kontrollerade. Slutligt firmwarebygge ska
+  avse PR:ens senaste SHA, inte en äldre grön commit.
+- [ ] Slutlig ESP-IDF-byggkontroll för senaste SHA i PR #19.
 - [ ] Användarens verifiering på ESP32-S3.
 
 ## Småfixar i samma leverans
@@ -132,3 +140,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | Datum | Leverans | Verifiering/status |
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
+| 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Första ESP-IDF-bygget grönt; slutlig integration och fysisk ESP-verifiering kvar. |

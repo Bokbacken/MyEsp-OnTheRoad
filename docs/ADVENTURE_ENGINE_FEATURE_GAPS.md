@@ -3,7 +3,7 @@
 Jämförelse mot klassiska 2D rutnätsmotorer (Chip's Challenge, Boulder Dash,
 Sokoban-varianter, Zelda-likes, Baba Is You, enkla roguelikes). Listan tar **bara**
 upp sådant motorn *inte* redan har. Statusen är kontrollerad mot parsern och
-motorn i repot, som anger firmwareversion 0.21.2; versionsnummer i listan
+motorn i repot, som anger firmwareversion 0.21.3; versionsnummer i listan
 beskriver när befintliga funktioner introducerades.
 
 **Svårighetsskala (för just denna kodbas):**
@@ -32,9 +32,13 @@ storyinventory, tak även för `give`/carry, `has`/`take`, valfri PNG/påse,
 föremålslista, checkpoint/save/restore/omstart och carry/reset mellan filer.
 Webblivevyn speglar resurser och innehav. Se
 [resursprovet](adventures/z_resource_test/README.md).
-[Flerkartsformatet](ADVENTURE_MULTIMAP_FORMAT.md) är specificerat men **ännu
-inte implementerat**. Flerkartsruntime och portaler kommer tillsammans i
-nästa leverans; budget, turordning och omstarts-/ankomstregler har öppna beslut.
+Från **0.21.3** stöds [flerkartor och namngivna portaldestinationer](ADVENTURE_MULTIMAP_FORMAT.md)
+inom samma fil, även för dialogstyrd förflyttning. Karttillstånd bevaras vid
+återbesök, checkpoints är kartmedvetna och bara aktiv karta tickar.
+Destinationer är förflyttningsmål, inte namngivna checkpoints. Kartövergång
+över en kant ingår inte. HUD har en reserverad remsa ovanför spelplanen.
+Den [beständiga checklistan](ADVENTURE_TODO.md) anger återstående leverans-
+och hårdvaruverifiering samt planen fram till en komplett editor.
 
 ---
 
@@ -43,7 +47,6 @@ nästa leverans; budget, turordning och omstarts-/ankomstregler har öppna beslu
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
 | 3 | **Enkelriktade rutor / hål** | Kan bara passeras åt ett håll, eller faller ned (nivåskifte/fälla) | 2 |
-| 4 | **Teleport-par (portaler)** | Två rutor som länkar ihop; redan nära `@legend`-tänket (id-par) | 3 |
 | 5 | **Rörlig plattform på vatten/lava** | Flytande yta som bär spelaren – mer dynamik än statisk bro | 4 |
 
 ## Pusselmekanik
@@ -74,8 +77,8 @@ nästa leverans; budget, turordning och omstarts-/ankomstregler har öppna beslu
 
 | # | Funktion | Vad det ger | Svårighet |
 |---|----------|-------------|:--------:|
-| 21 | **Kartövergångar i samma .adv** | Flera rum/kartor i en fil, kantdörrar mellan dem (ni har redan SD-session mellan filer) | 4 |
-| 22 | **Namngivna checkpoints / varp** | Hoppa till utpekad checkpoint via effekt (story-driven) | 2 |
+| 21 | **Kartövergång över en kant** | Portalbaserade interna kartbyten finns; automatiska kantövergångar saknas | 3 |
+| 22 | **Namngivna checkpoints** | Namngivna destinationer och storyförflyttning finns; checkpointnamn och val mellan flera återkomstpunkter saknas | 2 |
 | 23 | **Villkorliga rutor** | Ruta ändras när en flagga sätts (t.ex. bro byggs av story) – `world VERB` finns redan | 3 |
 | 24 | **Slumpmässig utplacering** | Markera ett område, motorn strösslar föremål/fiender – rejält omspelsvärde | 3 |
 | 25 | **Generell kartlegend** | Utöka nuvarande legend för ett urval av mekaniker till valfri terräng/objekt och egna id:n | 2 |
@@ -102,8 +105,10 @@ nästa leverans; budget, turordning och omstarts-/ankomstregler har öppna beslu
 ---
 
 ## Möjliga nästa steg (värde för insatsen)
-- **Flerkartor + namngivna portaler (#21/#4)** – genomförs tillsammans
-  efter besluten i [formatspecifikationen](ADVENTURE_MULTIMAP_FORMAT.md).
+- **Story-styrda kartförändringar (#23)** – nästa avgränsade motorsteg efter
+  fysisk verifiering av flerkartor och portaler.
+- **Legend och authoring-underlag (#25)** – därefter editorbackend,
+  HTML-editor och provspelning enligt [checklistan](ADVENTURE_TODO.md).
 
 Motorlogik kan i regel host-testas utan hårdvara. UI- och presentationsändringar
 behöver dessutom relevanta UI-/enhetskontroller.

@@ -1073,6 +1073,18 @@ static void render(uint32_t now, int32_t camX, int32_t camY, int ppx, int ppy, i
                 coloredObject(S_COLOR_PLATE, int(tile) - int(Tile::PLATE_RED), sx, sy);
             else blit(terrainSprite(tx, ty, frame), sx, sy, false);
             terrainOverlay(tile, tx, ty, sx, sy);
+            if (s_adv) for (int i = 0; i < s_adv->portalCount; ++i) {
+                const auto &portal = s_adv->portals[i];
+                if (portal.mapId != s_sd.currentMapId() || portal.x != tx || portal.y != ty) continue;
+                const int center = ts / 2, radius = ts / 3;
+                for (int y = -radius - 1; y <= radius + 1; ++y)
+                    for (int x = -radius - 1; x <= radius + 1; ++x) {
+                        const int distance = x * x + y * y;
+                        if (distance >= (radius - 1) * (radius - 1) &&
+                            distance <= (radius + 1) * (radius + 1))
+                            framePixel(sx + center + x, sy + center + y, rgb(70, 190, 255));
+                    }
+            }
             if (fog) {
                 const int n = w.mineHint(tx, ty);
                 if (n > 0 && w.tile(tx, ty) != Tile::WALL && w.tile(tx, ty) != Tile::TREE) blit(S_NUM1 + n - 1, sx, sy, true);
@@ -2405,12 +2417,17 @@ static void showGameOver()
         // more life at the checkpoint.
         Otr::World &w = *s_world;
         if (!(s_playerId && loadSave() && !w.gameOver())) {
-            if (w.gameOver()) w.revive();
+            if (w.gameOver()) {
+                w.revive();
+                char err[160];
+                if (s_sd.active() && !s_sd.respawnAtCheckpoint(*s_adv, w, s_storyState,
+                        s_story, err, sizeof err)) {
+                    ESP_LOGW(TAG, "checkpoint revive: %s", err);
+                    toast(err, Theme::RED, 5000);
+                }
+            }
         }
-        AdvLive::invalidateMap();
-        snapPlayer();
-        s_dirty = true;
-        updateStats();
+        refreshInternalMap();
     }, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(restart, [](lv_event_t *) {
         closeDialog();
@@ -2472,7 +2489,8 @@ static void liveSync(bool force = false)
     s_liveValid = true;
     const AdvLive::Source src = {&w, worldName(), s_story, &s_storyState, s_talk.active() ? &s_talk : nullptr,
                                  langIdx(), tr(Str::ADV_TALK_READ), tr(Str::ADV_TALK_OK), tr(Str::ADV_TALK_BYE),
-                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY, s_adv, s_sd.folder()};
+                                 s_talkNum, 0, s_sd.completed(), s_bombSize,s_bombX,s_bombY,
+                                 s_adv, s_sd.folder(), s_sd.currentMapId()};
     AdvLive::publish(src);
 }
 

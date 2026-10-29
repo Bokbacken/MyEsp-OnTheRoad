@@ -129,6 +129,8 @@ static int s_bombSize, s_bombX=-1, s_bombY=-1, s_talkNum, s_pathPos=-1, s_walkTa
 static Otr::JoyController s_joy;
 static const Otr::Story::Script *s_story;
 static Otr::Story::StoryState s_storyState;
+static Otr::Story::Dialog s_talk;
+static char s_pendingDestination[64];
 static Adv::Loaded activeLoaded;
 static Adv::Loaded *s_adv = &activeLoaded;
 static struct SdStub : Adv::SdSession {
@@ -197,6 +199,7 @@ static void post(int command, uint8_t sound) {
 }
 /*SOUND*/
 static bool s_saveWanted;
+static void endTalk() { s_talk.end(); s_talkPanel = nullptr; }
 static int imageRefreshes, mapInvalidations;
 static int32_t s_lastCamX, s_lastCamY;
 static void loadResourceImages() { ++imageRefreshes; }
@@ -205,6 +208,7 @@ namespace AdvLive { static void invalidateMap() { ++mapInvalidations; } }
 static int travels;
 static void sdExitAdvance() { ++travels; }
 /*SD_ACTION*/
+/*PENDING_TRAVEL*/
 /*MOVE*/
 static bool talking() { return false; }
 static void menuPause() {
@@ -261,6 +265,47 @@ static void portalUiTests() {
     doMove(Dir::LEFT);
     assert(s_sd.currentMapId() == 1 && world.playerX() == 2 && world.playerY() == 1);
     assert(imageRefreshes == images + 2 && mapInvalidations == invalidations + 2);
+    {
+        char err[160];
+        assert(s_sd.travelToDestination("cave", *s_adv, world, s_storyState, s_story, err, sizeof err));
+        refreshInternalMap();
+        doMove(Dir::DOWN);
+        finishMovement(clockMs + 1000);
+        assert(s_sd.travelToDestination("home", *s_adv, world, s_storyState, s_story, err, sizeof err));
+        refreshInternalMap();
+        world.setEnergy(1);
+        const auto died = doMove(Dir::DOWN);
+        assert(died & Otr::EV_DIED);
+        assert(s_sd.currentMapId() == 2 && world.playerX() == 2 && world.playerY() == 2);
+        assert(!s_moveMs && !s_moveEvents);
+        assert(s_sd.travelToDestination("home", *s_adv, world, s_storyState, s_story, err, sizeof err));
+        refreshInternalMap();
+    }
+    // Story travel is delayed until the dialog finishes effects, then uses the same session API.
+    strcpy(s_pendingDestination, "cave");
+    pendingStoryTravel();
+    assert(!s_pendingDestination[0] && s_sd.currentMapId() == 2);
+    assert(!s_talk.active() && !s_talkPanel && !s_moveMs);
+    strcpy(s_pendingDestination, "missing");
+    pendingStoryTravel();
+    assert(!s_pendingDestination[0] && s_sd.currentMapId() == 2 && !lastToast.empty());
+    assert(world.spawnAt(5, 1));
+    snapPlayer();
+    doMove(Dir::LEFT);
+    finishMovement(clockMs + 1000);
+    doMove(Dir::LEFT);
+    finishMovement(clockMs + 1000);
+    {
+        char err[160];
+        assert(world.rawObj(2, 1) == Obj::ROCK);
+        assert(s_sd.travelToDestination("home", *s_adv, world, s_storyState, s_story, err, sizeof err));
+        refreshInternalMap();
+        lastToast.clear();
+        doMove(Dir::RIGHT);
+        assert(s_sd.currentMapId() == 1 && world.playerX() == 3 && world.playerY() == 1);
+        assert(lastToast == tr(Str::ADV_PORTAL_BLOCKED));
+        assert(!s_moveMs && !s_moveEvents && !s_joy.held());
+    }
     s_sd.clear();
     s_story = nullptr;
 }
@@ -837,6 +882,7 @@ replacements = {
     "SOUND": section("static void playEvents(", "// Dialogue").rsplit("// -----", 1)[0],
     "MOVE": section("static void finishMovement(", "// v0.18.4: the split"),
     "SD_ACTION": section("static void refreshInternalMap()", "static void pendingStoryTravel()"),
+    "PENDING_TRAVEL": section("static void pendingStoryTravel()", "static void sdExitAdvance()"),
     "MENU_PAUSE": section("    if (s_dialog || talking()) return;   // Already open", "    lv_obj_t *mb = dialog(nullptr);"),
     "DIALOG": section("static lv_obj_t *dialog(const char *text)", "static void performanceText("),
     "INVENTORY": section("static void showInventory()", "static const char *extraHudText()"),
@@ -864,12 +910,12 @@ id: portal_ui
 @map
 ########
 #S..X..#
-#......#
+#.^....#
 ########
 @map 2
 ########
-#S....X#
-#......#
+#S.R..X#
+#.Q....#
 ########
 @destinations
 home 2,1

@@ -249,6 +249,11 @@ bool SdSession::validateInternalMaps(Loaded &scratch, char *err, size_t errCap)
     bool ok = true;
     for (int i = 0; i < internalMapCount_ && ok; ++i) {
         if (!loadInternalMap(i, scratch, *candidate, story, script, err, errCap)) { ok = false; break; }
+        if (scratch.map.rules.mineLevel) {
+            snprintf(err, errCap, "mine_level is not supported in internal-map adventures");
+            ok = false;
+            break;
+        }
         for (int j = 0; j < scratch.destinationCount; ++j) {
             const Destination &d = scratch.destinations[j];
             if (d.mapId == internalMapIds_[i] && !candidate->safeArrivalAt(d.x, d.y)) {
@@ -749,6 +754,20 @@ bool SdSession::start(const char *root, const CatalogEntry &e, Loaded &scratch, 
                       Otr::Story::StoryState &story, const Otr::Story::Script *&outScript, char *err, size_t errCap)
 {
     clear();
+    if (!root) {
+        snprintf(err, errCap, "adventure root is missing");
+        return false;
+    }
+    size_t rootLen = 0;
+    while (rootLen < sizeof(root_) && root[rootLen]) ++rootLen;
+    if (rootLen == sizeof(root_)) {
+        snprintf(err, errCap, "adventure root path is too long");
+        return false;
+    }
+    if (!memchr(e.folder, 0, sizeof(e.folder))) {
+        snprintf(err, errCap, "adventure folder name is too long");
+        return false;
+    }
     snprintf(root_, sizeof(root_), "%s", root);
     snprintf(folder_, sizeof(folder_), "%s", e.folder);
     if (e.mapCount > MAX_MAPS_PER_ADV) {

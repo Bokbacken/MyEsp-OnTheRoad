@@ -250,7 +250,7 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
                     argc++;
                 }
             }
-            if (hasMap && !verb.eq("open") && !verb.eq("npc_move") && !verb.eq("npc_remove"))
+            if (hasMap && !w[1].eq("open") && !w[1].eq("npc_move") && !w[1].eq("npc_remove"))
                 return false;
             if (st && host) {
                 char v[16];

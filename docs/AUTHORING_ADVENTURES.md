@@ -1425,7 +1425,7 @@ g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
 # Flerkartor/portaler: parser, portals, blocked arrivals, checkpoint and v1 regression
 g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
     -Icomponents/otr_story/include tests/test_adv_multimap.cpp main/adv_loader.cpp \
-    main/adv_sd_session.cpp components/otr_engine/otr_world.cpp \
+    main/adv_sd_session.cpp main/adv_live.cpp components/otr_engine/otr_world.cpp \
     components/otr_story/otr_story.cpp -o tests/test_adv_multimap && ./tests/test_adv_multimap
 ```
 

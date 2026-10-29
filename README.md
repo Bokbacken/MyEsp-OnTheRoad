@@ -517,7 +517,7 @@ Adventure v0.21.3 multimap and UI checks (from the repository root):
 
 ```sh
 mkdir -p build_host_multimap
-g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_multimap.cpp main/adv_loader.cpp main/adv_sd_session.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o build_host_multimap/multimap
+g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_multimap.cpp main/adv_loader.cpp main/adv_sd_session.cpp main/adv_live.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o build_host_multimap/multimap
 build_host_multimap/multimap
 python3 tests/test_adv_s2_ui.py build_host_multimap
 python3 tests/test_adv_game_layout.py build_host_multimap/layout

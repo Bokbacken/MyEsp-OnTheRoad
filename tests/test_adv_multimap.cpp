@@ -18,7 +18,7 @@ namespace {
 
 char err[256];
 int checks;
-#define CHECK(c) do { ++checks; if (!(c)) { std::printf("FAIL %d: %s (%s)\n", __LINE__, #c, err); std::abort(); } } while (0)
+#define CHECK(c) do { ++checks; if (!(c)) { std::fprintf(stderr, "FAIL %d: %s (%s)\n", __LINE__, #c, err); std::abort(); } } while (0)
 
 std::string read(const char *path)
 {
@@ -129,6 +129,13 @@ void runtime(const char *root)
     auto world = std::make_unique<World>();
     Story::StoryState story{};
     const Story::Script *script = nullptr;
+    {
+        Adv::SdSession invalid;
+        const std::string tooLongRoot(64, 'x');
+        CHECK(!invalid.start(tooLongRoot.c_str(), entry(), *loaded, *world, story, script,
+                            err, sizeof(err)));
+        CHECK(std::strstr(err, "root path is too long"));
+    }
     Adv::SdSession session;
     CHECK(session.start(root, entry(), *loaded, *world, story, script, err, sizeof(err)));
     CHECK(session.hasInternalMaps() && session.currentMapId() == 1 && session.internalMapCount() == 2);
@@ -162,9 +169,6 @@ void runtime(const char *root)
         const Story::Node *activeNode = &loaded->nodes[guardStart];
         Story::Dialog dialog;
         CHECK(dialog.start(*script, story, "guard", &host));
-        if (!host.actionCalled) std::printf("no mapped callback: node=%s effects=%s\n",
-            dialog.node() ? dialog.node()->id : "(null)", dialog.node() && dialog.node()->effects ? dialog.node()->effects : "(null)");
-        if (host.actionCalled && !host.travelled) std::printf("mapped dialog action failed: %s\n", err);
         CHECK(host.actionCalled);
         CHECK(host.travelled);
         CHECK(dialog.node() == activeNode);
@@ -195,6 +199,7 @@ void runtime(const char *root)
         if (live->npcs[i].num == 1) foundGuard = !std::strcmp(live->npcs[i].name, "Guard");
     CHECK(foundGuard);
     std::vector<char> liveJson(AdvLive::JSON_CAP);
+    live->active = true;
     CHECK(AdvLive::toJson(*live, 0, liveJson.data(), liveJson.size()) > 0);
     CHECK(std::strstr(liveJson.data(), "\"active_map_id\":2"));
     CHECK(std::strstr(liveJson.data(), "\"portals\":[{\"x\":2,\"y\":1},{\"x\":7,\"y\":1}]"));
@@ -363,6 +368,30 @@ void editedFileRejectsSave()
     std::filesystem::remove_all("build_host_multimap/signature");
 }
 
+void minesweeperInternalMapRejected()
+{
+    std::string source = read("docs/adventures/multimap_portals/01_multimap.adv");
+    const size_t insertAt = source.find("@resources");
+    CHECK(insertAt != std::string::npos);
+    source.insert(insertAt, "@rules map=2\nmine_level: 1\n\n");
+    const std::filesystem::path folder = "build_host_multimap/mine/multimap_portals";
+    std::filesystem::create_directories(folder);
+    {
+        std::ofstream file(folder / "01_multimap.adv", std::ios::binary);
+        file << source;
+    }
+
+    auto loaded = std::make_unique<Adv::Loaded>();
+    auto world = std::make_unique<World>();
+    Story::StoryState story{};
+    const Story::Script *script = nullptr;
+    Adv::SdSession session;
+    CHECK(!session.start("build_host_multimap/mine", entry(), *loaded, *world, story, script,
+                        err, sizeof(err)));
+    CHECK(std::strstr(err, "mine_level is not supported"));
+    std::filesystem::remove_all("build_host_multimap/mine");
+}
+
 } // namespace
 
 int main()
@@ -372,5 +401,6 @@ int main()
     runtime("sdcard_bundle/otr/adventure");
     legacy("docs/adventures");
     editedFileRejectsSave();
+    minesweeperInternalMapRejected();
     std::printf("Multimap: %d checks passed\n", checks);
 }
