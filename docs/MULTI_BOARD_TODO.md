@@ -213,6 +213,35 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 
+### Strömsparutredning (v0.23)
+
+- **Wi-Fi:** nuvarande S3-läge är `WIFI_PS_NONE` för låg webblatens. Den säkra
+  första kandidaten är `WIFI_PS_MIN_MODEM` endast när skärmen är släckt; det
+  är implementerat bakom skärmsläckningen. MIN_MODEM sover mellan access-
+  punktens DTIM-beacons. `WIFI_PS_MAX_MODEM` kan sova längre men kräver lämpligt
+  station-`listen_interval` och kan öka latens/missade paket. ESP-Hosted 3.0.10
+  har RPC-stöd för `esp_wifi_set_ps()` och stationens listen interval; OnTheRoad
+  sätter inte ett eget intervall. C6-beteende, strömvinst och återanslutning
+  måste mätas på våra S3 respektive P4+C6; inga projektspecifika mätvärden finns.
+- **DFS/automatisk light sleep:** `esp_pm_configure()` och
+  `CONFIG_PM_ENABLE` kan sänka CPU-frekvensen när lasten är låg, men ingen
+  frekvenspolicy är införd. S3 körs med sin befintliga frekvens och P4 med
+  400 MHz. I2S/Karaoke kan behöva högre frekvens under rendering; P4:s
+  DSI/DPI-vsync/DMA och S3:s QSPI-uppdatering måste verifieras mot PM-lås.
+  UART/USB-loggens beteende vid sleep/frekvensändring måste också provas. Ingen
+  säkert generaliserbar mW- eller batteritidsvinst är känd.
+- **Pausa Wi-Fi helt:** kan minska förbrukning mer än modem-sleep men bryter
+  webbtillgänglighet och kräver återanslutning vid väckning. Ingen av/på-
+  livscykel eller återanslutningstid är mätt; behåll därför Wi-Fi anslutet och
+  använd endast MIN_MODEM i v0.23.
+- **Deep sleep/touch:** deep sleep stänger av körande spel/ljud/Wi-Fi och
+  återstartar appen. Touch kan väcka endast om controllerens INT är kopplad till
+  en RTC/LP-wake-kompatibel GPIO; I2C är inte aktiv som wake-källa. S3 INT är
+  GPIO47, inte RTC GPIO på ESP32-S3. P4 touch INT är inte ansluten (`-1`), och
+  touch pollas. Deep-sleep touch-wake är därför inte tillgänglig med nuvarande
+  pinmap. Väcktiden omfattar boot, enhetsinitiering och Wi-Fi-anslutning; den är
+  inte mätt och blir längre än ren backlight-väckning.
+
 ## IX. Fler kort i framtiden
 
 ### Guide: lägga till ett kort
@@ -278,7 +307,7 @@ rekommendation innan kod skrivs.
 4. **Flash, PSRAM och SoundFont.**
    - [x] P4-tabell med 32 MB flash och 21.875 MB FFat; OTA-offsetar behålls.
      S3-tabellen är oförändrad. **USB:** befintliga P4 måste flasha
-     partitionstabellen en gång; procedur dokumenterad nedan.
+     partitionstabellen en gång; se "P4-partitionstabell: USB-migrering".
    - [x] Profilstyrt SoundFont-tak/reserv; S3 behåller 7 MB/512 kB och
      nedsampling, P4 får dynamiskt minnestak/2 MB reserv utan nedsampling.
    - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
@@ -324,6 +353,30 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | OTA-skärm v0.22.4 | `e31311a`, CI run 40902453740 grön för S3/P4. P4-appfil nedladdad och SHA-256 verifierad: `a9b8b4c56d372dbaa96c37f4c3f07badc4848cc0d541dc5f52bb180a41e64f34`. Fysisk flimmerkontroll återstår. PR #23 är fortsatt draft, inte mergad; GitHub rapporterar konflikt med main som behöver hanteras inför merge. |
 | 2026-10-29 | Skärmsläckning v0.22.5 | Ägaren bekräftar OTA-skärmfixen i v0.22.4 samt de flesta spel och Karaoke på P4. `f7385e2`, CI run 40909089936 grön för båda targets. Automatisk/manuell släckning och väckfilter implementerade; fysisk verifiering på båda korten återstår. |
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
+| 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
+
+### P4-partitionstabell: USB-migrering
+
+P4-tabellen utökar FFat från 5.875 MiB till 21.875 MiB. Appslotarnas offset
+(`0x10000` och `0x510000`), `otadata`, NVS och FFat-start (`0xA10000`) är
+oförändrade, så app OTA använder samma slotar. En gammal installerad
+partitionstabell kan däremot inte ändras via app OTA: uppdateringen måste göras
+via USB en gång.
+
+1. Säkerhetskopiera innehåll från FFat innan migrering. Den befintliga FAT-
+   volymen kan fortsätta fungera eftersom startadressen inte flyttas, men FAT:s
+   egen volymstorlek kan förbli den gamla; utökad kapacitet kan kräva att FFat
+   formateras och filer återställs. Förlita dig inte på automatisk migrering.
+2. Bygg för `esp32p4` så att `partitions.esp32p4.csv` väljs. Anslut USB och kör
+   `idf.py -p PORT partition-table-flash` för att skriva den nya tabellen. Läs
+   tillbaka/validera loggen och starta om. En full USB `idf.py -p PORT flash`
+   från samma P4-build skriver också rätt tabell, men raderar mer firmwaredata.
+3. Kontrollera FFat, OTA till en appslot, omstart och coredump-partition.
+   Formatera FFat endast efter säkerhetskopiering och återställ därefter
+   användarfilerna. Testa inte migreringen på enda kopian av användardata.
+
+**Hårdvara:** ägaren behöver verifiera USB-uppdatering, befintlig FFat-data,
+utökad kapacitet, OTA och återstart på P4. Ingen P4-migrering har mätts här.
 
 OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
 

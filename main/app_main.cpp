@@ -287,6 +287,7 @@ extern "C" void app_main(void)
         if (MyWifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), tr(Str::BOOT_WIFI_SAVED), MyWifi::savedCount());
         else snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_WIFI_NONE));
         UiBoot::State wifiState = wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL;
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
         if (wifiOk && HwProfile::active().hasHostRadio) {
             const HostOta::VersionInfo &versions = HostOta::versionInfo();
             if (versions.known) {
@@ -298,6 +299,7 @@ extern "C" void app_main(void)
                 wifiState = UiBoot::State::WARN;
             }
         }
+#endif
         UiBoot::set(UiBoot::Item::WIFI, wifiState, wifiOk ? buf : tr(Str::BOOT_WIFI_FAIL));
     }
     UiBoot::setProgress(75);
