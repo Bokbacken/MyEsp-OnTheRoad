@@ -31,6 +31,12 @@ void abort(const char *why);
 State state();
 bool busy();                  // RUNNING
 void checkStale();            // Aborts a RUNNING update that received no data for 20 s
+
+// Lets another updater (Host radio OTA) drive the same progress state/overlay.
+// beginExternal() fails if an app update is already RUNNING; it also blocks begin() meanwhile.
+bool beginExternal(uint32_t total);
+void progressExternal(uint32_t written);
+void finishExternal(bool ok, const char *err = nullptr);
 const char *runningPartition();
 const char *nextPartition();
 uint32_t slotSize();

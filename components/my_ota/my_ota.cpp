@@ -18,6 +18,7 @@ static volatile uint32_t s_lastWriteMs = 0;
 static esp_ota_handle_t s_handle = 0;
 static const esp_partition_t *s_target = nullptr;
 static constexpr uint32_t STALE_MS = 20000;
+static volatile bool s_external = false;   // Progress owned by another updater (e.g. Host radio)
 
 static void setPhase(Phase p, const char *err = nullptr)
 {
@@ -34,6 +35,7 @@ bool begin(uint32_t total)
 {
     checkStale();
     if (busy()) return false;
+    s_external = false;
     s_lastWriteMs = MySys::millis();
     portENTER_CRITICAL(&s_mux);
     s_state = {Phase::RUNNING, 0, total, ""};
@@ -114,9 +116,37 @@ State state()
 
 bool busy() { return s_state.phase == Phase::RUNNING; }
 
+bool beginExternal(uint32_t total)
+{
+    checkStale();
+    portENTER_CRITICAL(&s_mux);
+    const bool ok = s_state.phase != Phase::RUNNING;
+    if (ok) {
+        s_state = {Phase::RUNNING, 0, total, ""};
+        s_external = true;
+    }
+    portEXIT_CRITICAL(&s_mux);
+    return ok;
+}
+
+void progressExternal(uint32_t written)
+{
+    if (!s_external) return;
+    portENTER_CRITICAL(&s_mux);
+    if (s_state.phase == Phase::RUNNING) s_state.written = written;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void finishExternal(bool ok, const char *err)
+{
+    if (!s_external) return;
+    setPhase(ok ? Phase::DONE : Phase::FAILED, ok ? nullptr : (err ? err : "Avbruten"));
+    s_external = false;
+}
+
 void checkStale()
 {
-    if (busy() && MySys::millis() - s_lastWriteMs > STALE_MS) abort("Uppladdningen avbröts (ingen data)");
+    if (busy() && !s_external && MySys::millis() - s_lastWriteMs > STALE_MS) abort("Uppladdningen avbröts (ingen data)");
 }
 
 const char *runningPartition()

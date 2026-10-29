@@ -7,11 +7,16 @@
 #include "eh_host_api_types.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "my_ota.h"
 #include "my_web.h"
 
 namespace HostOta {
 namespace {
-constexpr size_t CHUNK_SIZE = 1500;
+// ESP-Hosted rejects writes above EH_HOST_CP_OTA_CHUNK_MAX (~1480 B over SDIO) without an RPC.
+constexpr size_t CHUNK_SIZE = 1400;
+#ifdef EH_HOST_CP_OTA_CHUNK_MAX
+static_assert(CHUNK_SIZE <= EH_HOST_CP_OTA_CHUNK_MAX, "C6 OTA chunk exceeds ESP-Hosted limit");
+#endif
 constexpr size_t C6_IMAGE_HEADER_SIZE = 24;
 constexpr uint32_t MAX_C6_IMAGE_SIZE = 0x1C0000;
 constexpr uint8_t ESP_IMAGE_MAGIC = 0xE9;
@@ -108,46 +113,73 @@ esp_err_t handleUpload(httpd_req_t *r)
                  (unsigned long)currentVersion.patch1);
     }
 
+    if (!MyOta::beginExternal(r->content_len))
+        return fail(r, 409, "En firmwareuppdatering pågår redan", afterHeader);
+
     esp_err_t err = esp_hosted_slave_ota_begin();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "OTA begin failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "C6 OTA begin failed: %s", esp_err_to_name(err));
+        MyOta::finishExternal(false, "C6 kunde inte starta OTA");
         return fail(r, 500, "C6 kunde inte starta OTA. Kontrollera Host-firmwareversionen.", afterHeader);
     }
+    ESP_LOGI(TAG, "C6 OTA started, %u bytes", (unsigned)r->content_len);
 
-    err = esp_hosted_slave_ota_write(header, sizeof(header));
-    size_t remaining = r->content_len - sizeof(header);
-    uint8_t chunk[CHUNK_SIZE];
+    static uint8_t chunk[CHUNK_SIZE];
+    memcpy(chunk, header, sizeof(header));
+    size_t fill = sizeof(header);
+    size_t remaining = afterHeader;
+    size_t sent = 0;
     int timeouts = 0;
-    while (err == ESP_OK && remaining) {
-        const size_t want = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
-        int n = httpd_req_recv(r, (char *)chunk, want);
-        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
-        if (n <= 0) {
-            err = ESP_FAIL;
+    bool recvFailed = false;
+    while (fill || remaining) {
+        if (remaining && fill < CHUNK_SIZE) {
+            const size_t room = CHUNK_SIZE - fill;
+            const size_t want = remaining < room ? remaining : room;
+            int n = httpd_req_recv(r, (char *)chunk + fill, want);
+            if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+            if (n <= 0) {
+                recvFailed = true;
+                break;
+            }
+            timeouts = 0;
+            fill += (size_t)n;
+            remaining -= (size_t)n;
+            if (remaining && fill < CHUNK_SIZE) continue;
+        }
+        err = esp_hosted_slave_ota_write(chunk, (uint32_t)fill);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "C6 OTA write failed at %u/%u (%u B): %s", (unsigned)sent,
+                     (unsigned)r->content_len, (unsigned)fill, esp_err_to_name(err));
             break;
         }
-        timeouts = 0;
-        remaining -= (size_t)n;
-        err = esp_hosted_slave_ota_write(chunk, (uint32_t)n);
+        sent += fill;
+        fill = 0;
+        MyOta::progressExternal((uint32_t)sent);
     }
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "C6 OTA write failed: %s", esp_err_to_name(err));
+    if (recvFailed || err != ESP_OK) {
+        if (recvFailed) ESP_LOGE(TAG, "C6 OTA upload aborted at %u/%u", (unsigned)sent, (unsigned)r->content_len);
         esp_hosted_slave_ota_end();
+        MyOta::finishExternal(false, recvFailed ? "Uppladdningen avbröts" : "Skrivning till C6 misslyckades");
+        if (recvFailed) return MyWeb::sendError(r, 400, "Uppladdningen avbröts; gammal C6-firmware behålls");
         return fail(r, 500, "Skrivning till C6 misslyckades; gammal firmware behålls", remaining);
     }
 
     err = esp_hosted_slave_ota_end();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "C6 OTA validation failed: %s", esp_err_to_name(err));
+        MyOta::finishExternal(false, "C6 avvisade firmwarefilen");
         return MyWeb::sendError(r, 400, "C6 avvisade firmwarefilen");
     }
     if (canActivate) {
         err = esp_hosted_slave_ota_activate();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "C6 OTA activation failed: %s", esp_err_to_name(err));
+            MyOta::finishExternal(false, "C6 kunde inte aktivera firmware");
             return MyWeb::sendError(r, 500, "C6 kunde inte aktivera den nya firmwareversionen");
         }
     }
+    ESP_LOGI(TAG, "C6 OTA complete (%u bytes, activate=%d); restarting", (unsigned)sent, canActivate);
+    MyOta::finishExternal(true);
 
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "ok", true);

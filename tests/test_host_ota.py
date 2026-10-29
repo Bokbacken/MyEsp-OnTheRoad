@@ -24,6 +24,8 @@ using portMUX_TYPE = int;
 #define portEXIT_CRITICAL(m) ((void)(m))
 #define ESP_LOGE(tag, ...) ((void)(tag))
 #define ESP_LOGW(tag, ...) ((void)(tag))
+#define ESP_LOGI(tag, ...) ((void)(tag))
+#define EH_HOST_CP_OTA_CHUNK_MAX 1480u
 inline const char *esp_err_to_name(int) { return "injected error"; }
 struct esp_image_header_t {
     uint8_t magic;
@@ -87,13 +89,23 @@ inline eh_host_coprocessor_fwver_t cpVersion{2, 6, 0};
 inline int versionResult = ESP_OK, otaBeginResult = ESP_OK, otaWriteResult = ESP_OK,
            otaEndResult = ESP_OK, otaActivateResult = ESP_OK;
 inline int versionCalls = 0, beginCalls = 0, writeCalls = 0, endCalls = 0, activateCalls = 0;
-inline size_t bytesWritten = 0;
+inline size_t bytesWritten = 0, maxWrite = 0, firstWrite = 0;
+namespace MyOta {
+inline bool running = false, lastOk = false;
+inline uint32_t total = 0, progress = 0;
+inline bool beginExternal(uint32_t t) { if (running) return false; running = true; total = t; progress = 0; return true; }
+inline void progressExternal(uint32_t w) { progress = w; }
+inline void finishExternal(bool ok, const char * = nullptr) { running = false; lastOk = ok; }
+}
 inline int eh_host_sys_get_cp_fw_version(eh_host_coprocessor_fwver_t *v) {
     ++versionCalls; *v = cpVersion; return versionResult;
 }
 inline int esp_hosted_slave_ota_begin() { ++beginCalls; return otaBeginResult; }
 inline int esp_hosted_slave_ota_write(const uint8_t *, uint32_t n) {
-    ++writeCalls; bytesWritten += n; return otaWriteResult;
+    if (!writeCalls) firstWrite = n;
+    ++writeCalls; bytesWritten += n; maxWrite = std::max<size_t>(maxWrite, n);
+    assert(n <= EH_HOST_CP_OTA_CHUNK_MAX);
+    return otaWriteResult;
 }
 inline int esp_hosted_slave_ota_end() { ++endCalls; return otaEndResult; }
 inline int esp_hosted_slave_ota_activate() { ++activateCalls; return otaActivateResult; }
@@ -130,7 +142,7 @@ int main() {
     auto oldFirmware = request();
     assert(MyWeb::registered(&oldFirmware) == ESP_OK && oldFirmware.status == 200);
     assert(oldFirmware.offset == sizeof(image));
-    assert(beginCalls == 1 && writeCalls == 3 && bytesWritten == sizeof(image));
+    assert(beginCalls == 1 && writeCalls == 2 && bytesWritten == sizeof(image));
     assert(endCalls == 1 && activateCalls == 0 && MyWeb::rebootMs == 3000);
 
     versionCalls = beginCalls = writeCalls = endCalls = activateCalls = 0;
@@ -139,7 +151,7 @@ int main() {
     auto unknownFirmware = request();
     assert(MyWeb::registered(&unknownFirmware) == ESP_OK && unknownFirmware.status == 200);
     assert(unknownFirmware.offset == sizeof(image));
-    assert(versionCalls == 1 && beginCalls == 1 && writeCalls == 3);
+    assert(versionCalls == 1 && beginCalls == 1 && writeCalls == 2);
     assert(bytesWritten == sizeof(image) && endCalls == 1 && activateCalls == 0);
 
     versionResult = ESP_OK;
@@ -149,8 +161,24 @@ int main() {
     auto valid = request();
     assert(MyWeb::registered(&valid) == ESP_OK && valid.status == 200);
     assert(valid.offset == sizeof(image));
-    assert(beginCalls == 1 && writeCalls == 3 && bytesWritten == sizeof(image));
+    assert(beginCalls == 1 && writeCalls == 2 && bytesWritten == sizeof(image));
     assert(endCalls == 1 && activateCalls == 1 && MyWeb::rebootMs == 3000);
+    assert(firstWrite == 1400 && maxWrite == 1400);
+    assert(!MyOta::running && MyOta::lastOk && MyOta::progress == sizeof(image));
+
+    beginCalls = writeCalls = endCalls = 0;
+    otaWriteResult = ESP_FAIL;
+    auto failedWrite = request();
+    assert(MyWeb::registered(&failedWrite) == ESP_OK && failedWrite.status == 500);
+    assert(failedWrite.offset == sizeof(image) && writeCalls == 1 && endCalls == 1);
+    assert(!MyOta::running && !MyOta::lastOk);
+    otaWriteResult = ESP_OK;
+
+    MyOta::running = true;
+    beginCalls = 0;
+    auto busyApp = request();
+    assert(MyWeb::registered(&busyApp) == ESP_OK && busyApp.status == 409 && beginCalls == 0);
+    assert(busyApp.offset == sizeof(image));
 }
 '''
 
@@ -165,6 +193,7 @@ with tempfile.TemporaryDirectory(prefix="otr-host-ota-") as directory:
         "esp_log.h": '#include "stubs.h"\n',
         "freertos/FreeRTOS.h": '#include "stubs.h"\n',
         "my_web.h": '#include "stubs.h"\n',
+        "my_ota.h": '#include "stubs.h"\n',
     }
     for name, content in headers.items():
         path = work / name
@@ -179,4 +208,4 @@ with tempfile.TemporaryDirectory(prefix="otr-host-ota-") as directory:
         "-o", str(binary),
     ], check=True)
     subprocess.run([str(binary)], check=True)
-print("C6 Host OTA: authorization, chip/version checks, streaming, activation and restart passed")
+print("C6 Host OTA: authorization, chip/version checks, chunk limit, progress, streaming, activation and restart passed")

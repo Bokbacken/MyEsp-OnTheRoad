@@ -330,6 +330,13 @@ before later updates use explicit activation. The C6 OTA app uses two
 `0x1C0000` app slots; the upload is size-limited accordingly. After activation
 or the legacy auto-reboot, the P4 restarts to reconnect to the C6.
 
+Each `ota_write` RPC must fit one SDIO frame: ESP-Hosted rejects chunks above
+`EH_HOST_CP_OTA_CHUNK_MAX` (about 1480 bytes) locally with `ESP_FAIL`, without
+contacting the C6. The uploader therefore sends 1400-byte chunks, with the
+image header in the first chunk. Progress uses the same full-screen overlay
+as the P4 app OTA, and an app OTA cannot start while the C6 is being updated.
+Expect the transfer to take about 1–3 minutes.
+
 If the legacy firmware cannot start or complete the OTA RPCs, recovery requires
 the dedicated 4-pin C6 flashing pads and an ESP32-C6 serial flashing setup; use
 the board schematic to verify pad order and voltage rather than assuming the
