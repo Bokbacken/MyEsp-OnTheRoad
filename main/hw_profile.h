@@ -18,6 +18,8 @@ struct Info {
     bool hasTouch;
     bool hasAudio;
     bool hasSd;
+    bool hasRgbLed;
+    bool hasHostRadio;
 };
 
 const Info &active();

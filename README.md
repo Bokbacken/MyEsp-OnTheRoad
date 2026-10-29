@@ -4,8 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.22.6** – text size setting (Settings/web: Small, Normal, Large; Extra
-> large on the 480×800 P4) and boot/Wi-Fi/settings screens laid out from the panel size.
+> **Status: v0.22.7** – configurable device name shown across web pages and used for
+> DHCP hostname/mDNS; RGB LED controls are omitted on P4; P4 Host-radio C6 firmware
+> can be uploaded and updated over ESP-Hosted OTA. CI builds `host_fw.bin` from the
+> pinned latest ESP-Hosted MCU source. v0.22.6 boot/Wi-Fi scaling and all text sizes
+> were tested by the owner on both boards.
 > Earlier: dual-target ESP32-S3/P4 builds, including the v0.21.3
 > Adventure and UI changes below. The owner confirmed P4 startup and Wi-Fi with
 > v0.22.0 and app OTA with v0.22.1. The owner confirmed ADC readings, SD-backed

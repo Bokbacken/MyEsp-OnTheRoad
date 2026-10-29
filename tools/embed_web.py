@@ -31,6 +31,7 @@ ASSETS = [
     ("WEB_FILES_HTML", "files.html", HTML, ["/files", "/files.html"]),
     ("WEB_KARAOKE_HTML", "karaoke.html", HTML, ["/karaoke", "/karaoke.html"]),
     ("WEB_SONGS_PICKER_HTML", "songs_picker.html", HTML, ["/karaoke/songs", "/songs_picker.html"]),
+    ("WEB_DEVICE_NAME_JS", "device-name.js", "text/javascript; charset=utf-8", ["/device-name.js"]),
     ("WEB_STYLE_CSS", "style.css", "text/css; charset=utf-8", ["/style.css"]),
 ]
 

@@ -312,10 +312,25 @@ Unlike the ESP32-S3 board, the ESP32-P4 has **no radio of its own**. Wi-Fi 6 and
 
 On ESP-IDF, Wi-Fi/BT on the ESP32-P4 is driven **remotely** through the C6:
 
-- `espressif/esp_hosted` — host/co-processor transport.
-- `espressif/esp_wifi_remote` — remote Wi-Fi API on the P4 side.
+- `espressif/esp_hosted` — host/co-processor transport and OTA RPC.
+- With ESP-IDF 6.1+, `esp_wifi` routes through ESP-Hosted; older ESP-IDF
+  versions may also need `espressif/esp_wifi_remote`.
 
 The C6 runs its own "slave"/hosted firmware. Keep the P4 host firmware and the C6 slave firmware versions compatible — a mismatch is a common cause of Wi-Fi not coming up. Official examples: `04_wifistation` (station via the hosted link). The factory image also bundles ESP-Hosted Wi-Fi.
+
+The application CI builds `host_fw.bin` from the pinned Espressif
+ESP-Hosted MCU coprocessor-OTA example. On a working P4 Host-radio connection,
+upload that C6 app image under **Uppdatera → ESP32-C6 Host-radio (OTA)**.
+The uploader checks the ESP32-C6 image header and the running C6 firmware
+version before using the ESP-Hosted OTA RPCs. The C6 OTA app uses two
+`0x1C0000` app slots; the upload is size-limited accordingly. After activation,
+the P4 restarts to reconnect to the C6.
+
+If the current C6 firmware cannot answer the version/System RPC or is older
+than v2.6.0, OTA is refused before writing. Recovery then requires the
+dedicated 4-pin C6 flashing pads and an ESP32-C6 serial flashing setup; use
+the board schematic to verify pad order and voltage rather than assuming the
+P4 USB-UART connector is wired to the C6.
 
 ---
 

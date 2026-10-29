@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OnTheRoad – Uppdatera firmware</title>
 <link rel="stylesheet" href="/style.css">
+<script src="/device-name.js" defer></script>
 </head>
 <body>
 <header class="otr-brand">
@@ -52,6 +53,20 @@
   </fieldset>
 </form>
 
+<form id="host-ota-form" hidden>
+  <fieldset>
+    <legend>ESP32-C6 Host-radio (OTA)</legend>
+    <p class="muted">Uppdaterar Wi-Fi-radiomodulen via ESP-Hosted och startar sedan om enheten.
+    Använd C6-appfilen <code>host_fw.bin</code> från CI, inte P4/S3-firmware eller <code>merged.bin</code>.
+    Maximal filstorlek är 1 835 008 byte. Behåll strömmen ansluten under hela uppdateringen.</p>
+    <label for="host-fw">C6 firmwarefil (.bin)</label>
+    <input type="file" id="host-fw" accept=".bin,application/octet-stream">
+    <progress id="host-prog" max="100" value="0" hidden></progress>
+    <p class="muted" id="host-msg"></p>
+    <div class="row"><button type="submit" class="primary" id="host-go">Uppdatera Host-radio</button></div>
+  </fieldset>
+</form>
+
 <div class="toast" id="toast"></div>
 <footer>MyEsp-OnTheRoad</footer>
 
@@ -74,6 +89,7 @@ async function load() {
     $('u-slot').textContent = info.ota.running + ' → ' + info.ota.next;
     $('u-max').textContent = kb(info.ota.slot_size);
     $('pin-wrap').hidden = !cfg.admin_pin_set;
+    $('host-ota-form').hidden = !cfg.has_host_radio;
     $('live-dot').className = 'dot ok';
     $('live-text').textContent = 'v' + info.version;
     return true;
@@ -136,6 +152,49 @@ $('ota-form').addEventListener('submit', async e => {
   };
   xhr.open('POST', url);
   xhr.send(fd);
+});
+
+if ($('host-ota-form')) $('host-ota-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = $('host-fw').files[0];
+  if (!f) return toast('Välj C6-firmwarefilen', false);
+  if (f.size > 1835008) return toast('Filen är större än C6 OTA-platsen', false);
+  if (f.size < 24) return toast('Filen är för liten för en ESP32-C6-app', false);
+  const header = new DataView(await f.slice(0, 24).arrayBuffer());
+  if (header.getUint8(0) !== 0xE9 || header.getUint16(12, true) !== 13)
+    return toast('Filen är inte firmware för ESP32-C6', false);
+  if (!confirm('Uppdatera ESP32-C6 Host-radio? Stäng inte av enheten. P4 startar om efteråt.')) return;
+
+  const xhr = new XMLHttpRequest();
+  $('host-go').disabled = true;
+  $('host-prog').hidden = false;
+  $('host-prog').value = 0;
+  $('host-msg').textContent = 'Överför till Host-radio...';
+  xhr.upload.onprogress = ev => {
+    if (!ev.lengthComputable) return;
+    const p = Math.round(ev.loaded * 100 / ev.total);
+    $('host-prog').value = p;
+    $('host-msg').textContent = 'Överför till Host-radio... ' + p + ' %';
+  };
+  xhr.onload = () => {
+    let j = {};
+    try { j = JSON.parse(xhr.responseText); } catch (err) {}
+    if (xhr.status !== 200 || !j.ok) {
+      $('host-go').disabled = false;
+      $('host-msg').textContent = '';
+      return toast('C6 OTA misslyckades: ' + (j.error || 'HTTP ' + xhr.status), false);
+    }
+    $('host-prog').value = 100;
+    $('host-msg').textContent = 'C6 firmware verifierad och aktiverad. Enheten startar om.';
+    toast('Host-radio uppdaterad; enheten startar om');
+  };
+  xhr.onerror = () => {
+    $('host-go').disabled = false;
+    toast('Anslutningen bröts under C6-uppdateringen', false);
+  };
+  xhr.open('POST', '/api/host-ota?size=' + f.size + '&pin=' + encodeURIComponent($('pin').value));
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.send(f);
 });
 
 load();

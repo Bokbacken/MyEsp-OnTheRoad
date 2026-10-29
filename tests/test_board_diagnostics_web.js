@@ -19,7 +19,7 @@ async function page(file, data) {
     console,
   };
   vm.createContext(sandbox);
-  const script = fs.readFileSync(file, 'utf8').match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
+  const script = fs.readFileSync(file, 'utf8').match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
   vm.runInContext(script, sandbox);
   await vm.runInContext('refresh()', sandbox);
   return {element, run: s => vm.runInContext(s, sandbox)};
@@ -73,7 +73,7 @@ async function page(file, data) {
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
-      value: '', style: {}, events: {}, appendChild() {},
+      value: '', style: {}, events: {}, hidden: false, appendChild() {},
       addEventListener(name, fn) { this.events[name] = fn; },
       options: id === 'text_size' ? ['0', '1', '2', '3'].map(value => ({value})) : [],
     });
@@ -91,21 +91,50 @@ async function page(file, data) {
   };
   vm.createContext(sandbox);
   const settings = fs.readFileSync('main/web/settings.html', 'utf8')
-    .match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i)[1]
+    .match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1]
     .replace(/load\(\);\s*loadNets\(\);\s*status\(\);\s*setInterval\(status, 4000\);/, '');
   vm.runInContext(settings, sandbox);
-  vm.runInContext("fill({hostname:'otr'})", sandbox);
+  vm.runInContext("fill({hostname:'otr',has_rgb_led:true,has_host_radio:false})", sandbox);
+  assert.equal(element('led-controls').hidden, false);
   assert.equal(element('screen_off_seconds').value, 0);
   assert.equal(element('text_size').value, 1);
   assert(element('text_size').options[3].disabled, 'S3 firmware without text_size_max hides extra large');
-  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120,text_size:3,text_size_max:3})", sandbox);
+  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120,text_size:3,text_size_max:3,has_rgb_led:false,has_host_radio:true})", sandbox);
   assert.equal(element('screen_off_seconds').value, 120);
   assert.equal(element('text_size').value, 3);
   assert(!element('text_size').options[3].disabled, 'P4 offers extra large');
+  assert.equal(element('led-controls').hidden, true, 'P4 has no RGB LED controls');
   element('tz').value = 'CET-1';
   await element('cfg-form').events.submit({preventDefault() {}});
   assert.equal(submitted.get('screen_off_seconds'), '120');
   assert.equal(submitted.get('text_size'), '3');
   assert.equal(element('toast').textContent, 'Inställningar sparade');
-  console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery, screen power and text size passed');
+
+  const subtitle = {textContent: 'Inställningar'};
+  const brand = {
+    textContent: 'ONTHEROAD',
+    querySelector: () => subtitle,
+    appendChild(child) { assert.equal(child, subtitle); },
+  };
+  const footer = {textContent: 'MyEsp-OnTheRoad'};
+  const home = {textContent: '← OnTheRoad'};
+  const deviceDoc = {
+    title: 'OnTheRoad – Inställningar',
+    querySelector: selector => selector === '.otr-project' ? brand : null,
+    querySelectorAll: selector => selector === 'footer' ? [footer] : [home],
+  };
+  const nameSandbox = {
+    document: deviceDoc,
+    fetch: async () => ({ok: true, json: async () => ({hostname: 'kitchen-console'})}),
+    console,
+  };
+  vm.createContext(nameSandbox);
+  vm.runInContext(fs.readFileSync('main/web/device-name.js', 'utf8'), nameSandbox);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(brand.textContent, 'kitchen-console');
+  assert.equal(deviceDoc.title, 'kitchen-console – Inställningar');
+  assert.equal(footer.textContent, 'kitchen-console');
+  assert.equal(home.textContent, '← kitchen-console');
+
+  console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery, screen power, text size and RGB availability passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

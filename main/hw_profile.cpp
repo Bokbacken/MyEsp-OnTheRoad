@@ -5,8 +5,8 @@
 namespace HwProfile {
 
 static const Info PROFILES[] = {
-    {Id::ES3C35P, "ES3C35P", 320, 480, true, true, true},
-    {Id::P4_43, "P4_43", 480, 800, true, true, true},
+    {Id::ES3C35P, "ES3C35P", 320, 480, true, true, true, true, false},
+    {Id::P4_43, "P4_43", 480, 800, true, true, true, false, true},
 };
 
 Id activeId()
