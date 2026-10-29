@@ -33,6 +33,10 @@
 #include "my_sys.h"
 #include "my_time.h"
 #include "my_wifi.h"
+#include "hw_profile.h"
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+#include "host_ota.h"
+#endif
 #include "ui_boot.h"
 #include "ui_ota.h"
 #include "ui_screen_power.h"
@@ -204,7 +208,7 @@ extern "C" void app_main(void)
         time_t t = 0;
         const bool rtcOk = MyRtc::begin(Touch::bus(), &t);
         const MyRtc::Status rs = MyRtc::status();
-        char buf[64];
+        char buf[72];
         if (rtcOk) {
             MyTime::setFromRtc(t);
             struct tm tm;
@@ -275,12 +279,29 @@ extern "C" void app_main(void)
     hooks.onStatus = onWifiStatus;
     hooks.mdnsTxtFw = FW_VERSION;
     const bool wifiOk = MyWifi::begin(hooks);   // STA only; connects to saved networks in the background
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    if (HwProfile::active().hasHostRadio) HostOta::cacheVersionInfo();
+#endif
     {
-        char buf[64];
+        char buf[72];
         if (MyWifi::hasSavedCredentials()) snprintf(buf, sizeof(buf), tr(Str::BOOT_WIFI_SAVED), MyWifi::savedCount());
         else snprintf(buf, sizeof(buf), "%s", tr(Str::BOOT_WIFI_NONE));
-        UiBoot::set(UiBoot::Item::WIFI, wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL,
-                    wifiOk ? buf : tr(Str::BOOT_WIFI_FAIL));
+        UiBoot::State wifiState = wifiOk ? UiBoot::State::OK : UiBoot::State::FAIL;
+        if (wifiOk && HwProfile::active().hasHostRadio) {
+            const HostOta::VersionInfo &versions = HostOta::versionInfo();
+            char radio[64];
+            if (versions.known) {
+                snprintf(radio, sizeof(radio), "Host %s / C6 %s", versions.host, versions.coprocessor);
+                if (!versions.match) wifiState = UiBoot::State::WARN;
+            } else {
+                snprintf(radio, sizeof(radio), "okänd · Uppdatera → ESP32-C6 Host-radio");
+                wifiState = UiBoot::State::WARN;
+            }
+            char detail[sizeof(buf)];
+            snprintf(detail, sizeof(detail), "%s · %s", buf, radio);
+            snprintf(buf, sizeof(buf), "%s", detail);
+        }
+        UiBoot::set(UiBoot::Item::WIFI, wifiState, wifiOk ? buf : tr(Str::BOOT_WIFI_FAIL));
     }
     UiBoot::setProgress(75);
 

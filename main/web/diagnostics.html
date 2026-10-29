@@ -162,6 +162,12 @@ async function refresh() {
       ['MAC', esc(w.mac)],
       ['Anslutningar / avbrott / roaming', w.connects + ' / ' + w.disconnects + ' / ' + w.roams],
       ['mDNS', w.mdns ? esc(w.hostname) + '.local' : '<span class="bad">inaktiv</span>'],
+      ...(w.host_radio ? [
+        ['ESP-Hosted värdversion', esc(w.host_radio.host_version)],
+        ['ESP32-C6-version', esc(w.host_radio.coprocessor_version)],
+        ['Värd/slav-versioner', w.host_radio.known && w.host_radio.match ?
+          '<span class="ok">match</span>' : '<span class="warn">okänd eller olika · Uppdatera → ESP32-C6 Host-radio</span>'],
+      ] : []),
     ]);
     const b = i.battery || {};
     rows('battery', [

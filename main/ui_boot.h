@@ -10,7 +10,7 @@
 namespace UiBoot {
 
 enum class Item : int { DISP = 0, TOUCH, PSRAM, I2C, RTC, STORAGE, WIFI, WEB, COUNT };
-enum class State : int { PENDING = 0, RUNNING, OK, FAIL, SKIP, WAITING };
+enum class State : int { PENDING = 0, RUNNING, OK, FAIL, SKIP, WAITING, WARN };
 
 // Screen geometry for a w x h panel and the current font line heights (pure; host-tested).
 constexpr int32_t LIST_PAD = 18;   // Card padding (2 x 8) + border (2 x 1)

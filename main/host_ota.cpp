@@ -5,6 +5,7 @@
 #include "esp_hosted_ota.h"
 #include "eh_host_sys.h"
 #include "eh_host_api_types.h"
+#include "esp_hosted_host_fw_ver.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "my_ota.h"
@@ -24,6 +25,8 @@ constexpr uint16_t ESP32C6_CHIP_ID = 0x000D;
 static const char *TAG = "host_ota";
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 bool s_busy = false;
+bool s_versionCached = false;
+VersionInfo s_versionInfo = {};
 
 bool claim()
 {
@@ -190,6 +193,28 @@ esp_err_t handleUpload(httpd_req_t *r)
     return ESP_OK;
 }
 }  // namespace
+
+void cacheVersionInfo()
+{
+    if (s_versionCached) return;
+    s_versionCached = true;
+    snprintf(s_versionInfo.host, sizeof(s_versionInfo.host), "%u.%u.%u",
+             (unsigned)ESP_HOSTED_VERSION_MAJOR_1, (unsigned)ESP_HOSTED_VERSION_MINOR_1,
+             (unsigned)ESP_HOSTED_VERSION_PATCH_1);
+    eh_host_coprocessor_fwver_t version = {};
+    if (eh_host_sys_get_cp_fw_version(&version) != ESP_OK) {
+        snprintf(s_versionInfo.coprocessor, sizeof(s_versionInfo.coprocessor), "okänd");
+        return;
+    }
+    snprintf(s_versionInfo.coprocessor, sizeof(s_versionInfo.coprocessor), "%lu.%lu.%lu",
+             (unsigned long)version.major1, (unsigned long)version.minor1, (unsigned long)version.patch1);
+    s_versionInfo.known = true;
+    s_versionInfo.match = version.major1 == ESP_HOSTED_VERSION_MAJOR_1 &&
+                          version.minor1 == ESP_HOSTED_VERSION_MINOR_1 &&
+                          version.patch1 == ESP_HOSTED_VERSION_PATCH_1;
+}
+
+const VersionInfo &versionInfo() { return s_versionInfo; }
 
 bool registerRoute()
 {

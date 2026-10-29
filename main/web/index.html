@@ -49,6 +49,7 @@
     <h3>Wi-Fi-signal</h3>
     <div class="stat" id="rssi">–</div>
     <div class="bar"><i id="rssi-bar"></i></div>
+    <div class="muted" id="host-radio"></div>
   </div>
   <div class="card">
     <h3>Display</h3>
@@ -104,7 +105,7 @@ function fmtUptime(s) {
 function kb(b) { return (b / 1024).toFixed(0) + ' kB'; }
 function size(b) { return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(0) + ' MB'; }
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
-const BOOT_STATE = {ok: ['ok', '✔ OK'], fail: ['bad', '✖ fel'], skip: ['muted', '– hoppades över'], running: ['warn', '… testas'], pending: ['muted', '… väntar'], waiting: ['warn', '… väntade på tid vid start']};
+const BOOT_STATE = {ok: ['ok', '✔ OK'], fail: ['bad', '✖ fel'], skip: ['muted', '– hoppades över'], running: ['warn', '… testas'], pending: ['muted', '… väntar'], waiting: ['warn', '… väntade på tid vid start'], warn: ['warn', '⚠ varning']};
 function showSd(sd) {
   if (sd && sd.ok) {
     $('sd').innerHTML = size(sd.free) + ' <small>ledigt av ' + size(sd.total) + '</small>';
@@ -139,10 +140,12 @@ function showBoot(b) {
       (it.detail ? ' · ' + esc(it.detail) : '') + '</td></tr>';
   }).join('');
   const waiting = b.items.filter(it => it.state === 'waiting').length;
+  const warnings = b.items.filter(it => it.state === 'warn').length;
   $('boot-sum').textContent = (b.failures ? b.failures + ' kontroll(er) misslyckades vid start' :
+    warnings ? warnings + ' varning(ar) vid start' :
     waiting ? 'Inga hårdvarufel vid start' : 'Alla kontroller vid start gick igenom') +
     (waiting ? ' · ' + waiting + ' väntade på tid. Aktuell RTC-status finns under Diagnostik.' : '');
-  $('boot-sum').className = b.failures ? 'bad' : waiting ? 'warn' : 'muted';
+  $('boot-sum').className = b.failures ? 'bad' : (waiting || warnings) ? 'warn' : 'muted';
 }
 function rssiPct(r) { return r ? Math.max(0, Math.min(100, 2 * (r + 100))) : 0; }
 function wifiBadge(w) {
@@ -164,6 +167,10 @@ async function refresh() {
     $('heap-bar').style.width = (100 * i.heap_free / i.heap_size).toFixed(0) + '%';
     $('psram').textContent = 'PSRAM ' + kb(i.psram_free) + ' ledigt av ' + kb(i.psram_size);
     const w = i.wifi;
+    const hr = w.host_radio;
+    $('host-radio').textContent = hr ? 'Host-radio ESP-Hosted ' + hr.host_version + ' / C6 ' + hr.coprocessor_version +
+      (hr.known && hr.match ? ' · match' : ' · kontrollera Uppdatera → ESP32-C6 Host-radio') : '';
+    $('host-radio').className = hr && (!hr.known || !hr.match) ? 'warn' : 'muted';
     wifiBadge(w);
     $('rssi').innerHTML = w.status === 'connected' ? w.rssi + ' <small>dBm</small>' : '<small>ej ansluten</small>';
     $('rssi-bar').style.width = rssiPct(w.status === 'connected' ? w.rssi : 0) + '%';
