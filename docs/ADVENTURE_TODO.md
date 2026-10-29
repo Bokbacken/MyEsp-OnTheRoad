@@ -35,9 +35,10 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 ## I. Flerkartsformat och runtime
 
 Pågående leverans: `feat/adventure-multimap-portals`, PR #19, firmware
-`0.21.3`. Själva planen publicerades separat på `main` via PR #20.
-Avbockningar avser implementerat och automatiskt kontrollerat stöd på
-leveransbranchen, inte fysisk ESP-verifiering eller merge till `main`.
+`0.21.3`. Kod och testbanor är pushade där men ännu inte mergade till
+`main`. Checklistans avbockningar avser implementation på den branchen;
+fysisk ESP-verifiering och slutlig firmwarekontroll återstår.
+Själva planen publicerades separat på `main` via PR #20.
 
 Bekräftade spelregler för denna leverans:
 
