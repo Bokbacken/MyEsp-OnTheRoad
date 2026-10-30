@@ -23,6 +23,16 @@
 // Must be called from the LVGL task or with Display::lock() held.
 #pragma once
 
+#include "lvgl.h"
+
 namespace UiYatzy {
+struct CupVisual {
+    lv_obj_t *rim;
+    lv_obj_t *lip;
+    lv_obj_t *bottom;
+};
+
+const void *faceSprite(int32_t size, int face);
+CupVisual createCupVisual(lv_obj_t *parent, int32_t diameter);
 void showMenu();
 }

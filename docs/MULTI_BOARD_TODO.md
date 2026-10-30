@@ -52,6 +52,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   krävde felaktigt en redan monterad FFat och hjälpte därför inte.
   v0.22.3 tar bort det kravet och kan formatera/montera den tidigare
   valda partitionen efter uttrycklig adminbekräftelse.
+- Ägaren rapporterar att efter USB-flash av partitionstabellen använder P4
+  hela flashen och FFat visar 22 172 kB. Stora SoundFonts fungerar på P4;
+  mindre SoundFonts på S3 medger fler samtidiga röster. Karaoke-layouten
+  fungerar på båda korten. Detta verifierar inte fjärrspel mellan enheterna.
 
 ### Beslut
 
@@ -295,8 +299,8 @@ rekommendation innan kod skrivs.
    svart.
    - [x] Centrera texten horisontellt och vertikalt.
    - [x] Antal rader beräknas från skärmhöjd och textstorlek (S3 oförändrat).
-   - [ ] **Hårdvara:** verifiera radantal, läsbarhet och vertikal centrering på
-     båda skärmarna.
+   - [x] **Hårdvara, ägarrapport:** Karaoke-layouten har provats på båda
+     skärmarna. Den här rapporten gäller layouten, inte fjärrspel.
 3. **Kortdefinitioner.** Utred och föreslå hur nästa kort läggs till med i
    princip en definitionsfil (`hw_profile`, `board_pins_*.h`, sdkconfig,
    partitionstabell, CI-matris, `idf_component.yml`-regler).
@@ -314,7 +318,10 @@ rekommendation innan kod skrivs.
      värden som ryms inom kortets gräns.
    - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
      kvalitet i `MUSIC_KARAOKE_PLAN.md`.
-   - [ ] **Hårdvara:** verifiera utökad P4-FFat, återstart/OTA och stora SF2.
+   - [x] **Hårdvara, ägarrapport:** efter USB-flash av partitionstabellen
+     använder P4 hela flashen och FFat visar 22 172 kB. Stora SoundFonts
+     fungerar på P4; mindre SoundFonts på S3 medger fler samtidiga röster.
+   - [ ] **Hårdvara:** verifiera omstart och OTA efter P4-migreringen.
 5. **Stereoljud till webbsidan i Karaoke.** Utred stereoström (idag mono
    22050 Hz från mixen) för P4 och kommande kort; implementera om
    bandbredd/CPU räcker, annars dokumentera varför inte.
@@ -334,7 +341,7 @@ rekommendation innan kod skrivs.
      när endast bakgrundsbelysningen släcks. Utred controller-specifik
      display-off/sleep och väcksekvens; verifiera att skärmen släcks och
      återställs på båda korten innan strömsparningen markeras klar.
-7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
+7. **Spela mellan enheter (Yatzy fjärrspel).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.
    - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
@@ -344,20 +351,49 @@ rekommendation innan kod skrivs.
      när PTR-svaret inte innehåller kompletta serviceposter.
    - [x] Enhetens **Spela tillsammans**-vy hittar protokollkompatibla värdar
      och visar endast aktiva Yatzy-spel med ledig PIN-skyddad webbplats.
-   - [ ] ESP WebSocket-klient, PIN-join och touch-vy som visar värdens snapshot
-     och skickar Yatzy-kommandon. **Blockerare:** firmwaren har bara servervägen
-     för browserklienter, saknar fjärrstyrd Yatzy-rendering och exponerar inte
-     sessions-ID i API/WebSocket-state för säker återanslutning; se
-     `MULTIPLAYER_DESIGN.md` för exakt nästa steg. Fjärrspel fungerar inte ännu.
-   - [ ] Återanslutning mot samma värd/session/plats samt samtidig browser- och
-     ESP-klienttest.
-   - [ ] **Hårdvara:** verifiera upptäckt och, efter att join är implementerad,
-     full spelomgång på både ESP32-S3 och ESP32-P4. Inte testat ännu.
+   - [x] Värden exponerar ett opakt sessions-ID i `/api/game` och
+     WebSocket-`state`/`joined`. Ett `join` med ID avvisas om sessionen ändrats
+     eller platsen inte längre är en ledig webbplats; äldre browser-`join`
+     utan ID är oförändrad.
+   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och touch-vy.
+     Snapshot, tur, tärningar, möjliga kategorier och poäng kommer från
+     värden; ESP-klienten skickar bara tillåtna `hold`, `roll` och `choose`.
+   - [x] Återanslutning använder endast vald värd, sessions-ID och plats.
+     Bytt session eller upptagen plats stoppar anslutningen och kräver en ny
+     join. PIN skrivs inte i loggar och browser-join utan sessions-ID fungerar
+     fortsatt.
+   - [x] CI-run 41051798946 bygger ESP32-C6-host, S3 och P4; S3-jobbets
+     automatiska hostkontroller passerar. ESP-IDF saknas lokalt, så targetbyggen
+     görs i CI.
+   - [ ] Komplettera fysisk verifiering av återanslutning och båda
+     värd-/klientriktningarna enligt checklistorna nedan.
+   - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
+     deras aktiva spel. Detta är inte ett speltest.
+   - [x] **Hårdvara, ägarrapport 2026-10-30:** S3 som värd och P4 som klient:
+     P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade
+     fjärrvyn. Detta verifierar grundläggande kommunikation i denna riktning,
+     inte alla spelkommandon eller fullständig hårdvarutestning.
+   - [x] **Hårdvara, ägarrapport:** Ägaren bekräftar att spel fungerar mellan
+     enheterna och med webben. Exakt kort, riktning och genomgångna moment är
+     inte specificerade; checklistan per kort nedan står därför kvar.
+   - [x] **Leveransgodkännande 2026-10-30:** Ägaren rapporterar att
+     Spela tillsammans är i fungerande skick efter fjärrvyns förbättringar.
+     Återanslutning och ospecificerade testmoment är fortsatt öppna;
+     godkännandet innebär inte att hela hårdvarumatrisen är verifierad.
+   - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
+     [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
+   - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-P4:
+     [x] join/PIN (som klient mot S3) [ ] kast/håll/välj [ ] samtidig browser
+     [ ] återanslutning.
+     Full fysisk änd-till-änd-verifiering är alltså inte utförd på något kort;
+     den rapporterade P4-klienttestningen täcker inte omvänd riktning eller
+     hela testchecklistan.
 
 ## Leveranslogg
 
 | Datum | Steg | Status |
 |---|---|---|
+| 2026-10-30 | v0.23.1 fjärrspel | Ägaren bekräftar fungerande Spela tillsammans efter förbättringarna av fjärrvyn. ESP-klienten återanvänder tärnings-/bägarutseende, separat bo för hållna tärningar, kastanimation och dubbeltryck för poängval. Återanslutning och full testmatris per kort kvarstår. |
 | 2026-10-29 | v0.22.6 hårdvarutest + merge | Ägaren bekräftar att båda enheterna är testade; PR #23 mergad till `main`. Start/Wi-Fi/textstorlek fungerar. |
 | 2026-10-29 | v0.22.7 Host OTA, namn och P4-inställningar | Host-OTA och `host_fw.bin` CI från ESP-Hosted MCU, enhetsnamn för web/mDNS/DHCP, RGB-kontroller dolda på P4. Första C6-OTA föll på för stora chunkar (1500 B > ~1480 B gräns); efter fix till 1400 B uppdaterade ägaren C6 från fabriksfirmware till 3.0.10 (host=3.0.10 coprocessor=3.0.10, match). |
 | 2026-10-29 | Plan | Skapad. |
@@ -372,6 +408,11 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
 | 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
 | 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
+| 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout fungerar på båda korten. Efter USB-flash av partitionstabellen använder P4 hela flashen och FFat visar 22 172 kB; stora SoundFonts fungerar på P4. Mindre SoundFonts på S3 medger fler samtidiga röster. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
+| 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
+| 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware har WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. CI-run 41051798946 är grön för C6-host, S3 och P4; S3-jobbets hostkontroller passerar. Fysisk end-to-end-verifiering och samtidig browser-/ESP-testning på S3/P4 väntar. |
+| 2026-10-30 | X.7 första ägarrapporterade speltest | S3 som värd och P4 som klient: P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade vyn. Grundläggande kommunikation fungerar i denna riktning. Test av alla kommandon, samtidig browser, återanslutning och motsatt riktning återstår; full verifiering på båda korten är fortsatt väntande. |
+| 2026-10-30 | X.7 ägarrapporterad gameplay | Ägaren bekräftar att spel fungerar mellan enheterna och med webben. Kort, riktning och detaljerad testmatris är inte angivna; checklisterna för S3/P4 står kvar tills dessa verifierats. |
 
 ### P4-partitionstabell: USB-migrering
 

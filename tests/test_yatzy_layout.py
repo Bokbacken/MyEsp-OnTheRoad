@@ -388,6 +388,7 @@ static void checkModals() {
 // Hardware/roll execution is stubbed; game state comes from the unchanged engine.
 namespace GameScreenTest {
 static YatzyGame s_game;
+struct CupVisual { lv_obj_t *rim, *lip, *bottom; };
 @GAME_STATE@
 @CUP_STATE@
 @ANIMATIONS@
