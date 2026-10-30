@@ -330,14 +330,29 @@ rekommendation innan kod skrivs.
      befintlig skärmtimeout/manuell släckning.
    - [x] Utred Wi-Fi/DFS/deep sleep och dokumentera rekommendationerna nedan.
      **Hårdvara:** mät effekt och verifiera återanslutning på båda korten.
+   - [ ] **Hårdvara:** ägaren rapporterar att P4-panelens bild fortfarande syns
+     när endast bakgrundsbelysningen släcks. Utred controller-specifik
+     display-off/sleep och väcksekvens; verifiera att skärmen släcks och
+     återställs på båda korten innan strömsparningen markeras klar.
 7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.
    - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
      (PIN), återanslutning och Yatzy först.
    - [x] mDNS annonserar `_ontheroad._tcp` med protokollversion och stödda spel.
-   - [ ] **Ägarbeslut / nästa steg:** ESP-enhetens upptäckts-/join-UI och
-     WebSocket-klient för fjärrsäte återstår; se designbeslutet.
+   - [x] Unik MAC-suffix på tjänstinstansen; upptäckaren hämtar SRV/TXT/A även
+     när PTR-svaret inte innehåller kompletta serviceposter.
+   - [x] Enhetens **Spela tillsammans**-vy hittar protokollkompatibla värdar
+     och visar endast aktiva Yatzy-spel med ledig PIN-skyddad webbplats.
+   - [ ] ESP WebSocket-klient, PIN-join och touch-vy som visar värdens snapshot
+     och skickar Yatzy-kommandon. **Blockerare:** firmwaren har bara servervägen
+     för browserklienter, saknar fjärrstyrd Yatzy-rendering och exponerar inte
+     sessions-ID i API/WebSocket-state för säker återanslutning; se
+     `MULTIPLAYER_DESIGN.md` för exakt nästa steg. Fjärrspel fungerar inte ännu.
+   - [ ] Återanslutning mot samma värd/session/plats samt samtidig browser- och
+     ESP-klienttest.
+   - [ ] **Hårdvara:** verifiera upptäckt och, efter att join är implementerad,
+     full spelomgång på både ESP32-S3 och ESP32-P4. Inte testat ännu.
 
 ## Leveranslogg
 
@@ -356,6 +371,7 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | Skärmsläckning v0.22.5 | Ägaren bekräftar OTA-skärmfixen i v0.22.4 samt de flesta spel och Karaoke på P4. `f7385e2`, CI run 40909089936 grön för båda targets. Automatisk/manuell släckning och väckfilter implementerade; fysisk verifiering på båda korten återstår. |
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
 | 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
+| 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
 
 ### P4-partitionstabell: USB-migrering
 

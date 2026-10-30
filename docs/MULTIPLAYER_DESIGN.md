@@ -67,6 +67,24 @@ värd automatiskt.
 3. Reconnect/grace-period och test av samtidig browser-/ESP-klient.
 4. Därefter övervägs andra befintliga spel.
 
-**v0.23-avgränsning:** annonsering och design är levererade. ESP-klientens mDNS-
-upptäckt, enhets-UI och WebSocket-klient lämnas till nästa steg; den delen är
-större än en säker ändring av den befintliga browserprotokollvägen.
+**v0.23 status:** `_ontheroad._tcp`-annonsering och en lokal **Spela tillsammans**
+vy är implementerade. Tjänstinstansen får en MAC-suffix så två enheter med
+samma standardvärdnamn inte annonserar en identisk instans. Klienten frågar
+SRV/TXT/A separat när PTR-svaret inte innehåller alla poster. Vyn filtrerar
+protokollversion/speltyp från mDNS och läser
+`/api/game`; den visar endast aktiva Yatzy-spel med en ledig, PIN-skyddad plats
+som värden i förväg markerat för webben. Den skickar ingen PIN och reserverar
+ingen plats.
+
+**Fjärrspel är inte implementerat.** Värden har en fungerande serverväg för
+browserns `/ws/game`, men firmware saknar en ESP WebSocket-klient och den lokala
+Yatzy-vyn kan inte rendera/tillämpa en annan värds snapshot eller skicka dess
+kommandon. Dessutom finns värdens sessions-ID bara internt: `/api/game` och
+WebSocket-`state`/`joined` exponerar inget stabilt ID som en frånkopplad klient
+kan jämföra innan den återansluter. En säker änd-till-änd-join med den beslutade
+återanslutningsregeln kan därför inte verifieras ännu. Nästa steg är att lägga
+till ett additivt, opakt sessions-ID i API/WebSocket-state, en ESP
+WebSocket-klient för samma join/PIN- och `hold`/`roll`/`choose`-format, en
+touch-styrd fjärr-Yatzy-vy som använder värdens state, samt återanslutning som
+kontrollerar samma värd/session/plats innan gamla kommandon skickas. Provning
+mot en samtidig browserklient och fysisk verifiering på S3/P4 återstår.

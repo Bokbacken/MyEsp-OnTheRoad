@@ -24,6 +24,7 @@
 #include "my_wifi.h"
 #include "ui_adventure.h"
 #include "ui_karaoke.h"
+#include "ui_multiplayer.h"
 #include "ui_clock.h"
 #include "ui_numpad.h"
 #include "ui_settings.h"
@@ -213,6 +214,8 @@ void showMenu()
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *multi = menuListCard(list, tr(Str::MULTI_TITLE), tr(Str::MULTI_HINT), Theme::TEAL, false);
+    lv_obj_add_event_cb(multi, [](lv_event_t *) { UiMultiplayer::show(); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);

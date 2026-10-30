@@ -649,6 +649,7 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_battery.cpp -o tests/test_battery
 g++ -std=c++17 -Wall -Wextra -Werror -Itests/battery_stubs -Imain -Icomponents/my_wifi/include -Imain/lang tests/test_battery_config.cpp main/app_config.cpp main/lang/lang.cpp main/lang/lang_sv.cpp main/lang/lang_en.cpp -o tests/test_battery_config && ./tests/test_battery_config   # battery and karaoke NVS defaults/sanitizing
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_karaoke_geometry.cpp -o tests/test_karaoke_geometry && ./tests/test_karaoke_geometry   # volume rail bounds
 g++ -std=c++17 -Wall -Wextra -Imain -Itests/stub tests/test_live.cpp main/game_live.cpp main/game_yatzy.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_live && ./tests/test_live   # web seat release
+g++ -std=c++17 -Wall -Wextra -Imain tests/test_multiplayer_protocol.cpp -o /tmp/test_multiplayer_protocol && /tmp/test_multiplayer_protocol   # ESP discovery capability and joinable-seat rules
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal

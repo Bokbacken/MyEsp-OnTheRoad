@@ -606,6 +606,7 @@ static void addWebPlayers(cJSON *o, const GameLive::Snapshot &snap)
         cJSON_AddNumberToObject(e, "player", p);
         cJSON_AddNumberToObject(e, "id", s->pid[p]);
         cJSON_AddStringToObject(e, "name", GameLive::playerName(snap, p));
+        cJSON_AddBoolToObject(e, "web", s->web[p]);
         cJSON_AddBoolToObject(e, "has_pin", s->pid[p] && Players::hasPin(s->pid[p]));   // Never the PIN itself
         cJSON_AddBoolToObject(e, "connected", s->conn[p] > 0);
         cJSON_AddItemToArray(wp, e);
