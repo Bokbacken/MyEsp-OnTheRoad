@@ -1,6 +1,7 @@
 // fs_path.cpp - see fs_path.h.
 #include "fs_path.h"
 
+#include <stdint.h>
 #include <string.h>
 
 namespace FsPath {
@@ -11,17 +12,53 @@ static bool badChar(unsigned char c)
            c == '<' || c == '>' || c == '|';
 }
 
+static bool validComponent(const char *name, size_t n)
+{
+    if (!name || n == 0) return false;
+    size_t units = 0;
+    for (size_t i = 0; i < n;) {
+        const unsigned char c = (unsigned char)name[i];
+        if (badChar(c) || c == '/') return false;
+        uint32_t cp;
+        size_t bytes;
+        if (c < 0x80) {
+            cp = c;
+            bytes = 1;
+        } else if (c >= 0xC2 && c <= 0xDF) {
+            cp = c & 0x1F;
+            bytes = 2;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            cp = c & 0x0F;
+            bytes = 3;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            cp = c & 0x07;
+            bytes = 4;
+        } else {
+            return false;
+        }
+        if (i + bytes > n) return false;
+        for (size_t j = 1; j < bytes; j++) {
+            const unsigned char continuation = (unsigned char)name[i + j];
+            if ((continuation & 0xC0) != 0x80) return false;
+            cp = (cp << 6) | (continuation & 0x3F);
+        }
+        if ((bytes == 2 && cp < 0x80) || (bytes == 3 && cp < 0x800) ||
+            (bytes == 4 && cp < 0x10000) || cp > 0x10FFFF ||
+            (cp >= 0xD800 && cp <= 0xDFFF) || cp <= 0x1F || (cp >= 0x7F && cp <= 0x9F))
+            return false;
+        units += cp > 0xFFFF ? 2 : 1;
+        if (units > 255) return false;
+        i += bytes;
+    }
+    return name[n - 1] != '.' && name[n - 1] != ' ';
+}
+
 bool validName(const char *name)
 {
     if (!name || !*name) return false;
     size_t n = strlen(name);
-    if (n > 255) return false;
     if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return false;
-    for (size_t i = 0; i < n; i++)
-        if (badChar((unsigned char)name[i]) || name[i] == '/') return false;
-    // FAT silently drops trailing dots/spaces - refuse them to avoid surprises
-    if (name[n - 1] == '.' || name[n - 1] == ' ') return false;
-    return true;
+    return validComponent(name, n);
 }
 
 bool resolve(const char *root, const char *user, char *out, size_t cap)
@@ -44,9 +81,7 @@ bool resolve(const char *root, const char *user, char *out, size_t cap)
         size_t len = (size_t)(p - s);
         if (len == 1 && s[0] == '.') continue;
         if (len == 2 && s[0] == '.' && s[1] == '.') return false;
-        if (len > 255) return false;
-        for (size_t i = 0; i < len; i++)
-            if (badChar((unsigned char)s[i])) return false;
+        if (!validComponent(s, len)) return false;
         if (o + 1 + len + 1 > cap) return false;
         out[o++] = '/';
         memcpy(out + o, s, len);

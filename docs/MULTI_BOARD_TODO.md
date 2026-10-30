@@ -353,6 +353,19 @@ rekommendation innan kod skrivs.
      ESP-klienttest.
    - [ ] **Hårdvara:** verifiera upptäckt och, efter att join är implementerad,
      full spelomgång på både ESP32-S3 och ESP32-P4. Inte testat ännu.
+8. **FAT-långa filnamn och webbuppladdning (v0.23.2).**
+   - [x] Aktivera 255 FAT-LFN-kodenheter på båda targets. Validera UTF-8 och
+    räkna UTF-16-kodenheter per namnkomponent; avvisa ogiltiga/överlånga namn
+    och fullständiga bytevägar som inte ryms i webbgränserna.
+   - [x] Webbuppladdning använder unika, korta syskonfiler i stället för att
+    lägga `.part` till destinationens basnamn. Staging skapas exklusivt;
+    vid ersättning sparas originalet tills den nya filen installerats och
+    återställs om installationen misslyckas. URI-gränsen är 1024 byte.
+   - [x] Hostregressioner för rapporterade 87/81-teckennamn, 255/256-gränsen,
+    UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
+   - [ ] **CI:** bygg ESP32-S3, ESP32-P4 och C6-jobbet för v0.23.2.
+   - [ ] **Hårdvara:** prova 87/81-teckennamnen, Unicode och gränsfall samt
+    avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
 
 ## Leveranslogg
 
@@ -372,6 +385,7 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
 | 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
 | 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
+| 2026-10-30 | v0.23.2 FAT/webbuppladdning | FAT-LFN 255, UTF-8/UTF-16-validering och skyddad staging med återställning; fokuserade hosttester godkända. ESP32-S3/P4/C6 CI och hårdvaruverifiering återstår. |
 
 ### P4-partitionstabell: USB-migrering
 

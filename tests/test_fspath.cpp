@@ -27,6 +27,13 @@ int main()
     CHECK(res("./a/./b", "/sdcard/a/b"));
     CHECK(res("Mapp med mellanslag/fil.txt", "/sdcard/Mapp med mellanslag/fil.txt"));
     CHECK(res("\xc3\xa5\xc3\xa4\xc3\xb6.txt", "/sdcard/\xc3\xa5\xc3\xa4\xc3\xb6.txt"));   // UTF-8 ok
+    char reported[90];
+    memset(reported, 'x', 87);
+    reported[87] = 0;
+    CHECK(FsPath::validName(reported));
+    memset(reported, 'y', 81);
+    reported[81] = 0;
+    CHECK(FsPath::validName(reported));
     CHECK(res("a", "/ffat/a", "/ffat"));
     CHECK(res("/ffat/x/y", "/ffat/x/y", "/ffat"));
     // Rejected
@@ -45,16 +52,43 @@ int main()
     memset(longc, 'x', 256);
     longc[256] = 0;
     CHECK(res(longc, nullptr));
+    memset(longc, 'x', 255);
+    longc[255] = 0;
+    CHECK(FsPath::validName(longc));
+    longc[255] = 'x';
+    longc[256] = 0;
+    CHECK(!FsPath::validName(longc));
     char small[12];
     CHECK(!FsPath::resolve("/sdcard", "abcdef", small, sizeof small));
     CHECK(FsPath::resolve("/sdcard", "abc", small, sizeof small));
     CHECK(!FsPath::resolve("sdcard", "a", small, sizeof small));
     CHECK(!FsPath::resolve(nullptr, "a", small, sizeof small));
-    // "..." is a valid (odd) name, not a parent reference
-    CHECK(res("...", "/sdcard/..."));
+    // FAT silently strips trailing dots, so paths and single-name operations agree.
+    CHECK(res("...", nullptr));
 
     CHECK(FsPath::validName("save.sav"));
     CHECK(FsPath::validName("Ny mapp"));
+    // FAT counts UTF-16 code units, not UTF-8 bytes.
+    char unicode[516];
+    for (size_t i = 0; i < 127; i++) {
+        unicode[i * 4] = (char)0xF0;
+        unicode[i * 4 + 1] = (char)0x9F;
+        unicode[i * 4 + 2] = (char)0x98;
+        unicode[i * 4 + 3] = (char)0x80;
+    }
+    unicode[127 * 4] = 0;
+    CHECK(FsPath::validName(unicode));
+    char resolvedUnicode[300];
+    CHECK(!FsPath::resolve("/sdcard", unicode, resolvedUnicode, sizeof(resolvedUnicode)));
+    unicode[127 * 4] = (char)0xF0;
+    unicode[127 * 4 + 1] = (char)0x9F;
+    unicode[127 * 4 + 2] = (char)0x98;
+    unicode[127 * 4 + 3] = (char)0x80;
+    unicode[128 * 4] = 0;
+    CHECK(!FsPath::validName(unicode));
+    CHECK(!FsPath::validName("\xC0\xAF"));
+    CHECK(!FsPath::validName("\xED\xA0\x80"));
+    CHECK(!FsPath::validName("\xC2\x80"));
     CHECK(!FsPath::validName(""));
     CHECK(!FsPath::validName(nullptr));
     CHECK(!FsPath::validName("."));

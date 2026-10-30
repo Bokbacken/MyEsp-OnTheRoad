@@ -16,11 +16,12 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include <string>
 
@@ -28,8 +29,10 @@
 #include "board_sd.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "files_page.h"
 #include "fs_path.h"
+#include "fs_upload.h"
 #include "kara_index.h"
 #include "lang.h"
 #include "my_log.h"
@@ -119,7 +122,7 @@ void changed(const Target &t)
 esp_err_t ioError(httpd_req_t *r, int err)
 {
     if (err == ENOENT) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
-    if (err == EEXIST) return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
+    if (err == EEXIST || err == EISDIR) return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
     if (err == ENOTEMPTY) return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_NOTEMPTY));
     if (err == ENOSPC) return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
     return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_FS_IO));
@@ -257,6 +260,9 @@ static esp_err_t handleUpload(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    const size_t queryLength = httpd_req_get_url_query_len(r);
+    if (!FsUpload::requestUriFits(sizeof("/api/fs/upload") - 1, queryLength, CONFIG_HTTPD_MAX_URI_LEN))
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
@@ -265,21 +271,47 @@ static esp_err_t handleUpload(httpd_req_t *r)
     bool overwrite = false;
     q.getBool("overwrite", overwrite);
     const size_t total = r->content_len;
-    char tmp[PATH_CAP + 8];
-    snprintf(tmp, sizeof(tmp), "%s.part", t.path);
+    char tmp[PATH_CAP], backup[PATH_CAP];
     FILE *f = nullptr;
+    int err = 0;
     {
         Lock lk(t.sd);
         struct stat st = {};
-        if (stat(t.path, &st) == 0 && (S_ISDIR(st.st_mode) || !overwrite))
-            return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
+        if (stat(t.path, &st) == 0) {
+            if (S_ISDIR(st.st_mode) || !overwrite)
+                return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
+        } else if (errno != ENOENT) {
+            return ioError(r, errno ? errno : EIO);
+        }
         if (t.sd && total > BoardSd::info().freeBytes) return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
-        f = fopen(tmp, "wb");
+        for (int attempt = 0; attempt < 8; attempt++) {
+            const uint32_t nonce = esp_random();
+            if (!FsUpload::siblingPath(t.path, nonce, false, tmp, sizeof(tmp)) ||
+                !FsUpload::siblingPath(t.path, nonce, true, backup, sizeof(backup)))
+                return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+            if (stat(backup, &st) == 0) continue;
+            if (errno != ENOENT) {
+                err = errno ? errno : EIO;
+                break;
+            }
+            const int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0666);
+            if (fd >= 0) {
+                f = fdopen(fd, "wb");
+                if (!f) {
+                    err = errno ? errno : EIO;
+                    close(fd);
+                    unlink(tmp);
+                }
+                break;
+            }
+            err = errno ? errno : EIO;
+            if (err != EEXIST) break;
+        }
     }
-    if (!f) return ioError(r, errno == ENOENT ? ENOENT : EIO);
+    if (!f) return ioError(r, err ? err : EEXIST);
     char *buf = (char *)psAlloc(CHUNK);
     bool ok = buf != nullptr;
-    int err = ok ? 0 : ENOMEM;
+    err = ok ? 0 : ENOMEM;
     size_t left = total;
     int timeouts = 0;
     while (ok && left > 0) {
@@ -305,14 +337,11 @@ static esp_err_t handleUpload(httpd_req_t *r)
             ok = false;
             err = EIO;
         }
-        if (ok) {
-            unlink(t.path);   // FAT rename() does not replace an existing file
-            if (rename(tmp, t.path) != 0) {
-                ok = false;
-                err = EIO;
-            }
+        if (ok && !FsUpload::install(tmp, t.path, backup, overwrite)) {
+            ok = false;
+            err = errno ? errno : EIO;
         }
-        if (!ok) unlink(tmp);
+        if (!ok) FsUpload::discard(tmp);
     }
     changed(t);
     if (!ok) {
@@ -366,7 +395,7 @@ static esp_err_t handleRename(httpd_req_t *r)
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
-    char name[256];
+    char name[PATH_CAP];
     if (FsPath::isRoot(t.root, t.path)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_ROOT));
     if (!q.get("name", name, sizeof(name)) || !FsPath::validName(name))
         return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
