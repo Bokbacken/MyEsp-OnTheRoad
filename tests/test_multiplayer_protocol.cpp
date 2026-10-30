@@ -25,6 +25,15 @@ int main()
     CHECK(!MultiplayerProtocol::joinableGame(true, true, true, 1));
     CHECK(!MultiplayerProtocol::joinableGame(true, true, false, 0));
 
+    CHECK(MultiplayerProtocol::validSessionId("4a5b6c7d8e9f0123"));
+    CHECK(!MultiplayerProtocol::validSessionId(nullptr));
+    CHECK(!MultiplayerProtocol::validSessionId(""));
+    CHECK(!MultiplayerProtocol::validSessionId("4a5b6c7d8e9f012"));
+    CHECK(!MultiplayerProtocol::validSessionId("4a5b6c7d8e9f012g"));
+    CHECK(MultiplayerProtocol::sameSession("4a5b6c7d8e9f0123", "4a5b6c7d8e9f0123"));
+    CHECK(!MultiplayerProtocol::sameSession("4a5b6c7d8e9f0123", "4a5b6c7d8e9f0124"));
+    CHECK(!MultiplayerProtocol::sameSession("invalid", "4a5b6c7d8e9f0123"));
+
     printf("test_multiplayer_protocol: %d passed, %d failed\n", s_pass, s_fail);
     return s_fail ? 1 : 0;
 }

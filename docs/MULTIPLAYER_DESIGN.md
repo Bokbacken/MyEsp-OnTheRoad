@@ -24,6 +24,9 @@ session faktiskt finns.
 - `GET /api/game` ger den aktuella snapshoten.
 - `/ws/game` accepterar samma `join`, `hold`, `roll`, `choose`, `bank` och `end`
   som browserklienterna, och skickar `state`/`error`.
+- Snapshoten har ett opakt `session_id`; `joined` och `state` skickar samma ID.
+  En klient som återansluter skickar ID:t i `join` och får avslag om spelet har
+  bytts ut. Gamla klienter utan fältet fungerar som tidigare.
 - Värdens befintliga session- och platsbindning är auktoritativ. Ingen ny
   tärnings-/poängrepresentation skapas för ESP-klienter.
 
@@ -76,15 +79,16 @@ protokollversion/speltyp från mDNS och läser
 som värden i förväg markerat för webben. Den skickar ingen PIN och reserverar
 ingen plats.
 
-**Fjärrspel är inte implementerat.** Värden har en fungerande serverväg för
-browserns `/ws/game`, men firmware saknar en ESP WebSocket-klient och den lokala
-Yatzy-vyn kan inte rendera/tillämpa en annan värds snapshot eller skicka dess
-kommandon. Dessutom finns värdens sessions-ID bara internt: `/api/game` och
-WebSocket-`state`/`joined` exponerar inget stabilt ID som en frånkopplad klient
-kan jämföra innan den återansluter. En säker änd-till-änd-join med den beslutade
-återanslutningsregeln kan därför inte verifieras ännu. Nästa steg är att lägga
-till ett additivt, opakt sessions-ID i API/WebSocket-state, en ESP
-WebSocket-klient för samma join/PIN- och `hold`/`roll`/`choose`-format, en
-touch-styrd fjärr-Yatzy-vy som använder värdens state, samt återanslutning som
-kontrollerar samma värd/session/plats innan gamla kommandon skickas. Provning
-mot en samtidig browserklient och fysisk verifiering på S3/P4 återstår.
+**Fjärrspel är inte implementerat.** Värden exponerar nu ett opakt sessions-ID
+i `/api/game` och WebSocket-`state`/`joined`. `join` kan frivilligt innehålla
+`session_id`; då avslår värden ett utbytt spel och en upptagen eller icke
+webbmarkerad plats. `join` utan ID behåller browserkompatibiliteten. Firmware
+saknar fortfarande en ESP WebSocket-klient och den lokala Yatzy-vyn kan inte
+visa en annan värds snapshot eller skicka dess kommandon. Det finns ingen
+återanslutningsfrist/grace-period. En säker återanslutning från ESP, samtidiga
+browser-/ESP-klienter och fysisk verifiering på S3/P4 återstår. I den här
+arbetsmiljön saknas ESP-IDF (`idf.py`, `IDF_PATH` och hämtade managed
+components), så target-byggen kan inte verifieras här. Nästa steg är ESP-klient,
+namn/PIN-/platsflöde, touch-vy som använder värdens state, samt verifierad
+återanslutning till samma värd/session/plats; fysisk änd-till-änd-testning
+måste fortfarande göras på båda korten.

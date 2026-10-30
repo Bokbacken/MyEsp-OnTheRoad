@@ -167,6 +167,8 @@ extern const Entry LANG_EN[] = {
     {Str::MULTI_REFRESH, "Search again"},
     {Str::MULTI_HOST_FMT, "%s  (%s)"},
     {Str::MULTI_SEATS_FMT, "Available seats: %s"},
+    {Str::MULTI_SESSION_CHANGED, "The game has changed. Join again."},
+    {Str::MULTI_SEAT_TAKEN, "That seat is already in use. Choose a seat and join again."},
     {Str::MENU_SUB_YATZY, "5 dice • 15 boxes • bonus 50"},
     {Str::MENU_SUB_MAXI, "6 dice • 20 boxes • bonus 100"},
     {Str::MENU_SUB_YATZY_ORDER, "Boxes are filled top to bottom"},

@@ -20,6 +20,7 @@
 #include "battery_math.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -40,6 +41,7 @@
 #include "my_time.h"
 #include "my_web.h"
 #include "my_wifi.h"
+#include "multiplayer_protocol.h"
 #include "otr_log.h"
 #include "ui_boot.h"
 #include "web_assets.h"
@@ -613,6 +615,21 @@ static void addWebPlayers(cJSON *o, const GameLive::Snapshot &snap)
     }
 }
 
+static const char *gameSessionId(uint32_t session)
+{
+    static uint32_t cachedSession = 0;
+    static char id[17] = {};
+    if (!session) return "";
+    if (session != cachedSession) {
+        const uint32_t high = esp_random();
+        uint32_t low = esp_random();
+        if (!(high | low)) low = 1;
+        snprintf(id, sizeof(id), "%08lx%08lx", (unsigned long)high, (unsigned long)low);
+        cachedSession = session;
+    }
+    return id;
+}
+
 template <typename G>
 static void addRanking(cJSON *o, const G &g)
 {
@@ -759,6 +776,7 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
     cJSON *o = cJSON_CreateObject();
     cJSON_AddNumberToObject(o, "version", s->version);
     cJSON_AddBoolToObject(o, "active", hasGame);
+    cJSON_AddStringToObject(o, "session_id", hasGame ? gameSessionId(s->session) : "");
     cJSON_AddStringToObject(o, "lang", Lang::currentLang());
     if (hasGame && s->gameType != GameType::YATZY) {
         addOtherGame(o, snap);
@@ -885,6 +903,7 @@ static esp_err_t handleAdventure(httpd_req_t *r)
 //
 // Client -> device (text frames, JSON):
 //   {"cmd":"join","player":2,"pin":"1234"}  bind to seat 2 (a web seat) with that player's personal PIN
+//   {"cmd":"join","player":2,"pin":"1234","session_id":"..."}  also require the same game session
 //   {"cmd":"join"}                           watch only (spectator, no PIN)
 //   {"cmd":"hold","die":N}                   toggle hold of die N (0-based)
 //   {"cmd":"roll"}                           roll the free dice (the console animates the throw)
@@ -893,10 +912,10 @@ static esp_err_t handleAdventure(httpd_req_t *r)
 //   {"cmd":"end"}                            v0.6.0 Ship/Captain/Crew: save the cargo, end the turn
 // State frames carry "game_type" ("yatzy" | "pig" | "farkle" | "scc") and game specific fields.
 // Device -> client:
-//   {"type":"joined","you":seat|-1}
-//   {"type":"error","error":"nogame|seat|pin|nopin|locked|join|full|cmd|turn","msg":"...","retry_s":n}
+//   {"type":"joined","you":seat|-1,"session_id":"..."}
+//   {"type":"error","error":"nogame|seat|seatbusy|session|pin|nopin|locked|join|full|cmd|turn","msg":"...","retry_s":n}
 //     pin: wrong PIN; nopin: the player has no PIN (set it on the console or /players);
-//     locked: too many wrong PINs, retry after retry_s seconds.
+//     locked: too many wrong PINs, retry after retry_s seconds; session/seatbusy: join fresh.
 // v0.5.6: the shared 4-digit game code is gone. Bindings carry GameLive's internal session id;
 // a new game (or leaving the game) drops every client back to the lobby.
 //   {"type":"state","you":seat|-1,"joined":bool, ...same fields as /api/game...}  on every change
@@ -1088,8 +1107,11 @@ static void wsHandleText(int fd, const char *txt)
     if (strcmp(cmd, "join") == 0) {
         const cJSON *jp = cJSON_GetObjectItem(j, "player");
         const cJSON *jpin = cJSON_GetObjectItem(j, "pin");
+        const cJSON *jsession = cJSON_GetObjectItem(j, "session_id");
         const char *pin = cJSON_IsString(jpin) ? jpin->valuestring : "";
+        const char *expectedSession = cJSON_IsString(jsession) ? jsession->valuestring : "";
         const bool hasGame = s->active && GameLive::started(*s);
+        const bool validateSession = jsession != nullptr;
         const int64_t now = nowMs();
         if (s_seatFailSession != s->session) {   // New game: forget old per-seat failures
             s_seatFailSession = s->session;
@@ -1101,13 +1123,20 @@ static void wsHandleText(int fd, const char *txt)
         if (!hasGame) {
             wsSendError(fd, "nogame", Str::WEB_ERR_WS_NOGAME);
             seat = -2;
+        } else if (validateSession &&
+                   !MultiplayerProtocol::sameSession(expectedSession, gameSessionId(s->session))) {
+            wsSendError(fd, "session", Str::MULTI_SESSION_CHANGED);
+            seat = -2;
         } else if (seat != -1 && (seat < 0 || seat >= GameLive::playerCount(*s) || seat >= YATZY_MAX_PLAYERS)) {
             wsSendError(fd, "seat", Str::WEB_ERR_WS_SEAT);
             seat = -2;
         } else if (seat >= 0) {
             const uint16_t pid = s->pid[seat];
             const int64_t until = c->lockUntil > s_seatLockUntil[seat] ? c->lockUntil : s_seatLockUntil[seat];
-            if (until > now) {
+            if (validateSession && (!s->web[seat] || s->conn[seat] > 0)) {
+                wsSendError(fd, "seatbusy", Str::MULTI_SEAT_TAKEN);
+                seat = -2;
+            } else if (until > now) {
                 wsSendError(fd, "locked", Str::WEB_ERR_WS_LOCKED, (int)((until - now + 999) / 1000));
                 seat = -2;
             } else if (!pid || !Players::hasPin(pid)) {
@@ -1134,8 +1163,9 @@ static void wsHandleText(int fd, const char *txt)
             c->seat = (int8_t)seat;
             c->session = s->session;
             c->fresh = true;
-            char buf[48];
-            snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
+            char buf[112];
+            snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d,\"session_id\":\"%s\"}",
+                     seat, gameSessionId(s->session));
             wsSendText(fd, buf);
             wsPublishConnections();
             wsQueueBroadcast();
@@ -1151,7 +1181,10 @@ static void wsHandleText(int fd, const char *txt)
         c->fresh = true;
         wsPublishConnections();
         wsQueueBroadcast();
-        wsSendText(fd, "{\"type\":\"joined\",\"you\":-1}");
+        char buf[96];
+        snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":-1,\"session_id\":\"%s\"}",
+                 gameSessionId(s->session));
+        wsSendText(fd, buf);
     } else if (strcmp(cmd, "setpin") == 0) {
         // First-time PIN from the browser: only allowed while the player has no PIN yet
         const cJSON *jp = cJSON_GetObjectItem(j, "player");
@@ -1178,8 +1211,9 @@ static void wsHandleText(int fd, const char *txt)
             c->session = s->session;
             c->fresh = true;
             c->pinFails = 0;
-            char buf[48];
-            snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d}", seat);
+            char buf[112];
+            snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":%d,\"session_id\":\"%s\"}",
+                     seat, gameSessionId(s->session));
             wsSendText(fd, buf);
             wsPublishConnections();
             wsQueueBroadcast();

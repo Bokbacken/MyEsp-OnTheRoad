@@ -167,6 +167,8 @@ extern const Entry LANG_SV[] = {
     {Str::MULTI_REFRESH, "Sök igen"},
     {Str::MULTI_HOST_FMT, "%s  (%s)"},
     {Str::MULTI_SEATS_FMT, "Lediga platser: %s"},
+    {Str::MULTI_SESSION_CHANGED, "Spelet har ändrats. Gå med på nytt."},
+    {Str::MULTI_SEAT_TAKEN, "Platsen används redan. Välj plats och gå med på nytt."},
     {Str::MENU_SUB_YATZY, "5 tärningar • 15 rutor • bonus 50"},
     {Str::MENU_SUB_MAXI, "6 tärningar • 20 rutor • bonus 100"},
     {Str::MENU_SUB_YATZY_ORDER, "Rutorna fylls uppifrån och ned"},
