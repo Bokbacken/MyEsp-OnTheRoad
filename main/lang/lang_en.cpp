@@ -178,6 +178,8 @@ extern const Entry LANG_EN[] = {
     {Str::MULTI_REMOTE_WAIT_FMT, "Waiting for %s"},
     {Str::MULTI_REMOTE_ROUND_FMT, "%s  Round %d/%d  (%d rolls left)"},
     {Str::MULTI_REMOTE_FINISHED, "Game finished"},
+    {Str::MULTI_REMOTE_SCORECARD, "Scorecard"},
+    {Str::MULTI_REMOTE_PLAY, "Back to game"},
     {Str::MULTI_SESSION_CHANGED, "The game has changed. Join again."},
     {Str::MULTI_SEAT_TAKEN, "That seat is already in use. Choose a seat and join again."},
     {Str::MENU_SUB_YATZY, "5 dice • 15 boxes • bonus 50"},

@@ -178,6 +178,8 @@ extern const Entry LANG_SV[] = {
     {Str::MULTI_REMOTE_WAIT_FMT, "Väntar på %s"},
     {Str::MULTI_REMOTE_ROUND_FMT, "%s  Omgång %d/%d  (%d kast kvar)"},
     {Str::MULTI_REMOTE_FINISHED, "Spelet är slut"},
+    {Str::MULTI_REMOTE_SCORECARD, "Poängtavla"},
+    {Str::MULTI_REMOTE_PLAY, "Tillbaka till spelet"},
     {Str::MULTI_SESSION_CHANGED, "Spelet har ändrats. Gå med på nytt."},
     {Str::MULTI_SEAT_TAKEN, "Platsen används redan. Välj plats och gå med på nytt."},
     {Str::MENU_SUB_YATZY, "5 tärningar • 15 rutor • bonus 50"},

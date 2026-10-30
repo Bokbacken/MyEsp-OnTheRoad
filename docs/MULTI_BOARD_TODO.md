@@ -373,6 +373,9 @@ rekommendation innan kod skrivs.
      P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade
      fjärrvyn. Detta verifierar grundläggande kommunikation i denna riktning,
      inte alla spelkommandon eller fullständig hårdvarutestning.
+   - [x] **Hårdvara, ägarrapport:** Ägaren bekräftar att spel fungerar mellan
+     enheterna och med webben. Exakt kort, riktning och genomgångna moment är
+     inte specificerade; checklistan per kort nedan står därför kvar.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
      [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-P4:
@@ -404,6 +407,7 @@ rekommendation innan kod skrivs.
 | 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
 | 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware har WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. CI-run 41051798946 är grön för C6-host, S3 och P4; S3-jobbets hostkontroller passerar. Fysisk end-to-end-verifiering och samtidig browser-/ESP-testning på S3/P4 väntar. |
 | 2026-10-30 | X.7 första ägarrapporterade speltest | S3 som värd och P4 som klient: P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade vyn. Grundläggande kommunikation fungerar i denna riktning. Test av alla kommandon, samtidig browser, återanslutning och motsatt riktning återstår; full verifiering på båda korten är fortsatt väntande. |
+| 2026-10-30 | X.7 ägarrapporterad gameplay | Ägaren bekräftar att spel fungerar mellan enheterna och med webben. Kort, riktning och detaljerad testmatris är inte angivna; checklisterna för S3/P4 står kvar tills dessa verifierats. |
 
 ### P4-partitionstabell: USB-migrering
 

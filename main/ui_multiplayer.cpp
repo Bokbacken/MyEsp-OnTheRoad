@@ -59,7 +59,11 @@ struct RemoteCategory {
 
 struct RemotePlayer {
     char name[NAME_CAP];
+    int upper;
+    int bonus;
     int total;
+    bool hasUpper;
+    bool hasBonus;
 };
 
 struct RemoteGame {
@@ -118,7 +122,6 @@ static lv_obj_t *s_remoteRound = nullptr;
 static lv_obj_t *s_remoteDice = nullptr;
 static lv_obj_t *s_remoteRoll = nullptr;
 static lv_obj_t *s_remoteCategories = nullptr;
-static lv_obj_t *s_remoteScores = nullptr;
 static uint32_t s_remoteRenderedRevision = UINT32_MAX;
 static RemoteGame s_remote = {};
 static portMUX_TYPE s_remoteMux = portMUX_INITIALIZER_UNLOCKED;
@@ -131,6 +134,11 @@ static char s_remoteUri[96] = {};
 static char s_wsFrame[REMOTE_FRAME_CAP + 1] = {};
 static size_t s_wsFrameUsed = 0;
 static size_t s_wsFrameExpected = 0;
+static lv_obj_t *s_remotePlayPanel = nullptr;
+static lv_obj_t *s_remoteScorePanel = nullptr;
+static lv_obj_t *s_remoteScoreTable = nullptr;
+static lv_obj_t *s_remoteScoreButton = nullptr;
+static bool s_remoteShowingScorecard = false;
 static int s_selectedHost = -1;
 static int s_selectedVisibleSeat = -1;
 static Host s_selectedHostData = {};
@@ -334,10 +342,16 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
         if (next.playerCount >= YATZY_MAX_PLAYERS) break;
         RemotePlayer &item = next.players[next.playerCount++];
         copyJsonString(player, "name", item.name, sizeof(item.name));
+        const cJSON *upper = cJSON_GetObjectItemCaseSensitive(player, "upper");
+        const cJSON *bonus = cJSON_GetObjectItemCaseSensitive(player, "bonus");
         const cJSON *total = cJSON_GetObjectItemCaseSensitive(player, "total");
         const cJSON *scores = cJSON_GetObjectItemCaseSensitive(player, "scores");
         if (!cJSON_IsNumber(total) || !cJSON_IsArray(scores) ||
             cJSON_GetArraySize(scores) != next.categoryCount) return false;
+        item.hasUpper = cJSON_IsNumber(upper);
+        item.hasBonus = cJSON_IsNumber(bonus);
+        item.upper = item.hasUpper ? upper->valueint : 0;
+        item.bonus = item.hasBonus ? bonus->valueint : 0;
         item.total = total->valueint;
         for (int i = 0; i < next.categoryCount; i++) {
             const cJSON *score = cJSON_GetArrayItem(scores, i);
@@ -759,6 +773,18 @@ static void remoteChooseEvent(lv_event_t *event)
     sendRemoteCommand("choose", (int)(intptr_t)lv_event_get_user_data(event));
 }
 
+static void remoteScoreToggleEvent(lv_event_t *)
+{
+    s_remoteShowingScorecard = !s_remoteShowingScorecard;
+    lv_obj_add_flag(s_remotePlayPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_remoteScorePanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_remoteShowingScorecard ? s_remoteScorePanel : s_remotePlayPanel,
+                      LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(lv_obj_get_child(s_remoteScoreButton, 0),
+                      tr(s_remoteShowingScorecard ? Str::MULTI_REMOTE_PLAY :
+                                                   Str::MULTI_REMOTE_SCORECARD));
+}
+
 static void stopRemoteClient()
 {
     esp_websocket_client_handle_t client;
@@ -792,10 +818,116 @@ static void leaveRemoteEvent(lv_event_t *)
     show();
 }
 
+static bool remoteDiePip(int face, int pip)
+{
+    static const bool faces[7][9] = {
+        {false, false, false, false, false, false, false, false, false},
+        {false, false, false, false, true,  false, false, false, false},
+        {true,  false, false, false, false, false, false, false, true },
+        {true,  false, false, false, true,  false, false, false, true },
+        {true,  false, true,  false, false, false, true,  false, true },
+        {true,  false, true,  false, true,  false, true,  false, true },
+        {true,  false, true,  true,  false, true,  true,  false, true }
+    };
+    return face >= 1 && face <= 6 && faces[face][pip];
+}
+
+static void renderRemoteScorecard(const RemoteGame &state)
+{
+    const int rowCount = state.categoryCount + 4;
+    lv_table_set_row_count(s_remoteScoreTable, rowCount);
+    lv_table_set_column_count(s_remoteScoreTable, state.playerCount + 1);
+    const int32_t width = lv_obj_get_content_width(s_remoteScorePanel);
+    const int32_t categoryWidth = LV_MIN(112, LV_MAX(78, width / 3));
+    const int32_t playerWidth = LV_MAX(48, (width - categoryWidth) /
+                                           LV_MAX(1, state.playerCount));
+    lv_table_set_column_width(s_remoteScoreTable, 0, categoryWidth);
+    for (int player = 0; player < state.playerCount; player++)
+        lv_table_set_column_width(s_remoteScoreTable, player + 1, playerWidth);
+
+    lv_table_set_cell_value(s_remoteScoreTable, 0, 0, "");
+    lv_table_set_cell_ctrl(s_remoteScoreTable, 0, 0, LV_TABLE_CELL_CTRL_TEXT_CROP);
+    for (int player = 0; player < state.playerCount; player++) {
+        lv_table_set_cell_value(s_remoteScoreTable, 0, player + 1, state.players[player].name);
+        lv_table_set_cell_ctrl(s_remoteScoreTable, 0, player + 1, LV_TABLE_CELL_CTRL_TEXT_CROP);
+    }
+    for (int categoryIndex = 0; categoryIndex < state.categoryCount; categoryIndex++) {
+        const RemoteCategory &category = state.categories[categoryIndex];
+        const int row = categoryIndex + 1;
+        lv_table_set_cell_value(s_remoteScoreTable, row, 0, category.name);
+        for (int player = 0; player < state.playerCount; player++) {
+            char value[12] = {};
+            if (category.scoreSet[player]) {
+                snprintf(value, sizeof(value), "%d", category.playerScores[player]);
+            } else if (player == state.current && category.available) {
+                snprintf(value, sizeof(value), "%d", category.potential);
+            }
+            lv_table_set_cell_value(s_remoteScoreTable, row, player + 1, value);
+        }
+    }
+
+    const int sumRow = state.categoryCount + 1;
+    const int bonusRow = state.categoryCount + 2;
+    const int totalRow = state.categoryCount + 3;
+    lv_table_set_cell_value(s_remoteScoreTable, sumRow, 0, tr(Str::GAME_SUM));
+    lv_table_set_cell_value(s_remoteScoreTable, bonusRow, 0, tr(Str::GAME_BONUS));
+    lv_table_set_cell_value(s_remoteScoreTable, totalRow, 0, tr(Str::GAME_TOTAL));
+    for (int player = 0; player < state.playerCount; player++) {
+        char value[16];
+        snprintf(value, sizeof(value), "%d", state.players[player].upper);
+        lv_table_set_cell_value(s_remoteScoreTable, sumRow, player + 1,
+                                state.players[player].hasUpper ? value : "");
+        snprintf(value, sizeof(value), "%d", state.players[player].bonus);
+        lv_table_set_cell_value(s_remoteScoreTable, bonusRow, player + 1,
+                                state.players[player].hasBonus ? value : "");
+        snprintf(value, sizeof(value), "%d", state.players[player].total);
+        lv_table_set_cell_value(s_remoteScoreTable, totalRow, player + 1, value);
+    }
+    lv_obj_invalidate(s_remoteScoreTable);
+}
+
+static void remoteScoreTableDrawEvent(lv_event_t *event)
+{
+    lv_draw_task_t *task = lv_event_get_draw_task(event);
+    lv_draw_dsc_base_t *base = task ? (lv_draw_dsc_base_t *)lv_draw_task_get_draw_dsc(task) : nullptr;
+    if (!base || base->part != LV_PART_ITEMS) return;
+    lv_draw_fill_dsc_t *fill = lv_draw_task_get_fill_dsc(task);
+    lv_draw_label_dsc_t *text = lv_draw_task_get_label_dsc(task);
+    if (!fill && !text) return;
+
+    RemoteGame state;
+    portENTER_CRITICAL(&s_remoteMux);
+    state = s_remote;
+    portEXIT_CRITICAL(&s_remoteMux);
+    const uint32_t row = base->id1;
+    const uint32_t col = base->id2;
+    const bool currentColumn = col > 0 && (int)col - 1 == state.current;
+    uint32_t background = currentColumn ? 0x1A2C44 : Theme::PANEL;
+    uint32_t foreground = col == 0 ? Theme::MUTED : Theme::TEXT;
+    if (row == 0) {
+        background = Theme::PANEL_RAISED;
+        foreground = currentColumn ? Theme::ACCENT : Theme::MUTED;
+    } else if (row >= (uint32_t)state.categoryCount + 1) {
+        background = Theme::PANEL_RAISED;
+        foreground = row == (uint32_t)state.categoryCount + 3 ? Theme::GOLD : Theme::TEAL;
+    } else if (currentColumn && row > 0 && row <= (uint32_t)state.categoryCount) {
+        const RemoteCategory &category = state.categories[row - 1];
+        if (category.available && !category.scoreSet[state.current]) {
+            background = 0x4D3F10;
+            foreground = Theme::GOLD;
+        }
+    }
+    if (fill) {
+        fill->color = Theme::c(background);
+        fill->opa = LV_OPA_COVER;
+    }
+    if (text) text->color = Theme::c(foreground);
+}
+
 static void renderRemote()
 {
     if (!s_remoteStatus || !s_remoteRound || !s_remoteDice || !s_remoteCategories ||
-        !s_remoteScores || !s_remoteRoll) return;
+        !s_remoteScoreTable || !s_remoteRoll) return;
     RemoteGame state;
     portENTER_CRITICAL(&s_remoteMux);
     state = s_remote;
@@ -828,32 +960,48 @@ static void renderRemote()
              state.round, state.rounds, state.rollsLeft);
     lv_label_set_text(s_remoteRound, round);
 
-    lv_obj_clean(s_remoteDice);
-    for (int i = 0; i < state.diceCount; i++) {
-        char face[8];
-        if (state.dice[i] >= 1 && state.dice[i] <= 6)
-            snprintf(face, sizeof(face), "%u%s", state.dice[i], state.held[i] ? "*" : "");
-        else
-            strlcpy(face, "-", sizeof(face));
-        const int32_t gap = UiMetrics::marginSmall();
-        const int32_t width = (UiMetrics::screenW() - 2 * UiMetrics::marginNormal() -
-                               (state.diceCount - 1) * gap) / state.diceCount;
-        lv_obj_t *die = Theme::button(s_remoteDice, face, width, UiMetrics::buttonH(), Theme::TEAL);
-        if (!die) continue;
-        lv_obj_set_style_bg_color(die, Theme::c(state.held[i] ? Theme::TEAL : Theme::PANEL), 0);
-        lv_obj_add_event_cb(die, remoteHoldEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-        MultiplayerProtocol::RemoteActions actions = {
-            state.joined, state.active, state.finished, state.rolling, state.hasRolled,
-            state.canRoll, state.you, state.current
-        };
-        if (!MultiplayerProtocol::canRemoteHold(actions))
-            lv_obj_add_state(die, LV_STATE_DISABLED);
-    }
-
     MultiplayerProtocol::RemoteActions actions = {
         state.joined, state.active, state.finished, state.rolling, state.hasRolled,
         state.canRoll, state.you, state.current
     };
+    lv_obj_clean(s_remoteDice);
+    const int32_t gap = UiMetrics::marginSmall();
+    const int32_t diceWidth = LV_MAX(1, lv_obj_get_content_width(s_remoteDice));
+    const int32_t dieSize = LV_MIN(UiMetrics::buttonH(),
+                                   (diceWidth - (state.diceCount - 1) * gap) /
+                                       LV_MAX(1, state.diceCount));
+    for (int i = 0; i < state.diceCount; i++) {
+        lv_obj_t *die = lv_obj_create(s_remoteDice);
+        if (!die) continue;
+        lv_obj_remove_style_all(die);
+        lv_obj_set_size(die, dieSize, dieSize);
+        lv_obj_set_style_radius(die, 8, 0);
+        lv_obj_set_style_bg_color(die, Theme::c(state.dice[i] ? 0xF5F1E8 : Theme::PANEL), 0);
+        lv_obj_set_style_bg_opa(die, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(die, state.held[i] ? 3 : 1, 0);
+        lv_obj_set_style_border_color(die, Theme::c(state.held[i] ? Theme::GOLD : Theme::LINE), 0);
+        lv_obj_set_style_shadow_width(die, state.held[i] ? 5 : 8, 0);
+        lv_obj_set_style_shadow_color(die, Theme::c(0x000000), 0);
+        lv_obj_set_style_shadow_opa(die, LV_OPA_30, 0);
+        lv_obj_add_event_cb(die, remoteHoldEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        if (!MultiplayerProtocol::canRemoteHold(actions))
+            lv_obj_add_state(die, LV_STATE_DISABLED);
+        const int32_t pipSize = LV_MAX(4, dieSize / 7);
+        for (int pip = 0; pip < 9; pip++) {
+            if (!remoteDiePip(state.dice[i], pip)) continue;
+            lv_obj_t *dot = lv_obj_create(die);
+            if (!dot) continue;
+            lv_obj_remove_style_all(dot);
+            lv_obj_set_size(dot, pipSize, pipSize);
+            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(dot, Theme::c(0x102630), 0);
+            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+            lv_obj_set_pos(dot, (dieSize - pipSize) * (pip % 3) / 2,
+                           (dieSize - pipSize) * (pip / 3) / 2);
+            lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+
     if (MultiplayerProtocol::canRemoteRoll(actions))
         lv_obj_clear_state(s_remoteRoll, LV_STATE_DISABLED);
     else
@@ -864,7 +1012,7 @@ static void renderRemote()
         const RemoteCategory &category = state.categories[i];
         if (!category.available || !MultiplayerProtocol::canRemoteChoose(actions, true)) continue;
         char text[96];
-        snprintf(text, sizeof(text), "%s  (%d)", category.name, category.potential);
+        snprintf(text, sizeof(text), "%s   %d", category.name, category.potential);
         lv_obj_t *button = Theme::button(s_remoteCategories, text,
                                          lv_obj_get_content_width(s_remoteCategories),
                                          UiMetrics::buttonH(), Theme::TEAL);
@@ -873,39 +1021,7 @@ static void renderRemote()
         lv_obj_add_event_cb(button, remoteChooseEvent, LV_EVENT_CLICKED,
                             (void *)(intptr_t)category.id);
     }
-
-    char scores[REMOTE_CATEGORY_CAP * (NAME_CAP + YATZY_MAX_PLAYERS * 8 + 4)] = {};
-    size_t used = 0;
-    for (int i = 0; i < state.playerCount && used < sizeof(scores) - 1; i++) {
-        const int wrote = snprintf(scores + used, sizeof(scores) - used, "%s%s: %d",
-                                   i ? "   " : "", state.players[i].name,
-                                   state.players[i].total);
-        if (wrote < 0 || (size_t)wrote >= sizeof(scores) - used) break;
-        used += (size_t)wrote;
-    }
-    if (used < sizeof(scores) - 1) scores[used++] = '\n';
-    for (int i = 0; i < state.categoryCount && used < sizeof(scores) - 1; i++) {
-        const RemoteCategory &category = state.categories[i];
-        int wrote = snprintf(scores + used, sizeof(scores) - used, "%s:", category.name);
-        if (wrote < 0 || (size_t)wrote >= sizeof(scores) - used) break;
-        used += (size_t)wrote;
-        for (int player = 0; player < state.playerCount && used < sizeof(scores) - 1; player++) {
-            wrote = snprintf(scores + used, sizeof(scores) - used, "%s%s",
-                             player ? " / " : " ",
-                             category.scoreSet[player] ? "" : "-");
-            if (wrote < 0 || (size_t)wrote >= sizeof(scores) - used) break;
-            used += (size_t)wrote;
-            if (category.scoreSet[player]) {
-                wrote = snprintf(scores + used, sizeof(scores) - used, "%d",
-                                 category.playerScores[player]);
-                if (wrote < 0 || (size_t)wrote >= sizeof(scores) - used) break;
-                used += (size_t)wrote;
-            }
-        }
-        if (used < sizeof(scores) - 1) scores[used++] = '\n';
-    }
-    scores[used] = '\0';
-    lv_label_set_text(lv_obj_get_child(s_remoteScores, 0), scores);
+    renderRemoteScorecard(state);
 }
 
 static void pollRemote(lv_timer_t *)
@@ -921,6 +1037,7 @@ static void showRemoteGame()
         s_timer = nullptr;
     }
     s_remoteRenderedRevision = UINT32_MAX;
+    s_remoteShowingScorecard = false;
     ESP_LOGI(TAG, "opening remote Yatzy view");
     lv_obj_t *screen = Theme::screen();
     Theme::header(screen, tr(Str::MULTI_REMOTE_TITLE));
@@ -930,52 +1047,106 @@ static void showRemoteGame()
     const int32_t top = UiMetrics::headerH();
     const int32_t line = lv_font_get_line_height(&my_font_14);
     s_remoteStatus = Theme::label(screen, tr(Str::MULTI_REMOTE_CONNECTING), &my_font_14, Theme::GOLD);
-    lv_label_set_long_mode(s_remoteStatus, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_bg_color(s_remoteStatus, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_bg_opa(s_remoteStatus, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(s_remoteStatus, 10, 0);
+    lv_obj_set_style_pad_hor(s_remoteStatus, margin, 0);
+    lv_obj_set_style_pad_ver(s_remoteStatus, UiMetrics::marginSmall(), 0);
+    lv_label_set_long_mode(s_remoteStatus, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_pos(s_remoteStatus, margin, top + 2);
-    lv_obj_set_size(s_remoteStatus, width, 2 * line);
+    lv_obj_set_size(s_remoteStatus, width, line + 2 * UiMetrics::marginSmall());
 
-    s_remoteRound = Theme::label(screen, "", &my_font_14);
-    lv_obj_set_pos(s_remoteRound, margin, top + 2 * line + 8);
+    s_remoteRound = Theme::label(screen, "", &my_font_14, Theme::MUTED);
+    lv_obj_set_pos(s_remoteRound, margin, top + line + 2 * UiMetrics::marginSmall() + 8);
     lv_obj_set_width(s_remoteRound, width);
 
-    const int32_t diceTop = top + 2 * line + 32;
-    s_remoteDice = lv_obj_create(screen);
-    lv_obj_remove_style_all(s_remoteDice);
-    lv_obj_set_pos(s_remoteDice, margin, diceTop);
-    lv_obj_set_size(s_remoteDice, width, UiMetrics::buttonH());
-    lv_obj_set_flex_flow(s_remoteDice, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(s_remoteDice, UiMetrics::marginSmall(), 0);
+    const int32_t buttonH = UiMetrics::buttonH();
+    const int32_t footerY = UiMetrics::screenH() - UiMetrics::marginSmall() - buttonH;
+    const int32_t bodyTop = top + 2 * line + 3 * UiMetrics::marginSmall() + 18;
+    const int32_t bodyHeight = LV_MAX(buttonH * 3, footerY - bodyTop - UiMetrics::marginSmall());
 
-    s_remoteRoll = Theme::button(screen, tr(Str::GAME_ROLL), width, UiMetrics::buttonH(), Theme::TEAL);
-    lv_obj_set_pos(s_remoteRoll, margin, diceTop + UiMetrics::buttonH() + 4);
+    s_remotePlayPanel = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_remotePlayPanel);
+    lv_obj_set_pos(s_remotePlayPanel, margin, bodyTop);
+    lv_obj_set_size(s_remotePlayPanel, width, bodyHeight);
+    lv_obj_set_scrollable(s_remotePlayPanel, false);
+
+    const int32_t feltH = LV_MIN(108, LV_MAX(82, bodyHeight / 3));
+    lv_obj_t *felt = lv_obj_create(s_remotePlayPanel);
+    lv_obj_remove_style_all(felt);
+    lv_obj_set_pos(felt, 0, 0);
+    lv_obj_set_size(felt, width, feltH);
+    lv_obj_set_style_radius(felt, 14, 0);
+    lv_obj_set_style_bg_color(felt, Theme::c(0x123A3F), 0);
+    lv_obj_set_style_bg_grad_color(felt, Theme::c(0x0E2730), 0);
+    lv_obj_set_style_bg_grad_dir(felt, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(felt, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(felt, 1, 0);
+    lv_obj_set_style_border_color(felt, Theme::c(0x416267), 0);
+    lv_obj_set_style_pad_hor(felt, UiMetrics::marginSmall(), 0);
+    lv_obj_set_style_pad_ver(felt, UiMetrics::marginSmall(), 0);
+
+    s_remoteDice = lv_obj_create(felt);
+    lv_obj_remove_style_all(s_remoteDice);
+    lv_obj_set_size(s_remoteDice, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(s_remoteDice, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_remoteDice, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_remoteDice, UiMetrics::marginSmall(), 0);
+    lv_obj_set_scrollable(s_remoteDice, false);
+
+    const int32_t rollY = feltH + UiMetrics::marginSmall();
+    s_remoteRoll = Theme::button(s_remotePlayPanel, tr(Str::GAME_ROLL), width, buttonH,
+                                 Theme::ACCENT, true);
+    lv_obj_set_pos(s_remoteRoll, 0, rollY);
     lv_obj_add_state(s_remoteRoll, LV_STATE_DISABLED);
     lv_obj_add_event_cb(s_remoteRoll, remoteRollEvent, LV_EVENT_CLICKED, nullptr);
 
-    const int32_t scoresTop = diceTop + 2 * UiMetrics::buttonH() + 10;
-    const int32_t scoresHeight = UiMetrics::screenH() <= 500 ? 58 : 78;
-    s_remoteScores = lv_obj_create(screen);
-    lv_obj_remove_style_all(s_remoteScores);
-    lv_obj_set_pos(s_remoteScores, margin, scoresTop);
-    lv_obj_set_size(s_remoteScores, width, scoresHeight);
-    lv_obj_set_scroll_dir(s_remoteScores, LV_DIR_VER);
-    lv_obj_t *scoreText = Theme::label(s_remoteScores, "", &my_font_14);
-    lv_obj_set_width(scoreText, width);
-    lv_label_set_long_mode(scoreText, LV_LABEL_LONG_MODE_WRAP);
-
-    const int32_t buttonH = UiMetrics::buttonH();
-    const int32_t bottom = UiMetrics::screenH() - UiMetrics::marginSmall() - buttonH;
-    const int32_t categoryTop = scoresTop + scoresHeight + 4;
-    s_remoteCategories = lv_obj_create(screen);
+    const int32_t categoryY = rollY + buttonH + UiMetrics::marginSmall();
+    s_remoteCategories = lv_obj_create(s_remotePlayPanel);
     lv_obj_remove_style_all(s_remoteCategories);
-    lv_obj_set_pos(s_remoteCategories, margin, categoryTop);
-    lv_obj_set_size(s_remoteCategories, width, bottom - categoryTop - UiMetrics::marginSmall());
+    lv_obj_set_pos(s_remoteCategories, 0, categoryY);
+    lv_obj_set_size(s_remoteCategories, width, bodyHeight - categoryY);
     lv_obj_set_flex_flow(s_remoteCategories, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s_remoteCategories, UiMetrics::marginSmall(), 0);
     lv_obj_set_scroll_dir(s_remoteCategories, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_remoteCategories, LV_SCROLLBAR_MODE_AUTO);
 
+    s_remoteScorePanel = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_remoteScorePanel);
+    lv_obj_set_pos(s_remoteScorePanel, margin, bodyTop);
+    lv_obj_set_size(s_remoteScorePanel, width, bodyHeight);
+    lv_obj_set_hidden(s_remoteScorePanel, true);
+
+    s_remoteScoreTable = lv_table_create(s_remoteScorePanel);
+    lv_obj_set_size(s_remoteScoreTable, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_scroll_dir(s_remoteScoreTable, LV_DIR_VER | LV_DIR_HOR);
+    lv_obj_set_scrollbar_mode(s_remoteScoreTable, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_bg_color(s_remoteScoreTable, Theme::c(Theme::BG), 0);
+    lv_obj_set_style_border_width(s_remoteScoreTable, 2, 0);
+    lv_obj_set_style_border_side(s_remoteScoreTable, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_color(s_remoteScoreTable, Theme::c(Theme::ACCENT), 0);
+    lv_obj_set_style_pad_all(s_remoteScoreTable, 0, 0);
+    lv_obj_set_style_text_font(s_remoteScoreTable, &my_font_14, LV_PART_ITEMS);
+    lv_obj_set_style_pad_top(s_remoteScoreTable, 4, LV_PART_ITEMS);
+    lv_obj_set_style_pad_bottom(s_remoteScoreTable, 4, LV_PART_ITEMS);
+    lv_obj_set_style_pad_left(s_remoteScoreTable, 5, LV_PART_ITEMS);
+    lv_obj_set_style_pad_right(s_remoteScoreTable, 3, LV_PART_ITEMS);
+    lv_obj_set_style_border_color(s_remoteScoreTable, Theme::c(Theme::LINE), LV_PART_ITEMS);
+    lv_obj_set_style_border_width(s_remoteScoreTable, 1, LV_PART_ITEMS);
+    lv_obj_set_style_border_side(s_remoteScoreTable, LV_BORDER_SIDE_BOTTOM, LV_PART_ITEMS);
+    lv_obj_add_event_cb(s_remoteScoreTable, remoteScoreTableDrawEvent,
+                        LV_EVENT_DRAW_TASK_ADDED, nullptr);
+    lv_obj_set_send_draw_task_events(s_remoteScoreTable, true);
+
+    const int32_t footerWidth = (width - UiMetrics::marginSmall()) / 2;
+    s_remoteScoreButton = Theme::button(screen, tr(Str::MULTI_REMOTE_SCORECARD),
+                                        footerWidth, buttonH, Theme::TEAL);
+    lv_obj_set_pos(s_remoteScoreButton, margin, footerY);
+    lv_obj_add_event_cb(s_remoteScoreButton, remoteScoreToggleEvent, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *back = Theme::button(screen, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK),
-                                   width, buttonH, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::marginSmall());
+                                   footerWidth, buttonH, Theme::MUTED);
+    lv_obj_set_pos(back, margin + footerWidth + UiMetrics::marginSmall(), footerY);
     lv_obj_add_event_cb(back, leaveRemoteEvent, LV_EVENT_CLICKED, nullptr);
 
     s_timer = lv_timer_create(pollRemote, 200, nullptr);
