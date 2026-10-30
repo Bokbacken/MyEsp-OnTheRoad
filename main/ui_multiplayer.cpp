@@ -365,6 +365,7 @@ void show()
     lv_label_set_long_mode(s_status, LV_LABEL_LONG_MODE_WRAP);
 
     const int32_t buttonH = UiMetrics::buttonH();
+    const int32_t buttonW = (UiMetrics::screenW() - 3 * margin) / 2;
     const int32_t noteH = 2 * lv_font_get_line_height(&my_font_14);
     const int32_t buttonTop = UiMetrics::screenH() - UiMetrics::marginSmall() - buttonH;
     const int32_t noteBottom = buttonTop - UiMetrics::marginSmall();
@@ -386,10 +387,10 @@ void show()
     lv_obj_set_pos(notice, margin, noteTop);
 
     lv_obj_t *back = Theme::button(screen, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK),
-                                   UiMetrics::buttonWMin(), buttonH, Theme::MUTED);
+                                   buttonW, buttonH, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, margin, -UiMetrics::marginSmall());
     lv_obj_add_event_cb(back, [](lv_event_t *) { closeScreen(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *refresh = Theme::button(screen, tr(Str::MULTI_REFRESH), UiMetrics::buttonWMin(), buttonH, Theme::TEAL);
+    lv_obj_t *refresh = Theme::button(screen, tr(Str::MULTI_REFRESH), buttonW, buttonH, Theme::TEAL);
     lv_obj_align(refresh, LV_ALIGN_BOTTOM_RIGHT, -margin, -UiMetrics::marginSmall());
     lv_obj_add_event_cb(refresh, refreshEvent, LV_EVENT_CLICKED, nullptr);
 
