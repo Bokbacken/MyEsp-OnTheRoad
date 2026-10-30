@@ -1182,8 +1182,9 @@ static void wsHandleText(int fd, const char *txt)
         wsPublishConnections();
         wsQueueBroadcast();
         char buf[96];
+        const bool activeGame = s->active && GameLive::started(*s);
         snprintf(buf, sizeof(buf), "{\"type\":\"joined\",\"you\":-1,\"session_id\":\"%s\"}",
-                 gameSessionId(s->session));
+                 activeGame ? gameSessionId(s->session) : "");
         wsSendText(fd, buf);
     } else if (strcmp(cmd, "setpin") == 0) {
         // First-time PIN from the browser: only allowed while the player has no PIN yet
