@@ -35,6 +35,7 @@ constexpr size_t JSON_CAP = 8192;
 constexpr size_t REMOTE_FRAME_CAP = 8192;
 constexpr int REMOTE_WS_TASK_STACK = 8192;
 constexpr int REMOTE_CATEGORY_CAP = 20;
+constexpr uint32_t REMOTE_CHOOSE_DOUBLE_TAP_MS = 500;
 constexpr char TAG[] = "multi";
 
 struct Host {
@@ -87,6 +88,7 @@ struct RemoteGame {
     int diceCount;
     uint8_t dice[YATZY_MAX_DICE];
     bool held[YATZY_MAX_DICE];
+    bool rollMask[YATZY_MAX_DICE];
     int categoryCount;
     RemoteCategory categories[REMOTE_CATEGORY_CAP];
     int playerCount;
@@ -122,6 +124,8 @@ static lv_obj_t *s_remoteStatus = nullptr;
 static lv_obj_t *s_remoteRound = nullptr;
 static lv_obj_t *s_remoteDice = nullptr;
 static lv_obj_t *s_remoteNest = nullptr;
+static lv_obj_t *s_remoteDie[YATZY_MAX_DICE] = {};
+static int32_t s_remoteDieSize[YATZY_MAX_DICE] = {};
 static lv_obj_t *s_remoteRoll = nullptr;
 static lv_obj_t *s_remoteCategories = nullptr;
 static lv_obj_t *s_remoteCupArea = nullptr;
@@ -134,6 +138,9 @@ static lv_obj_t *s_remoteCupCount = nullptr;
 static lv_obj_t *s_remoteCupHint = nullptr;
 static lv_obj_t *s_remoteCupChoose = nullptr;
 static uint32_t s_remoteRenderedRevision = UINT32_MAX;
+static lv_timer_t *s_remoteDiceTimer = nullptr;
+static int s_remoteLastChoiceId = -1;
+static uint32_t s_remoteLastChoiceMs = 0;
 static RemoteGame s_remote = {};
 static portMUX_TYPE s_remoteMux = portMUX_INITIALIZER_UNLOCKED;
 static esp_websocket_client_handle_t s_remoteClient = nullptr;
@@ -347,6 +354,19 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
             !cJSON_IsBool(isHeld)) return false;
         next.dice[i] = (uint8_t)face->valueint;
         next.held[i] = cJSON_IsTrue(isHeld);
+    }
+    if (next.rolling) {
+        const cJSON *rollMask = cJSON_GetObjectItemCaseSensitive(json, "roll_mask");
+        if (cJSON_IsArray(rollMask) && cJSON_GetArraySize(rollMask) == next.diceCount) {
+            for (int i = 0; i < next.diceCount; i++) {
+                const cJSON *rollingDie = cJSON_GetArrayItem(rollMask, i);
+                if (!cJSON_IsBool(rollingDie)) return false;
+                next.rollMask[i] = cJSON_IsTrue(rollingDie);
+            }
+        } else {
+            for (int i = 0; i < next.diceCount; i++)
+                next.rollMask[i] = !next.held[i];
+        }
     }
     const cJSON *categories = cJSON_GetObjectItemCaseSensitive(json, "categories");
     if (cJSON_IsArray(categories)) {
@@ -795,7 +815,17 @@ static void remoteHoldEvent(lv_event_t *event)
 
 static void remoteChooseEvent(lv_event_t *event)
 {
-    sendRemoteCommand("choose", (int)(intptr_t)lv_event_get_user_data(event));
+    const int categoryId = (int)(intptr_t)lv_event_get_user_data(event);
+    const uint32_t now = lv_tick_get();
+    if (s_remoteLastChoiceId == categoryId &&
+        lv_tick_elaps(s_remoteLastChoiceMs) <= REMOTE_CHOOSE_DOUBLE_TAP_MS) {
+        s_remoteLastChoiceId = -1;
+        s_remoteLastChoiceMs = 0;
+        sendRemoteCommand("choose", categoryId);
+    } else {
+        s_remoteLastChoiceId = categoryId;
+        s_remoteLastChoiceMs = now;
+    }
 }
 
 static void remoteScoreToggleEvent(lv_event_t *)
@@ -812,6 +842,10 @@ static void remoteScoreToggleEvent(lv_event_t *)
 
 static void stopRemoteClient()
 {
+    if (s_remoteDiceTimer) {
+        lv_timer_delete(s_remoteDiceTimer);
+        s_remoteDiceTimer = nullptr;
+    }
     esp_websocket_client_handle_t client;
     portENTER_CRITICAL(&s_remoteMux);
     client = s_remoteClient;
@@ -1112,11 +1146,13 @@ static void remoteScoreTableDrawEvent(lv_event_t *event)
 }
 
 static lv_obj_t *createRemoteDie(lv_obj_t *parent, const RemoteGame &state, int index,
-                                 int32_t size, bool inCup)
+                                 int32_t size, bool inCup, int faceOverride = 0)
 {
     lv_obj_t *die = lv_image_create(parent);
     if (!die) return nullptr;
-    const void *face = UiYatzy::faceSprite(size, state.dice[index]);
+    const int faceValue = faceOverride >= 1 && faceOverride <= 6 ?
+                          faceOverride : state.dice[index];
+    const void *face = UiYatzy::faceSprite(size, faceValue);
     if (!face) {
         lv_obj_delete(die);
         return nullptr;
@@ -1168,14 +1204,21 @@ static void renderRemoteDice(const RemoteGame &state)
                                            LV_MAX(1, state.diceCount));
     lv_obj_clean(s_remoteDice);
     lv_obj_clean(s_remoteNest);
+    memset(s_remoteDie, 0, sizeof(s_remoteDie));
+    memset(s_remoteDieSize, 0, sizeof(s_remoteDieSize));
     for (int i = 0; i < state.diceCount; i++) {
         const bool held = state.held[i];
         if (!held && s_remoteCupActive) continue;
         lv_obj_t *row = held ? s_remoteNest : s_remoteDice;
         const int32_t dieSize = held ? nestDieSize : diceSize;
-        lv_obj_t *die = createRemoteDie(row, state, i, dieSize, false);
+        const int animatedFace = state.rolling && state.rollMask[i] ?
+                                 (int)((lv_tick_get() / 70u + (uint32_t)i * 3u) % 6u) + 1 : 0;
+        lv_obj_t *die = createRemoteDie(row, state, i, dieSize, false, animatedFace);
         if (!die) continue;
         lv_obj_set_size(die, dieSize, dieSize);
+        lv_image_set_rotation(die, 0);
+        s_remoteDie[i] = die;
+        s_remoteDieSize[i] = dieSize;
         if (MultiplayerProtocol::canRemoteHold(actions))
             lv_obj_add_event_cb(die, remoteHoldEvent, LV_EVENT_CLICKED,
                                 (void *)(intptr_t)i);
@@ -1209,6 +1252,25 @@ static void renderRemoteDice(const RemoteGame &state)
         s_remoteCupBodies[i].av = (i % 2 ? -160.0f : 140.0f);
     }
     placeRemoteCup();
+}
+
+static void remoteDiceAnimTick(lv_timer_t *)
+{
+    RemoteGame state;
+    portENTER_CRITICAL(&s_remoteMux);
+    state = s_remote;
+    portEXIT_CRITICAL(&s_remoteMux);
+    if (!state.rolling) return;
+
+    const uint32_t tick = lv_tick_get();
+    for (int i = 0; i < state.diceCount; i++) {
+        if (!state.rollMask[i] || !s_remoteDie[i]) continue;
+        const int face = (int)((tick / 70u + (uint32_t)i * 3u) % 6u) + 1;
+        const void *sprite = UiYatzy::faceSprite(s_remoteDieSize[i], face);
+        if (sprite) lv_image_set_src(s_remoteDie[i], sprite);
+        lv_image_set_rotation(s_remoteDie[i],
+                              (int32_t)((tick * 7u + (uint32_t)i * 900u) % 3600u));
+    }
 }
 
 static void renderRemote()
@@ -1265,6 +1327,11 @@ static void renderRemote()
         lv_obj_add_state(s_remoteRoll, LV_STATE_DISABLED);
 
     lv_obj_clean(s_remoteCategories);
+    if (MultiplayerProtocol::canRemoteChoose(actions, true)) {
+        lv_obj_t *hint = Theme::label(s_remoteCategories, tr(Str::MULTI_REMOTE_CHOOSE_HINT),
+                                      &my_font_14, Theme::MUTED);
+        if (hint) lv_obj_set_width(hint, LV_PCT(100));
+    }
     for (int i = 0; i < state.categoryCount; i++) {
         const RemoteCategory &category = state.categories[i];
         if (!category.available || !MultiplayerProtocol::canRemoteChoose(actions, true)) continue;
@@ -1297,6 +1364,8 @@ static void showRemoteGame()
     s_remoteShowingScorecard = false;
     s_remoteCupActive = false;
     s_remoteCupPressed = false;
+    s_remoteLastChoiceId = -1;
+    s_remoteLastChoiceMs = 0;
     ESP_LOGI(TAG, "opening remote Yatzy view");
     lv_obj_t *screen = Theme::screen();
     Theme::header(screen, tr(Str::MULTI_REMOTE_TITLE));
@@ -1486,6 +1555,7 @@ static void showRemoteGame()
     lv_obj_add_event_cb(back, leaveRemoteEvent, LV_EVENT_CLICKED, nullptr);
 
     s_timer = lv_timer_create(pollRemote, 200, nullptr);
+    s_remoteDiceTimer = lv_timer_create(remoteDiceAnimTick, 70, nullptr);
     Theme::loadScreen(screen);
     ESP_LOGI(TAG, "remote Yatzy view ready");
 }
