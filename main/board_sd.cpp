@@ -222,6 +222,39 @@ bool remount()
     return mountLocked();
 }
 
+bool format()
+{
+    Guard g;
+    if (!s_info.mounted || !s_card) return false;
+
+    const esp_err_t err = esp_vfs_fat_sdcard_format(MOUNT, s_card);
+    if (err != ESP_OK) {
+        s_info.lastError = err;
+        ++s_info.errors;
+        ESP_LOGE(TAG, "format failed: %s", esp_err_to_name(err));
+
+        const esp_err_t unmountErr = esp_vfs_fat_sdcard_unmount(MOUNT, s_card);
+        s_card = nullptr;
+        s_info.mounted = false;
+        s_info.totalBytes = s_info.freeBytes = 0;
+        if (unmountErr != ESP_OK)
+            ESP_LOGW(TAG, "cleanup after format failure: %s", esp_err_to_name(unmountErr));
+        mountLocked();
+        s_info.lastError = err;
+        return false;
+    }
+
+    ++s_info.generation;
+    s_info.lastError = ESP_OK;
+    uint64_t total = 0, freeB = 0;
+    if (esp_vfs_fat_info(MOUNT, &total, &freeB) == ESP_OK) {
+        s_info.totalBytes = total;
+        s_info.freeBytes = freeB;
+    }
+    ESP_LOGW(TAG, "formatted SD card as FAT");
+    return true;
+}
+
 void poll(uint32_t nowMs)
 {
     if (!s_mux || (int32_t)(nowMs - s_nextPoll) < 0) return;

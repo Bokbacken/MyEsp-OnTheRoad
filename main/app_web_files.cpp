@@ -9,6 +9,7 @@
 //   POST /api/fs/rename   root, path, name, pin     new name in the same directory
 //   POST /api/fs/mkdir    root, path, pin           creates one directory
 //   POST /api/sd/remount  pin                       unmount + mount the card again
+//   POST /api/sd/format   pin, confirm=FORMAT-SD    explicitly format the SD card as FAT
 //   v0.13.7: /api/files (paginated list), /api/files/mkdir, /api/files/bulk (DELETE), /api/files/move
 #include "app_web_files.h"
 
@@ -57,8 +58,22 @@ static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
 static constexpr int MAX_UPLOADS = 4;
 static std::atomic<int> s_activeUploads{0};
+static std::atomic<int> s_activeDownloads{0};
+static std::atomic<bool> s_formatting{false};
 
 namespace {
+
+struct SdUse {
+    bool active = false;
+    explicit SdUse(bool sd)
+    {
+        if (!sd || s_formatting.load()) return;
+        s_activeDownloads.fetch_add(1);
+        if (s_formatting.load()) s_activeDownloads.fetch_sub(1);
+        else active = true;
+    }
+    ~SdUse() { if (active) s_activeDownloads.fetch_sub(1); }
+};
 
 // Optional SD lock: only the card is shared with the audio mixer.
 struct Lock {
@@ -278,6 +293,8 @@ static esp_err_t handleDownload(httpd_req_t *r)
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
+    SdUse sdUse(t.sd);
+    if (t.sd && !sdUse.active) return MyWeb::sendError(r, 503, "SD-kortet formateras");
     FILE *f;
     struct stat st = {};
     {
@@ -529,9 +546,14 @@ static bool isInternalUpload(httpd_req_t *r)
 static esp_err_t handleUpload(httpd_req_t *r)
 {
     if (isInternalUpload(r)) return handleUploadRequest(r);
+    if (s_formatting.load()) return MyWeb::sendError(r, 503, "SD-kortet formateras");
     if (s_activeUploads.fetch_add(1) >= MAX_UPLOADS) {
         s_activeUploads.fetch_sub(1);
         return MyWeb::sendError(r, 503, "För många samtidiga uppladdningar");
+    }
+    if (s_formatting.load()) {
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, "SD-kortet formateras");
     }
     httpd_req_t *copy = nullptr;
     if (httpd_req_async_handler_begin(r, &copy) != ESP_OK) {
@@ -644,6 +666,32 @@ static esp_err_t handleRemount(httpd_req_t *r)
     cJSON_AddBoolToObject(o, "ok", true);
     cJSON_AddBoolToObject(o, "mounted", ok);
     return MyWeb::sendJson(r, 200, o);
+}
+
+static esp_err_t handleSdFormat(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    char root[8] = "sd", confirm[24] = "";
+    if ((q.has("root") && (!q.get("root", root, sizeof(root)) || strcmp(root, "sd"))) ||
+        !q.get("confirm", confirm, sizeof(confirm)) || strcmp(confirm, "FORMAT-SD"))
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    if (!BoardSd::mounted()) return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_FS_NOCARD));
+
+    bool expected = false;
+    if (!s_formatting.compare_exchange_strong(expected, true))
+        return MyWeb::sendError(r, 409, "SD-kortet används redan");
+    if (s_activeUploads.load() || s_activeDownloads.load()) {
+        s_formatting.store(false);
+        return MyWeb::sendError(r, 409, "Vänta tills filöverföringarna är klara");
+    }
+
+    const bool ok = BoardSd::format();
+    s_formatting.store(false);
+    if (!ok) return MyWeb::sendError(r, 500, "Formatering misslyckades; SD-kortet återmonterades om möjligt");
+    Audio::invalidateFiles();
+    MyLog::event("files", "SD card formatted as FAT");
+    return MyWeb::sendOk(r);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -920,7 +968,10 @@ static esp_err_t handleFilesMkdir(httpd_req_t *r)
     {
         Lock lk(t.sd);
         struct stat st = {};
-        if (stat(t.path, &st) == 0) return ioError(r, EEXIST);
+        if (stat(t.path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) return MyWeb::sendOk(r);
+            return ioError(r, EEXIST);
+        }
     }
     const int err = mkdirs(t);
     if (err) return ioError(r, err);
@@ -1178,6 +1229,7 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/fs/rename", HTTP_POST, handleRename);
     ok &= MyWeb::on("/api/fs/mkdir", HTTP_POST, handleMkdir);
     ok &= MyWeb::on("/api/sd/remount", HTTP_POST, handleRemount);
+    ok &= MyWeb::on("/api/sd/format", HTTP_POST, handleSdFormat);
     ok &= MyWeb::on("/api/fs/repair", HTTP_POST, handleFsRepair);
     ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
     ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);

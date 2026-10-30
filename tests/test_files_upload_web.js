@@ -3,13 +3,14 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const html = fs.readFileSync('main/web/files.html', 'utf8');
-assert.match(html, /<option value="skip">Hoppa över<\/option>/);
+assert.match(html, /<option value="skip" selected>Hoppa över<\/option>/);
+assert.match(html, /id="dir-file" multiple webkitdirectory directory hidden/);
 const script = html.match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
 const start = script.indexOf('function uploadOne');
 const end = script.indexOf("$('pick-btn')", start);
 const uploadCode = script.slice(start, end);
 
-async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd') {
+async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = []) {
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {value: '', hidden: false, textContent: ''});
@@ -17,6 +18,7 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd') {
   };
   element('conflict-policy').value = policy;
   const requests = [];
+  const mkdirs = [];
   const toasts = [];
   let response = 0;
   let active = 0, maxActive = 0;
@@ -43,16 +45,24 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd') {
     join: (dir, name) => dir + '/' + name, qs: obj => new URLSearchParams(obj).toString(),
     size: bytes => bytes + ' B', guarded: fn => fn().catch(err => toasts.push(err.message)),
     toast: msg => toasts.push(msg), load: async () => {},
+    sendJson: async (method, url, data) => {
+      mkdirs.push({url, body: JSON.stringify(data)});
+      return {ok: true};
+    },
+    fetch: async (url, options) => {
+      return {ok: true, status: 200, json: async () => ({ok: true})};
+    },
     setTimeout, clearTimeout,
   };
   function $(id) { return element(id); }
   vm.createContext(sandbox);
   vm.runInContext(uploadCode, sandbox);
   const files = Array.from({length: fileCount}, (_, i) => ({
-    name: i ? `new${i}.mid` : 'same.mid', size: 10 + i, type: 'audio/midi'
+    name: i ? `new${i}.mid` : 'same.mid', size: 10 + i, type: 'audio/midi',
+    webkitRelativePath: relativePaths[i] || ''
   }));
   await vm.runInContext('upload(files)', Object.assign(sandbox, {files}));
-  return {requests, toasts, maxActive, progress: element('prog').value};
+  return {requests, mkdirs, toasts, maxActive, progress: element('prog').value};
 }
 
 (async () => {
@@ -80,6 +90,19 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd') {
   const internal = await uploadWith('skip', [{ok: true}, {ok: true}, {ok: true}], 3, 'ffat');
   assert.equal(internal.maxActive, 1, 'internal flash uploads remain serialized');
   assert.equal(internal.requests.length, 3);
+
+  const folder = await uploadWith('skip', [{ok: true}, {ok: true}], 2, 'sd', [
+    'Project/Disc One/song.mid', 'Project/Disc Two/song.mid'
+  ]);
+  assert.deepEqual(folder.mkdirs.map(x => JSON.parse(x.body).path),
+    ['/songs/Project', '/songs/Project/Disc One', '/songs/Project/Disc Two']);
+  assert.deepEqual(folder.requests.map(x => new URLSearchParams(x.url.split('?')[1]).get('path')),
+    ['/songs/Project/Disc One/song.mid', '/songs/Project/Disc Two/song.mid']);
+
+  const tooDeep = await uploadWith('skip', [{ok: true}], 1, 'sd', ['One/Two/Three/Four/song.mid']);
+  assert.equal(tooDeep.requests.length, 0, 'directory uploads beyond three levels are rejected');
+  assert.equal(tooDeep.mkdirs.length, 0);
+  assert.match(tooDeep.toasts[0], /högst 3 mappnivåer/);
 
   console.log('File upload policies, four-way SD sessions, and serialized flash uploads passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

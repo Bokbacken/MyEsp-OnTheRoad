@@ -27,6 +27,7 @@ bool mounted();
 Info info();                 // Cheap: totals are cached (refreshed by poll / after mount)
 void poll(uint32_t nowMs);   // Call from the main loop (every ~20 ms is fine; works on its own schedule)
 bool remount();              // Unmount (if needed) and mount again; used by the web UI / settings
+bool format();               // Destructively format the mounted card as FAT and refresh its usage
 void refreshUsage();         // Re-read free space (after uploads / deletes)
 uint32_t clusterBytes();     // v0.13.7: FAT cluster size (0 = not mounted / unknown)
 

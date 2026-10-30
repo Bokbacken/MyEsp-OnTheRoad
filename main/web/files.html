@@ -65,13 +65,16 @@
     <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" style="max-width:8rem;margin:0">
     <button type="button" class="secondary" id="mkdir-btn">&#128193; Ny mapp</button>
     <button type="button" class="secondary" id="pick-btn">&#8679; Ladda upp</button>
+    <button type="button" class="secondary" id="pick-dir-btn">&#128193; Ladda upp mapp</button>
     <input type="file" id="file" multiple hidden>
+    <input type="file" id="dir-file" multiple webkitdirectory directory hidden>
     <label for="conflict-policy" style="margin:0">Om filen finns</label>
     <select id="conflict-policy" style="width:auto;margin:0">
+      <option value="skip" selected>Hoppa över</option>
       <option value="stop">Avbryt uppladdningen</option>
-      <option value="skip">Hoppa över</option>
       <option value="overwrite">Skriv över</option>
     </select>
+    <button type="button" class="danger" id="format-btn" hidden>&#9888; Formatera SD-kort</button>
     <button type="button" class="danger" id="repair-btn" hidden>&#9873; Reparera intern flash</button>
   </div>
   <div class="crumbs" id="crumbs"></div>
@@ -111,7 +114,7 @@
   <p class="muted" id="summary"></p>
   <p class="muted" id="truncated" hidden>Mappen är mycket stor: bara de första 4 000 posterna listas.</p>
 
-  <div class="drop" id="drop">Släpp filer här för att ladda upp dem till den här mappen</div>
+  <div class="drop" id="drop">Släpp filer eller en mapp här för att ladda upp (högst 3 mappnivåer)</div>
   <progress id="prog" max="100" value="0" hidden style="width:100%"></progress>
   <div class="muted" id="prog-text"></div>
   <p class="muted">Ändringar (uppladdning, radering, flytt, namnbyte, nya mappar) kräver admin-PIN om en PIN är satt.
@@ -176,10 +179,10 @@ async function sendJson(method, url, data) {
 async function guarded(fn) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn').forEach(b => b.disabled = true);
+  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn').forEach(b => b.disabled = true);
   try { await fn(); } catch (err) { toast(err.message, false); }
   busy = false;
-  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn').forEach(b => b.disabled = false);
+  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn').forEach(b => b.disabled = false);
   updateActions();
 }
 function bulkResult(j, verb) {
@@ -262,6 +265,7 @@ async function load(keepSel = false) {
     $('live-dot').className = 'dot ok';
     $('live-text').textContent = 'ansluten';
     $('nocard').hidden = j.mounted || root !== 'sd';
+    $('format-btn').disabled = root !== 'sd' || !j.mounted;
     $('usage').textContent = j.mounted ? size(j.free) + ' ledigt av ' + size(j.total) : (root === 'sd' ? 'inget kort' : 'ej monterad');
     entries = j.entries || [];
     page = j.page || 1; pages = j.pages || 1;
@@ -297,6 +301,7 @@ function setRoot(r) {
   $('root-sd').classList.toggle('on', r === 'sd');
   $('root-ffat').classList.toggle('on', r === 'ffat');
   $('repair-btn').hidden = r !== 'ffat';   // Repair is for the internal flash only
+  $('format-btn').hidden = r !== 'sd';
   load();
 }
 $('root-sd').onclick = () => setRoot('sd');
@@ -366,6 +371,15 @@ $('remount-btn').onclick = () => guarded(async () => {
   toast(j.mounted ? 'SD-kortet monterat' : 'Inget SD-kort hittades', j.mounted);
   await load();
 });
+$('format-btn').onclick = () => guarded(async () => {
+  if (root !== 'sd') return;
+  if (!confirm('Formatera SD-kortet som FAT32?\n\nALLA filer och mappar på kortet raderas permanent. Åtgärden går inte att ångra.')) return;
+  if (prompt('Skriv FORMATERA för att bekräfta att hela SD-kortet ska raderas:') !== 'FORMATERA') return;
+  await postForm('/api/sd/format', {confirm: 'FORMAT-SD'});
+  toast('SD-kortet formaterades som FAT');
+  path = '/'; page = 1;
+  await load();
+});
 $('repair-btn').onclick = () => guarded(async () => {
   if (root !== 'ffat') return;
   if (!confirm('Reparera intern flash?\n\nALLT på intern flash raderas och filsystemet formateras om. ' +
@@ -382,10 +396,10 @@ $('repair-btn').onclick = () => guarded(async () => {
 });
 
 // ---- Upload (button or drag & drop) ----
-function uploadOne(f, onProgress, uploadRoot, uploadPath, pin, policy) {
+function uploadOne(f, onProgress, uploadRoot, uploadPath, pin, policy, relativePath) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    const q = {root: uploadRoot, path: join(uploadPath, f.name), pin};
+    const q = {root: uploadRoot, path: join(uploadPath, relativePath), pin};
     if (policy === 'overwrite') q.overwrite = '1';
     else if (policy === 'skip') q.skip = '1';
     x.open('POST', '/api/fs/upload?' + qs(q));
@@ -405,27 +419,38 @@ function uploadOne(f, onProgress, uploadRoot, uploadPath, pin, policy) {
   });
 }
 function upload(files) {
-  files = Array.from(files).filter(f => f.size > 0 || f.type);   // Dropped folders show up as empty entries
-  if (!files.length) return toast('Inga filer (mappar kan inte släppas – skapa mappen först)', false);
+  files = Array.from(files);
+  if (!files.length) return toast('Inga filer valda', false);
   return guarded(async () => {
+    const items = files.map(file => {
+      const relativePath = file.relativePath || file.webkitRelativePath || file.name;
+      const parts = relativePath.split('/');
+      if (parts.length > 4 || parts.some(part => !part || part === '.' || part === '..' || part.includes('\\')))
+        throw new Error('Mappuppladdningen får ha högst 3 mappnivåer och innehålla giltiga namn');
+      return {file, parts, relativePath: parts.join('/')};
+    });
     $('prog').hidden = false;
     const uploadRoot = root, uploadPath = path, pin = $('pin').value;
     const policy = $('conflict-policy').value;
-    const loaded = Array(files.length).fill(0);
-    const total = files.reduce((sum, file) => sum + file.size, 0);
+    const loaded = Array(items.length).fill(0);
+    const total = items.reduce((sum, item) => sum + item.file.size, 0);
     let next = 0, done = 0, skipped = 0, failure = null;
+    const folders = new Set();
+    for (const item of items)
+      for (let i = 1; i < item.parts.length; i++) folders.add(item.parts.slice(0, i).join('/'));
     const worker = async () => {
       while (!failure) {
         const i = next++;
         if (i >= files.length) return;
         try {
-          if (await uploadOne(files[i], bytes => {
+          const item = items[i];
+          if (await uploadOne(item.file, bytes => {
             loaded[i] = bytes;
             const sent = loaded.reduce((sum, value) => sum + value, 0);
             $('prog').value = total ? Math.round(sent * 100 / total) : 0;
-            $('prog-text').textContent = (done + 1) + '/' + files.length + ': ' +
-              files[i].name + ' · ' + size(bytes) + ' av ' + size(files[i].size);
-          }, uploadRoot, uploadPath, pin, policy)) skipped++;
+            $('prog-text').textContent = (done + 1) + '/' + items.length + ': ' +
+              item.relativePath + ' · ' + size(bytes) + ' av ' + size(item.file.size);
+          }, uploadRoot, uploadPath, pin, policy, item.relativePath)) skipped++;
           done++;
         } catch (err) {
           failure = err;
@@ -433,14 +458,16 @@ function upload(files) {
       }
     };
     try {
+      for (const folder of [...folders].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b)))
+        await sendJson('POST', '/api/files/mkdir', {path: join(uploadPath, folder)});
       const concurrency = uploadRoot === 'sd' ? 4 : 1;
-      await Promise.all(Array.from({length: Math.min(concurrency, files.length)}, worker));
+      await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker));
       if (failure) {
         if (done) failure.message += ' (' + done + ' andra filer hann bli klara)';
         throw failure;
       }
       $('prog').value = 100;
-      if (skipped === files.length) toast(skipped === 1 ? 'Filen fanns redan och hoppades över' : skipped + ' filer fanns redan och hoppades över');
+      if (skipped === items.length) toast(skipped === 1 ? 'Filen fanns redan och hoppades över' : skipped + ' filer fanns redan och hoppades över');
       else if (skipped) toast((done - skipped) + ' filer uppladdade, ' + skipped + ' hoppades över');
       else toast(done === 1 ? 'Filen uppladdad' : done + ' filer uppladdade');
     } finally {
@@ -452,7 +479,9 @@ function upload(files) {
   });
 }
 $('pick-btn').onclick = () => $('file').click();
+$('pick-dir-btn').onclick = () => $('dir-file').click();
 $('file').onchange = () => upload($('file').files);
+$('dir-file').onchange = () => upload($('dir-file').files);
 const drop = $('drop');
 ['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => {
@@ -460,7 +489,35 @@ const drop = $('drop');
   if (ev === 'dragleave' && e.relatedTarget) return;
   drop.classList.remove('over');
 }));
-document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
+async function droppedFiles(dataTransfer) {
+  const entries = Array.from(dataTransfer.items || []).map(item =>
+    item.webkitGetAsEntry && item.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return Array.from(dataTransfer.files || []);
+  const files = [];
+  async function visit(entry, parent) {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      file.relativePath = parent ? parent + '/' + file.name : file.name;
+      files.push(file);
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const directory = parent ? parent + '/' + entry.name : entry.name;
+    if (directory.split('/').length > 3) throw new Error('Mappuppladdningen får ha högst 3 mappnivåer');
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) break;
+      for (const child of batch) await visit(child, directory);
+    }
+  }
+  for (const entry of entries) await visit(entry, '');
+  return files;
+}
+document.addEventListener('drop', e => {
+  if (!e.dataTransfer) return;
+  droppedFiles(e.dataTransfer).then(upload).catch(err => toast(err.message, false));
+});
 load();
 </script>
 </body>
