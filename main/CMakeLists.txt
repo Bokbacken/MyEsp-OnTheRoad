@@ -18,7 +18,8 @@ idf_component_register(
   REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui
            otr_engine otr_story otr_midi otr_synth lvgl__lvgl espressif__led_strip espressif__cjson
            ${board_reqs} esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_adc esp_timer esp_app_format
-           esp_driver_i2s esp_driver_sdmmc esp_http_client espressif__mdns sdmmc fatfs vfs)
+           esp_driver_i2s esp_driver_sdmmc esp_http_client espressif__mdns espressif__esp_websocket_client
+           sdmmc fatfs vfs)
 
 idf_build_get_property(project_ver PROJECT_VER)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE FW_VERSION="${project_ver}")

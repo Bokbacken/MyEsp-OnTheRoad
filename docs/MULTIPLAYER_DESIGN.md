@@ -70,25 +70,22 @@ värd automatiskt.
 3. Reconnect/grace-period och test av samtidig browser-/ESP-klient.
 4. Därefter övervägs andra befintliga spel.
 
-**v0.23 status:** `_ontheroad._tcp`-annonsering och en lokal **Spela tillsammans**
-vy är implementerade. Tjänstinstansen får en MAC-suffix så två enheter med
-samma standardvärdnamn inte annonserar en identisk instans. Klienten frågar
-SRV/TXT/A separat när PTR-svaret inte innehåller alla poster. Vyn filtrerar
-protokollversion/speltyp från mDNS och läser
-`/api/game`; den visar endast aktiva Yatzy-spel med en ledig, PIN-skyddad plats
-som värden i förväg markerat för webben. Den skickar ingen PIN och reserverar
-ingen plats.
+**v0.23 status:** `_ontheroad._tcp`-annonsering, lokal **Spela tillsammans**-
+vy och ESP Yatzy-klient är implementerade. Tjänstinstansen får en MAC-suffix
+så två enheter med samma standardvärdnamn inte annonserar en identisk instans.
+Klienten frågar SRV/TXT/A separat när PTR-svaret inte innehåller alla poster.
+Vyn filtrerar protokollversion/speltyp från mDNS och läser `/api/game`; den
+visar endast aktiva Yatzy-spel med en ledig, PIN-skyddad plats som värden i
+förväg markerat för webben. Spelaren väljer en plats och anger dess maskerade
+PIN. ESP-klienten skickar join med säkert sessions-ID, tar emot värdens snapshot
+och visar dess tärningar, tur, kategorier och poäng. Den skickar endast
+värdvaliderade `hold`, `roll` och `choose`-kommandon; den har ingen egen
+tärnings- eller poänglogik.
 
-**Fjärrspel är inte implementerat.** Värden exponerar nu ett opakt sessions-ID
-i `/api/game` och WebSocket-`state`/`joined`. `join` kan frivilligt innehålla
-`session_id`; då avslår värden ett utbytt spel och en upptagen eller icke
-webbmarkerad plats. `join` utan ID behåller browserkompatibiliteten. Firmware
-saknar fortfarande en ESP WebSocket-klient och den lokala Yatzy-vyn kan inte
-visa en annan värds snapshot eller skicka dess kommandon. Det finns ingen
-återanslutningsfrist/grace-period. En säker återanslutning från ESP, samtidiga
-browser-/ESP-klienter och fysisk verifiering på S3/P4 återstår. I den här
-arbetsmiljön saknas ESP-IDF (`idf.py`, `IDF_PATH` och hämtade managed
-components), så target-byggen kan inte verifieras här. Nästa steg är ESP-klient,
-namn/PIN-/platsflöde, touch-vy som använder värdens state, samt verifierad
-återanslutning till samma värd/session/plats; fysisk änd-till-änd-testning
-måste fortfarande göras på båda korten.
+WebSocket-återanslutning stannar vid samma värd-URI, sessions-ID och plats.
+Ändrad session eller upptagen plats avslutar den gamla bindningen och kräver
+fresh join. PIN sparas bara temporärt i minnet för återanslutning och skrivs
+inte i loggar. `join` utan sessions-ID behåller browserkompatibiliteten.
+Targetbyggen och fysisk änd-till-änd-testning är fortfarande nödvändiga:
+checklistan för samtidig browser/ESP, join/PIN, kast/håll/välj och
+återanslutning är ännu inte avbockad på vare sig S3 eller P4.

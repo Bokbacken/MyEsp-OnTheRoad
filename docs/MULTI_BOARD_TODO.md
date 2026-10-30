@@ -341,7 +341,7 @@ rekommendation innan kod skrivs.
      när endast bakgrundsbelysningen släcks. Utred controller-specifik
      display-off/sleep och väcksekvens; verifiera att skärmen släcks och
      återställs på båda korten innan strömsparningen markeras klar.
-7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
+7. **Spela mellan enheter (Yatzy fjärrspel).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.
    - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
@@ -355,20 +355,23 @@ rekommendation innan kod skrivs.
      WebSocket-`state`/`joined`. Ett `join` med ID avvisas om sessionen ändrats
      eller platsen inte längre är en ledig webbplats; äldre browser-`join`
      utan ID är oförändrad.
-   - [ ] ESP WebSocket-klient, namn/PIN-/platsflöde och touch-vy som visar
-     värdens snapshot och skickar Yatzy-kommandon. **Blockerare:** detta
-     inkrement innehåller fortfarande ingen ESP-klient; targetbyggen kan inte
-     verifieras i arbetsmiljön eftersom ESP-IDF/`idf.py`/`IDF_PATH` och
-     managed components saknas. Fjärrspel fungerar inte ännu.
-   - [ ] Återanslutning mot samma värd/session/plats samt samtidig browser- och
-     ESP-klienttest; faktisk ESP-återanslutning/grace-period saknas ännu.
+   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och touch-vy.
+     Snapshot, tur, tärningar, möjliga kategorier och poäng kommer från
+     värden; ESP-klienten skickar bara tillåtna `hold`, `roll` och `choose`.
+   - [x] Återanslutning använder endast vald värd, sessions-ID och plats.
+     Bytt session eller upptagen plats stoppar anslutningen och kräver en ny
+     join. PIN skrivs inte i loggar och browser-join utan sessions-ID fungerar
+     fortsatt.
+   - [ ] Verifiera targetbyggen och samtidig browser-/ESP-klient. ESP-IDF/
+     `idf.py`/`IDF_PATH` och managed components saknas i den här miljön.
    - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
      deras aktiva spel. Detta är inte ett speltest.
-   - [ ] **Hårdvara, fjärrspel – väntar på implementation:** ESP32-S3:
+   - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
      [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
-   - [ ] **Hårdvara, fjärrspel – väntar på implementation:** ESP32-P4:
+   - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-P4:
      [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
-     Full fysisk änd-till-änd-verifiering är alltså inte utförd på något kort.
+     Full fysisk änd-till-änd-verifiering är alltså inte utförd på något kort;
+     ägarrapporterad discovery är inte ett speltest.
 
 ## Leveranslogg
 
@@ -390,6 +393,7 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
 | 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout fungerar på båda korten. Efter USB-flash av partitionstabellen använder P4 hela flashen och FFat visar 22 172 kB; stora SoundFonts fungerar på P4. Mindre SoundFonts på S3 medger fler samtidiga röster. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
 | 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
+| 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware får WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. Återanslutning är bunden till samma värd/session/plats; fysisk end-to-end-verifiering på S3 och P4 väntar. Target CI inväntas. |
 
 ### P4-partitionstabell: USB-migrering
 
