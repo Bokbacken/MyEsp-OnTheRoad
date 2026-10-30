@@ -535,9 +535,10 @@ static esp_err_t handleUpload(httpd_req_t *r)
         return MyWeb::sendError(r, 503, "Uppladdningstjänsten är upptagen");
     }
     if (xTaskCreate(uploadTask, "fs_upload", 8192, copy, 3, nullptr) != pdPASS) {
+        const esp_err_t response = MyWeb::sendError(r, 503, tr(Str::WEB_ERR_MEMORY));
         httpd_req_async_handler_complete(copy);
         s_activeUploads.fetch_sub(1);
-        return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_MEMORY));
+        return response;
     }
     return ESP_OK;
 }
