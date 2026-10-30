@@ -4,8 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.23.1** – ESP-Hosted versions are cached and shown in P4 diagnostics;
-> Karaoke lyrics scale with large-screen height; P4 has a 32 MB partition layout
+> **Status: v0.23.2** – FAT supports long filenames and web uploads stage safely
+> without truncating names or replacing the destination before success. Hardware
+> verification of these file cases remains pending. ESP-Hosted versions are
+> cached and shown in P4 diagnostics; Karaoke lyrics scale with large-screen
+> height; P4 has a 32 MB partition layout
 > (existing devices need one USB partition-table flash); SoundFont budgets follow
 > the board profile; screen-off power policy and ESP-to-ESP Yatzy play are added.
 > The owner verified Karaoke layout on both boards, P4 partition migration and large
