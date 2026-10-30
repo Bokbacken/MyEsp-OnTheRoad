@@ -68,7 +68,10 @@ värd automatiskt.
 4. Därefter övervägs andra befintliga spel.
 
 **v0.23 status:** `_ontheroad._tcp`-annonsering och en lokal **Spela tillsammans**
-vy är implementerade. Vyn filtrerar protokollversion/speltyp från mDNS och läser
+vy är implementerade. Tjänstinstansen får en MAC-suffix så två enheter med
+samma standardvärdnamn inte annonserar en identisk instans. Klienten frågar
+SRV/TXT/A separat när PTR-svaret inte innehåller alla poster. Vyn filtrerar
+protokollversion/speltyp från mDNS och läser
 `/api/game`; den visar endast aktiva Yatzy-spel med en ledig, PIN-skyddad plats
 som värden i förväg markerat för webben. Den skickar ingen PIN och reserverar
 ingen plats.

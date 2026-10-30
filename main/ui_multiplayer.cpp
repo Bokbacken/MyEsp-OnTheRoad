@@ -74,6 +74,7 @@ static esp_err_t receiveHttp(esp_http_client_event_t *event)
 
 static const char *txtValue(const mdns_result_t *result, const char *key)
 {
+    if (!result || !result->txt) return nullptr;
     for (size_t i = 0; i < result->txt_count; i++)
         if (result->txt[i].key && strcmp(result->txt[i].key, key) == 0) return result->txt[i].value;
     return nullptr;
@@ -139,19 +140,55 @@ static bool queryGame(Host &host)
 
 static bool discoverHost(const mdns_result_t *result, const char *ownIp, Host &host)
 {
-    if (!MultiplayerProtocol::supports(txtValue(result, "proto"), txtValue(result, "games")) ||
-        !result->addr || !result->port) return false;
+    if (!result->instance_name) return false;
+    mdns_result_t *srv = nullptr;
+    mdns_result_t *txt = nullptr;
+    const mdns_result_t *records = result;
+    if (!result->hostname || !result->port) {
+        if (mdns_query_srv(result->instance_name, "_ontheroad", "_tcp", 1200, &srv) != ESP_OK || !srv) return false;
+    }
+    if (!txtValue(result, "proto") || !txtValue(result, "games")) {
+        if (mdns_query_txt(result->instance_name, "_ontheroad", "_tcp", 1200, &txt) != ESP_OK || !txt) {
+            if (srv) mdns_query_results_free(srv);
+            return false;
+        }
+        records = txt;
+    }
+    if (!MultiplayerProtocol::supports(txtValue(records, "proto"), txtValue(records, "games"))) {
+        if (srv) mdns_query_results_free(srv);
+        if (txt) mdns_query_results_free(txt);
+        return false;
+    }
+
+    const char *hostname = result->hostname ? result->hostname : srv->hostname;
+    host.port = result->port ? result->port : srv->port;
+    if (!hostname || !host.port) {
+        if (srv) mdns_query_results_free(srv);
+        if (txt) mdns_query_results_free(txt);
+        return false;
+    }
     const mdns_ip_addr_t *address = result->addr;
     while (address && address->addr.type != ESP_IPADDR_TYPE_V4) address = address->next;
-    if (!address) return false;
-
-    snprintf(host.ip, sizeof(host.ip), IPSTR, IP2STR(&address->addr.u_addr.ip4));
-    if (ownIp[0] && strcmp(host.ip, ownIp) == 0) return false;
-    host.port = result->port;
-    const char *device = txtValue(result, "device");
+    esp_ip4_addr_t resolved = {};
+    if (!address && mdns_query_a(hostname, 1200, &resolved) != ESP_OK) {
+        if (srv) mdns_query_results_free(srv);
+        if (txt) mdns_query_results_free(txt);
+        return false;
+    }
+    const esp_ip4_addr_t *ip = address ? &address->addr.u_addr.ip4 : &resolved;
+    snprintf(host.ip, sizeof(host.ip), IPSTR, IP2STR(ip));
+    if (ownIp[0] && strcmp(host.ip, ownIp) == 0) {
+        if (srv) mdns_query_results_free(srv);
+        if (txt) mdns_query_results_free(txt);
+        return false;
+    }
+    const char *device = txtValue(records, "device");
     strlcpy(host.name, device && device[0] ? device :
-            (result->instance_name ? result->instance_name : host.ip), sizeof(host.name));
-    return queryGame(host);
+            result->instance_name, sizeof(host.name));
+    const bool found = queryGame(host);
+    if (srv) mdns_query_results_free(srv);
+    if (txt) mdns_query_results_free(txt);
+    return found;
 }
 
 static void publishResult(uint32_t generation, const Host *hosts, int count, bool connected)

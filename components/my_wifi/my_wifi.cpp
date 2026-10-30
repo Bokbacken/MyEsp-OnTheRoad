@@ -122,7 +122,13 @@ static void startMdns()
     if (s_mdnsInit) {
         mdns_service_remove_all();
         s_mdnsOk = mdns_hostname_set(host) == ESP_OK;
-        mdns_instance_name_set(host);
+        char instance[48];
+        uint8_t mac[6] = {};
+        if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK)
+            snprintf(instance, sizeof(instance), "%s-%02X%02X%02X", host, mac[3], mac[4], mac[5]);
+        else
+            snprintf(instance, sizeof(instance), "%s", host);
+        if (s_mdnsOk) s_mdnsOk = mdns_instance_name_set(instance) == ESP_OK;
         mdns_txt_item_t txt[1] = {{"fw", s_hooks.mdnsTxtFw ? s_hooks.mdnsTxtFw : ""}};
         mdns_txt_item_t gameTxt[] = {{"proto", "1"}, {"games", "yatzy"}, {"device", host}};
         if (s_mdnsOk) s_mdnsOk = mdns_service_add(nullptr, "_http", "_tcp", 80, txt, 1) == ESP_OK;

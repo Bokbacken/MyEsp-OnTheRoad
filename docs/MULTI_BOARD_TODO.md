@@ -330,12 +330,18 @@ rekommendation innan kod skrivs.
      befintlig skärmtimeout/manuell släckning.
    - [x] Utred Wi-Fi/DFS/deep sleep och dokumentera rekommendationerna nedan.
      **Hårdvara:** mät effekt och verifiera återanslutning på båda korten.
+   - [ ] **Hårdvara:** ägaren rapporterar att P4-panelens bild fortfarande syns
+     när endast bakgrundsbelysningen släcks. Utred controller-specifik
+     display-off/sleep och väcksekvens; verifiera att skärmen släcks och
+     återställs på båda korten innan strömsparningen markeras klar.
 7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.
    - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
      (PIN), återanslutning och Yatzy först.
    - [x] mDNS annonserar `_ontheroad._tcp` med protokollversion och stödda spel.
+   - [x] Unik MAC-suffix på tjänstinstansen; upptäckaren hämtar SRV/TXT/A även
+     när PTR-svaret inte innehåller kompletta serviceposter.
    - [x] Enhetens **Spela tillsammans**-vy hittar protokollkompatibla värdar
      och visar endast aktiva Yatzy-spel med ledig PIN-skyddad webbplats.
    - [ ] ESP WebSocket-klient, PIN-join och touch-vy som visar värdens snapshot
