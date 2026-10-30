@@ -369,12 +369,18 @@ rekommendation innan kod skrivs.
      korten enligt checklistorna nedan.
    - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
      deras aktiva spel. Detta är inte ett speltest.
+   - [x] **Hårdvara, ägarrapport 2026-10-30:** S3 som värd och P4 som klient:
+     P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade
+     fjärrvyn. Detta verifierar grundläggande kommunikation i denna riktning,
+     inte alla spelkommandon eller fullständig hårdvarutestning.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
      [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-P4:
-     [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
+     [x] join/PIN (som klient mot S3) [ ] kast/håll/välj [ ] samtidig browser
+     [ ] återanslutning.
      Full fysisk änd-till-änd-verifiering är alltså inte utförd på något kort;
-     ägarrapporterad discovery är inte ett speltest.
+     den rapporterade P4-klienttestningen täcker inte omvänd riktning eller
+     hela testchecklistan.
 
 ## Leveranslogg
 
@@ -397,6 +403,7 @@ rekommendation innan kod skrivs.
 | 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout fungerar på båda korten. Efter USB-flash av partitionstabellen använder P4 hela flashen och FFat visar 22 172 kB; stora SoundFonts fungerar på P4. Mindre SoundFonts på S3 medger fler samtidiga röster. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
 | 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
 | 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware har WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. CI-run 41051798946 är grön för C6-host, S3 och P4; S3-jobbets hostkontroller passerar. Fysisk end-to-end-verifiering och samtidig browser-/ESP-testning på S3/P4 väntar. |
+| 2026-10-30 | X.7 första ägarrapporterade speltest | S3 som värd och P4 som klient: P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade vyn. Grundläggande kommunikation fungerar i denna riktning. Test av alla kommandon, samtidig browser, återanslutning och motsatt riktning återstår; full verifiering på båda korten är fortsatt väntande. |
 
 ### P4-partitionstabell: USB-migrering
 
