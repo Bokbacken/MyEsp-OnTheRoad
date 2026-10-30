@@ -6,8 +6,10 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "esp_err.h"
 #include "esp_http_client.h"
 #include "esp_netif_ip_addr.h"
+#include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,6 +33,7 @@ constexpr size_t NAME_CAP = 32;
 constexpr size_t JSON_CAP = 8192;
 constexpr size_t REMOTE_FRAME_CAP = 8192;
 constexpr int REMOTE_CATEGORY_CAP = 20;
+constexpr char TAG[] = "multi";
 
 struct Host {
     char name[NAME_CAP];
@@ -246,6 +249,18 @@ static void copyJsonString(const cJSON *object, const char *key, char *out, size
     if (cJSON_IsString(value)) strlcpy(out, value->valuestring, cap);
 }
 
+static const char *remoteErrorCode(const cJSON *code)
+{
+    static const char *const known[] = {
+        "nogame", "seat", "seatbusy", "session", "pin", "nopin", "locked",
+        "join", "full", "cmd", "turn"
+    };
+    if (!cJSON_IsString(code) || !code->valuestring) return "unknown";
+    for (const char *candidate : known)
+        if (strcmp(code->valuestring, candidate) == 0) return candidate;
+    return "unknown";
+}
+
 static bool readRemoteState(const cJSON *json, RemoteGame &out,
                             const char *expectedSession, int expectedSeat)
 {
@@ -357,6 +372,7 @@ static void handleRemoteMessage(const char *text)
                         cJSON_IsString(session) &&
                         MultiplayerProtocol::sameSession(expectedSession, session->valuestring);
         if (ok) {
+            ESP_LOGI(TAG, "remote join accepted seat=%d", expectedSeat);
             portENTER_CRITICAL(&s_remoteMux);
             s_remote.joined = true;
             s_remote.needsJoin = false;
@@ -364,6 +380,7 @@ static void handleRemoteMessage(const char *text)
             s_remote.revision++;
             portEXIT_CRITICAL(&s_remoteMux);
         } else {
+            ESP_LOGW(TAG, "remote join response rejected seat=%d", expectedSeat);
             remoteStatus(tr(Str::MULTI_SESSION_CHANGED), true);
         }
     } else if (cJSON_IsString(type) && strcmp(type->valuestring, "state") == 0) {
@@ -398,6 +415,7 @@ static void handleRemoteMessage(const char *text)
         const bool retryable = cJSON_IsString(code) &&
                                (strcmp(code->valuestring, "turn") == 0 ||
                                 strcmp(code->valuestring, "cmd") == 0);
+        ESP_LOGW(TAG, "remote server rejected request code=%s", remoteErrorCode(code));
         remoteStatus(message, !retryable);
     }
     cJSON_Delete(json);
@@ -406,6 +424,7 @@ static void handleRemoteMessage(const char *text)
 static void remoteWsEvent(void *, esp_event_base_t, int32_t eventId, void *eventData)
 {
     if (eventId == WEBSOCKET_EVENT_CONNECTED) {
+        ESP_LOGI(TAG, "remote WebSocket connected");
         portENTER_CRITICAL(&s_remoteMux);
         s_remote.connected = true;
         s_remote.joined = false;
@@ -414,12 +433,23 @@ static void remoteWsEvent(void *, esp_event_base_t, int32_t eventId, void *event
         s_remote.revision++;
         portEXIT_CRITICAL(&s_remoteMux);
     } else if (eventId == WEBSOCKET_EVENT_DISCONNECTED) {
+        ESP_LOGW(TAG, "remote WebSocket disconnected");
         portENTER_CRITICAL(&s_remoteMux);
         s_remote.connected = false;
         s_remote.joined = false;
         s_remote.revision++;
         portEXIT_CRITICAL(&s_remoteMux);
     } else if (eventId == WEBSOCKET_EVENT_ERROR) {
+        const auto *event = (const esp_websocket_event_data_t *)eventData;
+        if (event) {
+            ESP_LOGE(TAG, "remote WebSocket error type=%d handshake=%d errno=%d tls=%s",
+                     event->error_handle.error_type,
+                     event->error_handle.esp_ws_handshake_status_code,
+                     event->error_handle.esp_transport_sock_errno,
+                     esp_err_to_name(event->error_handle.esp_tls_last_esp_err));
+        } else {
+            ESP_LOGE(TAG, "remote WebSocket error without details");
+        }
         remoteStatus(tr(Str::MULTI_REMOTE_DISCONNECTED));
     } else if (eventId == WEBSOCKET_EVENT_DATA) {
         const auto *event = (const esp_websocket_event_data_t *)eventData;
@@ -890,6 +920,7 @@ static void showRemoteGame()
         s_timer = nullptr;
     }
     s_remoteRenderedRevision = UINT32_MAX;
+    ESP_LOGI(TAG, "opening remote Yatzy view");
     lv_obj_t *screen = Theme::screen();
     Theme::header(screen, tr(Str::MULTI_REMOTE_TITLE));
 
@@ -948,14 +979,17 @@ static void showRemoteGame()
 
     s_timer = lv_timer_create(pollRemote, 200, nullptr);
     Theme::loadScreen(screen);
+    ESP_LOGI(TAG, "remote Yatzy view ready");
 }
 
 static bool remotePinDone(const char *pin, bool ok, void *)
 {
     if (!ok) {
+        ESP_LOGI(TAG, "remote join PIN entry cancelled");
         s_pinPad = nullptr;
         return true;
     }
+    ESP_LOGI(TAG, "remote join PIN submitted");
     if (!pin || strlen(pin) != 4 || !startRemoteGame(pin)) {
         if (s_pinPad) UiNumpad::setHint(s_pinPad, tr(Str::MULTI_REMOTE_START_FAILED));
         return false;
@@ -976,6 +1010,9 @@ static void selectSeatEvent(lv_event_t *event)
     if (hostIndex < 0 || hostIndex >= MAX_HOSTS || visibleSeat < 0 ||
         visibleSeat >= host.seatCount ||
         !MultiplayerProtocol::validSessionId(host.sessionId)) return;
+    ESP_LOGI(TAG, "join seat selected ip=%s port=%u seat=%u stack-watermark=%u",
+             host.ip, host.port, host.seats[visibleSeat].player,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     s_selectedHost = hostIndex;
     s_selectedVisibleSeat = visibleSeat;
     s_selectedHostData = host;
@@ -983,6 +1020,10 @@ static void selectSeatEvent(lv_event_t *event)
     snprintf(title, sizeof(title), tr(Str::MULTI_PIN_TITLE_FMT),
              host.seats[visibleSeat].name);
     s_pinPad = UiNumpad::open(title, tr(Str::MULTI_PIN_INFO), remotePinDone, nullptr);
+    if (s_pinPad)
+        ESP_LOGI(TAG, "remote join PIN keypad opened");
+    else
+        ESP_LOGE(TAG, "remote join PIN keypad allocation failed");
 }
 
 static bool startRemoteGame(const char *pin)
@@ -993,13 +1034,19 @@ static bool startRemoteGame(const char *pin)
     if (!MultiplayerProtocol::validSessionId(host.sessionId) ||
         s_selectedVisibleSeat >= host.seatCount) return false;
 
+    ESP_LOGI(TAG, "creating remote WebSocket host=%s:%u seat=%u stack-watermark=%u",
+             host.ip, host.port, host.seats[s_selectedVisibleSeat].player,
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     snprintf(s_remoteUri, sizeof(s_remoteUri), "ws://%s:%u/ws/game", host.ip, host.port);
     esp_websocket_client_config_t config = {};
     config.uri = s_remoteUri;
     config.reconnect_timeout_ms = 5000;
     config.network_timeout_ms = 5000;
     esp_websocket_client_handle_t client = esp_websocket_client_init(&config);
-    if (!client) return false;
+    if (!client) {
+        ESP_LOGE(TAG, "remote WebSocket client initialization failed");
+        return false;
+    }
 
     portENTER_CRITICAL(&s_remoteMux);
     memset(&s_remote, 0, sizeof(s_remote));
@@ -1011,14 +1058,21 @@ static bool startRemoteGame(const char *pin)
     strlcpy(s_remotePin, pin, sizeof(s_remotePin));
     portEXIT_CRITICAL(&s_remoteMux);
 
-    if (esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, remoteWsEvent, nullptr) != ESP_OK) {
+    const esp_err_t registerResult =
+        esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, remoteWsEvent, nullptr);
+    if (registerResult != ESP_OK) {
+        ESP_LOGE(TAG, "remote WebSocket event registration failed: %s",
+                 esp_err_to_name(registerResult));
         stopRemoteClient();
         return false;
     }
-    if (esp_websocket_client_start(client) != ESP_OK) {
+    const esp_err_t startResult = esp_websocket_client_start(client);
+    if (startResult != ESP_OK) {
+        ESP_LOGE(TAG, "remote WebSocket start failed: %s", esp_err_to_name(startResult));
         stopRemoteClient();
         return false;
     }
+    ESP_LOGI(TAG, "remote WebSocket client started");
     showRemoteGame();
     return true;
 }
