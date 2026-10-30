@@ -121,6 +121,7 @@ static uint32_t s_renderedGeneration = 0;
 static lv_obj_t *s_remoteStatus = nullptr;
 static lv_obj_t *s_remoteRound = nullptr;
 static lv_obj_t *s_remoteDice = nullptr;
+static lv_obj_t *s_remoteNest = nullptr;
 static lv_obj_t *s_remoteRoll = nullptr;
 static lv_obj_t *s_remoteCategories = nullptr;
 static lv_obj_t *s_remoteCupArea = nullptr;
@@ -1150,21 +1151,29 @@ static lv_obj_t *createRemoteDie(lv_obj_t *parent, const RemoteGame &state, int 
 
 static void renderRemoteDice(const RemoteGame &state)
 {
-    if (!s_remoteDice) return;
+    if (!s_remoteDice || !s_remoteNest) return;
     MultiplayerProtocol::RemoteActions actions = {
         state.joined, state.active, state.finished, state.rolling, state.hasRolled,
         state.canRoll, state.you, state.current
     };
-    const int32_t available = LV_MAX(1, lv_obj_get_content_width(s_remoteDice));
+    const int32_t diceAvailable = LV_MAX(1, lv_obj_get_content_width(s_remoteDice));
+    const int32_t nestAvailable = LV_MAX(1, lv_obj_get_content_width(s_remoteNest));
     const int32_t gap = 2;
     const int32_t preferredSize = state.diceCount == 6 ? 46 : 52;
-    const int32_t dieSize = LV_MIN(preferredSize,
-                                   (available - LV_MAX(0, state.diceCount - 1) * gap) /
-                                       LV_MAX(1, state.diceCount));
+    const int32_t diceSize = LV_MIN(preferredSize,
+                                    (diceAvailable - LV_MAX(0, state.diceCount - 1) * gap) /
+                                        LV_MAX(1, state.diceCount));
+    const int32_t nestDieSize = LV_MIN(preferredSize,
+                                       (nestAvailable - LV_MAX(0, state.diceCount - 1) * gap) /
+                                           LV_MAX(1, state.diceCount));
     lv_obj_clean(s_remoteDice);
+    lv_obj_clean(s_remoteNest);
     for (int i = 0; i < state.diceCount; i++) {
-        if (s_remoteCupActive && !state.held[i]) continue;
-        lv_obj_t *die = createRemoteDie(s_remoteDice, state, i, dieSize, false);
+        const bool held = state.held[i];
+        if (!held && s_remoteCupActive) continue;
+        lv_obj_t *row = held ? s_remoteNest : s_remoteDice;
+        const int32_t dieSize = held ? nestDieSize : diceSize;
+        lv_obj_t *die = createRemoteDie(row, state, i, dieSize, false);
         if (!die) continue;
         lv_obj_set_size(die, dieSize, dieSize);
         if (MultiplayerProtocol::canRemoteHold(actions))
@@ -1204,8 +1213,8 @@ static void renderRemoteDice(const RemoteGame &state)
 
 static void renderRemote()
 {
-    if (!s_remoteStatus || !s_remoteRound || !s_remoteDice || !s_remoteCategories ||
-        !s_remoteScoreTable || !s_remoteRoll) return;
+    if (!s_remoteStatus || !s_remoteRound || !s_remoteDice || !s_remoteNest ||
+        !s_remoteCategories || !s_remoteScoreTable || !s_remoteRoll) return;
     RemoteGame state;
     portENTER_CRITICAL(&s_remoteMux);
     state = s_remote;
@@ -1321,7 +1330,7 @@ static void showRemoteGame()
     lv_obj_set_size(s_remotePlayPanel, width, bodyHeight);
     lv_obj_set_scrollable(s_remotePlayPanel, false);
 
-    const int32_t feltH = LV_MIN(108, LV_MAX(82, bodyHeight / 3));
+    const int32_t feltH = LV_MIN(150, LV_MAX(118, bodyHeight / 3));
     lv_obj_t *felt = lv_obj_create(s_remotePlayPanel);
     lv_obj_remove_style_all(felt);
     lv_obj_set_pos(felt, 0, 0);
@@ -1338,12 +1347,30 @@ static void showRemoteGame()
 
     s_remoteDice = lv_obj_create(felt);
     lv_obj_remove_style_all(s_remoteDice);
-    lv_obj_set_size(s_remoteDice, LV_PCT(100), LV_PCT(100));
+    const int32_t nestHeight = 60;
+    lv_obj_set_pos(s_remoteDice, 0, 0);
+    lv_obj_set_size(s_remoteDice, LV_PCT(100), feltH - nestHeight - 4);
     lv_obj_set_flex_flow(s_remoteDice, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_remoteDice, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(s_remoteDice, 2, 0);
     lv_obj_set_scrollable(s_remoteDice, false);
+
+    s_remoteNest = lv_obj_create(felt);
+    lv_obj_remove_style_all(s_remoteNest);
+    lv_obj_set_pos(s_remoteNest, 4, feltH - nestHeight - 4);
+    lv_obj_set_size(s_remoteNest, width - 8, nestHeight);
+    lv_obj_set_style_radius(s_remoteNest, 12, 0);
+    lv_obj_set_style_bg_color(s_remoteNest, Theme::c(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_remoteNest, LV_OPA_30, 0);
+    lv_obj_set_style_border_width(s_remoteNest, 1, 0);
+    lv_obj_set_style_border_color(s_remoteNest, Theme::c(0x6B5418), 0);
+    lv_obj_set_style_border_opa(s_remoteNest, LV_OPA_70, 0);
+    lv_obj_set_flex_flow(s_remoteNest, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_remoteNest, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_remoteNest, 2, 0);
+    lv_obj_set_scrollable(s_remoteNest, false);
 
     const int32_t rollY = feltH + UiMetrics::marginSmall();
     s_remoteRoll = Theme::button(s_remotePlayPanel, tr(Str::GAME_ROLL), width, buttonH,
