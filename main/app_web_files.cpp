@@ -51,10 +51,11 @@ static const char *TAG = "webfs";
 namespace AppWebFiles {
 
 static constexpr size_t PATH_CAP = 300;
-static constexpr size_t CHUNK = 8192;
-static constexpr size_t WRITE_CACHE = 16384;
+static constexpr size_t CHUNK = 32768;
+static constexpr size_t DOWNLOAD_CHUNK = 8192;
+static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
-static constexpr int MAX_UPLOADS = 2;
+static constexpr int MAX_UPLOADS = 4;
 static std::atomic<int> s_activeUploads{0};
 
 namespace {
@@ -284,7 +285,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
         f = (stat(t.path, &st) == 0 && !S_ISDIR(st.st_mode)) ? fopen(t.path, "rb") : nullptr;
     }
     if (!f) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
-    char *buf = (char *)psAlloc(CHUNK);
+    char *buf = (char *)psAlloc(DOWNLOAD_CHUNK);
     if (!buf) {
         fclose(f);
         return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
@@ -299,7 +300,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
         size_t got;
         {
             Lock lk(t.sd);
-            got = fread(buf, 1, CHUNK, f);
+            got = fread(buf, 1, DOWNLOAD_CHUNK, f);
         }
         if (!got) break;
         if ((e = httpd_resp_send_chunk(r, buf, got)) != ESP_OK) break;
@@ -373,7 +374,9 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     pipeline.buffers[1] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     char *writeCache = t.sd
                            ? (char *)heap_caps_malloc(WRITE_CACHE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-                           : (char *)psAlloc(WRITE_CACHE);
+                           : nullptr;
+    const bool dmaCache = writeCache != nullptr;
+    if (!writeCache) writeCache = (char *)psAlloc(WRITE_CACHE);
     const bool buffered = writeCache && setvbuf(f, writeCache, _IOFBF, WRITE_CACHE) == 0;
     if (!buffered) {
         free(writeCache);
@@ -495,7 +498,8 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
              (unsigned long long)(recvUs / 1000), (unsigned long long)(pipeline.bufferWaitUs / 1000),
              (unsigned long long)(pipeline.lockUs / 1000), (unsigned long long)(pipeline.writeUs / 1000),
              (unsigned long long)(flushUs / 1000), (unsigned long long)(closeUs / 1000),
-             (unsigned)(buffered ? WRITE_CACHE : 0), t.sd && buffered ? "DMA" : buffered ? "RAM" : "default");
+             (unsigned)(buffered ? WRITE_CACHE : 0),
+             buffered ? dmaCache ? "DMA" : "non-DMA" : "default");
     if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);

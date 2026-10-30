@@ -56,22 +56,22 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd') {
 }
 
 (async () => {
-  const result = await uploadWith('skip', [
-    {ok: true, skipped: true}, {ok: true}, {ok: true}, {ok: true}
-  ], 4);
-  assert.equal(result.requests.length, 4, 'batch continues after a skipped conflict');
-  assert.equal(result.maxActive, 2, 'SD upload concurrency is capped at two');
+  const result = await uploadWith('skip', Array.from({length: 6}, (_, i) =>
+    i === 0 ? {ok: true, skipped: true} : {ok: true}), 6);
+  assert.equal(result.requests.length, 6, 'batch continues after a skipped conflict');
+  assert.equal(result.maxActive, 4, 'SD upload concurrency is capped at four');
   assert.equal(result.progress, 100, 'aggregate progress completes');
   assert.match(result.requests[0].url, /skip=1/);
   assert.doesNotMatch(result.requests[0].url, /overwrite=1/);
-  assert.deepEqual(result.toasts, ['3 filer uppladdade, 1 hoppades över']);
+  assert.deepEqual(result.toasts, ['5 filer uppladdade, 1 hoppades över']);
 
   const stopped = await uploadWith('stop', [
-    {ok: false, error: 'exists'}, {ok: true}, {ok: true}
-  ], 3);
-  assert.equal(stopped.requests.length, 2, 'failure stops scheduling more files after in-flight uploads finish');
+    {ok: false, error: 'exists'}, {ok: true}, {ok: true}, {ok: true},
+    {ok: true}, {ok: true}
+  ], 6);
+  assert.equal(stopped.requests.length, 4, 'failure stops scheduling files beyond the in-flight batch');
   assert.doesNotMatch(stopped.requests[0].url, /skip=1|overwrite=1/);
-  assert.deepEqual(stopped.toasts, ['same.mid: exists (1 andra filer hann bli klara)']);
+  assert.deepEqual(stopped.toasts, ['same.mid: exists (3 andra filer hann bli klara)']);
 
   const overwrite = await uploadWith('overwrite', [{ok: true}, {ok: true}]);
   assert.equal(overwrite.requests.length, 2);
@@ -81,5 +81,5 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd') {
   assert.equal(internal.maxActive, 1, 'internal flash uploads remain serialized');
   assert.equal(internal.requests.length, 3);
 
-  console.log('File upload policies, parallel SD sessions, and serialized flash uploads passed');
+  console.log('File upload policies, four-way SD sessions, and serialized flash uploads passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

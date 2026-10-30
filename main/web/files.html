@@ -433,7 +433,7 @@ function upload(files) {
       }
     };
     try {
-      const concurrency = uploadRoot === 'sd' ? 2 : 1;
+      const concurrency = uploadRoot === 'sd' ? 4 : 1;
       await Promise.all(Array.from({length: Math.min(concurrency, files.length)}, worker));
       if (failure) {
         if (done) failure.message += ' (' + done + ' andra filer hann bli klara)';

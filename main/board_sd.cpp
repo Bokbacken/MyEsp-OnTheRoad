@@ -88,7 +88,7 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
 
     esp_vfs_fat_sdmmc_mount_config_t mcfg = {};
     mcfg.format_if_mount_failed = false;   // Never format the user's card
-    mcfg.max_files = 6;
+    mcfg.max_files = 8;
     mcfg.allocation_unit_size = 16 * 1024;
     esp_err_t err = esp_vfs_fat_sdmmc_mount(MOUNT, &host, &slot, &mcfg, &s_card);
     if (err != ESP_OK) {
