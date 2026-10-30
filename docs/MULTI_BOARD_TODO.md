@@ -362,8 +362,11 @@ rekommendation innan kod skrivs.
      Bytt session eller upptagen plats stoppar anslutningen och kräver en ny
      join. PIN skrivs inte i loggar och browser-join utan sessions-ID fungerar
      fortsatt.
-   - [ ] Verifiera targetbyggen och samtidig browser-/ESP-klient. ESP-IDF/
-     `idf.py`/`IDF_PATH` och managed components saknas i den här miljön.
+   - [x] CI-run 41051798946 bygger ESP32-C6-host, S3 och P4; S3-jobbets
+     automatiska hostkontroller passerar. ESP-IDF saknas lokalt, så targetbyggen
+     görs i CI.
+   - [ ] Prova samtidig browser-/ESP-klient och återanslutning fysiskt på båda
+     korten enligt checklistorna nedan.
    - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
      deras aktiva spel. Detta är inte ett speltest.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
@@ -393,7 +396,7 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
 | 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout fungerar på båda korten. Efter USB-flash av partitionstabellen använder P4 hela flashen och FFat visar 22 172 kB; stora SoundFonts fungerar på P4. Mindre SoundFonts på S3 medger fler samtidiga röster. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
 | 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
-| 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware får WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. Återanslutning är bunden till samma värd/session/plats; fysisk end-to-end-verifiering på S3 och P4 väntar. Target CI inväntas. |
+| 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware har WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. CI-run 41051798946 är grön för C6-host, S3 och P4; S3-jobbets hostkontroller passerar. Fysisk end-to-end-verifiering och samtidig browser-/ESP-testning på S3/P4 väntar. |
 
 ### P4-partitionstabell: USB-migrering
 

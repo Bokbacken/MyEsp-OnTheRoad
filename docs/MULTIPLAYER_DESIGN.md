@@ -84,8 +84,11 @@ tärnings- eller poänglogik.
 
 WebSocket-återanslutning stannar vid samma värd-URI, sessions-ID och plats.
 Ändrad session eller upptagen plats avslutar den gamla bindningen och kräver
-fresh join. PIN sparas bara temporärt i minnet för återanslutning och skrivs
-inte i loggar. `join` utan sessions-ID behåller browserkompatibiliteten.
-Targetbyggen och fysisk änd-till-änd-testning är fortfarande nödvändiga:
-checklistan för samtidig browser/ESP, join/PIN, kast/håll/välj och
+en ny join. Värden inför ingen separat grace-period; en annan spelare kan ta
+platsen medan klienten är frånkopplad, vilket visas som ett tydligt fel. PIN
+sparas bara temporärt i minnet för återanslutning och skrivs inte i loggar.
+`join` utan sessions-ID behåller browserkompatibiliteten.
+Targetbyggen är verifierade i CI-run 41051798946 för C6-host, S3 och P4;
+S3-jobbets automatiska hostkontroller passerar. Fysisk änd-till-änd-testning
+återstår: checklistan för samtidig browser/ESP, join/PIN, kast/håll/välj och
 återanslutning är ännu inte avbockad på vare sig S3 eller P4.
