@@ -40,6 +40,38 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   först monteras (4-bit, 20 MHz) och att kataloger skapas, men senare
   förlorar kommunikationen (`ESP_ERR_TIMEOUT`); det är inte bara ett
   visningsfel eller ett oläsbart filsystem.
+- P4-logg 2026-10-30: SD monteras först i 4-bit/20 MHz. Efter senare
+  filhanteringsproblem loggas `host controller with slot registered`,
+  `conflict found for GPIO[42]` och därefter lyckad montering i
+  4-bit/10 MHz. Koden väljer 10 MHz när återhämtningsläget är aktivt:
+  `remount()` aktiverar det uttryckligen, och status-/monteringsfel kan också
+  aktivera det. Om 4-bit/10 MHz misslyckas görs strömcykel och försök i
+  1-bit/10 MHz. Frekvensskillnaden är alltså avsiktlig återhämtningspolicy,
+  inte slumpmässig klockvariation; det underliggande SD-felet är ännu okänt.
+- Schemat bekräftar separata P4-I/O-signaler för microSD
+  (GPIO39–44; D3 är GPIO42) och C6-värdradions SDIO. De ska därför inte
+  kollidera på samma P4-I/O. GPIO42-konfliktvarningen vid återmontering
+  kvarstår att förklara och bevisar inte i sig att SD och C6 delar signal.
+- Samma loggutdrag visar Wi-Fi-roaming mellan två accesspunkter med cirka
+  4–6 sekunders frånkoppling. `recv : 113` kommer vid nedkopplingen, och en
+  ofullständig `.mid.part`-fil tas senare bort. Detta kan avbryta HTTP-
+  uppladdningen; loggarna fastställer inte att roaming orsakar SD-
+  återmonteringen eller filsystemproblemet.
+- Filnamnstest 2026-10-30: samma två MIDI-filer misslyckas med långa namn
+  på både S3 och P4, även efter byte av SD-kort. Namnen är 87 respektive
+  81 ASCII-tecken:
+  `Enemy - Imagine Dragons (Arcane _ League of Legends) - Octet - Wastgeim Slaebyrtwyn.mid`
+  och
+  `Alan-Parsons-Project-You-Don-t-Believe-Anonymous-20211124164554-nonstop2k.com.mid`.
+  Ägaren bekräftar att samma innehåll fungerar med de kortare namnen
+  `Enemy - Imagine Dragons.mid` och
+  `Alan-Parsons-Project-You-Dont-Believe-Anonymous.mid`.
+  Gemensam `sdkconfig.defaults` anger `CONFIG_FATFS_MAX_LFN=64`, medan
+  `FsPath::validName()` accepterar upp till 255 byte och uppladdningen
+  lägger till `.part`. Detta bekräftar ett filnamnslängdsproblem för dessa
+  filer, inte ett P4-specifikt SD-hastighetsfel. Det förklarar inte ensamt
+  tidigare lyckad-uppladdningsloggar, förlorad katalogåtkomst eller GPIO42-
+  varningen; de observationerna ska utredas separat.
 - Schemat visar ingen separat I²C-RTC. `RTC BAT` är kopplad till P4:s
   `ESP_VBAT`. I²C-skanningen i bootloggen visar bara `0x18`, `0x40`, `0x5D`.
 - SD-kortets VDD styrs av Q1/AO3401 via **GPIO45, aktiv låg**.
@@ -122,6 +154,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Felkod exponeras i webbdiagnostik. Slot 1/C6 lämnas igång.
 - [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
   som Wi-Fi används, och att återmontering fungerar efter timeout.
+- [ ] Undersök P4-loggens `host controller with slot registered` och
+  `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
+  konfliktrapporten är förväntad efter SD-slotens avregistrering eller om
+  pin-matrisen inte städas korrekt. Fastställ vilken operation som först
+  aktiverar återhämtningsläget och rapportera det ursprungliga SD-felet
+  separat från Wi-Fi-roaming/avbruten HTTP-uppladdning.
+- [ ] Långa FAT-filnamn på båda korten: höj/verifiera LFN-gränsen och
+  samordna filhanterarens validering med FAT-konfigurationen och temporära
+  uppladdningsnamn. Avvisa för långa namn med tydligt fel före skrivning.
+  Lägg regressionstest för de två rapporterade namnen, gränsfall och
+  `.part`-suffix; verifiera att befintliga filer inte skadas vid fel.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
 - [x] **Hårdvara v0.22.2:** SD-läsning för Adventure/Karaoke, ljud och
   batterimätning bekräftade av ägaren. Längre SD-stabilitetstest återstår.
