@@ -40,6 +40,38 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   först monteras (4-bit, 20 MHz) och att kataloger skapas, men senare
   förlorar kommunikationen (`ESP_ERR_TIMEOUT`); det är inte bara ett
   visningsfel eller ett oläsbart filsystem.
+- P4-logg 2026-10-30: SD monteras först i 4-bit/20 MHz. Efter senare
+  filhanteringsproblem loggas `host controller with slot registered`,
+  `conflict found for GPIO[42]` och därefter lyckad montering i
+  4-bit/10 MHz. Koden väljer 10 MHz när återhämtningsläget är aktivt:
+  `remount()` aktiverar det uttryckligen, och status-/monteringsfel kan också
+  aktivera det. Om 4-bit/10 MHz misslyckas görs strömcykel och försök i
+  1-bit/10 MHz. Frekvensskillnaden är alltså avsiktlig återhämtningspolicy,
+  inte slumpmässig klockvariation; det underliggande SD-felet är ännu okänt.
+- Schemat bekräftar separata P4-I/O-signaler för microSD
+  (GPIO39–44; D3 är GPIO42) och C6-värdradions SDIO. De ska därför inte
+  kollidera på samma P4-I/O. GPIO42-konfliktvarningen vid återmontering
+  kvarstår att förklara och bevisar inte i sig att SD och C6 delar signal.
+- Samma loggutdrag visar Wi-Fi-roaming mellan två accesspunkter med cirka
+  4–6 sekunders frånkoppling. `recv : 113` kommer vid nedkopplingen, och en
+  ofullständig `.mid.part`-fil tas senare bort. Detta kan avbryta HTTP-
+  uppladdningen; loggarna fastställer inte att roaming orsakar SD-
+  återmonteringen eller filsystemproblemet.
+- Filnamnstest 2026-10-30: samma två MIDI-filer misslyckas med långa namn
+  på både S3 och P4, även efter byte av SD-kort. Namnen är 87 respektive
+  81 ASCII-tecken:
+  `Enemy - Imagine Dragons (Arcane _ League of Legends) - Octet - Wastgeim Slaebyrtwyn.mid`
+  och
+  `Alan-Parsons-Project-You-Don-t-Believe-Anonymous-20211124164554-nonstop2k.com.mid`.
+  Ägaren bekräftar att samma innehåll fungerar med de kortare namnen
+  `Enemy - Imagine Dragons.mid` och
+  `Alan-Parsons-Project-You-Dont-Believe-Anonymous.mid`.
+  Gemensam `sdkconfig.defaults` anger `CONFIG_FATFS_MAX_LFN=64`, medan
+  `FsPath::validName()` accepterar upp till 255 byte och uppladdningen
+  lägger till `.part`. Detta bekräftar ett filnamnslängdsproblem för dessa
+  filer, inte ett P4-specifikt SD-hastighetsfel. Det förklarar inte ensamt
+  tidigare lyckad-uppladdningsloggar, förlorad katalogåtkomst eller GPIO42-
+  varningen; de observationerna ska utredas separat.
 - Schemat visar ingen separat I²C-RTC. `RTC BAT` är kopplad till P4:s
   `ESP_VBAT`. I²C-skanningen i bootloggen visar bara `0x18`, `0x40`, `0x5D`.
 - SD-kortets VDD styrs av Q1/AO3401 via **GPIO45, aktiv låg**.
@@ -52,6 +84,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   krävde felaktigt en redan monterad FFat och hjälpte därför inte.
   v0.22.3 tar bort det kravet och kan formatera/montera den tidigare
   valda partitionen efter uttrycklig adminbekräftelse.
+- Ägaren rapporterar att efter USB-flash av partitionstabellen använder P4
+  hela flashen och FFat visar 22 172 kB. Stora SoundFonts fungerar på P4;
+  mindre SoundFonts på S3 medger fler samtidiga röster. Karaoke-layouten
+  fungerar på båda korten. Detta verifierar inte fjärrspel mellan enheterna.
 
 ### Beslut
 
@@ -118,6 +154,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Felkod exponeras i webbdiagnostik. Slot 1/C6 lämnas igång.
 - [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
   som Wi-Fi används, och att återmontering fungerar efter timeout.
+- [ ] Undersök P4-loggens `host controller with slot registered` och
+  `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
+  konfliktrapporten är förväntad efter SD-slotens avregistrering eller om
+  pin-matrisen inte städas korrekt. Fastställ vilken operation som först
+  aktiverar återhämtningsläget och rapportera det ursprungliga SD-felet
+  separat från Wi-Fi-roaming/avbruten HTTP-uppladdning.
+- [ ] Långa FAT-filnamn på båda korten: höj/verifiera LFN-gränsen och
+  samordna filhanterarens validering med FAT-konfigurationen och temporära
+  uppladdningsnamn. Avvisa för långa namn med tydligt fel före skrivning.
+  Lägg regressionstest för de två rapporterade namnen, gränsfall och
+  `.part`-suffix; verifiera att befintliga filer inte skadas vid fel.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
 - [x] **Hårdvara v0.22.2:** SD-läsning för Adventure/Karaoke, ljud och
   batterimätning bekräftade av ägaren. Längre SD-stabilitetstest återstår.
@@ -295,8 +342,8 @@ rekommendation innan kod skrivs.
    svart.
    - [x] Centrera texten horisontellt och vertikalt.
    - [x] Antal rader beräknas från skärmhöjd och textstorlek (S3 oförändrat).
-   - [ ] **Hårdvara:** verifiera radantal, läsbarhet och vertikal centrering på
-     båda skärmarna.
+   - [x] **Hårdvara, ägarrapport:** Karaoke-layouten har provats på båda
+     skärmarna. Den här rapporten gäller layouten, inte fjärrspel.
 3. **Kortdefinitioner.** Utred och föreslå hur nästa kort läggs till med i
    princip en definitionsfil (`hw_profile`, `board_pins_*.h`, sdkconfig,
    partitionstabell, CI-matris, `idf_component.yml`-regler).
@@ -314,7 +361,10 @@ rekommendation innan kod skrivs.
      värden som ryms inom kortets gräns.
    - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
      kvalitet i `MUSIC_KARAOKE_PLAN.md`.
-   - [ ] **Hårdvara:** verifiera utökad P4-FFat, återstart/OTA och stora SF2.
+   - [x] **Hårdvara, ägarrapport:** efter USB-flash av partitionstabellen
+     använder P4 hela flashen och FFat visar 22 172 kB. Stora SoundFonts
+     fungerar på P4; mindre SoundFonts på S3 medger fler samtidiga röster.
+   - [ ] **Hårdvara:** verifiera omstart och OTA efter P4-migreringen.
 5. **Stereoljud till webbsidan i Karaoke.** Utred stereoström (idag mono
    22050 Hz från mixen) för P4 och kommande kort; implementera om
    bandbredd/CPU räcker, annars dokumentera varför inte.
@@ -334,7 +384,7 @@ rekommendation innan kod skrivs.
      när endast bakgrundsbelysningen släcks. Utred controller-specifik
      display-off/sleep och väcksekvens; verifiera att skärmen släcks och
      återställs på båda korten innan strömsparningen markeras klar.
-7. **Spela mellan enheter (utredning plus första steg).** Flera OnTheRoad
+7. **Spela mellan enheter (Yatzy fjärrspel).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.
    - [x] Designdokument: upptäckt (mDNS), master-val, protokoll, säkerhet
@@ -344,33 +394,62 @@ rekommendation innan kod skrivs.
      när PTR-svaret inte innehåller kompletta serviceposter.
    - [x] Enhetens **Spela tillsammans**-vy hittar protokollkompatibla värdar
      och visar endast aktiva Yatzy-spel med ledig PIN-skyddad webbplats.
-   - [ ] ESP WebSocket-klient, PIN-join och touch-vy som visar värdens snapshot
-     och skickar Yatzy-kommandon. **Blockerare:** firmwaren har bara servervägen
-     för browserklienter, saknar fjärrstyrd Yatzy-rendering och exponerar inte
-     sessions-ID i API/WebSocket-state för säker återanslutning; se
-     `MULTIPLAYER_DESIGN.md` för exakt nästa steg. Fjärrspel fungerar inte ännu.
-   - [ ] Återanslutning mot samma värd/session/plats samt samtidig browser- och
-     ESP-klienttest.
-   - [ ] **Hårdvara:** verifiera upptäckt och, efter att join är implementerad,
-     full spelomgång på både ESP32-S3 och ESP32-P4. Inte testat ännu.
+   - [x] Värden exponerar ett opakt sessions-ID i `/api/game` och
+     WebSocket-`state`/`joined`. Ett `join` med ID avvisas om sessionen ändrats
+     eller platsen inte längre är en ledig webbplats; äldre browser-`join`
+     utan ID är oförändrad.
+   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och touch-vy.
+     Snapshot, tur, tärningar, möjliga kategorier och poäng kommer från
+     värden; ESP-klienten skickar bara tillåtna `hold`, `roll` och `choose`.
+   - [x] Återanslutning använder endast vald värd, sessions-ID och plats.
+     Bytt session eller upptagen plats stoppar anslutningen och kräver en ny
+     join. PIN skrivs inte i loggar och browser-join utan sessions-ID fungerar
+     fortsatt.
+   - [x] CI-run 41051798946 bygger ESP32-C6-host, S3 och P4; S3-jobbets
+     automatiska hostkontroller passerar. ESP-IDF saknas lokalt, så targetbyggen
+     görs i CI.
+   - [ ] Komplettera fysisk verifiering av återanslutning och båda
+     värd-/klientriktningarna enligt checklistorna nedan.
+   - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
+     deras aktiva spel. Detta är inte ett speltest.
+   - [x] **Hårdvara, ägarrapport 2026-10-30:** S3 som värd och P4 som klient:
+     P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade
+     fjärrvyn. Detta verifierar grundläggande kommunikation i denna riktning,
+     inte alla spelkommandon eller fullständig hårdvarutestning.
+   - [x] **Hårdvara, ägarrapport:** Ägaren bekräftar att spel fungerar mellan
+     enheterna och med webben. Exakt kort, riktning och genomgångna moment är
+     inte specificerade; checklistan per kort nedan står därför kvar.
+   - [x] **Leveransgodkännande 2026-10-30:** Ägaren rapporterar att
+     Spela tillsammans är i fungerande skick efter fjärrvyns förbättringar.
+     Återanslutning och ospecificerade testmoment är fortsatt öppna;
+     godkännandet innebär inte att hela hårdvarumatrisen är verifierad.
+   - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
+     [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
+   - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-P4:
+     [x] join/PIN (som klient mot S3) [ ] kast/håll/välj [ ] samtidig browser
+     [ ] återanslutning.
+     Full fysisk änd-till-änd-verifiering är alltså inte utförd på något kort;
+     den rapporterade P4-klienttestningen täcker inte omvänd riktning eller
+     hela testchecklistan.
 8. **FAT-långa filnamn och webbuppladdning (v0.23.2).**
    - [x] Aktivera 255 FAT-LFN-kodenheter på båda targets. Validera UTF-8 och
-    räkna UTF-16-kodenheter per namnkomponent; avvisa ogiltiga/överlånga namn
-    och fullständiga bytevägar som inte ryms i webbgränserna.
+     räkna UTF-16-kodenheter per namnkomponent; avvisa ogiltiga/överlånga namn
+     och fullständiga bytevägar som inte ryms i webbgränserna.
    - [x] Webbuppladdning använder unika, korta syskonfiler i stället för att
-    lägga `.part` till destinationens basnamn. Staging skapas exklusivt;
-    vid ersättning sparas originalet tills den nya filen installerats och
-    återställs om installationen misslyckas. URI-gränsen är 1024 byte.
+     lägga `.part` till destinationens basnamn. Staging skapas exklusivt;
+     vid ersättning sparas originalet tills den nya filen installerats och
+     återställs om installationen misslyckas. URI-gränsen är 1024 byte.
    - [x] Hostregressioner för rapporterade 87/81-teckennamn, 255/256-gränsen,
-    UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
+     UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
    - [ ] **CI:** bygg ESP32-S3, ESP32-P4 och C6-jobbet för v0.23.2.
    - [ ] **Hårdvara:** prova 87/81-teckennamnen, Unicode och gränsfall samt
-    avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
+     avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
 
 ## Leveranslogg
 
 | Datum | Steg | Status |
 |---|---|---|
+| 2026-10-30 | v0.23.1 fjärrspel | Ägaren bekräftar fungerande Spela tillsammans efter förbättringarna av fjärrvyn. ESP-klienten återanvänder tärnings-/bägarutseende, separat bo för hållna tärningar, kastanimation och dubbeltryck för poängval. Återanslutning och full testmatris per kort kvarstår. |
 | 2026-10-29 | v0.22.6 hårdvarutest + merge | Ägaren bekräftar att båda enheterna är testade; PR #23 mergad till `main`. Start/Wi-Fi/textstorlek fungerar. |
 | 2026-10-29 | v0.22.7 Host OTA, namn och P4-inställningar | Host-OTA och `host_fw.bin` CI från ESP-Hosted MCU, enhetsnamn för web/mDNS/DHCP, RGB-kontroller dolda på P4. Första C6-OTA föll på för stora chunkar (1500 B > ~1480 B gräns); efter fix till 1400 B uppdaterade ägaren C6 från fabriksfirmware till 3.0.10 (host=3.0.10 coprocessor=3.0.10, match). |
 | 2026-10-29 | Plan | Skapad. |
@@ -385,6 +464,11 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
 | 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
 | 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
+| 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout fungerar på båda korten. Efter USB-flash av partitionstabellen använder P4 hela flashen och FFat visar 22 172 kB; stora SoundFonts fungerar på P4. Mindre SoundFonts på S3 medger fler samtidiga röster. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
+| 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
+| 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware har WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. CI-run 41051798946 är grön för C6-host, S3 och P4; S3-jobbets hostkontroller passerar. Fysisk end-to-end-verifiering och samtidig browser-/ESP-testning på S3/P4 väntar. |
+| 2026-10-30 | X.7 första ägarrapporterade speltest | S3 som värd och P4 som klient: P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade vyn. Grundläggande kommunikation fungerar i denna riktning. Test av alla kommandon, samtidig browser, återanslutning och motsatt riktning återstår; full verifiering på båda korten är fortsatt väntande. |
+| 2026-10-30 | X.7 ägarrapporterad gameplay | Ägaren bekräftar att spel fungerar mellan enheterna och med webben. Kort, riktning och detaljerad testmatris är inte angivna; checklisterna för S3/P4 står kvar tills dessa verifierats. |
 | 2026-10-30 | v0.23.2 FAT/webbuppladdning | FAT-LFN 255, UTF-8/UTF-16-validering och skyddad staging med återställning; fokuserade hosttester godkända. ESP32-S3/P4/C6 CI och hårdvaruverifiering återstår. |
 
 ### P4-partitionstabell: USB-migrering

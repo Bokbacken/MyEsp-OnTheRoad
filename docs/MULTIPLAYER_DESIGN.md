@@ -24,6 +24,9 @@ session faktiskt finns.
 - `GET /api/game` ger den aktuella snapshoten.
 - `/ws/game` accepterar samma `join`, `hold`, `roll`, `choose`, `bank` och `end`
   som browserklienterna, och skickar `state`/`error`.
+- Snapshoten har ett opakt `session_id`; `joined` och `state` skickar samma ID.
+  En klient som återansluter skickar ID:t i `join` och får avslag om spelet har
+  bytts ut. Gamla klienter utan fältet fungerar som tidigare.
 - Värdens befintliga session- och platsbindning är auktoritativ. Ingen ny
   tärnings-/poängrepresentation skapas för ESP-klienter.
 
@@ -67,24 +70,29 @@ värd automatiskt.
 3. Reconnect/grace-period och test av samtidig browser-/ESP-klient.
 4. Därefter övervägs andra befintliga spel.
 
-**v0.23 status:** `_ontheroad._tcp`-annonsering och en lokal **Spela tillsammans**
-vy är implementerade. Tjänstinstansen får en MAC-suffix så två enheter med
-samma standardvärdnamn inte annonserar en identisk instans. Klienten frågar
-SRV/TXT/A separat när PTR-svaret inte innehåller alla poster. Vyn filtrerar
-protokollversion/speltyp från mDNS och läser
-`/api/game`; den visar endast aktiva Yatzy-spel med en ledig, PIN-skyddad plats
-som värden i förväg markerat för webben. Den skickar ingen PIN och reserverar
-ingen plats.
+**v0.23 status:** `_ontheroad._tcp`-annonsering, lokal **Spela tillsammans**-
+vy och ESP Yatzy-klient är implementerade. Tjänstinstansen får en MAC-suffix
+så två enheter med samma standardvärdnamn inte annonserar en identisk instans.
+Klienten frågar SRV/TXT/A separat när PTR-svaret inte innehåller alla poster.
+Vyn filtrerar protokollversion/speltyp från mDNS och läser `/api/game`; den
+visar endast aktiva Yatzy-spel med en ledig, PIN-skyddad plats som värden i
+förväg markerat för webben. Spelaren väljer en plats och anger dess maskerade
+PIN. ESP-klienten skickar join med säkert sessions-ID, tar emot värdens snapshot
+och visar dess tärningar, tur, kategorier och poäng. Den skickar endast
+värdvaliderade `hold`, `roll` och `choose`-kommandon; den har ingen egen
+tärnings- eller poänglogik.
 
-**Fjärrspel är inte implementerat.** Värden har en fungerande serverväg för
-browserns `/ws/game`, men firmware saknar en ESP WebSocket-klient och den lokala
-Yatzy-vyn kan inte rendera/tillämpa en annan värds snapshot eller skicka dess
-kommandon. Dessutom finns värdens sessions-ID bara internt: `/api/game` och
-WebSocket-`state`/`joined` exponerar inget stabilt ID som en frånkopplad klient
-kan jämföra innan den återansluter. En säker änd-till-änd-join med den beslutade
-återanslutningsregeln kan därför inte verifieras ännu. Nästa steg är att lägga
-till ett additivt, opakt sessions-ID i API/WebSocket-state, en ESP
-WebSocket-klient för samma join/PIN- och `hold`/`roll`/`choose`-format, en
-touch-styrd fjärr-Yatzy-vy som använder värdens state, samt återanslutning som
-kontrollerar samma värd/session/plats innan gamla kommandon skickas. Provning
-mot en samtidig browserklient och fysisk verifiering på S3/P4 återstår.
+WebSocket-återanslutning stannar vid samma värd-URI, sessions-ID och plats.
+Ändrad session eller upptagen plats avslutar den gamla bindningen och kräver
+en ny join. Värden inför ingen separat grace-period; en annan spelare kan ta
+platsen medan klienten är frånkopplad, vilket visas som ett tydligt fel. PIN
+sparas bara temporärt i minnet för återanslutning och skrivs inte i loggar.
+`join` utan sessions-ID behåller browserkompatibiliteten.
+Targetbyggen är verifierade i CI-run 41051798946 för C6-host, S3 och P4;
+S3-jobbets automatiska hostkontroller passerar. Ägaren bekräftar 2026-10-30
+att spel mellan enheterna och webben fungerar och att Spela tillsammans är i
+fungerande skick efter fjärrvyns förbättringar. Fjärrvyn återanvänder
+originalspelets tärnings-/bägarutseende och har ett separat bo för hållna
+tärningar, kastanimation utan gamla kastvärden och dubbeltryck för poängval.
+Återanslutning och fullständig verifiering av båda värd-/klientriktningarna
+återstår enligt hårdvarumatrisen i TODO-dokumentet.

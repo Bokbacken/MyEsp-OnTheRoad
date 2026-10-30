@@ -4,12 +4,14 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.23.0** – ESP-Hosted versions are cached and shown in P4 diagnostics;
+> **Status: v0.23.1** – ESP-Hosted versions are cached and shown in P4 diagnostics;
 > Karaoke lyrics scale with large-screen height; P4 has a 32 MB partition layout
 > (existing devices need one USB partition-table flash); SoundFont budgets follow
-> the board profile; screen-off power policy and Yatzy mDNS advertisement are added.
-> Physical verification, including the P4 partition migration and Wi-Fi power-save
-> measurements, remains pending. Earlier v0.22.7: configurable device name shown across web pages and used for
+> the board profile; screen-off power policy and ESP-to-ESP Yatzy play are added.
+> The owner verified Karaoke layout on both boards, P4 partition migration and large
+> SoundFonts, and play between devices and the browser. Reconnection, reverse-role
+> coverage and Wi-Fi power-save measurements remain pending.
+> Earlier v0.22.7: configurable device name shown across web pages and used for
 > DHCP hostname/mDNS; RGB LED controls are omitted on P4; P4 Host-radio C6 firmware
 > can be uploaded and updated over ESP-Hosted OTA. CI builds `host_fw.bin` from the
 > pinned latest ESP-Hosted MCU source. The owner updated the factory C6 to ESP-Hosted
