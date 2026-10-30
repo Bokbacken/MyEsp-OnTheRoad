@@ -7,7 +7,7 @@
 - Konflikter kan stoppas, hoppas över eller skrivas över. Hoppa över är standard och en hoppad fil avbryter inte resten av batchen.
 - SD-uppladdningar kan köras i upp till fyra webbläsarsessioner. Varje session dubbelbuffrar mottagningen i 32 KiB-block och försöker använda en 32 KiB DMA-kapabel skrivcache, med PSRAM som reserv. Skrivningarna till själva SD-kortet är fortsatt serialiserade.
 - Kataloger kan väljas eller släppas från webbläsaren; deras struktur återskapas upp till tre mappnivåer.
-- SD-kort kan formateras som FAT från filhanteraren. Enheten använder inte exFAT; FAT-formatering kan därför göra större kort användbara. Två separata bekräftelser krävs, och en konfigurerad admin-PIN måste anges. Formatering raderar allt på kortet.
+- SD-kort kan formateras som FAT från filhanteraren. Enheten använder inte exFAT; FAT-formatering kan därför göra större kort användbara. Två separata bekräftelser krävs, och en konfigurerad admin-PIN måste anges. Formatering raderar allt på kortet. Den uttryckliga åtgärden kan också formatera ett kort vars filsystem inte gick att montera; vanlig start och automatisk återmontering formaterar aldrig kortet. Webbläsaren visar status medan formateringen pågår och ett tydligt resultat efteråt.
 
 ## Ägarrapporterade mätvärden
 
@@ -29,4 +29,4 @@ Mottagning, buffertväntan och skrivning körs delvis parallellt och ska inte su
 
 I de senaste stora filtesten stod mottagningen för merparten av den totala tiden. Buffertar kan hjälpa till att hålla flera överföringar i gång, men förbättrar inte nödvändigtvis en enskild TCP-ström eller radioförbindelsen. Mätvärdena stödjer att batchuppladdning förbättrats subjektivt, inte någon specifik garanterad hastighet.
 
-Hårdvarutest återstår för v0.23.3: verifiera PIN-skydd och bekräftelser före formatering, FAT-montering efteråt, kataloger med en till tre nivåer, gränsfallet fyra nivåer, konflikthantering och jämförbar total tid för samma filbatch. Inga hårdvarutester markeras som slutförda här.
+Hårdvarutest återstår för v0.23.3: verifiera PIN-skydd och bekräftelser före formatering, formatering av ett kort med omonterbart/exFAT-filsystem, FAT-montering efteråt, synlig status vid lång formatering, kataloger med en till tre nivåer, gränsfallet fyra nivåer, konflikthantering och jämförbar total tid för samma filbatch. Inga hårdvarutester markeras som slutförda här.

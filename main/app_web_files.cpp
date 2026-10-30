@@ -60,6 +60,7 @@ static constexpr int MAX_UPLOADS = 4;
 static std::atomic<int> s_activeUploads{0};
 static std::atomic<int> s_activeDownloads{0};
 static std::atomic<bool> s_formatting{false};
+static std::atomic<int> s_formatStatus{0};
 
 namespace {
 
@@ -668,6 +669,21 @@ static esp_err_t handleRemount(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
+static void sdFormatTask(void *)
+{
+    const bool ok = BoardSd::format();
+    Audio::invalidateFiles();
+    s_formatStatus.store(ok ? 2 : 3);
+    s_formatting.store(false);
+    if (ok) {
+        MyLog::event("files", "SD card formatted as FAT");
+        ESP_LOGI(TAG, "SD card format completed");
+    } else {
+        ESP_LOGE(TAG, "SD card format failed");
+    }
+    vTaskDelete(nullptr);
+}
+
 static esp_err_t handleSdFormat(httpd_req_t *r)
 {
     MyWeb::Req q(r);
@@ -676,7 +692,6 @@ static esp_err_t handleSdFormat(httpd_req_t *r)
     if ((q.has("root") && (!q.get("root", root, sizeof(root)) || strcmp(root, "sd"))) ||
         !q.get("confirm", confirm, sizeof(confirm)) || strcmp(confirm, "FORMAT-SD"))
         return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
-    if (!BoardSd::mounted()) return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_FS_NOCARD));
 
     bool expected = false;
     if (!s_formatting.compare_exchange_strong(expected, true))
@@ -686,12 +701,30 @@ static esp_err_t handleSdFormat(httpd_req_t *r)
         return MyWeb::sendError(r, 409, "Vänta tills filöverföringarna är klara");
     }
 
-    const bool ok = BoardSd::format();
-    s_formatting.store(false);
-    if (!ok) return MyWeb::sendError(r, 500, "Formatering misslyckades; SD-kortet återmonterades om möjligt");
-    Audio::invalidateFiles();
-    MyLog::event("files", "SD card formatted as FAT");
-    return MyWeb::sendOk(r);
+    s_formatStatus.store(1);
+    if (xTaskCreate(sdFormatTask, "sd_format", 6144, nullptr, 3, nullptr) != pdPASS) {
+        s_formatStatus.store(0);
+        s_formatting.store(false);
+        return MyWeb::sendError(r, 503, "Kunde inte starta formateringen");
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddBoolToObject(o, "formatting", true);
+    return MyWeb::sendJson(r, 202, o);
+}
+
+static esp_err_t handleSdFormatStatus(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    const int status = s_formatStatus.load();
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddBoolToObject(o, "formatting", status == 1);
+    cJSON_AddBoolToObject(o, "formatted", status == 2);
+    if (status == 3)
+        cJSON_AddStringToObject(o, "error", "Formatering misslyckades; SD-kortet återmonterades om möjligt");
+    return MyWeb::sendJson(r, 200, o);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -1230,6 +1263,7 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/fs/mkdir", HTTP_POST, handleMkdir);
     ok &= MyWeb::on("/api/sd/remount", HTTP_POST, handleRemount);
     ok &= MyWeb::on("/api/sd/format", HTTP_POST, handleSdFormat);
+    ok &= MyWeb::on("/api/sd/format/status", HTTP_GET, handleSdFormatStatus);
     ok &= MyWeb::on("/api/fs/repair", HTTP_POST, handleFsRepair);
     ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
     ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);

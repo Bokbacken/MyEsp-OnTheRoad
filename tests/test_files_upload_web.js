@@ -5,10 +5,50 @@ const vm = require('node:vm');
 const html = fs.readFileSync('main/web/files.html', 'utf8');
 assert.match(html, /<option value="skip" selected>Hoppa över<\/option>/);
 assert.match(html, /id="dir-file" multiple webkitdirectory directory hidden/);
+assert.match(html, /class="row storage-row"[\s\S]*id="usage"[\s\S]*class="storage-admin"[\s\S]*id="pin"[\s\S]*id="format-btn"/);
 const script = html.match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
+assert.match(script, /\$\(\'format-btn\'\)\.disabled = root !== \'sd\'/);
+assert.match(script, /\/api\/sd\/format\/status/);
+const formatStart = script.indexOf("$('format-btn').onclick");
+const formatEnd = script.indexOf("$('repair-btn').onclick", formatStart);
+const formatCode = script.slice(formatStart, formatEnd);
 const start = script.indexOf('function uploadOne');
 const end = script.indexOf("$('pick-btn')", start);
 const uploadCode = script.slice(start, end);
+
+async function formatStatusFlow(statuses, expectedToast) {
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {value: 0, hidden: true, textContent: '', removeAttribute() {}});
+    return elements.get(id);
+  };
+  const requests = [];
+  const toasts = [];
+  const expectedPolls = statuses.length;
+  const sandbox = {
+    $: element, root: 'sd', path: '/', page: 1,
+    confirm: () => true, prompt: () => 'FORMATERA',
+    guarded: fn => fn().catch(error => toasts.push(error.message)),
+    postForm: async (...args) => { requests.push(args); return {ok: true}; },
+    pinHdr: () => ({'X-Admin-Pin': '1234'}),
+    fetch: async (_url, options) => {
+      requests.push(options);
+      return {ok: true, json: async () => statuses.shift()};
+    },
+    answer: async response => response.json(),
+    setTimeout: callback => callback(),
+    toast: message => toasts.push(message),
+    load: async () => {},
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(formatCode, sandbox);
+  await vm.runInContext("$('format-btn').onclick()", sandbox);
+  assert.equal(requests[0][0], '/api/sd/format');
+  assert.equal(requests[0][1].confirm, 'FORMAT-SD');
+  assert.equal(requests.filter(request => request.headers).length, expectedPolls, 'polls status until formatting completes');
+  assert.equal(element('prog').hidden, true, 'hides progress after completion');
+  assert.deepEqual(toasts, [expectedToast]);
+}
 
 async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = []) {
   const elements = new Map();
@@ -66,6 +106,10 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
 }
 
 (async () => {
+  await formatStatusFlow([{ok: true, formatting: true}, {ok: true, formatted: true}],
+    'SD-kortet formaterades som FAT');
+  await formatStatusFlow([{ok: true, formatted: false, error: 'Formateringen misslyckades'}],
+    'Formateringen misslyckades');
   const result = await uploadWith('skip', Array.from({length: 6}, (_, i) =>
     i === 0 ? {ok: true, skipped: true} : {ok: true}), 6);
   assert.equal(result.requests.length, 6, 'batch continues after a skipped conflict');

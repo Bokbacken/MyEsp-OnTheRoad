@@ -10,6 +10,8 @@
 <style>
 .crumbs { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin: .4rem 0; }
 .crumbs a { cursor: pointer; }
+.storage-row { flex-wrap: wrap; align-items: center; }
+.storage-admin { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-left: auto; }
 .seg { display: inline-flex; gap: .3rem; }
 .seg button.on { background: var(--otr-orange); color: #000; }
 .files { width: 100%; border-collapse: collapse; font-size: .92rem; }
@@ -53,16 +55,19 @@
 
 <h2>Filhanterare</h2>
 <div class="card">
-  <div class="row" style="margin-top:0">
+  <div class="row storage-row" style="margin-top:0">
     <span class="seg">
       <button type="button" class="secondary on" id="root-sd">SD-kort</button>
       <button type="button" class="secondary" id="root-ffat">Intern flash</button>
     </span>
     <span class="muted" id="usage">–</span>
+    <span class="storage-admin">
+      <label for="pin" style="margin:0">Admin-PIN</label>
+      <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" style="max-width:8rem;margin:0">
+      <button type="button" class="danger" id="format-btn" hidden>&#9888; Formatera SD-kort</button>
+    </span>
   </div>
   <div class="row">
-    <label for="pin" style="margin:0">Admin-PIN</label>
-    <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" style="max-width:8rem;margin:0">
     <button type="button" class="secondary" id="mkdir-btn">&#128193; Ny mapp</button>
     <button type="button" class="secondary" id="pick-btn">&#8679; Ladda upp</button>
     <button type="button" class="secondary" id="pick-dir-btn">&#128193; Ladda upp mapp</button>
@@ -74,12 +79,11 @@
       <option value="stop">Avbryt uppladdningen</option>
       <option value="overwrite">Skriv över</option>
     </select>
-    <button type="button" class="danger" id="format-btn" hidden>&#9888; Formatera SD-kort</button>
     <button type="button" class="danger" id="repair-btn" hidden>&#9873; Reparera intern flash</button>
   </div>
   <div class="crumbs" id="crumbs"></div>
   <div id="nocard" hidden>
-    <p class="bad">Inget SD-kort monterat.</p>
+    <p class="bad">Inget SD-kort monterat. Om ett kort sitter i men har ett filsystem som inte stöds kan du formatera det som FAT.</p>
     <div class="row"><button type="button" class="secondary" id="remount-btn">Läs in SD-kortet igen</button></div>
   </div>
 
@@ -265,7 +269,7 @@ async function load(keepSel = false) {
     $('live-dot').className = 'dot ok';
     $('live-text').textContent = 'ansluten';
     $('nocard').hidden = j.mounted || root !== 'sd';
-    $('format-btn').disabled = root !== 'sd' || !j.mounted;
+    $('format-btn').disabled = root !== 'sd';
     $('usage').textContent = j.mounted ? size(j.free) + ' ledigt av ' + size(j.total) : (root === 'sd' ? 'inget kort' : 'ej monterad');
     entries = j.entries || [];
     page = j.page || 1; pages = j.pages || 1;
@@ -376,6 +380,19 @@ $('format-btn').onclick = () => guarded(async () => {
   if (!confirm('Formatera SD-kortet som FAT32?\n\nALLA filer och mappar på kortet raderas permanent. Åtgärden går inte att ångra.')) return;
   if (prompt('Skriv FORMATERA för att bekräfta att hela SD-kortet ska raderas:') !== 'FORMATERA') return;
   await postForm('/api/sd/format', {confirm: 'FORMAT-SD'});
+  const progress = $('prog');
+  progress.hidden = false;
+  progress.removeAttribute('value');
+  $('prog-text').textContent = 'Formaterar SD-kortet. Detta kan ta en stund – lämna sidan öppen.';
+  let status;
+  do {
+    status = await answer(await fetch('/api/sd/format/status', {headers: pinHdr(), cache: 'no-store'}));
+    if (status.formatting) await new Promise(resolve => setTimeout(resolve, 1000));
+  } while (status.formatting);
+  progress.hidden = true;
+  progress.value = 0;
+  $('prog-text').textContent = '';
+  if (!status.formatted) throw new Error(status.error || 'Formateringen misslyckades');
   toast('SD-kortet formaterades som FAT');
   path = '/'; page = 1;
   await load();
