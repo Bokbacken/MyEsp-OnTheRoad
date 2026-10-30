@@ -10,6 +10,8 @@
 <style>
 .crumbs { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin: .4rem 0; }
 .crumbs a { cursor: pointer; }
+.storage-row { flex-wrap: wrap; align-items: center; }
+.storage-admin { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-left: auto; }
 .seg { display: inline-flex; gap: .3rem; }
 .seg button.on { background: var(--otr-orange); color: #000; }
 .files { width: 100%; border-collapse: collapse; font-size: .92rem; }
@@ -53,25 +55,35 @@
 
 <h2>Filhanterare</h2>
 <div class="card">
-  <div class="row" style="margin-top:0">
+  <div class="row storage-row" style="margin-top:0">
     <span class="seg">
       <button type="button" class="secondary on" id="root-sd">SD-kort</button>
       <button type="button" class="secondary" id="root-ffat">Intern flash</button>
     </span>
     <span class="muted" id="usage">–</span>
+    <span class="storage-admin">
+      <label for="pin" style="margin:0">Admin-PIN</label>
+      <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" style="max-width:8rem;margin:0">
+      <button type="button" class="danger" id="format-btn" hidden>&#9888; Formatera SD-kort</button>
+    </span>
   </div>
   <div class="row">
-    <label for="pin" style="margin:0">Admin-PIN</label>
-    <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" style="max-width:8rem;margin:0">
     <button type="button" class="secondary" id="mkdir-btn">&#128193; Ny mapp</button>
     <button type="button" class="secondary" id="pick-btn">&#8679; Ladda upp</button>
+    <button type="button" class="secondary" id="pick-dir-btn">&#128193; Ladda upp mapp</button>
     <input type="file" id="file" multiple hidden>
-    <label class="check" style="margin:0"><input type="checkbox" id="overwrite"> Skriv över</label>
+    <input type="file" id="dir-file" multiple webkitdirectory directory hidden>
+    <label for="conflict-policy" style="margin:0">Om filen finns</label>
+    <select id="conflict-policy" style="width:auto;margin:0">
+      <option value="skip" selected>Hoppa över</option>
+      <option value="stop">Avbryt uppladdningen</option>
+      <option value="overwrite">Skriv över</option>
+    </select>
     <button type="button" class="danger" id="repair-btn" hidden>&#9873; Reparera intern flash</button>
   </div>
   <div class="crumbs" id="crumbs"></div>
   <div id="nocard" hidden>
-    <p class="bad">Inget SD-kort monterat.</p>
+    <p class="bad">Inget SD-kort monterat. Om ett kort sitter i men har ett filsystem som inte stöds kan du formatera det som FAT.</p>
     <div class="row"><button type="button" class="secondary" id="remount-btn">Läs in SD-kortet igen</button></div>
   </div>
 
@@ -106,7 +118,7 @@
   <p class="muted" id="summary"></p>
   <p class="muted" id="truncated" hidden>Mappen är mycket stor: bara de första 4 000 posterna listas.</p>
 
-  <div class="drop" id="drop">Släpp filer här för att ladda upp dem till den här mappen</div>
+  <div class="drop" id="drop">Släpp filer eller en mapp här för att ladda upp (högst 3 mappnivåer)</div>
   <progress id="prog" max="100" value="0" hidden style="width:100%"></progress>
   <div class="muted" id="prog-text"></div>
   <p class="muted">Ändringar (uppladdning, radering, flytt, namnbyte, nya mappar) kräver admin-PIN om en PIN är satt.
@@ -171,10 +183,10 @@ async function sendJson(method, url, data) {
 async function guarded(fn) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn').forEach(b => b.disabled = true);
+  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn').forEach(b => b.disabled = true);
   try { await fn(); } catch (err) { toast(err.message, false); }
   busy = false;
-  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn').forEach(b => b.disabled = false);
+  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn').forEach(b => b.disabled = false);
   updateActions();
 }
 function bulkResult(j, verb) {
@@ -257,6 +269,7 @@ async function load(keepSel = false) {
     $('live-dot').className = 'dot ok';
     $('live-text').textContent = 'ansluten';
     $('nocard').hidden = j.mounted || root !== 'sd';
+    $('format-btn').disabled = root !== 'sd';
     $('usage').textContent = j.mounted ? size(j.free) + ' ledigt av ' + size(j.total) : (root === 'sd' ? 'inget kort' : 'ej monterad');
     entries = j.entries || [];
     page = j.page || 1; pages = j.pages || 1;
@@ -292,6 +305,7 @@ function setRoot(r) {
   $('root-sd').classList.toggle('on', r === 'sd');
   $('root-ffat').classList.toggle('on', r === 'ffat');
   $('repair-btn').hidden = r !== 'ffat';   // Repair is for the internal flash only
+  $('format-btn').hidden = r !== 'sd';
   load();
 }
 $('root-sd').onclick = () => setRoot('sd');
@@ -361,6 +375,28 @@ $('remount-btn').onclick = () => guarded(async () => {
   toast(j.mounted ? 'SD-kortet monterat' : 'Inget SD-kort hittades', j.mounted);
   await load();
 });
+$('format-btn').onclick = () => guarded(async () => {
+  if (root !== 'sd') return;
+  if (!confirm('Formatera SD-kortet som FAT32?\n\nALLA filer och mappar på kortet raderas permanent. Åtgärden går inte att ångra.')) return;
+  if (prompt('Skriv FORMATERA för att bekräfta att hela SD-kortet ska raderas:') !== 'FORMATERA') return;
+  await postForm('/api/sd/format', {confirm: 'FORMAT-SD'});
+  const progress = $('prog');
+  progress.hidden = false;
+  progress.removeAttribute('value');
+  $('prog-text').textContent = 'Formaterar SD-kortet. Detta kan ta en stund – lämna sidan öppen.';
+  let status;
+  do {
+    status = await answer(await fetch('/api/sd/format/status', {headers: pinHdr(), cache: 'no-store'}));
+    if (status.formatting) await new Promise(resolve => setTimeout(resolve, 1000));
+  } while (status.formatting);
+  progress.hidden = true;
+  progress.value = 0;
+  $('prog-text').textContent = '';
+  if (!status.formatted) throw new Error(status.error || 'Formateringen misslyckades');
+  toast('SD-kortet formaterades som FAT');
+  path = '/'; page = 1;
+  await load();
+});
 $('repair-btn').onclick = () => guarded(async () => {
   if (root !== 'ffat') return;
   if (!confirm('Reparera intern flash?\n\nALLT på intern flash raderas och filsystemet formateras om. ' +
@@ -377,22 +413,22 @@ $('repair-btn').onclick = () => guarded(async () => {
 });
 
 // ---- Upload (button or drag & drop) ----
-function uploadOne(f, idx, count) {
+function uploadOne(f, onProgress, uploadRoot, uploadPath, pin, policy, relativePath) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    const q = {root, path: join(path, f.name), pin: $('pin').value};
-    if ($('overwrite').checked) q.overwrite = '1';
+    const q = {root: uploadRoot, path: join(uploadPath, relativePath), pin};
+    if (policy === 'overwrite') q.overwrite = '1';
+    else if (policy === 'skip') q.skip = '1';
     x.open('POST', '/api/fs/upload?' + qs(q));
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.upload.onprogress = ev => {
       if (!ev.lengthComputable) return;
-      $('prog').value = Math.round(ev.loaded * 100 / ev.total);
-      $('prog-text').textContent = (count > 1 ? (idx + 1) + '/' + count + ': ' : '') + f.name + ' · ' + size(ev.loaded) + ' av ' + size(ev.total);
+      onProgress(ev.loaded);
     };
     x.onload = () => {
       let j = {};
       try { j = JSON.parse(x.responseText); } catch (e) {}
-      if (x.status >= 200 && x.status < 300 && j.ok !== false) resolve();
+      if (x.status >= 200 && x.status < 300 && j.ok !== false) resolve(!!j.skipped);
       else reject(new Error(f.name + ': ' + (j.error || ('HTTP ' + x.status))));
     };
     x.onerror = () => reject(new Error(f.name + ': överföringen avbröts'));
@@ -400,14 +436,57 @@ function uploadOne(f, idx, count) {
   });
 }
 function upload(files) {
-  files = Array.from(files).filter(f => f.size > 0 || f.type);   // Dropped folders show up as empty entries
-  if (!files.length) return toast('Inga filer (mappar kan inte släppas – skapa mappen först)', false);
+  files = Array.from(files);
+  if (!files.length) return toast('Inga filer valda', false);
   return guarded(async () => {
+    const items = files.map(file => {
+      const relativePath = file.relativePath || file.webkitRelativePath || file.name;
+      const parts = relativePath.split('/');
+      if (parts.length > 4 || parts.some(part => !part || part === '.' || part === '..' || part.includes('\\')))
+        throw new Error('Mappuppladdningen får ha högst 3 mappnivåer och innehålla giltiga namn');
+      return {file, parts, relativePath: parts.join('/')};
+    });
     $('prog').hidden = false;
-    let done = 0;
+    const uploadRoot = root, uploadPath = path, pin = $('pin').value;
+    const policy = $('conflict-policy').value;
+    const loaded = Array(items.length).fill(0);
+    const total = items.reduce((sum, item) => sum + item.file.size, 0);
+    let next = 0, done = 0, skipped = 0, failure = null;
+    const folders = new Set();
+    for (const item of items)
+      for (let i = 1; i < item.parts.length; i++) folders.add(item.parts.slice(0, i).join('/'));
+    const worker = async () => {
+      while (!failure) {
+        const i = next++;
+        if (i >= files.length) return;
+        try {
+          const item = items[i];
+          if (await uploadOne(item.file, bytes => {
+            loaded[i] = bytes;
+            const sent = loaded.reduce((sum, value) => sum + value, 0);
+            $('prog').value = total ? Math.round(sent * 100 / total) : 0;
+            $('prog-text').textContent = (done + 1) + '/' + items.length + ': ' +
+              item.relativePath + ' · ' + size(bytes) + ' av ' + size(item.file.size);
+          }, uploadRoot, uploadPath, pin, policy, item.relativePath)) skipped++;
+          done++;
+        } catch (err) {
+          failure = err;
+        }
+      }
+    };
     try {
-      for (let i = 0; i < files.length; i++) { await uploadOne(files[i], i, files.length); done++; }
-      toast(done === 1 ? 'Filen uppladdad' : done + ' filer uppladdade');
+      for (const folder of [...folders].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b)))
+        await sendJson('POST', '/api/files/mkdir', {path: join(uploadPath, folder)});
+      const concurrency = uploadRoot === 'sd' ? 4 : 1;
+      await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker));
+      if (failure) {
+        if (done) failure.message += ' (' + done + ' andra filer hann bli klara)';
+        throw failure;
+      }
+      $('prog').value = 100;
+      if (skipped === items.length) toast(skipped === 1 ? 'Filen fanns redan och hoppades över' : skipped + ' filer fanns redan och hoppades över');
+      else if (skipped) toast((done - skipped) + ' filer uppladdade, ' + skipped + ' hoppades över');
+      else toast(done === 1 ? 'Filen uppladdad' : done + ' filer uppladdade');
     } finally {
       $('prog').hidden = true;
       $('prog-text').textContent = '';
@@ -417,7 +496,9 @@ function upload(files) {
   });
 }
 $('pick-btn').onclick = () => $('file').click();
+$('pick-dir-btn').onclick = () => $('dir-file').click();
 $('file').onchange = () => upload($('file').files);
+$('dir-file').onchange = () => upload($('dir-file').files);
 const drop = $('drop');
 ['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => {
@@ -425,7 +506,35 @@ const drop = $('drop');
   if (ev === 'dragleave' && e.relatedTarget) return;
   drop.classList.remove('over');
 }));
-document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
+async function droppedFiles(dataTransfer) {
+  const entries = Array.from(dataTransfer.items || []).map(item =>
+    item.webkitGetAsEntry && item.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return Array.from(dataTransfer.files || []);
+  const files = [];
+  async function visit(entry, parent) {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      file.relativePath = parent ? parent + '/' + file.name : file.name;
+      files.push(file);
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const directory = parent ? parent + '/' + entry.name : entry.name;
+    if (directory.split('/').length > 3) throw new Error('Mappuppladdningen får ha högst 3 mappnivåer');
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) break;
+      for (const child of batch) await visit(child, directory);
+    }
+  }
+  for (const entry of entries) await visit(entry, '');
+  return files;
+}
+document.addEventListener('drop', e => {
+  if (!e.dataTransfer) return;
+  droppedFiles(e.dataTransfer).then(upload).catch(err => toast(err.message, false));
+});
 load();
 </script>
 </body>

@@ -17,7 +17,7 @@ struct Info {
     uint32_t freqKhz;
     uint64_t totalBytes, freeBytes;
     char name[8];           // Card product name
-    uint32_t generation;    // Increments on every successful mount
+    uint32_t generation;    // Changes after mount/remount and formatting
     int32_t lastError;      // ESP error from the last failed mount/status/unmount, 0 after success
     uint32_t errors;
 };
@@ -27,6 +27,7 @@ bool mounted();
 Info info();                 // Cheap: totals are cached (refreshed by poll / after mount)
 void poll(uint32_t nowMs);   // Call from the main loop (every ~20 ms is fine; works on its own schedule)
 bool remount();              // Unmount (if needed) and mount again; used by the web UI / settings
+bool format();               // Explicitly format as FAT; may mount an unsupported filesystem first
 void refreshUsage();         // Re-read free space (after uploads / deletes)
 uint32_t clusterBytes();     // v0.13.7: FAT cluster size (0 = not mounted / unknown)
 

@@ -10,10 +10,10 @@ namespace FsPath {
 // `user` may be relative ("otr/a.wav"), absolute inside the root ("/otr/a.wav") or carry the
 // root prefix ("/sdcard/otr/a.wav"); "" or "/" is the root itself. Repeated '/' and "." are
 // collapsed. Rejects "..", backslashes, control characters, FAT-invalid characters (:*?"<>|),
-// components longer than 255 bytes and results that do not fit in `cap`.
+// components longer than 255 UTF-16 code units and results that do not fit in `cap`.
 bool resolve(const char *root, const char *user, char *out, size_t cap);
 
-// True if `name` is a valid single file/directory name (for rename / mkdir).
+// True if `name` is a valid UTF-8 FAT filename of at most 255 UTF-16 code units.
 bool validName(const char *name);
 
 // True if `path` equals `root` (so it must never be deleted or renamed).

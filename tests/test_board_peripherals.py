@@ -122,11 +122,17 @@ struct sdmmc_card_t {
     struct { char name[5]; } cid;
 };
 inline sdmmc_card_t fakeCard{20000, {'T','E','S','T','0'}};
-inline int mountCalls=0, mountFailures=0, statusResult=ESP_OK, unmountResult=ESP_OK;
+inline int mountCalls=0, mountFailures=0, statusResult=ESP_OK, unmountResult=ESP_OK, formatResult=ESP_OK;
+inline int formatMountCalls=0;
+inline bool acceptFormatMount=false;
+inline int formatCalls=0;
 inline int lastWidth=0, lastFreq=0;
 inline int esp_vfs_fat_sdmmc_mount(const char *, const sdmmc_host_t *h, const sdmmc_slot_config_t *s,
                                  const esp_vfs_fat_sdmmc_mount_config_t *c, sdmmc_card_t **out) {
-    assert(!c->format_if_mount_failed);
+    if (c->format_if_mount_failed) {
+        ++formatMountCalls;
+        if (!acceptFormatMount) return ESP_FAIL;
+    }
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
     assert(h->slot==0 && s->clk==43 && s->cmd==44 && s->d0==39 && powerLevel==0);
     assert(h->pwr_ctrl_handle && radioAlive);
@@ -142,6 +148,9 @@ inline int esp_vfs_fat_info(const char *, uint64_t *total, uint64_t *free) {
 }
 inline int esp_vfs_fat_sdcard_unmount(const char *, sdmmc_card_t *) {
     assert(radioAlive); return unmountResult;
+}
+inline int esp_vfs_fat_sdcard_format(const char *, sdmmc_card_t *card) {
+    assert(card==&fakeCard); ++formatCalls; return formatResult;
 }
 inline int sdmmc_get_status(sdmmc_card_t *) { return statusResult; }
 using BYTE=unsigned char;
@@ -243,6 +252,17 @@ int main() {
     mountFailures=1;
     assert(remount() && lastWidth==1 && radioAlive);
     assert(info().lastError==ESP_OK);
+    const uint32_t generation=info().generation;
+    assert(format() && formatCalls==1 && info().generation==generation+1);
+    formatResult=ESP_FAIL;
+    assert(!format() && formatCalls==2 && mounted() && info().lastError==ESP_FAIL);
+    statusResult=ESP_ERR_TIMEOUT;
+    poll(20000);
+    assert(!mounted());
+    statusResult=ESP_OK;
+    formatResult=ESP_OK;
+    acceptFormatMount=true;
+    assert(format() && formatMountCalls==1 && formatCalls==3 && mounted());
 }
 '''
 

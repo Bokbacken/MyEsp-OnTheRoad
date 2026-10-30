@@ -55,7 +55,7 @@ bool cardPower(bool reset)
 }
 #endif
 
-bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
+bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT, bool formatIfFail = false)
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = freqKhz;
@@ -87,8 +87,8 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
     slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
     esp_vfs_fat_sdmmc_mount_config_t mcfg = {};
-    mcfg.format_if_mount_failed = false;   // Never format the user's card
-    mcfg.max_files = 6;
+    mcfg.format_if_mount_failed = formatIfFail;
+    mcfg.max_files = 8;
     mcfg.allocation_unit_size = 16 * 1024;
     esp_err_t err = esp_vfs_fat_sdmmc_mount(MOUNT, &host, &slot, &mcfg, &s_card);
     if (err != ESP_OK) {
@@ -109,19 +109,20 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
     return true;
 }
 
-bool mountLocked()
+bool mountLocked(bool formatIfFail = false)
 {
     if (s_info.mounted) return true;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     if (!cardPower(s_recover)) return false;
     const int freq = s_recover ? 10000 : SDMMC_FREQ_DEFAULT;
-    bool ok = tryMount(4, freq);
+    bool ok = tryMount(4, freq, formatIfFail);
     if (!ok) {
         s_recover = true;
-        ok = cardPower(true) && tryMount(1, 10000);
+        ok = cardPower(true) && tryMount(1, 10000, formatIfFail);
     }
 #else
-    const bool ok = tryMount(4) || tryMount(1);
+    const bool ok = tryMount(4, SDMMC_FREQ_DEFAULT, formatIfFail) ||
+                    tryMount(1, SDMMC_FREQ_DEFAULT, formatIfFail);
 #endif
     if (!ok) {
         s_logMissing = false;   // Log the first failure only; poll() retries quietly
@@ -220,6 +221,40 @@ bool remount()
 #endif
     s_logMissing = true;
     return mountLocked();
+}
+
+bool format()
+{
+    Guard g;
+    if (!s_info.mounted && !mountLocked(true)) return false;
+    if (!s_card) return false;
+
+    const esp_err_t err = esp_vfs_fat_sdcard_format(MOUNT, s_card);
+    if (err != ESP_OK) {
+        s_info.lastError = err;
+        ++s_info.errors;
+        ESP_LOGE(TAG, "format failed: %s", esp_err_to_name(err));
+
+        const esp_err_t unmountErr = esp_vfs_fat_sdcard_unmount(MOUNT, s_card);
+        s_card = nullptr;
+        s_info.mounted = false;
+        s_info.totalBytes = s_info.freeBytes = 0;
+        if (unmountErr != ESP_OK)
+            ESP_LOGW(TAG, "cleanup after format failure: %s", esp_err_to_name(unmountErr));
+        mountLocked();
+        s_info.lastError = err;
+        return false;
+    }
+
+    ++s_info.generation;
+    s_info.lastError = ESP_OK;
+    uint64_t total = 0, freeB = 0;
+    if (esp_vfs_fat_info(MOUNT, &total, &freeB) == ESP_OK) {
+        s_info.totalBytes = total;
+        s_info.freeBytes = freeB;
+    }
+    ESP_LOGW(TAG, "formatted SD card as FAT");
+    return true;
 }
 
 void poll(uint32_t nowMs)

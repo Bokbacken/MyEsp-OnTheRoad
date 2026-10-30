@@ -101,18 +101,21 @@ static int hexv(char c)
     return -1;
 }
 
-// Decodes %XX and '+' in place.
-static void urlDecode(char *s)
+// Decodes %XX and '+' in place; embedded NUL cannot be represented in a request parameter.
+static bool urlDecode(char *s)
 {
     char *o = s;
     for (; *s; s++) {
         if (*s == '+') *o++ = ' ';
         else if (*s == '%' && hexv(s[1]) >= 0 && hexv(s[2]) >= 0) {
-            *o++ = (char)(hexv(s[1]) * 16 + hexv(s[2]));
+            const char decoded = (char)(hexv(s[1]) * 16 + hexv(s[2]));
+            if (!decoded) return false;
+            *o++ = decoded;
             s += 2;
         } else *o++ = *s;
     }
     *o = 0;
+    return true;
 }
 
 // Finds key in an url-encoded "a=1&b=2" string; copies the decoded value.
@@ -132,8 +135,7 @@ static bool findParam(const char *qs, const char *key, char *out, size_t cap, bo
             if (!tmp) return false;
             memcpy(tmp, v, vl);
             tmp[vl] = 0;
-            urlDecode(tmp);
-            bool ok = out && strlen(tmp) < cap;
+            bool ok = urlDecode(tmp) && out && strlen(tmp) < cap;
             if (ok) strcpy(out, tmp);
             free(tmp);
             return ok;

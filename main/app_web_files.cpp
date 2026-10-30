@@ -9,6 +9,7 @@
 //   POST /api/fs/rename   root, path, name, pin     new name in the same directory
 //   POST /api/fs/mkdir    root, path, pin           creates one directory
 //   POST /api/sd/remount  pin                       unmount + mount the card again
+//   POST /api/sd/format   pin, confirm=FORMAT-SD    explicitly format the SD card as FAT
 //   v0.13.7: /api/files (paginated list), /api/files/mkdir, /api/files/bulk (DELETE), /api/files/move
 #include "app_web_files.h"
 
@@ -16,11 +17,13 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include <string>
 
@@ -28,24 +31,50 @@
 #include "board_sd.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
+#include "esp_timer.h"
 #include "files_page.h"
 #include "fs_path.h"
+#include "fs_upload.h"
 #include "kara_index.h"
 #include "lang.h"
 #include "my_log.h"
 #include "my_storage.h"
 #include "my_web.h"
 #include "web_util.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 static const char *TAG = "webfs";
 
 namespace AppWebFiles {
 
 static constexpr size_t PATH_CAP = 300;
-static constexpr size_t CHUNK = 8192;
+static constexpr size_t CHUNK = 32768;
+static constexpr size_t DOWNLOAD_CHUNK = 8192;
+static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
+static constexpr int MAX_UPLOADS = 4;
+static std::atomic<int> s_activeUploads{0};
+static std::atomic<int> s_activeDownloads{0};
+static std::atomic<bool> s_formatting{false};
+static std::atomic<int> s_formatStatus{0};
 
 namespace {
+
+struct SdUse {
+    bool active = false;
+    explicit SdUse(bool sd)
+    {
+        if (!sd || s_formatting.load()) return;
+        s_activeDownloads.fetch_add(1);
+        if (s_formatting.load()) s_activeDownloads.fetch_sub(1);
+        else active = true;
+    }
+    ~SdUse() { if (active) s_activeDownloads.fetch_sub(1); }
+};
 
 // Optional SD lock: only the card is shared with the audio mixer.
 struct Lock {
@@ -59,6 +88,49 @@ struct Target {
     const char *root;
     char path[PATH_CAP];
 };
+
+struct UploadChunk {
+    uint8_t index;
+    size_t length;
+};
+
+struct UploadPipeline {
+    Target *target;
+    FILE *file;
+    uint8_t *buffers[2];
+    QueueHandle_t ready;
+    QueueHandle_t available;
+    SemaphoreHandle_t finished;
+    std::atomic<int> error{0};
+    int64_t bufferWaitUs = 0;
+    int64_t lockUs = 0;
+    int64_t writeUs = 0;
+};
+
+void uploadWriterTask(void *arg)
+{
+    auto *pipeline = static_cast<UploadPipeline *>(arg);
+    UploadChunk chunk{};
+    while (xQueueReceive(pipeline->ready, &chunk, portMAX_DELAY) == pdTRUE && chunk.length) {
+        int error = pipeline->error.load();
+        if (!error) {
+            const int64_t lockStart = esp_timer_get_time();
+            if (pipeline->target->sd) BoardSd::lock();
+            pipeline->lockUs += esp_timer_get_time() - lockStart;
+            const int64_t writeStart = esp_timer_get_time();
+            const bool wrote = fwrite(pipeline->buffers[chunk.index], 1, chunk.length, pipeline->file) == chunk.length;
+            pipeline->writeUs += esp_timer_get_time() - writeStart;
+            if (pipeline->target->sd) BoardSd::unlock();
+            if (!wrote) {
+                error = errno == ENOSPC ? ENOSPC : EIO;
+                pipeline->error.store(error);
+            }
+        }
+        xQueueSend(pipeline->available, &chunk.index, portMAX_DELAY);
+    }
+    xSemaphoreGive(pipeline->finished);
+    vTaskDelete(nullptr);
+}
 
 void *psAlloc(size_t n)
 {
@@ -119,7 +191,7 @@ void changed(const Target &t)
 esp_err_t ioError(httpd_req_t *r, int err)
 {
     if (err == ENOENT) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
-    if (err == EEXIST) return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
+    if (err == EEXIST || err == EISDIR) return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
     if (err == ENOTEMPTY) return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_NOTEMPTY));
     if (err == ENOSPC) return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
     return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_FS_IO));
@@ -136,6 +208,11 @@ void addUsage(cJSON *o, bool sd)
         cJSON_AddNumberToObject(o, "total", (double)tot);
         cJSON_AddNumberToObject(o, "free", (double)(tot > used ? tot - used : 0));
     }
+}
+
+esp_err_t sendUploadSkipped(httpd_req_t *r)
+{
+    return MyWeb::sendJsonStr(r, 200, "{\"ok\":true,\"skipped\":true}");
 }
 
 }  // namespace
@@ -217,6 +294,8 @@ static esp_err_t handleDownload(httpd_req_t *r)
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
+    SdUse sdUse(t.sd);
+    if (t.sd && !sdUse.active) return MyWeb::sendError(r, 503, "SD-kortet formateras");
     FILE *f;
     struct stat st = {};
     {
@@ -224,7 +303,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
         f = (stat(t.path, &st) == 0 && !S_ISDIR(st.st_mode)) ? fopen(t.path, "rb") : nullptr;
     }
     if (!f) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
-    char *buf = (char *)psAlloc(CHUNK);
+    char *buf = (char *)psAlloc(DOWNLOAD_CHUNK);
     if (!buf) {
         fclose(f);
         return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
@@ -239,7 +318,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
         size_t got;
         {
             Lock lk(t.sd);
-            got = fread(buf, 1, CHUNK, f);
+            got = fread(buf, 1, DOWNLOAD_CHUNK, f);
         }
         if (!got) break;
         if ((e = httpd_resp_send_chunk(r, buf, got)) != ESP_OK) break;
@@ -253,68 +332,193 @@ static esp_err_t handleDownload(httpd_req_t *r)
     return httpd_resp_send_chunk(r, nullptr, 0);
 }
 
-static esp_err_t handleUpload(httpd_req_t *r)
+static esp_err_t handleUploadRequest(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    const size_t queryLength = httpd_req_get_url_query_len(r);
+    if (!FsUpload::requestUriFits(sizeof("/api/fs/upload") - 1, queryLength, CONFIG_HTTPD_MAX_URI_LEN))
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
     if (FsPath::isRoot(t.root, t.path) || !FsPath::validName(baseName(t.path)))
         return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     bool overwrite = false;
+    bool skipExisting = false;
     q.getBool("overwrite", overwrite);
+    q.getBool("skip", skipExisting);
+    if (overwrite && skipExisting) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     const size_t total = r->content_len;
-    char tmp[PATH_CAP + 8];
-    snprintf(tmp, sizeof(tmp), "%s.part", t.path);
+    char tmp[PATH_CAP], backup[PATH_CAP];
     FILE *f = nullptr;
+    int err = 0;
+    const int64_t uploadStart = esp_timer_get_time();
     {
         Lock lk(t.sd);
         struct stat st = {};
-        if (stat(t.path, &st) == 0 && (S_ISDIR(st.st_mode) || !overwrite))
-            return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
+        if (stat(t.path, &st) == 0) {
+            if (skipExisting && !overwrite) return sendUploadSkipped(r);
+            if (S_ISDIR(st.st_mode) || !overwrite)
+                return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
+        } else if (errno != ENOENT) {
+            return ioError(r, errno ? errno : EIO);
+        }
         if (t.sd && total > BoardSd::info().freeBytes) return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
-        f = fopen(tmp, "wb");
+        for (int attempt = 0; attempt < 8; attempt++) {
+            const uint32_t nonce = esp_random();
+            if (!FsUpload::siblingPath(t.path, nonce, false, tmp, sizeof(tmp)) ||
+                !FsUpload::siblingPath(t.path, nonce, true, backup, sizeof(backup)))
+                return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+            const int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0666);
+            if (fd >= 0) {
+                f = fdopen(fd, "wb");
+                if (!f) {
+                    err = errno ? errno : EIO;
+                    close(fd);
+                    unlink(tmp);
+                }
+                break;
+            }
+            err = errno ? errno : EIO;
+            if (err != EEXIST) break;
+        }
     }
-    if (!f) return ioError(r, errno == ENOENT ? ENOENT : EIO);
-    char *buf = (char *)psAlloc(CHUNK);
-    bool ok = buf != nullptr;
-    int err = ok ? 0 : ENOMEM;
+    if (!f) return ioError(r, err ? err : EEXIST);
+    UploadPipeline pipeline{};
+    pipeline.target = &t;
+    pipeline.file = f;
+    pipeline.buffers[0] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    pipeline.buffers[1] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *writeCache = t.sd
+                           ? (char *)heap_caps_malloc(WRITE_CACHE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+                           : nullptr;
+    const bool dmaCache = writeCache != nullptr;
+    if (!writeCache) writeCache = (char *)psAlloc(WRITE_CACHE);
+    const bool buffered = writeCache && setvbuf(f, writeCache, _IOFBF, WRITE_CACHE) == 0;
+    if (!buffered) {
+        free(writeCache);
+        writeCache = nullptr;
+    }
+    pipeline.ready = xQueueCreate(2, sizeof(UploadChunk));
+    pipeline.available = xQueueCreate(2, sizeof(uint8_t));
+    pipeline.finished = xSemaphoreCreateBinary();
+    bool ok = pipeline.buffers[0] && pipeline.buffers[1] && pipeline.ready && pipeline.available &&
+              pipeline.finished;
+    err = ok ? 0 : ENOMEM;
+    TaskHandle_t writer = nullptr;
+    if (ok) {
+        const uint8_t first = 0, second = 1;
+        ok = xQueueSend(pipeline.available, &first, 0) == pdTRUE &&
+             xQueueSend(pipeline.available, &second, 0) == pdTRUE &&
+             xTaskCreate(uploadWriterTask, "fs_upload_sd", 4096, &pipeline, 3, &writer) == pdPASS;
+        if (!ok) err = ENOMEM;
+    }
+    if (!ok) {
+        Lock lk(t.sd);
+        fclose(f);
+        f = nullptr;
+        FsUpload::discard(tmp);
+    }
     size_t left = total;
     int timeouts = 0;
+    int64_t recvUs = 0, flushUs = 0, closeUs = 0;
     while (ok && left > 0) {
-        int n = httpd_req_recv(r, buf, left < CHUNK ? left : CHUNK);
-        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+        if (pipeline.error.load()) {
+            err = pipeline.error.load();
+            ok = false;
+            char drain[512];
+            while (left > 0) {
+                const int n = httpd_req_recv(r, drain, left < sizeof(drain) ? left : sizeof(drain));
+                if (n <= 0) break;
+                left -= (size_t)n;
+            }
+            break;
+        }
+        uint8_t index = 0;
+        const int64_t waitStart = esp_timer_get_time();
+        if (xQueueReceive(pipeline.available, &index, pdMS_TO_TICKS(100)) != pdTRUE) {
+            pipeline.bufferWaitUs += esp_timer_get_time() - waitStart;
+            continue;
+        }
+        pipeline.bufferWaitUs += esp_timer_get_time() - waitStart;
+        const int64_t recvStart = esp_timer_get_time();
+        int n = httpd_req_recv(r, (char *)pipeline.buffers[index], left < CHUNK ? left : CHUNK);
+        recvUs += esp_timer_get_time() - recvStart;
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) {
+            xQueueSend(pipeline.available, &index, portMAX_DELAY);
+            continue;
+        }
         if (n <= 0) {
             ok = false;
             err = EIO;
+            xQueueSend(pipeline.available, &index, portMAX_DELAY);
             break;
         }
         timeouts = 0;
-        Lock lk(t.sd);
-        if (fwrite(buf, 1, n, f) != (size_t)n) {
+        const UploadChunk chunk{index, (size_t)n};
+        if (xQueueSend(pipeline.ready, &chunk, portMAX_DELAY) != pdTRUE) {
             ok = false;
-            err = errno == ENOSPC ? ENOSPC : EIO;
+            err = EIO;
+            xQueueSend(pipeline.available, &index, portMAX_DELAY);
+            break;
         }
-        left -= n;
+        left -= (size_t)n;
     }
-    free(buf);
-    {
+    if (writer) {
+        const UploadChunk done{0, 0};
+        xQueueSend(pipeline.ready, &done, portMAX_DELAY);
+        xSemaphoreTake(pipeline.finished, portMAX_DELAY);
+        if (pipeline.error.load()) {
+            ok = false;
+            err = pipeline.error.load();
+        }
+    }
+    bool skipped = false;
+    if (f) {
         Lock lk(t.sd);
-        if (fclose(f) != 0 && ok) {
+        if (ok) {
+            const int64_t flushStart = esp_timer_get_time();
+            if (fflush(f) != 0) {
+                ok = false;
+                err = errno == ENOSPC ? ENOSPC : EIO;
+            }
+            flushUs = esp_timer_get_time() - flushStart;
+        }
+        const int64_t closeStart = esp_timer_get_time();
+        const int closeResult = fclose(f);
+        closeUs = esp_timer_get_time() - closeStart;
+        if (closeResult != 0 && ok) {
             ok = false;
             err = EIO;
         }
         if (ok) {
-            unlink(t.path);   // FAT rename() does not replace an existing file
-            if (rename(tmp, t.path) != 0) {
+            const FsUpload::InstallResult result = FsUpload::install(tmp, t.path, backup, overwrite, skipExisting);
+            skipped = result == FsUpload::InstallResult::SKIPPED;
+            if (result == FsUpload::InstallResult::FAILED) {
                 ok = false;
-                err = EIO;
+                err = errno ? errno : EIO;
             }
         }
-        if (!ok) unlink(tmp);
+        if (!ok || skipped) FsUpload::discard(tmp);
     }
-    changed(t);
+    free(pipeline.buffers[0]);
+    free(pipeline.buffers[1]);
+    free(writeCache);
+    if (pipeline.ready) vQueueDelete(pipeline.ready);
+    if (pipeline.available) vQueueDelete(pipeline.available);
+    if (pipeline.finished) vSemaphoreDelete(pipeline.finished);
+    if (!skipped) changed(t);
+    ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, buffer wait %llu ms, SD lock wait %llu ms, "
+                  "write %llu ms, flush %llu ms, close %llu ms, cache %u B (%s)", t.path,
+             skipped ? "skipped" : ok ? "complete" : "failed", (unsigned)total,
+             (unsigned long long)((esp_timer_get_time() - uploadStart) / 1000),
+             (unsigned long long)(recvUs / 1000), (unsigned long long)(pipeline.bufferWaitUs / 1000),
+             (unsigned long long)(pipeline.lockUs / 1000), (unsigned long long)(pipeline.writeUs / 1000),
+             (unsigned long long)(flushUs / 1000), (unsigned long long)(closeUs / 1000),
+             (unsigned)(buffered ? WRITE_CACHE : 0),
+             buffered ? dmaCache ? "DMA" : "non-DMA" : "default");
+    if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
         if (err == ENOMEM) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
@@ -322,6 +526,48 @@ static esp_err_t handleUpload(httpd_req_t *r)
     }
     MyLog::event("files", "uploaded %s (%u B)", t.path, (unsigned)total);
     return MyWeb::sendOk(r);
+}
+
+static void uploadTask(void *arg)
+{
+    auto *r = static_cast<httpd_req_t *>(arg);
+    handleUploadRequest(r);
+    httpd_req_async_handler_complete(r);
+    s_activeUploads.fetch_sub(1);
+    vTaskDelete(nullptr);
+}
+
+static bool isInternalUpload(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    char root[8] = "sd";
+    return q.has("root") && q.get("root", root, sizeof(root)) && !strcmp(root, "ffat");
+}
+
+static esp_err_t handleUpload(httpd_req_t *r)
+{
+    if (isInternalUpload(r)) return handleUploadRequest(r);
+    if (s_formatting.load()) return MyWeb::sendError(r, 503, "SD-kortet formateras");
+    if (s_activeUploads.fetch_add(1) >= MAX_UPLOADS) {
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, "För många samtidiga uppladdningar");
+    }
+    if (s_formatting.load()) {
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, "SD-kortet formateras");
+    }
+    httpd_req_t *copy = nullptr;
+    if (httpd_req_async_handler_begin(r, &copy) != ESP_OK) {
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, "Uppladdningstjänsten är upptagen");
+    }
+    if (xTaskCreate(uploadTask, "fs_upload", 8192, copy, 3, nullptr) != pdPASS) {
+        const esp_err_t response = MyWeb::sendError(r, 503, tr(Str::WEB_ERR_MEMORY));
+        httpd_req_async_handler_complete(copy);
+        s_activeUploads.fetch_sub(1);
+        return response;
+    }
+    return ESP_OK;
 }
 
 static esp_err_t handleDelete(httpd_req_t *r)
@@ -366,7 +612,7 @@ static esp_err_t handleRename(httpd_req_t *r)
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
-    char name[256];
+    char name[PATH_CAP];
     if (FsPath::isRoot(t.root, t.path)) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_ROOT));
     if (!q.get("name", name, sizeof(name)) || !FsPath::validName(name))
         return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
@@ -420,6 +666,64 @@ static esp_err_t handleRemount(httpd_req_t *r)
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "ok", true);
     cJSON_AddBoolToObject(o, "mounted", ok);
+    return MyWeb::sendJson(r, 200, o);
+}
+
+static void sdFormatTask(void *)
+{
+    const bool ok = BoardSd::format();
+    Audio::invalidateFiles();
+    s_formatStatus.store(ok ? 2 : 3);
+    s_formatting.store(false);
+    if (ok) {
+        MyLog::event("files", "SD card formatted as FAT");
+        ESP_LOGI(TAG, "SD card format completed");
+    } else {
+        ESP_LOGE(TAG, "SD card format failed");
+    }
+    vTaskDelete(nullptr);
+}
+
+static esp_err_t handleSdFormat(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    char root[8] = "sd", confirm[24] = "";
+    if ((q.has("root") && (!q.get("root", root, sizeof(root)) || strcmp(root, "sd"))) ||
+        !q.get("confirm", confirm, sizeof(confirm)) || strcmp(confirm, "FORMAT-SD"))
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+
+    bool expected = false;
+    if (!s_formatting.compare_exchange_strong(expected, true))
+        return MyWeb::sendError(r, 409, "SD-kortet används redan");
+    if (s_activeUploads.load() || s_activeDownloads.load()) {
+        s_formatting.store(false);
+        return MyWeb::sendError(r, 409, "Vänta tills filöverföringarna är klara");
+    }
+
+    s_formatStatus.store(1);
+    if (xTaskCreate(sdFormatTask, "sd_format", 6144, nullptr, 3, nullptr) != pdPASS) {
+        s_formatStatus.store(0);
+        s_formatting.store(false);
+        return MyWeb::sendError(r, 503, "Kunde inte starta formateringen");
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddBoolToObject(o, "formatting", true);
+    return MyWeb::sendJson(r, 202, o);
+}
+
+static esp_err_t handleSdFormatStatus(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    const int status = s_formatStatus.load();
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddBoolToObject(o, "formatting", status == 1);
+    cJSON_AddBoolToObject(o, "formatted", status == 2);
+    if (status == 3)
+        cJSON_AddStringToObject(o, "error", "Formatering misslyckades; SD-kortet återmonterades om möjligt");
     return MyWeb::sendJson(r, 200, o);
 }
 
@@ -697,7 +1001,10 @@ static esp_err_t handleFilesMkdir(httpd_req_t *r)
     {
         Lock lk(t.sd);
         struct stat st = {};
-        if (stat(t.path, &st) == 0) return ioError(r, EEXIST);
+        if (stat(t.path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) return MyWeb::sendOk(r);
+            return ioError(r, EEXIST);
+        }
     }
     const int err = mkdirs(t);
     if (err) return ioError(r, err);
@@ -955,6 +1262,8 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/fs/rename", HTTP_POST, handleRename);
     ok &= MyWeb::on("/api/fs/mkdir", HTTP_POST, handleMkdir);
     ok &= MyWeb::on("/api/sd/remount", HTTP_POST, handleRemount);
+    ok &= MyWeb::on("/api/sd/format", HTTP_POST, handleSdFormat);
+    ok &= MyWeb::on("/api/sd/format/status", HTTP_GET, handleSdFormatStatus);
     ok &= MyWeb::on("/api/fs/repair", HTTP_POST, handleFsRepair);
     ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
     ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);

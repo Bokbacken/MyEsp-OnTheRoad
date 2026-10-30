@@ -431,6 +431,42 @@ rekommendation innan kod skrivs.
      Full fysisk änd-till-änd-verifiering är alltså inte utförd på något kort;
      den rapporterade P4-klienttestningen täcker inte omvänd riktning eller
      hela testchecklistan.
+8. **FAT-långa filnamn och webbuppladdning (v0.23.2).**
+   - [x] Aktivera 255 FAT-LFN-kodenheter på båda targets. Validera UTF-8 och
+     räkna UTF-16-kodenheter per namnkomponent; avvisa ogiltiga/överlånga namn
+     och fullständiga bytevägar som inte ryms i webbgränserna.
+   - [x] Webbuppladdning använder unika, korta syskonfiler i stället för att
+     lägga `.part` till destinationens basnamn. Staging skapas exklusivt;
+     vid ersättning sparas originalet tills den nya filen installerats och
+     återställs om installationen misslyckas. URI-gränsen är 1024 byte.
+   - [x] Hostregressioner för rapporterade 87/81-teckennamn, 255/256-gränsen,
+     UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
+   - [x] Konfliktval vid uppladdning: hoppa över (standard), avbryt eller skriv
+     över; hoppa över fortsätter batchen och byter aldrig ut befintligt innehåll.
+   - [x] Högst fyra SD-uppladdningar kan köras samtidigt. Varje uppladdning
+     dubbelbuffrar mottagningen i 32 KiB-block och försöker använda en 32 KiB
+     intern DMA-kapabel skrivcache, med PSRAM-cache som reserv; intern flash
+     fortsätter sekventiellt. SD:s öppna filgräns höjs till åtta.
+   - [x] Uppladdningsloggen skiljer mottagning, buffertväntan, SD-låsväntan,
+     skrivning, flush och stängning åt för prestandadiagnos.
+   - [x] **CI:** ESP32-S3, ESP32-P4 och C6-jobbet passerade för v0.23.2 (run 183).
+   - [ ] **Hårdvara:** prova 87/81-teckennamnen, Unicode och gränsfall samt
+     avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
+   - [ ] **Hårdvara/prestanda:** upprepa 144 MB-uppladdningen på båda korten
+     med och utan samtidiga uppladdningar. Jämför `recv`, `buffer wait`, `SD lock wait`,
+     `write` och `flush`; effekten av fyra sessioner och större buffertar på hårdvara
+     är ännu inte verifierad.
+
+9. **Filhantering och SD-kort (v0.23.3).**
+   - [x] Lägg till explicit FAT-formatering av SD-kort med två bekräftelsesteg;
+     admin-PIN krävs när en sådan är konfigurerad.
+   - [x] Webbläsaren kan ladda upp en hel katalog med högst tre mappnivåer;
+     befintliga kataloger kan återanvändas och filkonfliktens standard är hoppa över.
+   - [x] Dokumentera filhanteringsändringar och ägarrapporterade mätvärden i
+     `docs/FILE_MANAGEMENT.md`; höj versionen till v0.23.3.
+   - [ ] **CI:** bygg ESP32-S3, ESP32-P4 och C6-jobbet för v0.23.3.
+   - [ ] **Hårdvara:** verifiera formatering, admin-PIN, kataloguppladdning och
+     återmontering på korten; prestandaresultat är observationsdata, inte garanti.
 
 ## Leveranslogg
 
@@ -456,6 +492,8 @@ rekommendation innan kod skrivs.
 | 2026-10-30 | X.7 ESP Yatzy-klient | ESP-firmware har WebSocket-join, maskerad PIN, värdauktoritativ touch-vy samt lagliga kast/håll/kategori-val. CI-run 41051798946 är grön för C6-host, S3 och P4; S3-jobbets hostkontroller passerar. Fysisk end-to-end-verifiering och samtidig browser-/ESP-testning på S3/P4 väntar. |
 | 2026-10-30 | X.7 första ägarrapporterade speltest | S3 som värd och P4 som klient: P4 anslöt med PIN, väntade på sin tur och kunde spela i den förenklade vyn. Grundläggande kommunikation fungerar i denna riktning. Test av alla kommandon, samtidig browser, återanslutning och motsatt riktning återstår; full verifiering på båda korten är fortsatt väntande. |
 | 2026-10-30 | X.7 ägarrapporterad gameplay | Ägaren bekräftar att spel fungerar mellan enheterna och med webben. Kort, riktning och detaljerad testmatris är inte angivna; checklisterna för S3/P4 står kvar tills dessa verifierats. |
+| 2026-10-30 | v0.23.2 FAT/webbuppladdning | FAT-LFN 255, UTF-8/UTF-16-validering och skyddad staging med återställning; fokuserade hosttester godkända. ESP32-S3/P4/C6 CI passerade i run 183; hårdvaruverifiering återstår. |
+| 2026-10-30 | v0.23.3 filhantering | SD-format med bekräftelse/admin-PIN, kataloguppladdning till tre nivåer och hoppa över som standard; mätningar dokumenterade. CI och hårdvaruverifiering återstår. |
 
 ### P4-partitionstabell: USB-migrering
 
