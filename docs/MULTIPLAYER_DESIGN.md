@@ -89,6 +89,10 @@ platsen medan klienten är frånkopplad, vilket visas som ett tydligt fel. PIN
 sparas bara temporärt i minnet för återanslutning och skrivs inte i loggar.
 `join` utan sessions-ID behåller browserkompatibiliteten.
 Targetbyggen är verifierade i CI-run 41051798946 för C6-host, S3 och P4;
-S3-jobbets automatiska hostkontroller passerar. Fysisk änd-till-änd-testning
-återstår: checklistan för samtidig browser/ESP, join/PIN, kast/håll/välj och
-återanslutning är ännu inte avbockad på vare sig S3 eller P4.
+S3-jobbets automatiska hostkontroller passerar. Ägaren bekräftar 2026-10-30
+att spel mellan enheterna och webben fungerar och att Spela tillsammans är i
+fungerande skick efter fjärrvyns förbättringar. Fjärrvyn återanvänder
+originalspelets tärnings-/bägarutseende och har ett separat bo för hållna
+tärningar, kastanimation utan gamla kastvärden och dubbeltryck för poängval.
+Återanslutning och fullständig verifiering av båda värd-/klientriktningarna
+återstår enligt hårdvarumatrisen i TODO-dokumentet.

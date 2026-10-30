@@ -365,8 +365,8 @@ rekommendation innan kod skrivs.
    - [x] CI-run 41051798946 bygger ESP32-C6-host, S3 och P4; S3-jobbets
      automatiska hostkontroller passerar. ESP-IDF saknas lokalt, så targetbyggen
      görs i CI.
-   - [ ] Prova samtidig browser-/ESP-klient och återanslutning fysiskt på båda
-     korten enligt checklistorna nedan.
+   - [ ] Komplettera fysisk verifiering av återanslutning och båda
+     värd-/klientriktningarna enligt checklistorna nedan.
    - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
      deras aktiva spel. Detta är inte ett speltest.
    - [x] **Hårdvara, ägarrapport 2026-10-30:** S3 som värd och P4 som klient:
@@ -376,6 +376,10 @@ rekommendation innan kod skrivs.
    - [x] **Hårdvara, ägarrapport:** Ägaren bekräftar att spel fungerar mellan
      enheterna och med webben. Exakt kort, riktning och genomgångna moment är
      inte specificerade; checklistan per kort nedan står därför kvar.
+   - [x] **Leveransgodkännande 2026-10-30:** Ägaren rapporterar att
+     Spela tillsammans är i fungerande skick efter fjärrvyns förbättringar.
+     Återanslutning och ospecificerade testmoment är fortsatt öppna;
+     godkännandet innebär inte att hela hårdvarumatrisen är verifierad.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-S3:
      [ ] join/PIN [ ] kast/håll/välj [ ] samtidig browser [ ] återanslutning.
    - [ ] **Hårdvara, fjärrspel – väntar på fysisk verifiering:** ESP32-P4:
@@ -389,6 +393,7 @@ rekommendation innan kod skrivs.
 
 | Datum | Steg | Status |
 |---|---|---|
+| 2026-10-30 | v0.23.1 fjärrspel | Ägaren bekräftar fungerande Spela tillsammans efter förbättringarna av fjärrvyn. ESP-klienten återanvänder tärnings-/bägarutseende, separat bo för hållna tärningar, kastanimation och dubbeltryck för poängval. Återanslutning och full testmatris per kort kvarstår. |
 | 2026-10-29 | v0.22.6 hårdvarutest + merge | Ägaren bekräftar att båda enheterna är testade; PR #23 mergad till `main`. Start/Wi-Fi/textstorlek fungerar. |
 | 2026-10-29 | v0.22.7 Host OTA, namn och P4-inställningar | Host-OTA och `host_fw.bin` CI från ESP-Hosted MCU, enhetsnamn för web/mDNS/DHCP, RGB-kontroller dolda på P4. Första C6-OTA föll på för stora chunkar (1500 B > ~1480 B gräns); efter fix till 1400 B uppdaterade ägaren C6 från fabriksfirmware till 3.0.10 (host=3.0.10 coprocessor=3.0.10, match). |
 | 2026-10-29 | Plan | Skapad. |
