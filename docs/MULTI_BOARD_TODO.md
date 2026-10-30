@@ -52,10 +52,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   krävde felaktigt en redan monterad FFat och hjälpte därför inte.
   v0.22.3 tar bort det kravet och kan formatera/montera den tidigare
   valda partitionen efter uttrycklig adminbekräftelse.
-- Ägaren rapporterar senare att P4-partitionstabellen har migrerats och att
-  utökad FFat visar 22 172 kB. Stora SoundFonts har provats på P4; på S3 har
-  fler röster provats med mindre SoundFonts. Karaoke-layouten har provats på
-  båda korten. Detta verifierar inte fjärrspel mellan enheterna.
+- Ägaren rapporterar att efter USB-flash av partitionstabellen använder P4
+  hela flashen och FFat visar 22 172 kB. Stora SoundFonts fungerar på P4;
+  mindre SoundFonts på S3 medger fler samtidiga röster. Karaoke-layouten
+  fungerar på båda korten. Detta verifierar inte fjärrspel mellan enheterna.
 
 ### Beslut
 
@@ -318,9 +318,9 @@ rekommendation innan kod skrivs.
      värden som ryms inom kortets gräns.
    - [x] Dokumentera SoundFont-storlek kontra PSRAM, samplingsfrekvens och
      kvalitet i `MUSIC_KARAOKE_PLAN.md`.
-   - [x] **Hårdvara, ägarrapport:** P4-partitionstabellen migrerad och utökad
-     FFat visar 22 172 kB; stora SoundFonts provade på P4. Fler röster med
-     mindre SoundFonts provade på S3.
+   - [x] **Hårdvara, ägarrapport:** efter USB-flash av partitionstabellen
+     använder P4 hela flashen och FFat visar 22 172 kB. Stora SoundFonts
+     fungerar på P4; mindre SoundFonts på S3 medger fler samtidiga röster.
    - [ ] **Hårdvara:** verifiera omstart och OTA efter P4-migreringen.
 5. **Stereoljud till webbsidan i Karaoke.** Utred stereoström (idag mono
    22050 Hz från mixen) för P4 och kommande kort; implementera om
@@ -388,8 +388,8 @@ rekommendation innan kod skrivs.
 | 2026-10-29 | Textstorlek v0.22.6 | `4db0df5`, CI run 40924732183 grön för båda targets. Startskärm, Wi-Fi och inställningar skalas efter skärm; textstorlek Liten/Normal/Stor (+ Extra stor på P4). PR #22 (gammal planversion) sammanslagen i main; denna branch behåller den nyare planen. Hårdvarutest återstår. |
 | 2026-10-29 | v0.23.0 arbetspaket | ESP-Hosted-diagnostik, Karaoke-layout, profilbaserade SoundFont-budgetar, P4-partitioner, timeoutpolicy, Wi-Fi MIN_MODEM och Yatzy mDNS; utredningar i docs. Target CI och fysisk verifiering ska fortfarande köras. |
 | 2026-10-29 | v0.23 X.7 discovery-slice | Enhetens UI filtrerar mDNS-värdar via `/api/game` och visar lediga PIN-skyddade Yatzy-webbplatser. Native WebSocket-join/fjärrstyrning är uttryckligen inte levererad; ESP-IDF-byggen och **Hårdvara**-test återstår. |
-| 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout provad på båda korten. P4-partitionstabellen migrerad; utökad FFat visar 22 172 kB; stora SoundFonts provade på P4. Fler röster med mindre SoundFonts provade på S3. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
-| 2026-10-30 | X.7 sessions-ID-inkrement | `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras här eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
+| 2026-10-30 | Ägarrapporterad hårdvara | Karaoke-layout fungerar på båda korten. Efter USB-flash av partitionstabellen använder P4 hela flashen och FFat visar 22 172 kB; stora SoundFonts fungerar på P4. Mindre SoundFonts på S3 medger fler samtidiga röster. mDNS-discovery hittar andra enheter och listar aktiva spel. Detta är inte verifiering av fjärrspel; omstart/OTA efter migrering och fysisk Yatzy-omgång återstår. |
+| 2026-10-30 | v0.23.1 X.7 sessions-ID-inkrement | `PROJECT_VER` och README bumpade till v0.23.1. `/api/game` och WebSocket-state/joined skickar ett opakt sessions-ID; `join` med ID avvisas vid sessionsbyte eller upptagen/icke-webbplats. Browserformat utan ID bibehålls. ESP WebSocket-klient och fjärr-UI saknas fortfarande. Protokoll-/språktester körda; S3/P4-byggen kan inte köras lokalt eftersom ESP-IDF saknas. Fysisk fjärrspelstestning på båda korten är fortsatt väntande. |
 
 ### P4-partitionstabell: USB-migrering
 
