@@ -17,6 +17,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,10 @@
 #include "my_storage.h"
 #include "my_web.h"
 #include "web_util.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 static const char *TAG = "webfs";
 
@@ -47,7 +52,10 @@ namespace AppWebFiles {
 
 static constexpr size_t PATH_CAP = 300;
 static constexpr size_t CHUNK = 8192;
+static constexpr size_t WRITE_CACHE = 16384;
 static constexpr int MAX_ENTRIES = 400;
+static constexpr int MAX_UPLOADS = 2;
+static std::atomic<int> s_activeUploads{0};
 
 namespace {
 
@@ -63,6 +71,49 @@ struct Target {
     const char *root;
     char path[PATH_CAP];
 };
+
+struct UploadChunk {
+    uint8_t index;
+    size_t length;
+};
+
+struct UploadPipeline {
+    Target *target;
+    FILE *file;
+    uint8_t *buffers[2];
+    QueueHandle_t ready;
+    QueueHandle_t available;
+    SemaphoreHandle_t finished;
+    std::atomic<int> error{0};
+    int64_t bufferWaitUs = 0;
+    int64_t lockUs = 0;
+    int64_t writeUs = 0;
+};
+
+void uploadWriterTask(void *arg)
+{
+    auto *pipeline = static_cast<UploadPipeline *>(arg);
+    UploadChunk chunk{};
+    while (xQueueReceive(pipeline->ready, &chunk, portMAX_DELAY) == pdTRUE && chunk.length) {
+        int error = pipeline->error.load();
+        if (!error) {
+            const int64_t lockStart = esp_timer_get_time();
+            if (pipeline->target->sd) BoardSd::lock();
+            pipeline->lockUs += esp_timer_get_time() - lockStart;
+            const int64_t writeStart = esp_timer_get_time();
+            const bool wrote = fwrite(pipeline->buffers[chunk.index], 1, chunk.length, pipeline->file) == chunk.length;
+            pipeline->writeUs += esp_timer_get_time() - writeStart;
+            if (pipeline->target->sd) BoardSd::unlock();
+            if (!wrote) {
+                error = errno == ENOSPC ? ENOSPC : EIO;
+                pipeline->error.store(error);
+            }
+        }
+        xQueueSend(pipeline->available, &chunk.index, portMAX_DELAY);
+    }
+    xSemaphoreGive(pipeline->finished);
+    vTaskDelete(nullptr);
+}
 
 void *psAlloc(size_t n)
 {
@@ -262,7 +313,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
     return httpd_resp_send_chunk(r, nullptr, 0);
 }
 
-static esp_err_t handleUpload(httpd_req_t *r)
+static esp_err_t handleUploadRequest(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
@@ -315,39 +366,107 @@ static esp_err_t handleUpload(httpd_req_t *r)
         }
     }
     if (!f) return ioError(r, err ? err : EEXIST);
-    char *buf = (char *)psAlloc(CHUNK);
-    bool ok = buf != nullptr;
+    UploadPipeline pipeline{};
+    pipeline.target = &t;
+    pipeline.file = f;
+    pipeline.buffers[0] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    pipeline.buffers[1] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *writeCache = t.sd
+                           ? (char *)heap_caps_malloc(WRITE_CACHE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+                           : (char *)psAlloc(WRITE_CACHE);
+    const bool buffered = writeCache && setvbuf(f, writeCache, _IOFBF, WRITE_CACHE) == 0;
+    if (!buffered) {
+        free(writeCache);
+        writeCache = nullptr;
+    }
+    pipeline.ready = xQueueCreate(2, sizeof(UploadChunk));
+    pipeline.available = xQueueCreate(2, sizeof(uint8_t));
+    pipeline.finished = xSemaphoreCreateBinary();
+    bool ok = pipeline.buffers[0] && pipeline.buffers[1] && pipeline.ready && pipeline.available &&
+              pipeline.finished;
     err = ok ? 0 : ENOMEM;
+    TaskHandle_t writer = nullptr;
+    if (ok) {
+        const uint8_t first = 0, second = 1;
+        ok = xQueueSend(pipeline.available, &first, 0) == pdTRUE &&
+             xQueueSend(pipeline.available, &second, 0) == pdTRUE &&
+             xTaskCreate(uploadWriterTask, "fs_upload_sd", 4096, &pipeline, 3, &writer) == pdPASS;
+        if (!ok) err = ENOMEM;
+    }
+    if (!ok) {
+        Lock lk(t.sd);
+        fclose(f);
+        f = nullptr;
+        FsUpload::discard(tmp);
+    }
     size_t left = total;
     int timeouts = 0;
-    int64_t recvUs = 0, writeUs = 0;
+    int64_t recvUs = 0, flushUs = 0, closeUs = 0;
     while (ok && left > 0) {
+        if (pipeline.error.load()) {
+            err = pipeline.error.load();
+            ok = false;
+            char drain[512];
+            while (left > 0) {
+                const int n = httpd_req_recv(r, drain, left < sizeof(drain) ? left : sizeof(drain));
+                if (n <= 0) break;
+                left -= (size_t)n;
+            }
+            break;
+        }
+        uint8_t index = 0;
+        const int64_t waitStart = esp_timer_get_time();
+        if (xQueueReceive(pipeline.available, &index, pdMS_TO_TICKS(100)) != pdTRUE) {
+            pipeline.bufferWaitUs += esp_timer_get_time() - waitStart;
+            continue;
+        }
+        pipeline.bufferWaitUs += esp_timer_get_time() - waitStart;
         const int64_t recvStart = esp_timer_get_time();
-        int n = httpd_req_recv(r, buf, left < CHUNK ? left : CHUNK);
+        int n = httpd_req_recv(r, (char *)pipeline.buffers[index], left < CHUNK ? left : CHUNK);
         recvUs += esp_timer_get_time() - recvStart;
-        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) {
+            xQueueSend(pipeline.available, &index, portMAX_DELAY);
+            continue;
+        }
         if (n <= 0) {
             ok = false;
             err = EIO;
+            xQueueSend(pipeline.available, &index, portMAX_DELAY);
             break;
         }
         timeouts = 0;
-        const int64_t writeStart = esp_timer_get_time();
-        Lock lk(t.sd);
-        if (fwrite(buf, 1, n, f) != (size_t)n) {
+        const UploadChunk chunk{index, (size_t)n};
+        if (xQueueSend(pipeline.ready, &chunk, portMAX_DELAY) != pdTRUE) {
             ok = false;
-            err = errno == ENOSPC ? ENOSPC : EIO;
+            err = EIO;
+            xQueueSend(pipeline.available, &index, portMAX_DELAY);
+            break;
         }
-        writeUs += esp_timer_get_time() - writeStart;
-        left -= n;
+        left -= (size_t)n;
     }
-    free(buf);
+    if (writer) {
+        const UploadChunk done{0, 0};
+        xQueueSend(pipeline.ready, &done, portMAX_DELAY);
+        xSemaphoreTake(pipeline.finished, portMAX_DELAY);
+        if (pipeline.error.load()) {
+            ok = false;
+            err = pipeline.error.load();
+        }
+    }
     bool skipped = false;
-    {
+    if (f) {
         Lock lk(t.sd);
+        if (ok) {
+            const int64_t flushStart = esp_timer_get_time();
+            if (fflush(f) != 0) {
+                ok = false;
+                err = errno == ENOSPC ? ENOSPC : EIO;
+            }
+            flushUs = esp_timer_get_time() - flushStart;
+        }
         const int64_t closeStart = esp_timer_get_time();
         const int closeResult = fclose(f);
-        writeUs += esp_timer_get_time() - closeStart;
+        closeUs = esp_timer_get_time() - closeStart;
         if (closeResult != 0 && ok) {
             ok = false;
             err = EIO;
@@ -362,11 +481,21 @@ static esp_err_t handleUpload(httpd_req_t *r)
         }
         if (!ok || skipped) FsUpload::discard(tmp);
     }
+    free(pipeline.buffers[0]);
+    free(pipeline.buffers[1]);
+    free(writeCache);
+    if (pipeline.ready) vQueueDelete(pipeline.ready);
+    if (pipeline.available) vQueueDelete(pipeline.available);
+    if (pipeline.finished) vSemaphoreDelete(pipeline.finished);
     if (!skipped) changed(t);
-    ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, SD %llu ms", t.path,
+    ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, buffer wait %llu ms, SD lock wait %llu ms, "
+                  "write %llu ms, flush %llu ms, close %llu ms, cache %u B (%s)", t.path,
              skipped ? "skipped" : ok ? "complete" : "failed", (unsigned)total,
              (unsigned long long)((esp_timer_get_time() - uploadStart) / 1000),
-             (unsigned long long)(recvUs / 1000), (unsigned long long)(writeUs / 1000));
+             (unsigned long long)(recvUs / 1000), (unsigned long long)(pipeline.bufferWaitUs / 1000),
+             (unsigned long long)(pipeline.lockUs / 1000), (unsigned long long)(pipeline.writeUs / 1000),
+             (unsigned long long)(flushUs / 1000), (unsigned long long)(closeUs / 1000),
+             (unsigned)(buffered ? WRITE_CACHE : 0), t.sd && buffered ? "DMA" : buffered ? "RAM" : "default");
     if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
@@ -375,6 +504,42 @@ static esp_err_t handleUpload(httpd_req_t *r)
     }
     MyLog::event("files", "uploaded %s (%u B)", t.path, (unsigned)total);
     return MyWeb::sendOk(r);
+}
+
+static void uploadTask(void *arg)
+{
+    auto *r = static_cast<httpd_req_t *>(arg);
+    handleUploadRequest(r);
+    httpd_req_async_handler_complete(r);
+    s_activeUploads.fetch_sub(1);
+    vTaskDelete(nullptr);
+}
+
+static bool isInternalUpload(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    char root[8] = "sd";
+    return q.has("root") && q.get("root", root, sizeof(root)) && !strcmp(root, "ffat");
+}
+
+static esp_err_t handleUpload(httpd_req_t *r)
+{
+    if (isInternalUpload(r)) return handleUploadRequest(r);
+    if (s_activeUploads.fetch_add(1) >= MAX_UPLOADS) {
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, "För många samtidiga uppladdningar");
+    }
+    httpd_req_t *copy = nullptr;
+    if (httpd_req_async_handler_begin(r, &copy) != ESP_OK) {
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, "Uppladdningstjänsten är upptagen");
+    }
+    if (xTaskCreate(uploadTask, "fs_upload", 8192, copy, 3, nullptr) != pdPASS) {
+        httpd_req_async_handler_complete(copy);
+        s_activeUploads.fetch_sub(1);
+        return MyWeb::sendError(r, 503, tr(Str::WEB_ERR_MEMORY));
+    }
+    return ESP_OK;
 }
 
 static esp_err_t handleDelete(httpd_req_t *r)

@@ -443,13 +443,17 @@ rekommendation innan kod skrivs.
      UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
    - [x] Konfliktval vid uppladdning: avbryt (standard), hoppa över eller skriv
      över; hoppa över fortsätter batchen och byter aldrig ut befintligt innehåll.
-   - [x] Uppladdningsloggen skiljer mottagningstid från SD-skrivtid för fortsatt
-     prestandadiagnos; buffertstorlek ändras inte utan mätning på korten.
+   - [x] Högst två SD-uppladdningar kan köras samtidigt. Varje uppladdning
+     dubbelbuffrar mottagningen och använder en 16 KiB DMA-kapabel intern
+     skrivcache när minne finns; intern flash fortsätter sekventiellt.
+   - [x] Uppladdningsloggen skiljer mottagning, buffertväntan, SD-låsväntan,
+     skrivning, flush och stängning åt för prestandadiagnos.
    - [ ] **CI:** bygg ESP32-S3, ESP32-P4 och C6-jobbet för v0.23.2.
    - [ ] **Hårdvara:** prova 87/81-teckennamnen, Unicode och gränsfall samt
      avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
    - [ ] **Hårdvara/prestanda:** upprepa 144 MB-uppladdningen på båda korten
-     och jämför `recv`/`SD`-tider i uppladdningsloggen innan buffertar trimmas.
+     med och utan samtidiga uppladdningar. Jämför `recv`, `buffer wait`, `SD lock wait`,
+     `write` och `flush`; hårdvarueffekten av dubbelbuffring är ännu inte verifierad.
 
 ## Leveranslogg
 
