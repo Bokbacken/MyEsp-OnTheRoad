@@ -44,31 +44,36 @@ void discard(const char *temporary)
     if (temporary) unlink(temporary);
 }
 
-bool install(const char *temporary, const char *destination, const char *backup, bool overwrite)
+InstallResult install(const char *temporary, const char *destination, const char *backup, bool overwrite,
+                      bool skipExisting)
 {
     if (!temporary || !destination) {
         errno = EINVAL;
-        return false;
+        return InstallResult::FAILED;
     }
 
-    if (!overwrite) return moveNoReplace(temporary, destination) == 0;
+    if (!overwrite) {
+        if (moveNoReplace(temporary, destination) == 0) return InstallResult::INSTALLED;
+        return skipExisting && errno == EEXIST ? InstallResult::SKIPPED : InstallResult::FAILED;
+    }
     if (!backup || !strcmp(backup, destination) || !strcmp(backup, temporary)) {
         errno = EINVAL;
-        return false;
+        return InstallResult::FAILED;
     }
 
     if (moveNoReplace(destination, backup) == 0) {
         if (moveNoReplace(temporary, destination) == 0) {
             unlink(backup);
-            return true;
+            return InstallResult::INSTALLED;
         }
         const int installError = errno ? errno : EIO;
-        if (moveNoReplace(backup, destination) != 0) return false;
+        if (moveNoReplace(backup, destination) != 0) return InstallResult::FAILED;
         errno = installError;
-        return false;
+        return InstallResult::FAILED;
     }
-    if (errno != ENOENT) return false;
-    return moveNoReplace(temporary, destination) == 0;
+    if (errno != ENOENT) return InstallResult::FAILED;
+    if (moveNoReplace(temporary, destination) == 0) return InstallResult::INSTALLED;
+    return skipExisting && errno == EEXIST ? InstallResult::SKIPPED : InstallResult::FAILED;
 }
 
 }  // namespace FsUpload

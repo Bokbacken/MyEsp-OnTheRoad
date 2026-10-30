@@ -54,24 +54,26 @@ int main()
     CHECK(writeFile(destination, "old"));
     CHECK(writeFile(temporary, "partial"));
     CHECK(writeFile(backup, "keep"));
-    CHECK(!FsUpload::install(temporary, destination.c_str(), backup, true));
+    CHECK(FsUpload::install(temporary, destination.c_str(), backup, true) == FsUpload::InstallResult::FAILED);
     CHECK(errno == EEXIST);
     CHECK(readFile(destination) == "old");
     CHECK(readFile(backup) == "keep");
     unlink(backup);
-    CHECK(!FsUpload::install(temporary, destination.c_str(), backup, false));
+    CHECK(FsUpload::install(temporary, destination.c_str(), backup, false, true) == FsUpload::InstallResult::SKIPPED);
     CHECK(errno == EEXIST);
     CHECK(readFile(destination) == "old");
+    CHECK(readFile(temporary) == "partial");
+    CHECK(FsUpload::install(temporary, destination.c_str(), backup, false) == FsUpload::InstallResult::FAILED);
     FsUpload::discard(temporary);   // Aborted upload: discard staging data only.
     CHECK(readFile(destination) == "old");
 
     CHECK(writeFile(temporary, "new"));
-    CHECK(FsUpload::install(temporary, destination.c_str(), backup, true));
+    CHECK(FsUpload::install(temporary, destination.c_str(), backup, true) == FsUpload::InstallResult::INSTALLED);
     CHECK(readFile(destination) == "new");
     CHECK(access(backup, F_OK) != 0);
 
     CHECK(writeFile(destination, "preserve"));
-    CHECK(!FsUpload::install((dir + "/missing").c_str(), destination.c_str(), backup, true));
+    CHECK(FsUpload::install((dir + "/missing").c_str(), destination.c_str(), backup, true) == FsUpload::InstallResult::FAILED);
     CHECK(readFile(destination) == "preserve");
     CHECK(access(backup, F_OK) != 0);
 

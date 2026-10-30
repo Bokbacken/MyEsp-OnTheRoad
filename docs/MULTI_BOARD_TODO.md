@@ -441,9 +441,15 @@ rekommendation innan kod skrivs.
      återställs om installationen misslyckas. URI-gränsen är 1024 byte.
    - [x] Hostregressioner för rapporterade 87/81-teckennamn, 255/256-gränsen,
      UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
+   - [x] Konfliktval vid uppladdning: avbryt (standard), hoppa över eller skriv
+     över; hoppa över fortsätter batchen och byter aldrig ut befintligt innehåll.
+   - [x] Uppladdningsloggen skiljer mottagningstid från SD-skrivtid för fortsatt
+     prestandadiagnos; buffertstorlek ändras inte utan mätning på korten.
    - [ ] **CI:** bygg ESP32-S3, ESP32-P4 och C6-jobbet för v0.23.2.
    - [ ] **Hårdvara:** prova 87/81-teckennamnen, Unicode och gränsfall samt
      avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
+   - [ ] **Hårdvara/prestanda:** upprepa 144 MB-uppladdningen på båda korten
+     och jämför `recv`/`SD`-tider i uppladdningsloggen innan buffertar trimmas.
 
 ## Leveranslogg
 

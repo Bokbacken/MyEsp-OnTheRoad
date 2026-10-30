@@ -30,6 +30,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "files_page.h"
 #include "fs_path.h"
 #include "fs_upload.h"
@@ -139,6 +140,11 @@ void addUsage(cJSON *o, bool sd)
         cJSON_AddNumberToObject(o, "total", (double)tot);
         cJSON_AddNumberToObject(o, "free", (double)(tot > used ? tot - used : 0));
     }
+}
+
+esp_err_t sendUploadSkipped(httpd_req_t *r)
+{
+    return MyWeb::sendJsonStr(r, 200, "{\"ok\":true,\"skipped\":true}");
 }
 
 }  // namespace
@@ -269,15 +275,20 @@ static esp_err_t handleUpload(httpd_req_t *r)
     if (FsPath::isRoot(t.root, t.path) || !FsPath::validName(baseName(t.path)))
         return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     bool overwrite = false;
+    bool skipExisting = false;
     q.getBool("overwrite", overwrite);
+    q.getBool("skip", skipExisting);
+    if (overwrite && skipExisting) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     const size_t total = r->content_len;
     char tmp[PATH_CAP], backup[PATH_CAP];
     FILE *f = nullptr;
     int err = 0;
+    const int64_t uploadStart = esp_timer_get_time();
     {
         Lock lk(t.sd);
         struct stat st = {};
         if (stat(t.path, &st) == 0) {
+            if (skipExisting && !overwrite) return sendUploadSkipped(r);
             if (S_ISDIR(st.st_mode) || !overwrite)
                 return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
         } else if (errno != ENOENT) {
@@ -309,8 +320,11 @@ static esp_err_t handleUpload(httpd_req_t *r)
     err = ok ? 0 : ENOMEM;
     size_t left = total;
     int timeouts = 0;
+    int64_t recvUs = 0, writeUs = 0;
     while (ok && left > 0) {
+        const int64_t recvStart = esp_timer_get_time();
         int n = httpd_req_recv(r, buf, left < CHUNK ? left : CHUNK);
+        recvUs += esp_timer_get_time() - recvStart;
         if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
         if (n <= 0) {
             ok = false;
@@ -318,27 +332,42 @@ static esp_err_t handleUpload(httpd_req_t *r)
             break;
         }
         timeouts = 0;
+        const int64_t writeStart = esp_timer_get_time();
         Lock lk(t.sd);
         if (fwrite(buf, 1, n, f) != (size_t)n) {
             ok = false;
             err = errno == ENOSPC ? ENOSPC : EIO;
         }
+        writeUs += esp_timer_get_time() - writeStart;
         left -= n;
     }
     free(buf);
+    bool skipped = false;
     {
         Lock lk(t.sd);
-        if (fclose(f) != 0 && ok) {
+        const int64_t closeStart = esp_timer_get_time();
+        const int closeResult = fclose(f);
+        writeUs += esp_timer_get_time() - closeStart;
+        if (closeResult != 0 && ok) {
             ok = false;
             err = EIO;
         }
-        if (ok && !FsUpload::install(tmp, t.path, backup, overwrite)) {
-            ok = false;
-            err = errno ? errno : EIO;
+        if (ok) {
+            const FsUpload::InstallResult result = FsUpload::install(tmp, t.path, backup, overwrite, skipExisting);
+            skipped = result == FsUpload::InstallResult::SKIPPED;
+            if (result == FsUpload::InstallResult::FAILED) {
+                ok = false;
+                err = errno ? errno : EIO;
+            }
         }
-        if (!ok) FsUpload::discard(tmp);
+        if (!ok || skipped) FsUpload::discard(tmp);
     }
-    changed(t);
+    if (!skipped) changed(t);
+    ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, SD %llu ms", t.path,
+             skipped ? "skipped" : ok ? "complete" : "failed", (unsigned)total,
+             (unsigned long long)((esp_timer_get_time() - uploadStart) / 1000),
+             (unsigned long long)(recvUs / 1000), (unsigned long long)(writeUs / 1000));
+    if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
         if (err == ENOMEM) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));

@@ -658,6 +658,7 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_multiplayer_protocol.cpp -o /tmp/
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
 g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload && /tmp/test_fs_upload   # safe upload staging and replacement
+node tests/test_files_upload_web.js   # file upload conflict policies and skip continuation
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_story.cpp components/otr_story/*.cpp -o tests/test_story && ./tests/test_story   # dialogue engine + village script
 g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o tests/test_advlive && ./tests/test_advlive   # adventure live snapshot + JSON

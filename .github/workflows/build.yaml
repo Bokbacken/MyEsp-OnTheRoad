@@ -90,6 +90,7 @@ jobs:
           /tmp/test_fspath
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload
           /tmp/test_fs_upload
+          node tests/test_files_upload_web.js
 
       - name: Read firmware version
         id: firmware
