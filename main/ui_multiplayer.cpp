@@ -1120,7 +1120,8 @@ static void showRemoteGame()
 
     s_remoteScoreTable = lv_table_create(s_remoteScorePanel);
     lv_obj_set_size(s_remoteScoreTable, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_scroll_dir(s_remoteScoreTable, LV_DIR_VER | LV_DIR_HOR);
+    lv_obj_set_scroll_dir(s_remoteScoreTable,
+                          static_cast<lv_dir_t>(LV_DIR_VER | LV_DIR_HOR));
     lv_obj_set_scrollbar_mode(s_remoteScoreTable, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_bg_color(s_remoteScoreTable, Theme::c(Theme::BG), 0);
     lv_obj_set_style_border_width(s_remoteScoreTable, 2, 0);
