@@ -1185,6 +1185,15 @@ static lv_obj_t *createRemoteDie(lv_obj_t *parent, const RemoteGame &state, int 
     return die;
 }
 
+static int remoteAnimatedFace(const RemoteGame &state, int index, uint32_t tick)
+{
+    const int oldFace = state.dice[index];
+    const bool hasOldFace = oldFace >= 1 && oldFace <= 6;
+    int face = (int)((tick / 70u + (uint32_t)index * 3u) % (hasOldFace ? 5u : 6u)) + 1;
+    if (hasOldFace && face >= oldFace) face++;
+    return face;
+}
+
 static void renderRemoteDice(const RemoteGame &state)
 {
     if (!s_remoteDice || !s_remoteNest) return;
@@ -1212,7 +1221,7 @@ static void renderRemoteDice(const RemoteGame &state)
         lv_obj_t *row = held ? s_remoteNest : s_remoteDice;
         const int32_t dieSize = held ? nestDieSize : diceSize;
         const int animatedFace = state.rolling && state.rollMask[i] ?
-                                 (int)((lv_tick_get() / 70u + (uint32_t)i * 3u) % 6u) + 1 : 0;
+                                 remoteAnimatedFace(state, i, lv_tick_get()) : 0;
         lv_obj_t *die = createRemoteDie(row, state, i, dieSize, false, animatedFace);
         if (!die) continue;
         lv_obj_set_size(die, dieSize, dieSize);
@@ -1265,7 +1274,7 @@ static void remoteDiceAnimTick(lv_timer_t *)
     const uint32_t tick = lv_tick_get();
     for (int i = 0; i < state.diceCount; i++) {
         if (!state.rollMask[i] || !s_remoteDie[i]) continue;
-        const int face = (int)((tick / 70u + (uint32_t)i * 3u) % 6u) + 1;
+        const int face = remoteAnimatedFace(state, i, tick);
         const void *sprite = UiYatzy::faceSprite(s_remoteDieSize[i], face);
         if (sprite) lv_image_set_src(s_remoteDie[i], sprite);
         lv_image_set_rotation(s_remoteDie[i],
