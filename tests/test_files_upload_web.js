@@ -91,13 +91,13 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   assert.equal(internal.maxActive, 1, 'internal flash uploads remain serialized');
   assert.equal(internal.requests.length, 3);
 
-  const folder = await uploadWith('skip', [{ok: true}, {ok: true}], 2, 'sd', [
-    'Project/Disc One/song.mid', 'Project/Disc Two/song.mid'
+  const folder = await uploadWith('skip', [{ok: true}, {ok: true}, {ok: true}], 3, 'sd', [
+    'Project/Disc One/song.mid', 'Project/Disc One/Sub/song.mid', 'Project/Disc Two/song.mid'
   ]);
   assert.deepEqual(folder.mkdirs.map(x => JSON.parse(x.body).path),
-    ['/songs/Project', '/songs/Project/Disc One', '/songs/Project/Disc Two']);
-  assert.deepEqual(folder.requests.map(x => new URLSearchParams(x.url.split('?')[1]).get('path')),
-    ['/songs/Project/Disc One/song.mid', '/songs/Project/Disc Two/song.mid']);
+    ['/songs/Project', '/songs/Project/Disc One', '/songs/Project/Disc Two', '/songs/Project/Disc One/Sub']);
+  assert.deepEqual(folder.requests.map(x => new URLSearchParams(x.url.split('?')[1]).get('path')).sort(),
+    ['/songs/Project/Disc One/song.mid', '/songs/Project/Disc One/Sub/song.mid', '/songs/Project/Disc Two/song.mid'].sort());
 
   const tooDeep = await uploadWith('skip', [{ok: true}], 1, 'sd', ['One/Two/Three/Four/song.mid']);
   assert.equal(tooDeep.requests.length, 0, 'directory uploads beyond three levels are rejected');

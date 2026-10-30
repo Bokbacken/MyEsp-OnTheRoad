@@ -4,9 +4,11 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.23.2** – FAT supports long filenames and web uploads stage safely
-> without truncating names or replacing the destination before success. Hardware
-> verification of these file cases remains pending. ESP-Hosted versions are
+> **Status: v0.23.3** – FAT supports long filenames and safe staged uploads;
+> directory uploads support up to three levels, SD formatting requires explicit
+> confirmation, and existing-file uploads now skip by default. Hardware
+> verification of the new SD operations remains pending. See
+> [file-management changes and measurements](docs/FILE_MANAGEMENT.md). ESP-Hosted versions are
 > cached and shown in P4 diagnostics; Karaoke lyrics scale with large-screen
 > height; P4 has a 32 MB partition layout
 > (existing devices need one USB partition-table flash); SoundFont budgets follow
@@ -658,7 +660,7 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_multiplayer_protocol.cpp -o /tmp/
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
 g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload && /tmp/test_fs_upload   # safe upload staging and replacement
-node tests/test_files_upload_web.js   # file conflict policies, four-way SD uploads, and serialized flash uploads
+node tests/test_files_upload_web.js   # conflict defaults, directory depth, four-way SD and serialized flash uploads
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_story.cpp components/otr_story/*.cpp -o tests/test_story && ./tests/test_story   # dialogue engine + village script
 g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o tests/test_advlive && ./tests/test_advlive   # adventure live snapshot + JSON
