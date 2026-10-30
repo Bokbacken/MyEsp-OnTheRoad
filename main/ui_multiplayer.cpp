@@ -353,7 +353,7 @@ static void handleRemoteMessage(const char *text)
     if (cJSON_IsString(type) && strcmp(type->valuestring, "joined") == 0) {
         const cJSON *you = cJSON_GetObjectItemCaseSensitive(json, "you");
         const cJSON *session = cJSON_GetObjectItemCaseSensitive(json, "session_id");
-        const bool ok = cJSON_IsNumber(you) && you->valueint == s_remoteSeat &&
+        const bool ok = cJSON_IsNumber(you) && you->valueint == expectedSeat &&
                         cJSON_IsString(session) &&
                         MultiplayerProtocol::sameSession(expectedSession, session->valuestring);
         if (ok) {
