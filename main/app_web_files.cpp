@@ -289,11 +289,6 @@ static esp_err_t handleUpload(httpd_req_t *r)
             if (!FsUpload::siblingPath(t.path, nonce, false, tmp, sizeof(tmp)) ||
                 !FsUpload::siblingPath(t.path, nonce, true, backup, sizeof(backup)))
                 return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
-            if (stat(backup, &st) == 0) continue;
-            if (errno != ENOENT) {
-                err = errno ? errno : EIO;
-                break;
-            }
             const int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0666);
             if (fd >= 0) {
                 f = fdopen(fd, "wb");

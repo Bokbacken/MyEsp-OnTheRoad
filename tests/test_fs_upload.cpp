@@ -53,6 +53,12 @@ int main()
 
     CHECK(writeFile(destination, "old"));
     CHECK(writeFile(temporary, "partial"));
+    CHECK(writeFile(backup, "keep"));
+    CHECK(!FsUpload::install(temporary, destination.c_str(), backup, true));
+    CHECK(errno == EEXIST);
+    CHECK(readFile(destination) == "old");
+    CHECK(readFile(backup) == "keep");
+    unlink(backup);
     CHECK(!FsUpload::install(temporary, destination.c_str(), backup, false));
     CHECK(errno == EEXIST);
     CHECK(readFile(destination) == "old");

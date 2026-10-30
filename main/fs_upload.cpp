@@ -3,10 +3,21 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 namespace FsUpload {
+
+static int moveNoReplace(const char *from, const char *to)
+{
+#ifdef ESP_PLATFORM
+    // FAT rename refuses an existing destination; use the same no-replace behavior in host tests.
+    return rename(from, to);
+#else
+    if (link(from, to) != 0) return -1;
+    unlink(from);
+    return 0;
+#endif
+}
 
 bool siblingPath(const char *destination, uint32_t nonce, bool backup, char *out, size_t cap)
 {
@@ -40,37 +51,24 @@ bool install(const char *temporary, const char *destination, const char *backup,
         return false;
     }
 
-    struct stat st = {};
-    if (stat(destination, &st) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-            errno = EISDIR;
-            return false;
-        }
-        if (!overwrite) {
-            errno = EEXIST;
-            return false;
-        }
-        if (!backup || !strcmp(backup, destination) || !strcmp(backup, temporary)) {
-            errno = EINVAL;
-            return false;
-        }
-        if (stat(backup, &st) == 0) {
-            errno = EEXIST;
-            return false;
-        }
-        if (errno != ENOENT) return false;
-        if (rename(destination, backup) != 0) return false;
-        if (rename(temporary, destination) == 0) {
+    if (!overwrite) return moveNoReplace(temporary, destination) == 0;
+    if (!backup || !strcmp(backup, destination) || !strcmp(backup, temporary)) {
+        errno = EINVAL;
+        return false;
+    }
+
+    if (moveNoReplace(destination, backup) == 0) {
+        if (moveNoReplace(temporary, destination) == 0) {
             unlink(backup);
             return true;
         }
         const int installError = errno ? errno : EIO;
-        if (rename(backup, destination) != 0) return false;
+        if (moveNoReplace(backup, destination) != 0) return false;
         errno = installError;
         return false;
     }
     if (errno != ENOENT) return false;
-    return rename(temporary, destination) == 0;
+    return moveNoReplace(temporary, destination) == 0;
 }
 
 }  // namespace FsUpload
