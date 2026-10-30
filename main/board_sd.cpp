@@ -55,7 +55,7 @@ bool cardPower(bool reset)
 }
 #endif
 
-bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
+bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT, bool formatIfFail = false)
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = freqKhz;
@@ -87,7 +87,7 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
     slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
     esp_vfs_fat_sdmmc_mount_config_t mcfg = {};
-    mcfg.format_if_mount_failed = false;   // Never format the user's card
+    mcfg.format_if_mount_failed = formatIfFail;
     mcfg.max_files = 8;
     mcfg.allocation_unit_size = 16 * 1024;
     esp_err_t err = esp_vfs_fat_sdmmc_mount(MOUNT, &host, &slot, &mcfg, &s_card);
@@ -109,19 +109,20 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT)
     return true;
 }
 
-bool mountLocked()
+bool mountLocked(bool formatIfFail = false)
 {
     if (s_info.mounted) return true;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     if (!cardPower(s_recover)) return false;
     const int freq = s_recover ? 10000 : SDMMC_FREQ_DEFAULT;
-    bool ok = tryMount(4, freq);
+    bool ok = tryMount(4, freq, formatIfFail);
     if (!ok) {
         s_recover = true;
-        ok = cardPower(true) && tryMount(1, 10000);
+        ok = cardPower(true) && tryMount(1, 10000, formatIfFail);
     }
 #else
-    const bool ok = tryMount(4) || tryMount(1);
+    const bool ok = tryMount(4, SDMMC_FREQ_DEFAULT, formatIfFail) ||
+                    tryMount(1, SDMMC_FREQ_DEFAULT, formatIfFail);
 #endif
     if (!ok) {
         s_logMissing = false;   // Log the first failure only; poll() retries quietly
@@ -225,7 +226,8 @@ bool remount()
 bool format()
 {
     Guard g;
-    if (!s_info.mounted || !s_card) return false;
+    if (!s_info.mounted && !mountLocked(true)) return false;
+    if (!s_card) return false;
 
     const esp_err_t err = esp_vfs_fat_sdcard_format(MOUNT, s_card);
     if (err != ESP_OK) {
