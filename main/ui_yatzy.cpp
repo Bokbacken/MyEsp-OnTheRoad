@@ -1129,6 +1129,13 @@ static const FaceSet *facesFor(int32_t S)
     return freeSet;
 }
 
+const void *faceSprite(int32_t size, int face)
+{
+    if (face < 0 || face > 6) face = 0;
+    const FaceSet *faces = facesFor(size);
+    return faces ? &faces->buf[face] : nullptr;
+}
+
 static void setFace(DieUi &d, int face)
 {
     if (face < 0 || face > 6) face = 0;
@@ -1821,6 +1828,36 @@ static lv_obj_t *cupCircle(lv_obj_t *parent, int32_t d, uint32_t top, uint32_t b
     return o;
 }
 
+CupVisual createCupVisual(lv_obj_t *parent, int32_t diameter)
+{
+    const int32_t lipDiameter = diameter * CUP_LIP_D / CUP_D;
+    const int32_t bottomDiameter = diameter * CUP_BOTTOM_D / CUP_D;
+    CupVisual visual = {};
+    visual.rim = cupCircle(parent, diameter, 0x8A5A34, 0x3B2213);
+    lv_obj_set_style_outline_width(visual.rim, 2, 0);
+    lv_obj_set_style_outline_color(visual.rim, Theme::c(0x24140A), 0);
+    lv_obj_set_style_outline_opa(visual.rim, LV_OPA_COVER, 0);
+    lv_obj_set_style_shadow_width(visual.rim, 22, 0);
+    lv_obj_set_style_shadow_offset_y(visual.rim, 7, 0);
+    lv_obj_set_style_shadow_color(visual.rim, Theme::c(0x000000), 0);
+    lv_obj_set_style_shadow_opa(visual.rim, LV_OPA_60, 0);
+    lv_obj_t *gloss = lv_obj_create(visual.rim);
+    lv_obj_remove_style_all(gloss);
+    const int32_t glossWidth = diameter * 74 / CUP_D;
+    lv_obj_set_size(gloss, glossWidth, diameter * 12 / CUP_D);
+    lv_obj_set_pos(gloss, (diameter - glossWidth) / 2, 2 * diameter / CUP_D);
+    lv_obj_set_style_radius(gloss, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(gloss, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(gloss, 40, 0);
+    lv_obj_set_clickable(gloss, false);
+    visual.lip = cupCircle(visual.rim, lipDiameter, 0x0C0603, 0x2A180C);
+    visual.bottom = cupCircle(visual.lip, bottomDiameter, 0x0B2629, 0x14403F);
+    lv_obj_set_style_border_width(visual.bottom, 3, 0);
+    lv_obj_set_style_border_color(visual.bottom, Theme::c(0x000000), 0);
+    lv_obj_set_style_border_opa(visual.bottom, LV_OPA_50, 0);
+    return visual;
+}
+
 static lv_obj_t *cupButton(const char *text, int32_t x, int32_t y, uint32_t color, bool filled, lv_event_cb_t cb)
 {
     lv_obj_t *b = Theme::button(s_cupArea, text, 78, 38, color, filled);
@@ -1844,27 +1881,10 @@ static void buildCup(lv_obj_t *scr)
     lv_obj_add_event_cb(s_cupArea, cupEvent, LV_EVENT_RELEASED, nullptr);
     lv_obj_add_event_cb(s_cupArea, cupEvent, LV_EVENT_PRESS_LOST, nullptr);
 
-    s_cupRim = cupCircle(s_cupArea, CUP_D, 0x8A5A34, 0x3B2213);
-    lv_obj_set_style_outline_width(s_cupRim, 2, 0);
-    lv_obj_set_style_outline_color(s_cupRim, Theme::c(0x24140A), 0);
-    lv_obj_set_style_outline_opa(s_cupRim, LV_OPA_COVER, 0);
-    lv_obj_set_style_shadow_width(s_cupRim, 22, 0);
-    lv_obj_set_style_shadow_offset_y(s_cupRim, 7, 0);
-    lv_obj_set_style_shadow_color(s_cupRim, Theme::c(0x000000), 0);
-    lv_obj_set_style_shadow_opa(s_cupRim, LV_OPA_60, 0);
-    lv_obj_t *gloss = lv_obj_create(s_cupRim);
-    lv_obj_remove_style_all(gloss);
-    lv_obj_set_size(gloss, 74, 12);
-    lv_obj_set_pos(gloss, (CUP_D - 74) / 2, 2);
-    lv_obj_set_style_radius(gloss, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(gloss, lv_color_white(), 0);
-    lv_obj_set_style_bg_opa(gloss, 40, 0);
-    lv_obj_set_clickable(gloss, false);
-    s_cupLip = cupCircle(s_cupRim, CUP_LIP_D, 0x0C0603, 0x2A180C);
-    s_cupBottom = cupCircle(s_cupLip, CUP_BOTTOM_D, 0x0B2629, 0x14403F);
-    lv_obj_set_style_border_width(s_cupBottom, 3, 0);
-    lv_obj_set_style_border_color(s_cupBottom, Theme::c(0x000000), 0);
-    lv_obj_set_style_border_opa(s_cupBottom, LV_OPA_50, 0);
+    const CupVisual cup = createCupVisual(s_cupArea, CUP_D);
+    s_cupRim = cup.rim;
+    s_cupLip = cup.lip;
+    s_cupBottom = cup.bottom;
 
     s_cupCount = Theme::label(s_cupArea, "", &my_font_18, Theme::GOLD);
     lv_obj_set_width(s_cupCount, 80);

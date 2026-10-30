@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "dice_cup.h"
 #include "esp_err.h"
 #include "esp_http_client.h"
 #include "esp_netif_ip_addr.h"
@@ -122,6 +123,15 @@ static lv_obj_t *s_remoteRound = nullptr;
 static lv_obj_t *s_remoteDice = nullptr;
 static lv_obj_t *s_remoteRoll = nullptr;
 static lv_obj_t *s_remoteCategories = nullptr;
+static lv_obj_t *s_remoteCupArea = nullptr;
+static lv_obj_t *s_remoteCupRim = nullptr;
+static lv_obj_t *s_remoteCupLip = nullptr;
+static lv_obj_t *s_remoteCupBottom = nullptr;
+static lv_obj_t *s_remoteCupDice = nullptr;
+static lv_obj_t *s_remoteCupDie[YATZY_MAX_DICE] = {};
+static lv_obj_t *s_remoteCupCount = nullptr;
+static lv_obj_t *s_remoteCupHint = nullptr;
+static lv_obj_t *s_remoteCupChoose = nullptr;
 static uint32_t s_remoteRenderedRevision = UINT32_MAX;
 static RemoteGame s_remote = {};
 static portMUX_TYPE s_remoteMux = portMUX_INITIALIZER_UNLOCKED;
@@ -139,6 +149,22 @@ static lv_obj_t *s_remoteScorePanel = nullptr;
 static lv_obj_t *s_remoteScoreTable = nullptr;
 static lv_obj_t *s_remoteScoreButton = nullptr;
 static bool s_remoteShowingScorecard = false;
+static bool s_remoteCupActive = false;
+static bool s_remoteCupPressed = false;
+static DiceCup::ShakeTracker s_remoteCupShake;
+static DiceCup::Body s_remoteCupBodies[YATZY_MAX_DICE] = {};
+static int s_remoteCupBodyCount = 0;
+static DiceCup::CupParams s_remoteCupParams = {};
+static lv_timer_t *s_remoteCupTimer = nullptr;
+static uint32_t s_remoteCupLastMs = 0;
+static int32_t s_remoteCupBaseX = 0;
+static int32_t s_remoteCupBaseY = 0;
+static float s_remoteCupCenterX = 0;
+static float s_remoteCupCenterY = 0;
+static float s_remoteCupOffX = 0;
+static float s_remoteCupOffY = 0;
+static float s_remoteCupVx = 0;
+static float s_remoteCupVy = 0;
 static int s_selectedHost = -1;
 static int s_selectedVisibleSeat = -1;
 static Host s_selectedHostData = {};
@@ -147,6 +173,9 @@ static lv_obj_t *s_pinPad = nullptr;
 static void selectSeatEvent(lv_event_t *event);
 static void showRemoteGame();
 static bool startRemoteGame(const char *pin);
+static void renderRemoteDice(const RemoteGame &state);
+static void closeRemoteCup();
+static void remoteCupTick(lv_timer_t *timer);
 
 static esp_err_t receiveHttp(esp_http_client_event_t *event)
 {
@@ -758,11 +787,6 @@ static void pollScan(lv_timer_t *)
     renderResults();
 }
 
-static void remoteRollEvent(lv_event_t *)
-{
-    sendRemoteCommand("roll");
-}
-
 static void remoteHoldEvent(lv_event_t *event)
 {
     sendRemoteCommand("hold", (int)(intptr_t)lv_event_get_user_data(event));
@@ -818,18 +842,180 @@ static void leaveRemoteEvent(lv_event_t *)
     show();
 }
 
-static bool remoteDiePip(int face, int pip)
+static void placeRemoteCup()
 {
-    static const bool faces[7][9] = {
-        {false, false, false, false, false, false, false, false, false},
-        {false, false, false, false, true,  false, false, false, false},
-        {true,  false, false, false, false, false, false, false, true },
-        {true,  false, false, false, true,  false, false, false, true },
-        {true,  false, true,  false, false, false, true,  false, true },
-        {true,  false, true,  false, true,  false, true,  false, true },
-        {true,  false, true,  true,  false, true,  true,  false, true }
+    const int32_t diameter = lv_obj_get_width(s_remoteCupRim);
+    const int32_t lipDiameter = lv_obj_get_width(s_remoteCupLip);
+    const int32_t bottomDiameter = lv_obj_get_width(s_remoteCupBottom);
+    lv_obj_set_pos(s_remoteCupRim, s_remoteCupBaseX + (int32_t)s_remoteCupOffX,
+                   s_remoteCupBaseY + (int32_t)s_remoteCupOffY);
+    lv_obj_set_pos(s_remoteCupLip, (diameter - lipDiameter) / 2 -
+                   (int32_t)s_remoteCupOffX / 6,
+                   (diameter - lipDiameter) / 2 - (int32_t)s_remoteCupOffY / 6);
+    lv_obj_set_pos(s_remoteCupBottom, (lipDiameter - bottomDiameter) / 2 -
+                   (int32_t)s_remoteCupOffX / 3,
+                   (lipDiameter - bottomDiameter) / 2 -
+                   (int32_t)s_remoteCupOffY / 3);
+    for (int body = 0; body < s_remoteCupBodyCount; body++) {
+        lv_obj_t *die = s_remoteCupDie[body];
+        if (!die) continue;
+        const int32_t size = lv_obj_get_width(die);
+        const DiceCup::Body &physics = s_remoteCupBodies[body];
+        lv_obj_set_pos(die, bottomDiameter / 2 + (int32_t)physics.x - size / 2,
+                       bottomDiameter / 2 + (int32_t)physics.y - size / 2);
+        lv_image_set_rotation(die, (int32_t)(physics.ang * 10.0f));
+    }
+}
+
+static void remoteCupTick(lv_timer_t *timer)
+{
+    if (!s_remoteCupActive) {
+        if (s_remoteCupTimer == timer) s_remoteCupTimer = nullptr;
+        lv_timer_delete(timer);
+        return;
+    }
+    const uint32_t now = lv_tick_get();
+    float dt = (float)(now - s_remoteCupLastMs) / 1000.0f;
+    s_remoteCupLastMs = now;
+    if (dt <= 0.0f) return;
+    if (dt > 0.05f) dt = 0.05f;
+
+    float targetX = 0.0f;
+    float targetY = 0.0f;
+    if (s_remoteCupPressed) {
+        targetX = (s_remoteCupShake.lastX() - s_remoteCupCenterX) * 0.35f;
+        targetY = (s_remoteCupShake.lastY() - s_remoteCupCenterY) * 0.35f;
+        targetX = targetX < -18.0f ? -18.0f : (targetX > 18.0f ? 18.0f : targetX);
+        targetY = targetY < -18.0f ? -18.0f : (targetY > 18.0f ? 18.0f : targetY);
+    }
+    const float k = dt * 16.0f > 1.0f ? 1.0f : dt * 16.0f;
+    const float oldX = s_remoteCupOffX;
+    const float oldY = s_remoteCupOffY;
+    const float nextX = s_remoteCupOffX + (targetX - s_remoteCupOffX) * k;
+    const float nextY = s_remoteCupOffY + (targetY - s_remoteCupOffY) * k;
+    const float vx = (nextX - oldX) / dt;
+    const float vy = (nextY - oldY) / dt;
+    const float dvx = vx - s_remoteCupVx;
+    const float dvy = vy - s_remoteCupVy;
+    s_remoteCupOffX = nextX;
+    s_remoteCupOffY = nextY;
+    s_remoteCupVx = vx;
+    s_remoteCupVy = vy;
+    DiceCup::step(s_remoteCupBodies, s_remoteCupBodyCount, dt,
+                  -dvx * 1.6f, -dvy * 1.6f, s_remoteCupParams);
+    placeRemoteCup();
+}
+
+static void remoteCupEvent(lv_event_t *event)
+{
+    if (!s_remoteCupActive || !s_remoteCupRim) return;
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    const uint32_t now = lv_tick_get();
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED) {
+        lv_area_t coords;
+        lv_obj_get_coords(s_remoteCupRim, &coords);
+        const float cx = ((float)coords.x1 + (float)coords.x2) / 2.0f;
+        const float cy = ((float)coords.y1 + (float)coords.y2) / 2.0f;
+        const float dx = (float)point.x - cx;
+        const float dy = (float)point.y - cy;
+        const int32_t radius = lv_obj_get_width(s_remoteCupRim) / 2 + 14;
+        if (dx * dx + dy * dy > (float)radius * (float)radius) return;
+        RemoteGame state;
+        portENTER_CRITICAL(&s_remoteMux);
+        state = s_remote;
+        portEXIT_CRITICAL(&s_remoteMux);
+        MultiplayerProtocol::RemoteActions actions = {
+            state.joined, state.active, state.finished, state.rolling, state.hasRolled,
+            state.canRoll, state.you, state.current
+        };
+        if (!MultiplayerProtocol::canRemoteRoll(actions)) return;
+        s_remoteCupPressed = true;
+        s_remoteCupShake.begin((float)point.x, (float)point.y, now);
+    } else if (code == LV_EVENT_PRESSING) {
+        if (s_remoteCupPressed)
+            s_remoteCupShake.move((float)point.x, (float)point.y, now);
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        if (!s_remoteCupPressed) return;
+        s_remoteCupPressed = false;
+        lv_area_t coords;
+        lv_obj_get_coords(s_remoteCupRim, &coords);
+        const DiceCup::ReleaseInfo release =
+            DiceCup::decideRelease(s_remoteCupShake, s_remoteCupShake.lastY(),
+                                   (float)coords.y1);
+        s_remoteCupShake.end();
+        if (release.kind != DiceCup::Release::NONE) {
+            sendRemoteCommand("roll");
+            closeRemoteCup();
+        }
+    }
+}
+
+static void remoteOpenCupEvent(lv_event_t *)
+{
+    RemoteGame state;
+    portENTER_CRITICAL(&s_remoteMux);
+    state = s_remote;
+    portEXIT_CRITICAL(&s_remoteMux);
+    MultiplayerProtocol::RemoteActions actions = {
+        state.joined, state.active, state.finished, state.rolling, state.hasRolled,
+        state.canRoll, state.you, state.current
     };
-    return face >= 1 && face <= 6 && faces[face][pip];
+    if (!MultiplayerProtocol::canRemoteRoll(actions)) return;
+    s_remoteCupActive = true;
+    lv_obj_set_hidden(s_remoteCupArea, false);
+    lv_obj_set_hidden(s_remoteRoll, true);
+    lv_obj_set_hidden(s_remoteCategories, true);
+    lv_obj_set_hidden(s_remoteCupChoose, !state.hasRolled);
+    lv_label_set_text_fmt(s_remoteCupCount, tr(Str::GAME_ROLLS_LEFT), state.rollsLeft);
+    renderRemoteDice(state);
+    s_remoteCupLastMs = lv_tick_get();
+    if (s_remoteCupTimer) lv_timer_delete(s_remoteCupTimer);
+    s_remoteCupTimer = lv_timer_create(remoteCupTick, 16, nullptr);
+}
+
+static void remoteCupRollEvent(lv_event_t *)
+{
+    RemoteGame state;
+    portENTER_CRITICAL(&s_remoteMux);
+    state = s_remote;
+    portEXIT_CRITICAL(&s_remoteMux);
+    MultiplayerProtocol::RemoteActions actions = {
+        state.joined, state.active, state.finished, state.rolling, state.hasRolled,
+        state.canRoll, state.you, state.current
+    };
+    if (MultiplayerProtocol::canRemoteRoll(actions)) sendRemoteCommand("roll");
+    closeRemoteCup();
+}
+
+static void remoteCupCloseEvent(lv_event_t *)
+{
+    closeRemoteCup();
+}
+
+static void closeRemoteCup()
+{
+    if (!s_remoteCupActive) return;
+    s_remoteCupActive = false;
+    s_remoteCupPressed = false;
+    s_remoteCupShake.end();
+    if (s_remoteCupTimer) {
+        lv_timer_delete(s_remoteCupTimer);
+        s_remoteCupTimer = nullptr;
+    }
+    s_remoteCupOffX = s_remoteCupOffY = s_remoteCupVx = s_remoteCupVy = 0.0f;
+    placeRemoteCup();
+    lv_obj_set_hidden(s_remoteCupArea, true);
+    lv_obj_set_hidden(s_remoteRoll, false);
+    lv_obj_set_hidden(s_remoteCategories, false);
+    RemoteGame state;
+    portENTER_CRITICAL(&s_remoteMux);
+    state = s_remote;
+    portEXIT_CRITICAL(&s_remoteMux);
+    renderRemoteDice(state);
 }
 
 static void renderRemoteScorecard(const RemoteGame &state)
@@ -924,6 +1110,98 @@ static void remoteScoreTableDrawEvent(lv_event_t *event)
     if (text) text->color = Theme::c(foreground);
 }
 
+static lv_obj_t *createRemoteDie(lv_obj_t *parent, const RemoteGame &state, int index,
+                                 int32_t size, bool inCup)
+{
+    lv_obj_t *die = lv_image_create(parent);
+    if (!die) return nullptr;
+    const void *face = UiYatzy::faceSprite(size, state.dice[index]);
+    if (!face) {
+        lv_obj_delete(die);
+        return nullptr;
+    }
+    lv_obj_remove_style_all(die);
+    lv_obj_set_size(die, size, size);
+    lv_obj_set_style_radius(die, size / 5, 0);
+    lv_obj_set_style_shadow_spread(die, 0, 0);
+    lv_image_set_src(die, face);
+    lv_image_set_pivot(die, size / 2, size / 2);
+    lv_image_set_antialias(die, true);
+    const bool held = state.held[index] && !inCup;
+    lv_obj_set_style_border_width(die, held ? 3 : 0, 0);
+    lv_obj_set_style_border_color(die, Theme::c(Theme::GOLD), 0);
+    lv_obj_set_style_shadow_width(die, inCup ? 0 : (held ? 6 : (state.finished ? 10 : 16)), 0);
+    lv_obj_set_style_shadow_offset_y(die, held ? 1 : 3, 0);
+    lv_obj_set_style_shadow_color(die, Theme::c(held || state.finished ? 0x000000 : 0x05343A), 0);
+    lv_obj_set_style_shadow_opa(die, inCup ? LV_OPA_0 :
+                                (state.hasRolled && !state.rolling ?
+                                 (held ? LV_OPA_60 : LV_OPA_70) : LV_OPA_0), 0);
+    lv_obj_set_style_image_opa(die, inCup ? LV_OPA_COVER :
+                               (state.hasRolled ? (held ? 225 : LV_OPA_COVER) : LV_OPA_30), 0);
+    if (!inCup) {
+        lv_obj_set_clickable(die, true);
+        lv_obj_set_scrollable(die, false);
+        lv_obj_set_scroll_chain(die, false);
+        lv_obj_set_gesture_bubble(die, false);
+        lv_obj_set_ext_click_area(die, 4);
+    }
+    return die;
+}
+
+static void renderRemoteDice(const RemoteGame &state)
+{
+    if (!s_remoteDice) return;
+    MultiplayerProtocol::RemoteActions actions = {
+        state.joined, state.active, state.finished, state.rolling, state.hasRolled,
+        state.canRoll, state.you, state.current
+    };
+    const int32_t available = LV_MAX(1, lv_obj_get_content_width(s_remoteDice));
+    const int32_t gap = 2;
+    const int32_t preferredSize = state.diceCount == 6 ? 46 : 52;
+    const int32_t dieSize = LV_MIN(preferredSize,
+                                   (available - LV_MAX(0, state.diceCount - 1) * gap) /
+                                       LV_MAX(1, state.diceCount));
+    lv_obj_clean(s_remoteDice);
+    for (int i = 0; i < state.diceCount; i++) {
+        if (s_remoteCupActive && !state.held[i]) continue;
+        lv_obj_t *die = createRemoteDie(s_remoteDice, state, i, dieSize, false);
+        if (!die) continue;
+        lv_obj_set_size(die, dieSize, dieSize);
+        if (MultiplayerProtocol::canRemoteHold(actions))
+            lv_obj_add_event_cb(die, remoteHoldEvent, LV_EVENT_CLICKED,
+                                (void *)(intptr_t)i);
+        else
+            lv_obj_add_state(die, LV_STATE_DISABLED);
+    }
+
+    if (!s_remoteCupDice) return;
+    lv_obj_clean(s_remoteCupDice);
+    memset(s_remoteCupDie, 0, sizeof(s_remoteCupDie));
+    s_remoteCupBodyCount = 0;
+    if (!s_remoteCupActive) return;
+
+    int remoteDice[YATZY_MAX_DICE];
+    for (int i = 0; i < state.diceCount; i++)
+        if (!state.held[i]) remoteDice[s_remoteCupBodyCount++] = i;
+    const int32_t cupDieSize = state.diceCount == 6 ? 46 : 52;
+    const float scaledDieSize = (float)cupDieSize * 180.0f / 256.0f;
+    s_remoteCupParams.wallR = (float)lv_obj_get_width(s_remoteCupLip) / 2.0f -
+                              scaledDieSize * 0.55f;
+    s_remoteCupParams.dieR = scaledDieSize * 0.48f;
+    DiceCup::layout(s_remoteCupBodies, s_remoteCupBodyCount, s_remoteCupParams, 0.73f);
+    for (int i = 0; i < s_remoteCupBodyCount; i++) {
+        lv_obj_t *die = createRemoteDie(s_remoteCupDice, state, remoteDice[i],
+                                        cupDieSize, true);
+        if (!die) continue;
+        lv_image_set_scale(die, 180);
+        s_remoteCupDie[i] = die;
+        s_remoteCupBodies[i].vx = (float)((i % 3) - 1) * 90.0f;
+        s_remoteCupBodies[i].vy = (i % 2 ? -70.0f : 80.0f);
+        s_remoteCupBodies[i].av = (i % 2 ? -160.0f : 140.0f);
+    }
+    placeRemoteCup();
+}
+
 static void renderRemote()
 {
     if (!s_remoteStatus || !s_remoteRound || !s_remoteDice || !s_remoteCategories ||
@@ -964,43 +1242,13 @@ static void renderRemote()
         state.joined, state.active, state.finished, state.rolling, state.hasRolled,
         state.canRoll, state.you, state.current
     };
-    lv_obj_clean(s_remoteDice);
-    const int32_t gap = UiMetrics::marginSmall();
-    const int32_t diceWidth = LV_MAX(1, lv_obj_get_content_width(s_remoteDice));
-    const int32_t dieSize = LV_MIN(UiMetrics::buttonH(),
-                                   (diceWidth - (state.diceCount - 1) * gap) /
-                                       LV_MAX(1, state.diceCount));
-    for (int i = 0; i < state.diceCount; i++) {
-        lv_obj_t *die = lv_obj_create(s_remoteDice);
-        if (!die) continue;
-        lv_obj_remove_style_all(die);
-        lv_obj_set_size(die, dieSize, dieSize);
-        lv_obj_set_style_radius(die, 8, 0);
-        lv_obj_set_style_bg_color(die, Theme::c(state.dice[i] ? 0xF5F1E8 : Theme::PANEL), 0);
-        lv_obj_set_style_bg_opa(die, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(die, state.held[i] ? 3 : 1, 0);
-        lv_obj_set_style_border_color(die, Theme::c(state.held[i] ? Theme::GOLD : Theme::LINE), 0);
-        lv_obj_set_style_shadow_width(die, state.held[i] ? 5 : 8, 0);
-        lv_obj_set_style_shadow_color(die, Theme::c(0x000000), 0);
-        lv_obj_set_style_shadow_opa(die, LV_OPA_30, 0);
-        lv_obj_add_event_cb(die, remoteHoldEvent, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-        if (!MultiplayerProtocol::canRemoteHold(actions))
-            lv_obj_add_state(die, LV_STATE_DISABLED);
-        const int32_t pipSize = LV_MAX(4, dieSize / 7);
-        for (int pip = 0; pip < 9; pip++) {
-            if (!remoteDiePip(state.dice[i], pip)) continue;
-            lv_obj_t *dot = lv_obj_create(die);
-            if (!dot) continue;
-            lv_obj_remove_style_all(dot);
-            lv_obj_set_size(dot, pipSize, pipSize);
-            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_bg_color(dot, Theme::c(0x102630), 0);
-            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-            lv_obj_set_pos(dot, (dieSize - pipSize) * (pip % 3) / 2,
-                           (dieSize - pipSize) * (pip / 3) / 2);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
-        }
+    if (s_remoteCupActive && !MultiplayerProtocol::canRemoteRoll(actions))
+        closeRemoteCup();
+    else if (s_remoteCupActive) {
+        lv_obj_set_hidden(s_remoteCupChoose, !state.hasRolled);
+        lv_label_set_text_fmt(s_remoteCupCount, tr(Str::GAME_ROLLS_LEFT), state.rollsLeft);
     }
+    renderRemoteDice(state);
 
     if (MultiplayerProtocol::canRemoteRoll(actions))
         lv_obj_clear_state(s_remoteRoll, LV_STATE_DISABLED);
@@ -1038,6 +1286,8 @@ static void showRemoteGame()
     }
     s_remoteRenderedRevision = UINT32_MAX;
     s_remoteShowingScorecard = false;
+    s_remoteCupActive = false;
+    s_remoteCupPressed = false;
     ESP_LOGI(TAG, "opening remote Yatzy view");
     lv_obj_t *screen = Theme::screen();
     Theme::header(screen, tr(Str::MULTI_REMOTE_TITLE));
@@ -1083,7 +1333,7 @@ static void showRemoteGame()
     lv_obj_set_style_bg_opa(felt, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(felt, 1, 0);
     lv_obj_set_style_border_color(felt, Theme::c(0x416267), 0);
-    lv_obj_set_style_pad_hor(felt, UiMetrics::marginSmall(), 0);
+    lv_obj_set_style_pad_hor(felt, 4, 0);
     lv_obj_set_style_pad_ver(felt, UiMetrics::marginSmall(), 0);
 
     s_remoteDice = lv_obj_create(felt);
@@ -1092,7 +1342,7 @@ static void showRemoteGame()
     lv_obj_set_flex_flow(s_remoteDice, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_remoteDice, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(s_remoteDice, UiMetrics::marginSmall(), 0);
+    lv_obj_set_style_pad_column(s_remoteDice, 2, 0);
     lv_obj_set_scrollable(s_remoteDice, false);
 
     const int32_t rollY = feltH + UiMetrics::marginSmall();
@@ -1100,7 +1350,7 @@ static void showRemoteGame()
                                  Theme::ACCENT, true);
     lv_obj_set_pos(s_remoteRoll, 0, rollY);
     lv_obj_add_state(s_remoteRoll, LV_STATE_DISABLED);
-    lv_obj_add_event_cb(s_remoteRoll, remoteRollEvent, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(s_remoteRoll, remoteOpenCupEvent, LV_EVENT_CLICKED, nullptr);
 
     const int32_t categoryY = rollY + buttonH + UiMetrics::marginSmall();
     s_remoteCategories = lv_obj_create(s_remotePlayPanel);
@@ -1111,6 +1361,64 @@ static void showRemoteGame()
     lv_obj_set_style_pad_row(s_remoteCategories, UiMetrics::marginSmall(), 0);
     lv_obj_set_scroll_dir(s_remoteCategories, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(s_remoteCategories, LV_SCROLLBAR_MODE_AUTO);
+
+    const int32_t cupAreaHeight = bodyHeight - rollY;
+    s_remoteCupArea = lv_obj_create(s_remotePlayPanel);
+    lv_obj_remove_style_all(s_remoteCupArea);
+    lv_obj_set_pos(s_remoteCupArea, 0, rollY);
+    lv_obj_set_size(s_remoteCupArea, width, cupAreaHeight);
+    lv_obj_set_scrollable(s_remoteCupArea, false);
+    lv_obj_set_scroll_chain(s_remoteCupArea, false);
+    lv_obj_set_gesture_bubble(s_remoteCupArea, false);
+    lv_obj_set_clickable(s_remoteCupArea, true);
+    lv_obj_add_event_cb(s_remoteCupArea, remoteCupEvent, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(s_remoteCupArea, remoteCupEvent, LV_EVENT_PRESSING, nullptr);
+    lv_obj_add_event_cb(s_remoteCupArea, remoteCupEvent, LV_EVENT_RELEASED, nullptr);
+    lv_obj_add_event_cb(s_remoteCupArea, remoteCupEvent, LV_EVENT_PRESS_LOST, nullptr);
+
+    const int32_t cupDiameter = LV_MAX(84, LV_MIN(146, cupAreaHeight - 56));
+    const UiYatzy::CupVisual cup = UiYatzy::createCupVisual(s_remoteCupArea, cupDiameter);
+    s_remoteCupRim = cup.rim;
+    s_remoteCupLip = cup.lip;
+    s_remoteCupBottom = cup.bottom;
+    s_remoteCupBaseX = (width - cupDiameter) / 2;
+    s_remoteCupBaseY = (cupAreaHeight - cupDiameter) / 2;
+    lv_obj_set_pos(s_remoteCupRim, s_remoteCupBaseX, s_remoteCupBaseY);
+    lv_area_t cupCoords;
+    lv_obj_get_coords(s_remoteCupRim, &cupCoords);
+    s_remoteCupCenterX = ((float)cupCoords.x1 + (float)cupCoords.x2) / 2.0f;
+    s_remoteCupCenterY = ((float)cupCoords.y1 + (float)cupCoords.y2) / 2.0f;
+    s_remoteCupDice = lv_obj_create(s_remoteCupBottom);
+    lv_obj_remove_style_all(s_remoteCupDice);
+    lv_obj_set_size(s_remoteCupDice, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_clickable(s_remoteCupDice, false);
+    lv_obj_set_scrollable(s_remoteCupDice, false);
+
+    s_remoteCupCount = Theme::label(s_remoteCupArea, "", &my_font_18, Theme::GOLD);
+    lv_obj_set_width(s_remoteCupCount, 80);
+    lv_obj_set_pos(s_remoteCupCount, 6, 8);
+    s_remoteCupHint = Theme::label(s_remoteCupArea, tr(Str::CUP_HINT),
+                                   &my_font_14, Theme::MUTED);
+    lv_obj_set_width(s_remoteCupHint, 80);
+    lv_obj_set_pos(s_remoteCupHint, 6, 56);
+    lv_obj_t *cupRoll = Theme::button(s_remoteCupArea,
+                                      trp(LV_SYMBOL_REFRESH " ", Str::GAME_ROLL),
+                                      78, 38, Theme::ACCENT, true);
+    lv_obj_set_pos(cupRoll, width - 82, 8);
+    lv_obj_set_style_text_font(lv_obj_get_child(cupRoll, 0), &my_font_14, 0);
+    lv_obj_add_event_cb(cupRoll, remoteCupRollEvent, LV_EVENT_CLICKED, nullptr);
+    s_remoteCupChoose = Theme::button(s_remoteCupArea,
+                                      trp("", Str::GAME_CHOOSE, " " LV_SYMBOL_RIGHT),
+                                      78, 38, Theme::TEAL, false);
+    lv_obj_set_pos(s_remoteCupChoose, width - 82, cupAreaHeight - 44);
+    lv_obj_set_style_text_font(lv_obj_get_child(s_remoteCupChoose, 0), &my_font_14, 0);
+    lv_obj_add_event_cb(s_remoteCupChoose, remoteCupCloseEvent, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *cupHide = Theme::button(s_remoteCupArea, trp(LV_SYMBOL_DOWN " ", Str::GAME_TIDY),
+                                      78, 38, Theme::MUTED, false);
+    lv_obj_set_pos(cupHide, 4, cupAreaHeight - 44);
+    lv_obj_set_style_text_font(lv_obj_get_child(cupHide, 0), &my_font_14, 0);
+    lv_obj_add_event_cb(cupHide, remoteCupCloseEvent, LV_EVENT_CLICKED, nullptr);
+    lv_obj_set_hidden(s_remoteCupArea, true);
 
     s_remoteScorePanel = lv_obj_create(screen);
     lv_obj_remove_style_all(s_remoteScorePanel);
