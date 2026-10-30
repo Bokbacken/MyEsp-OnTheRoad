@@ -32,6 +32,7 @@ constexpr int MAX_SEATS = 8;
 constexpr size_t NAME_CAP = 32;
 constexpr size_t JSON_CAP = 8192;
 constexpr size_t REMOTE_FRAME_CAP = 8192;
+constexpr int REMOTE_WS_TASK_STACK = 8192;
 constexpr int REMOTE_CATEGORY_CAP = 20;
 constexpr char TAG[] = "multi";
 
@@ -1042,6 +1043,7 @@ static bool startRemoteGame(const char *pin)
     config.uri = s_remoteUri;
     config.reconnect_timeout_ms = 5000;
     config.network_timeout_ms = 5000;
+    config.task_stack = REMOTE_WS_TASK_STACK;
     esp_websocket_client_handle_t client = esp_websocket_client_init(&config);
     if (!client) {
         ESP_LOGE(TAG, "remote WebSocket client initialization failed");
