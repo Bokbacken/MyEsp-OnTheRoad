@@ -117,7 +117,10 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [x] Dokumentera syntax, ID-listor, säkerhetsregler och kvarvarande
   avgränsningar i authoring/Quickguide och leverera Motoräventyret med
   produktionsmotortrace.
-- [ ] Fysisk provning på ESP32-S3 och ESP32-P4.
+- [x] **Hårdvara, ägarrapport 2026-10-31:** hela Motoräventyret och
+  story-styrda kartförändringar provade på ESP32-P4; ägaren bedömer att
+  det räcker för denna leverans.
+- [ ] **Hårdvara:** prova kampanjen på ESP32-S3.
 
 ## IV. Legend och authoring-underlag inför editorn
 
@@ -163,4 +166,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
 | 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Slutlig kodversion `084ae6e` byggd med ESP-IDF 6.1; fysisk ESP-verifiering kvar. |
-| 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad, bas `0.23.3`. Motorändring och kampanjtest införda på separat PR, version föreslagen `0.23.4`. Hosttester passerade; S3/P4 CI och fysisk provning redovisas efter slutlig verifiering. |
+| 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad. Motoräventyret/storyförändringar levererade i v0.23.4; ägaren har provat hela leveransen på P4. S3-verifiering återstår. |
