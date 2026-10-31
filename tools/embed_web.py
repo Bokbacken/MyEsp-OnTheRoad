@@ -67,7 +67,8 @@ def render() -> str:
     for name, fname, mime, uris in ASSETS + sprite_assets:
         raw = (fname if isinstance(fname, Path) else DATA / fname).read_bytes()
         packed = gz(raw)
-        lines.append(f"// {fname}: {len(raw)} bytes -> {len(packed)} bytes gzip")
+        label = fname.relative_to(ROOT).as_posix() if isinstance(fname, Path) else fname
+        lines.append(f"// {label}: {len(raw)} bytes -> {len(packed)} bytes gzip")
         lines.append(f"static const uint8_t {name}_DATA[] = {{")
         for i in range(0, len(packed), 20):
             chunk = ", ".join(f"0x{b:02x}" for b in packed[i:i + 20])

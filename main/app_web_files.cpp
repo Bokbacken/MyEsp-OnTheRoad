@@ -291,6 +291,11 @@ static esp_err_t handleList(httpd_req_t *r)
 static esp_err_t handleDownload(httpd_req_t *r)
 {
     MyWeb::Req q(r);
+    long maxSize = 0;
+    bool badLimit = false;
+    const bool hasSizeLimit = q.has("max_size");
+    if (hasSizeLimit && !q.getInt("max_size", 1, 16384, maxSize, badLimit))
+        return MyWeb::sendError(r, 400, "Ogiltig max_size");
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
@@ -303,6 +308,13 @@ static esp_err_t handleDownload(httpd_req_t *r)
         f = (stat(t.path, &st) == 0 && !S_ISDIR(st.st_mode)) ? fopen(t.path, "rb") : nullptr;
     }
     if (!f) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
+    if (hasSizeLimit && st.st_size > maxSize) {
+        {
+            Lock lk(t.sd);
+            fclose(f);
+        }
+        return MyWeb::sendError(r, 413, "Filen är större än max_size");
+    }
     char *buf = (char *)psAlloc(DOWNLOAD_CHUNK);
     if (!buf) {
         fclose(f);

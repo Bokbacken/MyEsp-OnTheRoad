@@ -43,6 +43,11 @@ a published GitHub Release.
   tooltips and automatic width-fitting zoom. Legend/layout controls adapt to
   narrow screens; section text, group coordinates and individual dark areas can
   be edited or highlighted directly in the graphical workspace.
+- The image mode and palette now use exported device sprites, including the
+  device's standard resource bag. Resource entries show their adventure-specific
+  `bitmaps/` PNG when it passes the device's size and 32×32 checks; missing or
+  invalid overrides fall back to the same bag. The section helper can create a
+  guided `@node` with speaker, localized text and a linked choice.
 
 ## v0.23.5
 

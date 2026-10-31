@@ -153,6 +153,10 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [x] Växla mellan bildsymboler och teckenglyfer med bibehållna kartfärger;
   visa och redigera gruppkoordinater/mörkerområden, samt redigera textavsnitt
   direkt från kartvyn. Automatisk zoom anpassar sig till tillgänglig bredd.
+- [x] Bildläge och palett använder exporterade enhetssprites; resursers egna
+  `bitmaps/`-bilder visas med enhetens formatgränser och gul påse som reserv.
+- [x] Skapa guidade textavsnitt, med formulär för `@node`-talare, repliker och
+  länkade val. Noden behöver fortfarande granskas och produktionsvalideras.
 - [ ] Grafisk redigering av skatter, resurser, fiender, NPC-placering,
   destinationer, portaler, `@andgate`, rutor för spakar/tidsgrind och story.
 - [x] Textläge som behåller kommentarer och okänd syntax vid öppna/spara.
@@ -181,4 +185,5 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | 2026-10-31 | Editor steg 1: källtextläge och produktionsvalidering | Öppna/redigera/validera/spara befintliga SD-äventyr på `/adventure-editor`; visual editing och hårdvarutest återstår. |
 | 2026-10-31 | Editor steg 2: grafisk kartvy, legend- och områdeshjälp | Kartflikar, palett, rita/flytta, legendhjälp och `@dark` på `/adventure-editor`; Node-tester kör alla 63 `.adv`-filer utan ändring. Firmware-CI och fysisk test av kartvyn kvar. |
 | 2026-10-31 | Editorgranskningens åtta kodfixar | Textredigering bevaras, tomma kartor faller tillbaka till textläge, legendposter kan ändras och gruppkoordinater/kommentarer hanteras vid kartredigering. Riktade Node-tester passerar; fysisk S3/P4-verifiering återstår. |
+| 2026-10-31 | Editor: enhetssprites, egna resursbilder och guidade noder | Bildläge använder exporterade enhetssprites och äventyrsmapparnas giltiga resurs-PNG; avsnittsformuläret skapar grundläggande `@node`-dialog. Riktade Node-tester och inbäddade asset-kontroller; fysisk S3/P4-verifiering kvar. |
 | 2026-11-01 | Editor: nya filer, kartstorlek, 128×128 | Maxkarta höjd från 80×80 till 128×128 (World ≈181 KB, Planner ≈640 KB i PSRAM, live-JSON 96 KiB), menyknappen utan "(test)". Node- och värdtester samt CI; minnesbeteende och editorn på S3/P4 är inte hårdvaruprovade. |

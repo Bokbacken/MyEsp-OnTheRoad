@@ -456,6 +456,12 @@ En nod är en replik. **Flera noder får dela id** – den första vars `cond`
 stämmer används. Så får en person "minne": en variant för första mötet, en för
 senare. En nod `<npc>.start` är ingången när man pratar med personen.
 
+Kartvyns avsnittsformulär kan skapa en grundnod med talare, svensk och engelsk
+replik samt ett val. Välj nod-id med omsorg: talaren ska finnas som `@npc`, och
+valets mål ska vara ett deklarerat nod-id eller `END`. Villkor och effekter
+behöver också deklarerade flaggor, uppdrag och föremål. Granska den skapade
+noden i avsnittsredigeraren och kör produktionsvalideringen innan du sparar.
+
 ```
 @node jakob.start
 cond: !met_jakob                 # villkor (utelämna = alltid). Se villkorssyntax nedan.
@@ -1240,8 +1246,10 @@ cachas i PSRAM och skalas till 16/32 px. Firmware behöver
 `CONFIG_LV_USE_LODEPNG=y` (ingår nu i `sdkconfig.defaults`; uppdatera en
 befintlig `sdkconfig` via menuconfig eller generera om den enligt projektets
 bygginstruktion). Webblivevyn använder samma fil via befintlig SD-filendpoint.
-Generell ersättning av standardobjektens sprites och visning av `cover`
-är **inte** implementerade av denna leverans; `cover` läses som metadata.
+Generell ersättning av standardobjektens sprites i spelet och visning av
+`cover` är **inte** implementerade av denna leverans; `cover` läses som
+metadata. Editorn förhandsvisar däremot de exporterade standardbilderna i
+kartvyn.
 
 ```
 /otr/adventure/stenhuggaren/
@@ -1254,9 +1262,14 @@ Generell ersättning av standardobjektens sprites och visning av `cover`
 
 **Standard-sprites att utgå från:** verktyget `tools/sprite_export` +
 `tools/sprite_png.py` exporterar motorns inbyggda, proceduritade symboler till
-**61 färdiga 32×32 PNG-filer** under
+**71 färdiga 32×32 PNG-filer** under
 [`docs/adventures/sprites/`](adventures/sprites/). Kopiera en därifrån och rita
 om den som mall för dina egna.
+
+Äventyrseditorns bildläge använder dessa sprites direkt. För en resurs med eget
+bildnamn läser editorn samma `bitmaps/`-fil som enheten och visar bara bilden om
+den är högst 16 KiB och avkodas som 32×32 PNG; saknad eller ogiltig bild visas
+som enhetens gula påse. I teckenläge behålls kartans färger.
 
 ---
 
