@@ -513,7 +513,7 @@ function upload(files) {
     try {
       for (const folder of [...folders].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b)))
         await sendJson('POST', '/api/files/mkdir', {path: join(uploadPath, folder)});
-      const concurrency = 1;
+      const concurrency = uploadRoot === 'sd' ? 4 : 1;
       await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker));
       if (failure) {
         if (done) failure.message += ' (' + done + ' andra filer hann bli klara)';

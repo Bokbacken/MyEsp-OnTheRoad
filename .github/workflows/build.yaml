@@ -79,6 +79,10 @@ jobs:
         if: matrix.target == 'esp32s3'
         run: |
           python3 tests/test_board_peripherals.py
+          python3 tests/test_sd_log_diagnostics.py
+          python3 tests/test_sd_clock.py
+          python3 tests/test_upload_pipeline.py
+          python3 tests/test_upload_body.py
           python3 tests/test_flash_repair.py
           python3 tests/test_nvs_backup.py
           node tests/test_nvs_web.js
@@ -122,6 +126,9 @@ jobs:
           command: |
             idf.py --version
             idf.py set-target ${{ matrix.target }}
+            grep -qx 'CONFIG_LOG_DEFAULT_LEVEL=3' sdkconfig
+            grep -qx 'CONFIG_LOG_MAXIMUM_LEVEL=4' sdkconfig
+            grep -qx 'CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y' sdkconfig
             idf.py build
             idf.py merge-bin -o merged.bin
 

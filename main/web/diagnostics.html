@@ -66,9 +66,29 @@
   <pre id="log" style="height:22rem;overflow:auto;margin:.4rem 0;font-size:.75rem;line-height:1.3;white-space:pre-wrap;word-break:break-all;background:#0b1320;border:1px solid var(--otr-line);border-radius:.5rem;padding:.4rem"></pre>
   <div class="row">
     <a class="button primary" href="/api/log/download" id="log-zip" style="text-decoration:none;padding:.4rem .8rem;border-radius:.5rem;background:var(--otr-orange);color:#000">&#8681; Ladda ner loggar (ZIP)</a>
+    <a class="button secondary" href="/api/log/download?ram=1" id="log-ram">Ladda ner bara RAM (utan SD)</a>
     <button type="button" class="secondary" id="log-clear">Rensa fönstret</button>
     <span class="muted">ZIP: RAM-loggen (64 kB) + <code>/otr/logs/otr_0..2.log</code> från SD-kortet</span>
   </div>
+  <div class="row">
+    <button type="button" class="secondary" id="log-sd-toggle" disabled>Pausa SD-loggning</button>
+    <span id="log-sd-state" class="muted">Läser SD-loggstatus…</span>
+  </div>
+  <div class="row" style="flex-wrap:wrap">
+    <label for="log-level">Enhetens loggnivå</label>
+    <select id="log-level" disabled>
+      <option value="error">Fel</option>
+      <option value="warning">Varning och fel</option>
+      <option value="info" selected>Info (normal)</option>
+      <option value="debug">Debug</option>
+    </select>
+    <button type="button" class="secondary" id="log-trace-toggle" disabled>Starta SD-spårning (10 min)</button>
+    <span id="log-config-state" class="muted">Läser logginställningar…</span>
+  </div>
+  <p class="muted">Tillfälliga inställningar, återställs vid omstart. Loggnivån styr nya ESP-IDF-loggar;
+    filtren ovan ändrar bara visningen. SD-spårning slås av automatiskt efter 10 minuter.</p>
+  <p class="muted">SD-loggning kan pausas för jämförande skrivtester. RAM-logg och seriell logg fortsätter.
+    Pågående SD-loggskrivning avslutas först. Inställningen återställs vid omstart.</p>
 </div>
 
 <h2>Rå JSON</h2>
@@ -188,7 +208,7 @@ refresh();
 setInterval(refresh, 2000);
 
 // ---- v0.13.7 live log (Server-Sent Events) ----
-const LOG_MAX = 1500, MODS = ['karaoke', 'kara_web', 'audio', 'sd', 'webfs', 'wifi', 'web', 'ota', 'lvgl', 'touch', 'adv', 'otrlog'];
+const LOG_MAX = 1500, MODS = ['karaoke', 'kara_web', 'audio', 'sd', 'sdtrace', 'webfs', 'wifi', 'web', 'ota', 'lvgl', 'touch', 'adv', 'otrlog'];
 let logLines = [], es = null, paused = false, logBusy = false;
 function lineLevel(s) { return /^[EWIDV] \(/.test(s) ? s[0] : '?'; }
 function logShown(s) {
@@ -245,6 +265,94 @@ for (const m of MODS) {
   $('log-mods').appendChild(b);
 }
 window.addEventListener('beforeunload', () => { if (es) es.close(); });
+let sdLogEnabled = true;
+function sdLogStatus(data) {
+  if (typeof data.enabled !== 'boolean') throw new Error('Ogiltig SD-loggstatus');
+  sdLogEnabled = data.enabled;
+  $('log-sd-toggle').textContent = sdLogEnabled ? 'Pausa SD-loggning' : 'Återuppta SD-loggning';
+  $('log-sd-state').textContent = sdLogEnabled ? 'SD-loggning på' : 'SD-loggning pausad; RAM fortsätter';
+}
+async function sdLogRefresh() {
+  try {
+    const response = await fetch('/api/log/sd', {cache: 'no-store'});
+    if (!response.ok) throw new Error('Kunde inte läsa SD-loggstatus');
+    sdLogStatus(await response.json());
+    $('log-sd-toggle').disabled = false;
+  } catch (e) {
+    $('log-sd-state').textContent = e.message;
+  }
+}
+$('log-sd-toggle').onclick = async () => {
+  const pin = window.prompt('Admin-PIN (lämna tomt om ingen PIN är konfigurerad)');
+  if (pin === null) return;
+  $('log-sd-toggle').disabled = true;
+  try {
+    const response = await fetch('/api/log/sd?enabled=' + (sdLogEnabled ? '0' : '1') +
+      '&pin=' + encodeURIComponent(pin), {method: 'POST', cache: 'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Kunde inte ändra SD-loggning');
+    sdLogStatus(data);
+  } catch (e) {
+    $('log-sd-state').textContent = e.message;
+  } finally {
+    $('log-sd-toggle').disabled = false;
+  }
+};
+sdLogRefresh();
+let logConfig = null, logConfigBusy = false;
+function logConfigStatus(data) {
+  if (!['error', 'warning', 'info', 'debug'].includes(data.level) ||
+      typeof data.sd_trace !== 'boolean' || typeof data.sd_trace_supported !== 'boolean' ||
+      !Number.isInteger(data.trace_seconds) || data.trace_seconds < 0)
+    throw new Error('Ogiltiga logginställningar');
+  logConfig = data;
+  $('log-level').value = data.level;
+  $('log-level').disabled = false;
+  $('log-trace-toggle').disabled = !data.sd_trace_supported;
+  $('log-trace-toggle').textContent = data.sd_trace ? 'Stoppa SD-spårning' : 'Starta SD-spårning (10 min)';
+  $('log-config-state').textContent = !data.sd_trace_supported ? 'SD-spårning saknas i detta bygge' :
+    data.sd_trace ? 'SD-spårning aktiv · ' + data.trace_seconds + ' s kvar' : 'SD-spårning av';
+}
+async function logConfigRefresh() {
+  if (logConfigBusy) return;
+  logConfigBusy = true;
+  try {
+    const response = await fetch('/api/log/config', {cache: 'no-store'});
+    if (!response.ok) throw new Error('Kunde inte läsa logginställningar');
+    logConfigStatus(await response.json());
+  } catch (e) {
+    $('log-config-state').textContent = e.message;
+  } finally {
+    logConfigBusy = false;
+  }
+}
+async function logConfigApply(toggleTrace) {
+  if (logConfigBusy || !logConfig) return;
+  const previous = logConfig;
+  const level = $('log-level').value;
+  const trace = toggleTrace ? !previous.sd_trace : previous.sd_trace;
+  const pin = window.prompt('Admin-PIN (lämna tomt om ingen PIN är konfigurerad)');
+  if (pin === null) { logConfigStatus(previous); return; }
+  logConfigBusy = true;
+  $('log-level').disabled = $('log-trace-toggle').disabled = true;
+  try {
+    const response = await fetch('/api/log/config?level=' + encodeURIComponent(level) +
+      '&sd_trace=' + (trace ? '1' : '0') + '&pin=' + encodeURIComponent(pin),
+      {method: 'POST', cache: 'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Kunde inte ändra logginställningar');
+    logConfigStatus(data);
+  } catch (e) {
+    logConfigStatus(previous);
+    $('log-config-state').textContent = e.message;
+  } finally {
+    logConfigBusy = false;
+  }
+}
+$('log-level').onchange = () => logConfigApply(false);
+$('log-trace-toggle').onclick = () => logConfigApply(true);
+logConfigRefresh();
+setInterval(logConfigRefresh, 5000);
 logStart();
 </script>
 </body>

@@ -26,7 +26,9 @@ inline const char *esp_err_to_name(int e) { return e ? "test error" : "ESP_OK"; 
 constexpr int pdPASS=1, portMAX_DELAY=-1;
 inline uint64_t ticks=1000000;
 inline bool stopSample=false;
+inline int delayCalls=0;
 inline void vTaskDelay(int ms) {
+    ++delayCalls;
     ticks += uint64_t(ms)*1000;
     if (stopSample && ms==10000) throw std::runtime_error("sample complete");
 }
@@ -44,6 +46,9 @@ using SemaphoreHandle_t=void *;
 inline void *xSemaphoreCreateRecursiveMutex() { return reinterpret_cast<void *>(1); }
 inline void xSemaphoreTakeRecursive(void *, int) {}
 inline void xSemaphoreGiveRecursive(void *) {}
+using TaskHandle_t=void *;
+inline int64_t esp_timer_get_time() { return ticks; }
+inline int xPortGetCoreID() { return 0; }
 
 using adc_oneshot_unit_handle_t=void *;
 using adc_cali_handle_t=void *;
@@ -101,17 +106,49 @@ struct sd_pwr_ctrl_ldo_config_t { int ldo_chan_id; };
 inline int sd_pwr_ctrl_new_on_chip_ldo(const sd_pwr_ctrl_ldo_config_t *c, void **p) {
     assert(c->ldo_chan_id==4); *p=reinterpret_cast<void *>(3); return ESP_OK;
 }
-constexpr int SDMMC_FREQ_DEFAULT=20000, SDMMC_SLOT_FLAG_INTERNAL_PULLUP=1;
+constexpr int SDMMC_FREQ_DEFAULT=20000, SDMMC_FREQ_HIGHSPEED=40000, SDMMC_SLOT_FLAG_INTERNAL_PULLUP=1;
 inline bool radioAlive=true;
 inline int hostInit() { return ESP_OK; }
 inline int hostDeinit(int slot) { assert(slot==0); assert(radioAlive); return ESP_OK; }
+struct sdmmc_command_t {
+    int opcode;
+    uint32_t arg;
+    void *data;
+    size_t datalen;
+    esp_err_t error;
+    uint32_t response[4];
+    int flags;
+    int timeout_ms;
+};
+constexpr int MMC_STOP_TRANSMISSION=12, MMC_SEND_STATUS=13, MMC_WRITE_BLOCK_MULTIPLE=25, SD_APP_SEND_NUM_WR_BLOCKS=22;
+constexpr uint32_t MMC_R1_READY_FOR_DATA=1u<<8, MMC_R1_CURRENT_STATE_TRAN=4;
+#define MMC_R1_CURRENT_STATE_STATUS(s) (((s) & 0x1E00) >> 9)
+constexpr int SCF_CMD_AC=1, SCF_RSP_R1B=2, SCF_WAIT_BUSY=4;
+inline int transactionResult=ESP_OK, commandError=ESP_OK, stopError=ESP_OK;
+inline int transactionCalls=0, stopCalls=0;
+inline uint32_t cardStatus=0x900;   // R1 returned by CMD13
+inline int fakeTransaction(int slot, sdmmc_command_t *cmd) {
+    assert(slot==0 || slot==1);
+    ++transactionCalls;
+    ticks+=2500;
+    cmd->error=commandError;
+    if (cmd->opcode==MMC_STOP_TRANSMISSION) {
+        assert(cmd->flags==(SCF_CMD_AC|SCF_RSP_R1B|SCF_WAIT_BUSY) && cmd->timeout_ms>0);
+        ++stopCalls;
+        cmd->error=stopError;
+        if (!stopError) cardStatus=0x900;
+    }
+    cmd->response[0]=cmd->opcode==MMC_SEND_STATUS ? cardStatus : 0x900;
+    return transactionResult;
+}
 struct sdmmc_host_t {
     int slot, max_freq_khz;
     void *pwr_ctrl_handle;
     int (*init)();
     int (*deinit_p)(int);
+    int (*do_transaction)(int, sdmmc_command_t *);
 };
-#define SDMMC_HOST_DEFAULT() {1,20000,nullptr,hostInit,hostDeinit}
+#define SDMMC_HOST_DEFAULT() {1,20000,nullptr,hostInit,hostDeinit,fakeTransaction}
 struct sdmmc_slot_config_t { int width,clk,cmd,d0,d1,d2,d3,flags; };
 #define SDMMC_SLOT_CONFIG_DEFAULT() {0,-1,-1,-1,-1,-1,-1,0}
 struct esp_vfs_fat_sdmmc_mount_config_t {
@@ -127,6 +164,7 @@ inline int formatMountCalls=0;
 inline bool acceptFormatMount=false;
 inline int formatCalls=0;
 inline int lastWidth=0, lastFreq=0;
+inline int (*mountedTransaction)(int, sdmmc_command_t *)=nullptr;
 inline int esp_vfs_fat_sdmmc_mount(const char *, const sdmmc_host_t *h, const sdmmc_slot_config_t *s,
                                  const esp_vfs_fat_sdmmc_mount_config_t *c, sdmmc_card_t **out) {
     if (c->format_if_mount_failed) {
@@ -140,6 +178,7 @@ inline int esp_vfs_fat_sdmmc_mount(const char *, const sdmmc_host_t *h, const sd
     assert(h->slot==1 && s->clk==5 && s->cmd==4 && s->d0==6);
 #endif
     ++mountCalls; lastWidth=s->width; lastFreq=h->max_freq_khz;
+    mountedTransaction=h->do_transaction;
     if (mountFailures) { --mountFailures; return ESP_ERR_TIMEOUT; }
     fakeCard.real_freq_khz=h->max_freq_khz; *out=&fakeCard; return ESP_OK;
 }
@@ -234,6 +273,66 @@ SD = r'''
 int main() {
     using namespace BoardSd;
     assert(begin() && info().mounted && info().width==4);
+    assert(!traceEnabled() && traceRemainingSeconds()==0);
+    setTrace(true);
+#ifdef CONFIG_OTR_HW_PROFILE_P4_43
+#ifdef CONFIG_OTR_SD_50MHZ_EXPERIMENT
+    assert(lastFreq==50000 && powerCycles==0);
+#else
+    assert(lastFreq==40000 && powerCycles==0); // Same clock as ESP-Hosted on the shared controller.
+#endif
+#else
+    assert(lastFreq==20000);
+#endif
+    sdmmc_command_t cmd{25, 123, reinterpret_cast<void *>(1), 32768, ESP_OK, {}, 0, 0};
+    assert(mountedTransaction(0, &cmd)==ESP_OK && transactionCalls==1);
+#ifdef CONFIG_OTR_SD_IO_DIAGNOSTICS
+    assert(s_trace.commands==1 && !s_trace.active && s_trace.dataBlock==123);
+    assert(s_trace.dataOpcode==25 && s_trace.dataBytes==32768 && s_trace.durationUs==2500);
+    cmd.opcode=13; cmd.data=nullptr;
+    for (int i=0;i<1000;++i) assert(mountedTransaction(0,&cmd)==ESP_OK);
+    assert(s_trace.statusPolls==1000 && s_trace.dataOpcode==25 && s_trace.dataBlock==123);
+    commandError=ESP_ERR_TIMEOUT;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && s_trace.error==ESP_ERR_TIMEOUT);
+    commandError=ESP_OK; transactionResult=ESP_FAIL;
+    assert(mountedTransaction(0,&cmd)==ESP_FAIL && s_trace.error==ESP_FAIL);
+    transactionResult=ESP_OK;
+    cmd.opcode=24; cmd.data=reinterpret_cast<void *>(1);
+    assert(mountedTransaction(0,&cmd)==ESP_OK && s_trace.statusPolls==0);
+#endif
+    assert(mountedTransaction==guardedTransaction);
+    // Lost CMD12: card stuck in RCV gets one STOP_TRANSMISSION, then normal status again.
+    cmd={13, 0, nullptr, 0, ESP_OK, {}, 0, 0};
+    cardStatus=0x0c00;
+    stopCalls=0;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && stopCalls==1);
+    assert(mountedTransaction(0,&cmd)==ESP_OK && cmd.response[0]==0x900);
+    // Failed CMD12 is rate limited instead of being sent on every CMD13 poll.
+    cardStatus=0x0c00; stopError=ESP_ERR_TIMEOUT; stopCalls=0;
+    ticks+=1000000;
+    for (int i=0;i<50;++i) assert(mountedTransaction(0,&cmd)==ESP_OK);
+    assert(stopCalls==1);
+    ticks+=600000;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && stopCalls==2);
+    stopError=ESP_OK; cardStatus=0x900;
+    assert(mountedTransaction(0,&cmd)==ESP_OK);
+    // Programming card: short polls spin, longer waits yield so IDLE0 can feed the watchdog.
+    cardStatus=0x0e00; delayCalls=0;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && delayCalls==0);
+    for (int i=0;i<3;++i) assert(mountedTransaction(0,&cmd)==ESP_OK);
+    assert(delayCalls>=1);
+    cardStatus=0x900; delayCalls=0;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && delayCalls==0);
+    // ESP-IDF v6.1 returns ACMD22's result for a failed CMD25: keep the write failed.
+    sdmmc_command_t write{25, 7, reinterpret_cast<void *>(1), 16384, ESP_OK, {}, 0, 0};
+    sdmmc_command_t written{22, 0, reinterpret_cast<void *>(1), 4, ESP_OK, {}, 0, 0};
+    commandError=ESP_ERR_TIMEOUT;
+    assert(mountedTransaction(0,&write)==ESP_OK && write.error==ESP_ERR_TIMEOUT);
+    commandError=ESP_OK;
+    assert(mountedTransaction(0,&written)==ESP_OK && written.error==ESP_ERR_TIMEOUT);
+    written.error=ESP_OK;
+    assert(mountedTransaction(0,&written)==ESP_OK && written.error==ESP_OK);
+    assert(mountedTransaction(0,&write)==ESP_OK && mountedTransaction(0,&written)==ESP_OK && written.error==ESP_OK);
     assert(info().generation==1 && info().totalBytes==32000000);
     unmountResult=ESP_FAIL;
     assert(!remount() && mounted()); // Do not discard ownership or reinit after failed unmount.
@@ -245,12 +344,22 @@ int main() {
     poll(4000);
     assert(mounted() && info().generation==2 && radioAlive);
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
-    assert(powerCycles>=1 && lastFreq==10000); // Runtime failure gets a real card VDD reset.
+#ifdef CONFIG_OTR_SD_50MHZ_EXPERIMENT
+    assert(powerCycles>=1 && lastFreq==50000);
+#else
+    assert(powerCycles>=1 && lastFreq==40000); // VDD reset, same clock as the shared C6 slot.
+#endif
 #else
     assert(lastFreq==20000 && powerCycles==0);
 #endif
     mountFailures=1;
+#ifdef CONFIG_OTR_HW_PROFILE_P4_43
+    assert(remount() && lastWidth==4 && lastFreq==20000 && radioAlive); // Fallback if 40 MHz will not mount.
+    mountFailures=2;
+    assert(remount() && lastWidth==1 && lastFreq==20000 && radioAlive);
+#else
     assert(remount() && lastWidth==1 && radioAlive);
+#endif
     assert(info().lastError==ESP_OK);
     const uint32_t generation=info().generation;
     assert(format() && formatCalls==1 && info().generation==generation+1);
@@ -263,6 +372,28 @@ int main() {
     formatResult=ESP_OK;
     acceptFormatMount=true;
     assert(format() && formatMountCalls==1 && formatCalls==3 && mounted());
+    // A failed session blocks new work, aborts its peers and waits for every open file to close.
+    const uint32_t beforeRecovery=info().generation;
+    Transfer first, second;
+    assert(first.active && second.active);
+    assert(!remount() && !format());
+    requestRecovery();
+    assert(!transferHealthy());
+    Transfer rejected;
+    assert(!rejected.active);
+    poll(40000);
+    assert(mounted() && info().generation==beforeRecovery);
+    first.finish();
+    assert(info().generation==beforeRecovery);
+    second.finish();
+    assert(transferHealthy() && info().generation==beforeRecovery+1);
+    second.finish(); // Idempotent: no extra remount.
+    assert(info().generation==beforeRecovery+1);
+    setTrace(false);
+    assert(!traceEnabled());
+    setTrace(true);
+    ticks+=601000000;
+    assert(!traceEnabled() && traceRemainingSeconds()==0);
 }
 '''
 
@@ -320,18 +451,24 @@ def main():
             "freertos/portmacro.h", "freertos/semphr.h", "esp_adc/adc_cali.h",
             "esp_adc/adc_cali_scheme.h", "esp_adc/adc_oneshot.h", "driver/gpio.h",
             "driver/sdmmc_host.h", "esp_vfs_fat.h", "ff.h", "diskio_sdmmc.h",
-            "sdmmc_cmd.h", "sd_pwr_ctrl_by_on_chip_ldo.h",
+            "sdmmc_cmd.h", "sd_protocol_defs.h", "sd_pwr_ctrl_by_on_chip_ldo.h", "esp_timer.h",
         ]
         for header in headers:
             path = work / header
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "test_idf.h"\n')
-        for name, code, targets in [("rtc", RTC, ["p4"]), ("adc", ADC, ["s3", "p4"]), ("sd", SD, ["s3", "p4"])]:
+        for name, code, targets in [("rtc", RTC, ["p4"]), ("adc", ADC, ["s3", "p4"]), ("sd", SD, ["s3", "p4", "p4-50"])]:
             source = work / f"{name}.cpp"
             source.write_text(code)
             for target in targets:
                 binary = work / f"{name}-{target}"
-                flags = ["-DCONFIG_IDF_TARGET_ESP32P4", "-DCONFIG_OTR_HW_PROFILE_P4_43"] if target == "p4" else ["-DCONFIG_IDF_TARGET_ESP32S3"]
+                flags = ["-DCONFIG_IDF_TARGET_ESP32P4", "-DCONFIG_OTR_HW_PROFILE_P4_43"] if target.startswith("p4") else ["-DCONFIG_IDF_TARGET_ESP32S3"]
+                if name == "sd" and target.startswith("p4"):
+                    flags += ["-DCONFIG_OTR_SD_IO_DIAGNOSTICS"]
+                    clock = 50000 if target == "p4-50" else 40000
+                    flags += [f"-DCONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ={clock}"]
+                    if target == "p4-50":
+                        flags += ["-DCONFIG_OTR_SD_50MHZ_EXPERIMENT"]
                 subprocess.run([
                     "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable",
                     *flags, "-include", str(work / "test_idf.h"),

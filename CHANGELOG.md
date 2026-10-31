@@ -8,6 +8,97 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.13 (unreleased)
+
+- Consume skipped upload bodies before returning success, without holding
+  the SD lock or transfer lease. Async requests also drain remaining data on
+  early rejection; interrupted bodies shut down the connection before async
+  completion rather than leaving binary file data for the HTTP parser.
+- The owner's v0.23.12 log shows 199 completed uploads (9,199,403 bytes),
+  including seven new Hit_Trax files, without new SD errors or watchdogs.
+  Existing-file attempts in Hit_Trax produced 25 HTTP parser errors, matching
+  the unread-body bug. Hardware retesting of the fix remains pending.
+
+## v0.23.12 (unreleased)
+
+- Restored up to four concurrent SD upload sessions in browser batches and
+  the server. Card operations remain serialized; internal-flash batches remain
+  sequential. Recovery blocks new transfers, aborts peers and waits for every
+  tracked upload, download and SD log-export file to close before remounting.
+- Normal logging is Info with SD command tracing off. Diagnostics offers
+  admin-protected Error/Warning/Info/Debug levels and independent SD tracing
+  that expires after ten minutes. Runtime choices reset at restart.
+  Debug statements are compiled in; changing verbosity affects new ESP-IDF
+  log messages, not historical entries, direct events or bootloader output.
+- Preserve available RAM log backlog through SD outages and failed appends;
+  check close errors and stop failed ZIP reads instead of zero-padding them.
+- Kept 40 MHz for both P4 slots. The owner confirmed actual 50 MHz on both
+  slots and three successful uploads without SD errors/watchdogs. Unison's
+  mean write time improved only 3.3% (6.469 to 6.258 s), so 50 MHz is not
+  promoted. Removed the extra experiment from the routine CI build matrix;
+  its opt-in code and historical v0.23.11 artifact remain for reproduction.
+- Concurrent-upload recovery and runtime logging controls need hardware
+  verification; previous sequential successes do not verify concurrency.
+
+## v0.23.11 (unreleased)
+
+- Added a separate P4 `50mhz-experimental` CI artifact. Normal P4 builds
+  remain at 40 MHz; simultaneous SD uploads remain disabled.
+- The experiment requests 50 MHz for both SD and C6 SDIO. As in MyPi-Hotspot,
+  a linker wrapper lifts ESP-IDF v6.1's 40 MHz SDIO cap only after successful
+  high-speed negotiation. SD memory cards already negotiate 50 MHz.
+  A second wrapper logs negotiated and actual clocks on both slots and
+  rejects a requested 50 MHz initialization that does not reach 50 MHz.
+- Owner log for v0.23.10 confirms completed Wi-Fi uploads of 29,258,148 and
+  265,847,632 bytes with SD at 40 MHz. No SD errors, watchdogs or remounts
+  appear after that boot. Earlier failures in the same log precede v0.23.10.
+  This is evidence of improvement, not full stability or 50 MHz verification.
+
+## v0.23.10 (unreleased)
+
+- P4 SD card now runs at 40 MHz, the same clock as the ESP-Hosted C6 SDIO link
+  (pinned to 40000 kHz and checked at compile time). Both use separate pins
+  but share one SDMMC controller and its host clock divider. With 20 MHz SD
+  and 40 MHz SDIO, ESP-IDF reprogrammed the divider on every slot switch
+  during Wi-Fi uploads; the 10 MHz recovery mode did the same. This matches
+  the lost auto CMD12 seen in logs, but the link is a hypothesis until
+  hardware-verified.
+- P4 recovery remounts at the same 40 MHz after a card power cycle, and
+  falls back to 4-bit/1-bit 20 MHz only if 40 MHz will not mount. A mounted
+  card clock that differs from the SDIO clock is logged as a warning.
+- Owner hardware result v0.23.9: no watchdog. The write error was detected
+  in about 0.1 s, CMD12 returned the card from receive state, and remount
+  succeeded. The write itself still failed.
+
+## v0.23.9 (unreleased)
+
+- SD write recovery on S3 and P4. Owner logs from P4 v0.23.8 show a response
+  timeout during a multi-block write, after which the card stays in receive
+  state (`r1=00000c00`). ESP-IDF then polls CMD13 for 5 s on CPU 0, which
+  starves `IDLE0` and trips the task watchdog. Fixed in two places:
+  - The SD transaction wrapper sends `STOP_TRANSMISSION` (CMD12) when CMD13
+    reports a card stuck in receive state; retries at most every 500 ms.
+  - The wrapper yields one tick when the card stays busy for more than 2 ms.
+  - The wrapper keeps a failed CMD25 failed. ESP-IDF v6.1 returns the
+    follow-up ACMD22 result instead, so after recovery a partial write would
+    otherwise be reported as successful. The same bug is fixed upstream.
+- Upload I/O errors remount the card before the rest of the HTTP body is
+  drained, and remove the temporary file again after a successful remount.
+- Unchanged: boot clock (P4 20 MHz) and watchdog limits; recovery remount
+  still uses 10 MHz. The trigger (lost CMD12 response, CRC error) is not
+  explained, and these changes are not hardware-verified yet.
+
+## v0.23.8 (unreleased)
+
+- P4 diagnostic build enables frame pointers for watchdog backtraces and a
+  CPU-1 SD transaction sampler. Reports current command, preceding data command,
+  status-poll streak, response and duration through serial/RAM logs without
+  accessing the SD card. The C6 slot is not instrumented.
+- Diagnostics can pause SD log persistence while leaving RAM/serial capture on,
+  and download a RAM-only ZIP without reading SD files. Clock, bus width,
+  watchdog limits and upload scheduling are unchanged; this is instrumentation,
+  not a verified fix for SD timeouts or CPU starvation.
+
 ## v0.23.7 (unreleased)
 
 - Moved internal-flash repair beside the SD format button, at the top right of

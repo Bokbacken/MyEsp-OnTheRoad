@@ -8,11 +8,15 @@ CONFIG_SPIRAM_SPEED_200M=y
 # Keep the DPI frame DMA restarting while OTA/FFat operations disable the flash cache.
 CONFIG_LCD_DSI_ISR_CACHE_SAFE=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+CONFIG_ESP_SYSTEM_USE_FRAME_POINTER=y
+CONFIG_OTR_SD_IO_DIAGNOSTICS=y
 # The P4 bootloader starts at 0x2000; with the partition table at 0x8000 it must stay below 24 KB.
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 
 # --- Wi-Fi through the ESP32-C6 co-processor (ESP-Hosted 3.x, SDIO, board default pins) ---
 CONFIG_ESP_HOSTED=y
+# Must equal the SD card clock: both slots share the P4 SDMMC host divider (main/board_sd.cpp).
+CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=40000
 CONFIG_ESP_HOSTED_HOST_FEAT_RPC=y
 CONFIG_ESP_HOSTED_HOST_FEAT_RPC_EXT_V2=y
 CONFIG_ESP_HOSTED_HOST_FEAT_SYSTEM=y

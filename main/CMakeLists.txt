@@ -7,6 +7,10 @@ else()
   set(board_reqs esp_lcd esp_driver_spi)
 endif()
 
+if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
+  list(APPEND board_srcs "board_sd_clock.cpp")
+endif()
+
 idf_component_register(
   SRCS "app_main.cpp" "app_config.cpp" "app_players.cpp" "app_web.cpp" "fat_time.cpp"
        "board_backlight.cpp" "board_rgb.cpp" ${board_srcs}
@@ -20,6 +24,16 @@ idf_component_register(
            ${board_reqs} esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_adc esp_timer esp_app_format
            esp_driver_i2s esp_driver_sdmmc esp_http_client espressif__mdns espressif__esp_websocket_client
            sdmmc fatfs vfs)
+
+if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
+  # These wrappers have no ordinary callers in main; retain their archive
+  # object before the later sdmmc library introduces the wrapped references.
+  target_link_libraries(${COMPONENT_LIB} INTERFACE
+    "-Wl,--undefined=__wrap_sdmmc_io_enable_hs_mode"
+    "-Wl,--undefined=__wrap_sdmmc_init_host_frequency"
+    "-Wl,--wrap=sdmmc_io_enable_hs_mode"
+    "-Wl,--wrap=sdmmc_init_host_frequency")
+endif()
 
 idf_build_get_property(project_ver PROJECT_VER)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE FW_VERSION="${project_ver}")
