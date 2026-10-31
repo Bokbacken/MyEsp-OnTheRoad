@@ -43,6 +43,9 @@
 .section-editors details { border:1px solid var(--otr-border, #888); border-radius:.4rem; padding:.5rem; }
 .section-editors summary { cursor:pointer; font-weight:600; overflow-wrap:anywhere; }
 .section-editors textarea { min-height:8rem; margin:.5rem 0; font: .85rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.palette-sprite { width:2rem; height:2rem; object-fit:contain; vertical-align:middle; }
+.resource-sprite { width:2rem; height:2rem; object-fit:contain; image-rendering:pixelated; background:var(--otr-card, #333); }
+.resource-art-state { flex:1 1 100%; }
 #map-info { min-height:1.3em; }
 @media (max-width: 40rem) {
   .editor-toolbar label { flex-basis:100%; }
@@ -151,6 +154,9 @@
         <p class="muted">Välj verktyget <em>Mörkt område</em> och dra en rektangel på kartan.</p>
         <h3>Platt- och grindgrupper</h3>
         <ul id="group-list" class="row-list"></ul>
+        <h3>Resursbilder från äventyret</h3>
+        <p class="muted">Visar PNG-bilden som spelet använder för varje resursglyf. Saknad eller ogiltig bild visas som spelets gula påse.</p>
+        <ul id="resource-image-list" class="row-list"></ul>
         <h3>Kartstorlek</h3>
         <div class="legend-form">
           <label>Bredd <input id="rs-w" type="number" min="1" max="128"></label>
@@ -177,6 +183,40 @@
       <h3>Textområden i äventyrsfilen</h3>
       <p class="muted">Öppna ett avsnitt för att ändra dess rader utan att lämna kartvyn. Kartavsnitt redigeras på ritytan.</p>
       <div id="section-editors" class="section-editors"></div>
+      <h3>Lägg till textavsnitt</h3>
+      <div class="legend-form">
+        <label>Avsnitt
+          <select id="section-tag">
+            <option value="node">@node · dialog</option><option value="npc">@npc · person</option>
+            <option value="meta">@meta · identitet</option><option value="about">@about · titel och beskrivning</option>
+            <option value="rules">@rules · regler</option><option value="flags">@flags · flaggor</option>
+            <option value="counters">@counters · räknare</option><option value="items">@items · föremål</option>
+            <option value="quests">@quests · uppdrag</option><option value="legend">@legend · karttecken</option>
+            <option value="resources">@resources · resursbilder</option><option value="treasures">@treasures · skatter</option>
+            <option value="enemies">@enemies · fiender</option><option value="dark">@dark · mörker</option>
+            <option value="timedgate">@timedgate · tidsgrind</option><option value="plategroup">@plategroup</option>
+            <option value="gategroup">@gategroup</option><option value="andgate">@andgate</option>
+            <option value="destinations">@destinations · mål</option><option value="portals">@portals · portaler</option>
+          </select>
+        </label>
+        <label id="section-arg-label">Id / argument
+          <input id="section-arg" autocomplete="off" spellcheck="false">
+        </label>
+        <label id="node-speaker-label">Talare (valfritt)
+          <input id="node-speaker" placeholder="npc_id" autocomplete="off" spellcheck="false">
+        </label>
+        <label id="node-sv-label">Replik på svenska
+          <input id="node-sv" maxlength="200" value="Skriv repliken här.">
+        </label>
+        <label id="node-en-label">Replik på engelska
+          <input id="node-en" maxlength="200" value="Write the line here.">
+        </label>
+        <label id="node-choice-label">Första val (valfritt, max 36 tecken)
+          <input id="node-choice" maxlength="36" placeholder="Berätta mer">
+        </label>
+        <button id="section-add" type="button">Lägg till avsnitt</button>
+      </div>
+      <p id="section-guide" class="muted" aria-live="polite"></p>
     </section>
   </div>
   <textarea id="source" aria-label="Äventyrstext" spellcheck="false" autocapitalize="off" autocomplete="off" disabled hidden></textarea>
@@ -347,14 +387,34 @@ $('nf-create').onclick = () => guarded(createFile);
 const M = window.AdvModel;
 const TILE_COLORS = {'.':'#4d8f3a', ',':'#d9c27a', '_':'#9a8f84', '#':'#3b3b44', '%':'#6e6259', 'T':'#1f5f2a',
   '~':'#2f6fd0', '^':'#d9480f', 'o':'#c9a227', '=':'#8a5a2b', 'Q':'#7c4dff', 'S':'#00b894', 'X':'#e84393'};
-const TILE_ICONS = {'.':'🌿', ',':'🏖️', '_':'▫️', '#':'🧱', '%':'🪨', 'T':'🌳', '~':'💧', '^':'🔥',
-  'o':'🟡', '=':'🚪', 'Q':'💜', 'S':'🟢', 'X':'🚩', 'R':'🪨', 'r':'🪨', 'c':'📦', 'C':'📦',
-  'k':'🔑', 'K':'🔑', 'D':'🚪', 'B':'🛶', '*':'💎', '+':'💎', '$':'💎', 'b':'🌿', 'p':'🧪',
-  'h':'❤️', 'u':'🧥', 'l':'💚', 'a':'💣', 'z':'💣', 'f':'🔦', 'j':'🦘', 'm':'💣'};
+const GLYPH_ART = {
+  '.': {ground:'grass0'}, ',': {ground:'sand'}, '_': {ground:'floor'}, '#': {ground:'wall'},
+  '%': {ground:'crack0'}, T: {ground:'tree'}, '~': {ground:'water0'}, '^': {ground:'lava0'},
+  o: {ground:'plate'}, '=': {ground:'gate_closed'}, Q: {ground:'checkpoint'},
+  S: {ground:'grass0', object:'player_down'}, X: {ground:'exit'},
+  R: {ground:'grass0', object:'rock'}, r: {ground:'floor', object:'rock'},
+  c: {ground:'grass0', object:'crate'}, C: {ground:'floor', object:'crate'},
+  k: {ground:'grass0', object:'key'}, K: {ground:'floor', object:'key'},
+  D: {ground:'floor', object:'door'}, B: {ground:'sand', object:'boat'},
+  '*': {ground:'grass0', object:'gem'}, '+': {ground:'floor', object:'gem'},
+  '$': {ground:'sand', object:'gem'}, b: {ground:'grass0', object:'bush'},
+  p: {ground:'grass0', object:'potion'}, h: {ground:'grass0', object:'heart'},
+  u: {ground:'grass0', object:'suit'}, l: {ground:'grass0', object:'life'},
+  a: {ground:'grass0', object:'crate', badge:'num3'}, z: {ground:'grass0', object:'crate', badge:'num4'},
+  m: {ground:'grass0', object:'mine'},
+  '1': {ground:'grass0', object:'npc0_down'}, '2': {ground:'grass0', object:'npc1_down'},
+  '3': {ground:'grass0', object:'npc2_down'}, '4': {ground:'grass0', object:'npc0_down'},
+  '5': {ground:'grass0', object:'npc1_down'}, '6': {ground:'grass0', object:'npc2_down'},
+  '7': {ground:'grass0', object:'npc0_down'}, '8': {ground:'grass0', object:'npc1_down'},
+  '9': {ground:'grass0', object:'npc2_down'}
+};
+const LEGEND_ART = {plate:'plate', gate:'gate_closed', key:'key', door:'door', box:'crate'};
 let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
 let editingLegend = null;
 let displayMode = 'image', selectedGroupCells = [], selectedDarkIndex = null, editingDarkIndex = null;
 let groupListSignature = '', darkListSignature = '', sectionEditorSignature = '';
+let resourceImageSignature = '';
+const spriteCache = new Map(), resourceImageCache = new Map();
 let cell = 22;
 const undoStack = [];
 

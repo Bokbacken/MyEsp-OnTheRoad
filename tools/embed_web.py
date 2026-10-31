@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "main" / "web"
 OUT = ROOT / "main" / "web_assets.h"
+SPRITES = ROOT / "docs" / "adventures" / "sprites"
 
 HTML = "text/html; charset=utf-8"
 # (C name, file, mime, URIs that serve it)
@@ -58,8 +59,13 @@ def render() -> str:
         "",
     ]
     table = []
-    for name, fname, mime, uris in ASSETS:
-        raw = (DATA / fname).read_bytes()
+    sprite_assets = [
+        (f"WEB_ADVENTURE_SPRITE_{path.stem.upper()}", path, "image/png",
+         [f"/adventure-sprites/{path.name}"])
+        for path in sorted(SPRITES.glob("*.png"))
+    ]
+    for name, fname, mime, uris in ASSETS + sprite_assets:
+        raw = (fname if isinstance(fname, Path) else DATA / fname).read_bytes()
         packed = gz(raw)
         lines.append(f"// {fname}: {len(raw)} bytes -> {len(packed)} bytes gzip")
         lines.append(f"static const uint8_t {name}_DATA[] = {{")

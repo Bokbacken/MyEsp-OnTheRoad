@@ -62,6 +62,23 @@ function replaceSection(doc, start, text) {
   if (lines.some(line => line.trimStart().startsWith('@'))) throw new Error('Ett textavsnitt kan inte innehålla en ny direktivrad.');
   doc.lines.splice(start + 1, sec.end - start - 1, ...lines);
 }
+const ADDABLE_SECTIONS = new Set([
+  'about', 'andgate', 'counters', 'dark', 'destinations', 'enemies', 'flags',
+  'gategroup', 'items', 'legend', 'meta', 'node', 'npc', 'plategroup', 'portals',
+  'quests', 'resources', 'rules', 'timedgate', 'treasures'
+]);
+function addSection(doc, tag, arg = '', body = '') {
+  if (!ADDABLE_SECTIONS.has(tag)) throw new Error('Det avsnittet kan inte läggas till här.');
+  const header = `@${tag}${arg.trim() ? ` ${arg.trim()}` : ''}`;
+  if (['meta', 'about', 'rules'].includes(tag) && sections(doc).some(s => s.tag === header.split(/\s/)[0]))
+    throw new Error(`${header.split(/\s/)[0]} finns redan.`);
+  if (['node', 'npc', 'timedgate', 'plategroup', 'gategroup', 'andgate'].includes(tag) && !arg.trim())
+    throw new Error(`${header.split(/\s/)[0]} behöver ett id eller gruppnamn.`);
+  const lines = body === '' ? [] : String(body).split(/\r?\n/);
+  if (lines.some(line => line.trimStart().startsWith('@'))) throw new Error('Avsnittets text kan inte innehålla en ny direktivrad.');
+  if (doc.lines.length && doc.lines[doc.lines.length - 1].trim() !== '') doc.lines.push('');
+  doc.lines.push(header, ...lines);
+}
 function mapSections(doc) {
   return sections(doc).filter(s => s.tag === '@map').map(s => {
     const idText = s.arg.split('#', 1)[0].trim();
@@ -185,7 +202,10 @@ function builtinGlyphs() {
   return new Set([...TERRAIN, ...OBJECTS].map(e => e[0]).concat('123456789'.split('')));
 }
 function resourceGlyphs(doc, id) {
-  const out = new Set();
+  return new Set(listResources(doc, id).map(e => e.glyph));
+}
+function listResources(doc, id) {
+  const out = [];
   for (const s of sections(doc)) {
     if (s.tag !== '@resources') continue;
     const header = mapOf(s.arg);
@@ -195,8 +215,10 @@ function resourceGlyphs(doc, id) {
       const rowMap = /^map=(\d+):/.exec(t);
       const body = rowMap ? t.slice(rowMap[0].length).trim() : t;
       if ((rowMap ? Number(rowMap[1]) : header) !== id) continue;
-      const glyph = body.split(':')[0].trim();
-      if (glyph.length === 1) out.add(glyph);
+      const fields = body.split(':').map(field => field.trim());
+      if (fields[0]?.length === 1 && fields[1]) out.push({
+        glyph: fields[0], id: fields[1], image: fields[5] || '', line: i
+      });
     }
   }
   return out;
@@ -466,8 +488,8 @@ function addMap(doc, id, width, height) {
 const api = {
   newAdventure, suggestMapId, nextMapId, addMap, blankGrid, validStem, MAX_MAPS, FILLS,
   MAX_W, MAX_H, MAX_LEGEND, MAX_DARK, COLORS, TERRAIN, OBJECTS,
-  parse, serialize, sections, replaceSection, mapIds, getGrid, setGrid,
-  listLegend, resourceGlyphs, addLegend, removeLegend, updateLegend, legendValue, suggestGlyph, usage,
+  parse, serialize, sections, replaceSection, addSection, mapIds, getGrid, setGrid,
+  listLegend, listResources, resourceGlyphs, addLegend, removeLegend, updateLegend, legendValue, suggestGlyph, usage,
   listDark, addDark, removeDark, updateDark, listGroups, updateGroup, removeGroup,
   paintCell, moveCell, resizeMap
 };
