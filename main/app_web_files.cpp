@@ -436,6 +436,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
         FsUpload::discard(tmp);
     }
     size_t left = total;
+    bool drainBody = false;
     int timeouts = 0;
     int64_t recvUs = 0, flushUs = 0, closeUs = 0;
     while (ok && left > 0) {
@@ -443,12 +444,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             err = pipeline.error.load();
             sdIoFailed = t.sd && err == EIO;
             ok = false;
-            char drain[512];
-            while (left > 0) {
-                const int n = httpd_req_recv(r, drain, left < sizeof(drain) ? left : sizeof(drain));
-                if (n <= 0) break;
-                left -= (size_t)n;
-            }
+            drainBody = true;   // After SD recovery, so a broken card is not left busy for the whole body
             break;
         }
         uint8_t index = 0;
@@ -543,7 +539,18 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
         if (sdIoFailed) {
             ESP_LOGW(TAG, "recovering SD card after upload I/O error");
-            if (!BoardSd::remount()) ESP_LOGW(TAG, "SD recovery after upload failure did not mount the card");
+            if (BoardSd::remount()) {
+                Lock lk(true);
+                FsUpload::discard(tmp);   // The first discard may have hit the failed card
+            } else {
+                ESP_LOGW(TAG, "SD recovery after upload failure did not mount the card");
+            }
+        }
+        char drain[512];
+        while (drainBody && left > 0) {
+            const int n = httpd_req_recv(r, drain, left < sizeof(drain) ? left : sizeof(drain));
+            if (n <= 0) break;
+            left -= (size_t)n;
         }
         if (err == ENOMEM) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
         return ioError(r, err);

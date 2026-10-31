@@ -26,7 +26,9 @@ inline const char *esp_err_to_name(int e) { return e ? "test error" : "ESP_OK"; 
 constexpr int pdPASS=1, portMAX_DELAY=-1;
 inline uint64_t ticks=1000000;
 inline bool stopSample=false;
+inline int delayCalls=0;
 inline void vTaskDelay(int ms) {
+    ++delayCalls;
     ticks += uint64_t(ms)*1000;
     if (stopSample && ms==10000) throw std::runtime_error("sample complete");
 }
@@ -115,15 +117,28 @@ struct sdmmc_command_t {
     size_t datalen;
     esp_err_t error;
     uint32_t response[4];
+    int flags;
+    int timeout_ms;
 };
-inline int transactionResult=ESP_OK, commandError=ESP_OK;
-inline int transactionCalls=0;
+constexpr int MMC_STOP_TRANSMISSION=12, MMC_SEND_STATUS=13, MMC_WRITE_BLOCK_MULTIPLE=25, SD_APP_SEND_NUM_WR_BLOCKS=22;
+constexpr uint32_t MMC_R1_READY_FOR_DATA=1u<<8, MMC_R1_CURRENT_STATE_TRAN=4;
+#define MMC_R1_CURRENT_STATE_STATUS(s) (((s) & 0x1E00) >> 9)
+constexpr int SCF_CMD_AC=1, SCF_RSP_R1B=2, SCF_WAIT_BUSY=4;
+inline int transactionResult=ESP_OK, commandError=ESP_OK, stopError=ESP_OK;
+inline int transactionCalls=0, stopCalls=0;
+inline uint32_t cardStatus=0x900;   // R1 returned by CMD13
 inline int fakeTransaction(int slot, sdmmc_command_t *cmd) {
     assert(slot==0 || slot==1);
     ++transactionCalls;
     ticks+=2500;
     cmd->error=commandError;
-    cmd->response[0]=0x900;
+    if (cmd->opcode==MMC_STOP_TRANSMISSION) {
+        assert(cmd->flags==(SCF_CMD_AC|SCF_RSP_R1B|SCF_WAIT_BUSY) && cmd->timeout_ms>0);
+        ++stopCalls;
+        cmd->error=stopError;
+        if (!stopError) cardStatus=0x900;
+    }
+    cmd->response[0]=cmd->opcode==MMC_SEND_STATUS ? cardStatus : 0x900;
     return transactionResult;
 }
 struct sdmmc_host_t {
@@ -258,7 +273,7 @@ SD = r'''
 int main() {
     using namespace BoardSd;
     assert(begin() && info().mounted && info().width==4);
-    sdmmc_command_t cmd{25, 123, reinterpret_cast<void *>(1), 32768, ESP_OK, {}};
+    sdmmc_command_t cmd{25, 123, reinterpret_cast<void *>(1), 32768, ESP_OK, {}, 0, 0};
     assert(mountedTransaction(0, &cmd)==ESP_OK && transactionCalls==1);
 #ifdef CONFIG_OTR_SD_IO_DIAGNOSTICS
     assert(s_trace.commands==1 && !s_trace.active && s_trace.dataBlock==123);
@@ -273,9 +288,40 @@ int main() {
     transactionResult=ESP_OK;
     cmd.opcode=24; cmd.data=reinterpret_cast<void *>(1);
     assert(mountedTransaction(0,&cmd)==ESP_OK && s_trace.statusPolls==0);
-#else
-    assert(mountedTransaction==fakeTransaction);
 #endif
+    assert(mountedTransaction==guardedTransaction);
+    // Lost CMD12: card stuck in RCV gets one STOP_TRANSMISSION, then normal status again.
+    cmd={13, 0, nullptr, 0, ESP_OK, {}, 0, 0};
+    cardStatus=0x0c00;
+    stopCalls=0;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && stopCalls==1);
+    assert(mountedTransaction(0,&cmd)==ESP_OK && cmd.response[0]==0x900);
+    // Failed CMD12 is rate limited instead of being sent on every CMD13 poll.
+    cardStatus=0x0c00; stopError=ESP_ERR_TIMEOUT; stopCalls=0;
+    ticks+=1000000;
+    for (int i=0;i<50;++i) assert(mountedTransaction(0,&cmd)==ESP_OK);
+    assert(stopCalls==1);
+    ticks+=600000;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && stopCalls==2);
+    stopError=ESP_OK; cardStatus=0x900;
+    assert(mountedTransaction(0,&cmd)==ESP_OK);
+    // Programming card: short polls spin, longer waits yield so IDLE0 can feed the watchdog.
+    cardStatus=0x0e00; delayCalls=0;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && delayCalls==0);
+    for (int i=0;i<3;++i) assert(mountedTransaction(0,&cmd)==ESP_OK);
+    assert(delayCalls>=1);
+    cardStatus=0x900; delayCalls=0;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && delayCalls==0);
+    // ESP-IDF v6.1 returns ACMD22's result for a failed CMD25: keep the write failed.
+    sdmmc_command_t write{25, 7, reinterpret_cast<void *>(1), 16384, ESP_OK, {}, 0, 0};
+    sdmmc_command_t written{22, 0, reinterpret_cast<void *>(1), 4, ESP_OK, {}, 0, 0};
+    commandError=ESP_ERR_TIMEOUT;
+    assert(mountedTransaction(0,&write)==ESP_OK && write.error==ESP_ERR_TIMEOUT);
+    commandError=ESP_OK;
+    assert(mountedTransaction(0,&written)==ESP_OK && written.error==ESP_ERR_TIMEOUT);
+    written.error=ESP_OK;
+    assert(mountedTransaction(0,&written)==ESP_OK && written.error==ESP_OK);
+    assert(mountedTransaction(0,&write)==ESP_OK && mountedTransaction(0,&written)==ESP_OK && written.error==ESP_OK);
     assert(info().generation==1 && info().totalBytes==32000000);
     unmountResult=ESP_FAIL;
     assert(!remount() && mounted()); // Do not discard ownership or reinit after failed unmount.
@@ -362,7 +408,7 @@ def main():
             "freertos/portmacro.h", "freertos/semphr.h", "esp_adc/adc_cali.h",
             "esp_adc/adc_cali_scheme.h", "esp_adc/adc_oneshot.h", "driver/gpio.h",
             "driver/sdmmc_host.h", "esp_vfs_fat.h", "ff.h", "diskio_sdmmc.h",
-            "sdmmc_cmd.h", "sd_pwr_ctrl_by_on_chip_ldo.h", "esp_timer.h",
+            "sdmmc_cmd.h", "sd_protocol_defs.h", "sd_pwr_ctrl_by_on_chip_ldo.h", "esp_timer.h",
         ]
         for header in headers:
             path = work / header

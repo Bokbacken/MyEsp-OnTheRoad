@@ -8,6 +8,24 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.9 (unreleased)
+
+- SD write recovery on S3 and P4. Owner logs from P4 v0.23.8 show a response
+  timeout during a multi-block write, after which the card stays in receive
+  state (`r1=00000c00`). ESP-IDF then polls CMD13 for 5 s on CPU 0, which
+  starves `IDLE0` and trips the task watchdog. Fixed in two places:
+  - The SD transaction wrapper sends `STOP_TRANSMISSION` (CMD12) when CMD13
+    reports a card stuck in receive state; retries at most every 500 ms.
+  - The wrapper yields one tick when the card stays busy for more than 2 ms.
+  - The wrapper keeps a failed CMD25 failed. ESP-IDF v6.1 returns the
+    follow-up ACMD22 result instead, so after recovery a partial write would
+    otherwise be reported as successful. The same bug is fixed upstream.
+- Upload I/O errors remount the card before the rest of the HTTP body is
+  drained, and remove the temporary file again after a successful remount.
+- Unchanged: boot clock (P4 20 MHz) and watchdog limits; recovery remount
+  still uses 10 MHz. The trigger (lost CMD12 response, CRC error) is not
+  explained, and these changes are not hardware-verified yet.
+
 ## v0.23.8 (unreleased)
 
 - P4 diagnostic build enables frame pointers for watchdog backtraces and a

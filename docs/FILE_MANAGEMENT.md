@@ -95,6 +95,34 @@ uppladdningens prioritet. C6-radions slot instrumenteras inte.
 4. Jämför stack och `sdtrace` innan klocka, bussbredd eller schemaläggning
    ändras. Ett lyckat enskilt försök bevisar inte stabilitet.
 
+### Återhämtning vid SD-skrivfel (v0.23.9)
+
+Två P4-loggar med v0.23.8 visar samma förlopp vid 20 MHz:
+
+1. Under en skrivning med flera block (CMD25) kommer ett svars-timeout-avbrott
+   (`SD_TRANS: handle_idle_state_events unhandled: 00000100`).
+2. Kortet blir kvar i mottagningsläge (`r1=00000c00`).
+3. ESP-IDF frågar kortets status (CMD13) i ungefär 5 s utan att släppa CPU 0.
+4. Watchdogen för `IDLE0` slår till. Felet kom även med SD-loggningen pausad.
+
+Hela kedjan är aktiv i alla byggen, inte bara i diagnostikbygget:
+
+- Om CMD13 visar mottagningsläge skickar firmware `STOP_TRANSMISSION` (CMD12)
+  så att kortet återgår till normalläge. Nytt försök görs tidigast efter 500 ms.
+  Loggraden `card left in receive state` visar varje försök.
+- Om kortet är upptaget längre än 2 ms släpps CPU:n en tick mellan
+  statusfrågorna.
+- En misslyckad CMD25 förblir misslyckad. ESP-IDF v6.1 returnerar annars
+  resultatet från uppföljande ACMD22, så att en delvis skrivning kan se ut
+  att ha lyckats när kortet väl har återhämtat sig.
+- Vid I/O-fel under uppladdning monteras kortet om innan resten av
+  HTTP-kroppen tas emot och slängs. Uppladdningen räknas fortfarande som
+  misslyckad och den temporära filen tas bort.
+
+Utlösaren, alltså varför svaret på CMD12 tappas och varför CRC-fel uppstår,
+är inte förklarad. Startklockan är oförändrad för att fixen ska kunna
+verifieras mot felet.
+
 API: `GET /api/log/sd` ger `{"enabled":true|false}`;
 adminskyddat `POST /api/log/sd?enabled=0|1&pin=...` ändrar SD-loggning.
 `GET /api/log/download?ram=1` ger enbart `info.txt` och `ram.log`.

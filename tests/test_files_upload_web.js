@@ -159,3 +159,6 @@ const server = fs.readFileSync('main/app_web_files.cpp', 'utf8');
 assert.match(server, /static constexpr int MAX_UPLOADS = 1;/);
 assert.match(server, /if \(ok && !skipped\) changed\(t\);/);
 assert.match(server, /if \(sdIoFailed\)[\s\S]*BoardSd::remount\(\)/);
+// SD write failure: recover the card before draining the rest of the HTTP body.
+assert.match(server, /drainBody = true;[\s\S]*BoardSd::remount\(\)[\s\S]*while \(drainBody && left > 0\)/);
+assert.doesNotMatch(server.split('drainBody = true;')[0], /httpd_req_recv\(r, drain/);

@@ -157,9 +157,15 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [x] v0.23.8: P4-diagnostik med frame pointers och oberoende SD-kommandosampling
   på CPU 1; pausbar SD-loggning och RAM-only ZIP. Ägarens seriella logg
   2026-10-31 bekräftar IDLE0-watchdog med `fs_upload_sd` på CPU 0.
-- [ ] Reproducera med v0.23.8 och avkoda full stack mot exakt ELF. Jämför
-  SD-loggning på/av före andra ändringar; klockhastighet och delad controller
-  är ännu inte uteslutna. Diagnostikbygget är inte en stabilitetsfix.
+- [x] Reproducerat med v0.23.8, med SD-loggning både på och av. Svars-timeout
+  under CMD25 lämnar kortet i mottagningsläge (`r1=00000c00`). Därefter
+  frågar ESP-IDF kortets status (CMD13) i 5 s på CPU 0 och `IDLE0`-watchdogen
+  slår till. SD-loggern är inte orsaken.
+- [ ] Verifiera v0.23.9 på hårdvara vid 20 MHz:
+  - `card left in receive state` följs av ett fungerande kort;
+  - ingen watchdog;
+  - snabb återmontering efter misslyckad uppladdning.
+  Klockhastighet och delad controller är fortfarande inte uteslutna som utlösare.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om

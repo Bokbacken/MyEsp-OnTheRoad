@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sd_protocol_defs.h"
 #include "sdmmc_cmd.h"
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
@@ -32,6 +33,59 @@ sdmmc_card_t *s_card = nullptr;
 Info s_info{};
 uint32_t s_nextPoll = 0;
 bool s_logMissing = true;
+esp_err_t (*s_rawTransaction)(int, sdmmc_command_t *) = nullptr;
+esp_err_t (*s_transaction)(int, sdmmc_command_t *) = nullptr;   // Raw, or traced in diagnostic builds
+
+// R1 state while a write is still open. P4 has shown a lost auto CMD12 (RTO between transactions):
+// the card stays in RCV, ESP-IDF then spins CMD13 for 5 s and every following write is rejected.
+constexpr uint32_t R1_STATE_RCV = 6;
+constexpr int64_t BUSY_SPIN_US = 2000;
+constexpr int64_t STOP_RETRY_US = 500000;
+int64_t s_notReadySinceUs = 0;
+int64_t s_lastStopUs = -STOP_RETRY_US;
+esp_err_t s_writeError = ESP_OK;
+
+void afterStatus(int slot, uint32_t r1)
+{
+    const uint32_t state = MMC_R1_CURRENT_STATE_STATUS(r1);
+    if ((r1 & MMC_R1_READY_FOR_DATA) && state == MMC_R1_CURRENT_STATE_TRAN) {
+        s_notReadySinceUs = 0;
+        return;
+    }
+    const int64_t now = esp_timer_get_time();
+    if (!s_notReadySinceUs) s_notReadySinceUs = now;
+    if (state == R1_STATE_RCV && now - s_lastStopUs >= STOP_RETRY_US) {
+        s_lastStopUs = now;
+        sdmmc_command_t stop = {};
+        stop.opcode = MMC_STOP_TRANSMISSION;
+        stop.flags = SCF_CMD_AC | SCF_RSP_R1B | SCF_WAIT_BUSY;
+        stop.timeout_ms = 1000;
+        esp_err_t err = s_transaction(slot, &stop);
+        if (err == ESP_OK) err = stop.error;
+        ESP_LOGW(TAG, "card left in receive state (r1=%08x); STOP_TRANSMISSION: %s",
+                 (unsigned)r1, esp_err_to_name(err));
+        return;
+    }
+    // Busy card: ESP-IDF polls CMD13 back to back and would starve IDLE on this core.
+    if (now - s_notReadySinceUs >= BUSY_SPIN_US) vTaskDelay(1);
+}
+
+esp_err_t guardedTransaction(int slot, sdmmc_command_t *cmd)
+{
+    const esp_err_t err = s_transaction(slot, cmd);
+    const esp_err_t result = err == ESP_OK ? cmd->error : err;
+    if (cmd->opcode == MMC_WRITE_BLOCK_MULTIPLE && cmd->data) {
+        s_writeError = result;
+    } else if (cmd->opcode == SD_APP_SEND_NUM_WR_BLOCKS && cmd->data) {
+        // ESP-IDF v6.1 returns this ACMD22 result as the failed CMD25's result. Once CMD12 has
+        // recovered the card, ACMD22 succeeds and a partial write would be reported as written.
+        if (s_writeError != ESP_OK && err == ESP_OK) cmd->error = s_writeError;
+        s_writeError = ESP_OK;
+    } else if (result == ESP_OK && cmd->opcode == MMC_SEND_STATUS) {
+        afterStatus(slot, cmd->response[0]);
+    }
+    return err;
+}
 #if defined(CONFIG_OTR_SD_IO_DIAGNOSTICS)
 struct IoTrace {
     uint32_t commands = 0, statusPolls = 0;
@@ -45,7 +99,6 @@ struct IoTrace {
 portMUX_TYPE s_traceMux = portMUX_INITIALIZER_UNLOCKED;
 IoTrace s_trace;
 TaskHandle_t s_traceTask = nullptr;
-esp_err_t (*s_transaction)(int, sdmmc_command_t *) = nullptr;
 
 esp_err_t tracedTransaction(int slot, sdmmc_command_t *cmd)
 {
@@ -64,7 +117,7 @@ esp_err_t tracedTransaction(int slot, sdmmc_command_t *cmd)
         s_trace.dataBytes = cmd->datalen;
     }
     portEXIT_CRITICAL(&s_traceMux);
-    const esp_err_t err = s_transaction(slot, cmd);
+    const esp_err_t err = s_rawTransaction(slot, cmd);
     const int64_t duration = esp_timer_get_time() - start;
     portENTER_CRITICAL(&s_traceMux);
     s_trace.durationUs = duration;
@@ -124,10 +177,13 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT, bool formatIfFail = f
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = freqKhz;
+    s_rawTransaction = host.do_transaction;
 #if defined(CONFIG_OTR_SD_IO_DIAGNOSTICS)
-    s_transaction = host.do_transaction;
-    host.do_transaction = tracedTransaction;
+    s_transaction = tracedTransaction;
+#else
+    s_transaction = s_rawTransaction;
 #endif
+    host.do_transaction = guardedTransaction;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     // Slot 1 belongs to ESP-Hosted (ESP32-C6); deinit_p only releases our slot on unmount.
     host.slot = SD_SLOT;
