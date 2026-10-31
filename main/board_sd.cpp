@@ -150,6 +150,15 @@ void traceTask(void *)
 }
 #endif
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+// Slot 0 (card) and slot 1 (ESP-Hosted C6) share one SDMMC controller and its host clock divider;
+// only a second divider is per slot. ESP-IDF reprograms the shared divider whenever the next
+// transaction is for a slot with another frequency, which can cut off the card's pending auto
+// CMD12. Equal clocks keep the divider fixed (160 MHz / 4, no per-slot divider).
+constexpr int SHARED_FREQ_KHZ = SDMMC_FREQ_HIGHSPEED;
+#if defined(CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ)
+static_assert(CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ == SHARED_FREQ_KHZ,
+              "SD card and ESP-Hosted SDIO must use the same clock on the shared P4 SDMMC controller");
+#endif
 sd_pwr_ctrl_handle_t s_pwr = nullptr;   // Card IO power from on-chip LDO, kept for the whole runtime
 bool s_recover = false;
 
@@ -239,11 +248,12 @@ bool mountLocked(bool formatIfFail = false)
     if (s_info.mounted) return true;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     if (!cardPower(s_recover)) return false;
-    const int freq = s_recover ? 10000 : SDMMC_FREQ_DEFAULT;
-    bool ok = tryMount(4, freq, formatIfFail);
+    // Recovery keeps the shared clock: a slower card clock would reprogram the divider again.
+    bool ok = tryMount(4, SHARED_FREQ_KHZ, formatIfFail);
     if (!ok) {
         s_recover = true;
-        ok = cardPower(true) && tryMount(1, 10000, formatIfFail);
+        ok = cardPower(true) && (tryMount(4, SDMMC_FREQ_DEFAULT, formatIfFail) ||
+                                 tryMount(1, SDMMC_FREQ_DEFAULT, formatIfFail));
     }
 #else
     const bool ok = tryMount(4, SDMMC_FREQ_DEFAULT, formatIfFail) ||
@@ -261,6 +271,11 @@ bool mountLocked(bool formatIfFail = false)
     }
     ESP_LOGI(TAG, "mounted %s: %u-bit %u kHz, %u MB, %u MB free", s_info.name, s_info.width,
              (unsigned)s_info.freqKhz, (unsigned)(s_info.totalBytes >> 20), (unsigned)(s_info.freeBytes >> 20));
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    if (s_info.freqKhz != (uint32_t)SHARED_FREQ_KHZ)
+        ESP_LOGW(TAG, "card clock %u kHz differs from ESP-Hosted SDIO %d kHz; shared SDMMC divider "
+                      "will be reprogrammed on slot switches", (unsigned)s_info.freqKhz, SHARED_FREQ_KHZ);
+#endif
     return true;
 }
 

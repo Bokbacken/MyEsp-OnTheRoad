@@ -47,7 +47,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   `remount()` aktiverar det uttryckligen, och status-/monteringsfel kan också
   aktivera det. Om 4-bit/10 MHz misslyckas görs strömcykel och försök i
   1-bit/10 MHz. Frekvensskillnaden är alltså avsiktlig återhämtningspolicy,
-  inte slumpmässig klockvariation; det underliggande SD-felet är ännu okänt.
+  inte slumpmässig klockvariation. Från v0.23.10 sker återhämtningen
+  i stället på 40 MHz, eftersom 10 MHz också växlade den gemensamma
+  SDMMC-klockdelaren (se FILE_MANAGEMENT).
 - Schemat bekräftar separata P4-I/O-signaler för microSD
   (GPIO39–44; D3 är GPIO42) och C6-värdradions SDIO. De ska därför inte
   kollidera på samma P4-I/O. GPIO42-konfliktvarningen vid återmontering
@@ -150,7 +152,8 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   av huvudmatning. P4:s VBAT kräver rätt viloläges-/strömsekvens; en
   plötslig avstängning får inte utlovas fungera som en fristående DS3231.
 - [x] SD: explicit styrning av kortmatning GPIO45, strömcykel vid
-  återmontering/fel, 10 MHz vid återhämtning och 1-bit-fallback.
+  återmontering/fel och 1-bit-fallback. Från v0.23.10 körs SD på 40 MHz,
+  samma klocka som C6-SDIO, även vid återhämtning.
   Felkod exponeras i webbdiagnostik. Slot 1/C6 lämnas igång.
 - [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
   som Wi-Fi används, och att återmontering fungerar efter timeout.
@@ -161,11 +164,13 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   under CMD25 lämnar kortet i mottagningsläge (`r1=00000c00`). Därefter
   frågar ESP-IDF kortets status (CMD13) i 5 s på CPU 0 och `IDLE0`-watchdogen
   slår till. SD-loggern är inte orsaken.
-- [ ] Verifiera v0.23.9 på hårdvara vid 20 MHz:
-  - `card left in receive state` följs av ett fungerande kort;
-  - ingen watchdog;
-  - snabb återmontering efter misslyckad uppladdning.
-  Klockhastighet och delad controller är fortfarande inte uteslutna som utlösare.
+- [x] v0.23.9 på hårdvara, 20 MHz: ingen watchdog, CMD12 tar kortet ur
+  mottagningsläget och återmonteringen går snabbt. Skrivningen misslyckas
+  fortfarande.
+- [ ] v0.23.10: SD på 40 MHz, samma klocka som C6, så att den gemensamma
+  klockdelaren inte växlar. Verifiera upprepade stora uppladdningar via Wi-Fi
+  utan `handle_idle_state_events unhandled` och utan
+  `card left in receive state`.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om

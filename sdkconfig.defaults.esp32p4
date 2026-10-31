@@ -15,6 +15,8 @@ CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 
 # --- Wi-Fi through the ESP32-C6 co-processor (ESP-Hosted 3.x, SDIO, board default pins) ---
 CONFIG_ESP_HOSTED=y
+# Must equal the SD card clock: both slots share the P4 SDMMC host divider (main/board_sd.cpp).
+CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=40000
 CONFIG_ESP_HOSTED_HOST_FEAT_RPC=y
 CONFIG_ESP_HOSTED_HOST_FEAT_RPC_EXT_V2=y
 CONFIG_ESP_HOSTED_HOST_FEAT_SYSTEM=y

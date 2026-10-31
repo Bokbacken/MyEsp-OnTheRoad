@@ -8,6 +8,22 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.10 (unreleased)
+
+- P4 SD card now runs at 40 MHz, the same clock as the ESP-Hosted C6 SDIO link
+  (pinned to 40000 kHz and checked at compile time). Both use separate pins
+  but share one SDMMC controller and its host clock divider. With 20 MHz SD
+  and 40 MHz SDIO, ESP-IDF reprogrammed the divider on every slot switch
+  during Wi-Fi uploads; the 10 MHz recovery mode did the same. This matches
+  the lost auto CMD12 seen in logs, but the link is a hypothesis until
+  hardware-verified.
+- P4 recovery remounts at the same 40 MHz after a card power cycle, and
+  falls back to 4-bit/1-bit 20 MHz only if 40 MHz will not mount. A mounted
+  card clock that differs from the SDIO clock is logged as a warning.
+- Owner hardware result v0.23.9: no watchdog. The write error was detected
+  in about 0.1 s, CMD12 returned the card from receive state, and remount
+  succeeded. The write itself still failed.
+
 ## v0.23.9 (unreleased)
 
 - SD write recovery on S3 and P4. Owner logs from P4 v0.23.8 show a response

@@ -106,7 +106,7 @@ struct sd_pwr_ctrl_ldo_config_t { int ldo_chan_id; };
 inline int sd_pwr_ctrl_new_on_chip_ldo(const sd_pwr_ctrl_ldo_config_t *c, void **p) {
     assert(c->ldo_chan_id==4); *p=reinterpret_cast<void *>(3); return ESP_OK;
 }
-constexpr int SDMMC_FREQ_DEFAULT=20000, SDMMC_SLOT_FLAG_INTERNAL_PULLUP=1;
+constexpr int SDMMC_FREQ_DEFAULT=20000, SDMMC_FREQ_HIGHSPEED=40000, SDMMC_SLOT_FLAG_INTERNAL_PULLUP=1;
 inline bool radioAlive=true;
 inline int hostInit() { return ESP_OK; }
 inline int hostDeinit(int slot) { assert(slot==0); assert(radioAlive); return ESP_OK; }
@@ -273,6 +273,11 @@ SD = r'''
 int main() {
     using namespace BoardSd;
     assert(begin() && info().mounted && info().width==4);
+#ifdef CONFIG_OTR_HW_PROFILE_P4_43
+    assert(lastFreq==40000 && powerCycles==0); // Same clock as ESP-Hosted on the shared controller.
+#else
+    assert(lastFreq==20000);
+#endif
     sdmmc_command_t cmd{25, 123, reinterpret_cast<void *>(1), 32768, ESP_OK, {}, 0, 0};
     assert(mountedTransaction(0, &cmd)==ESP_OK && transactionCalls==1);
 #ifdef CONFIG_OTR_SD_IO_DIAGNOSTICS
@@ -333,12 +338,18 @@ int main() {
     poll(4000);
     assert(mounted() && info().generation==2 && radioAlive);
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
-    assert(powerCycles>=1 && lastFreq==10000); // Runtime failure gets a real card VDD reset.
+    assert(powerCycles>=1 && lastFreq==40000); // VDD reset, same clock as the shared C6 slot.
 #else
     assert(lastFreq==20000 && powerCycles==0);
 #endif
     mountFailures=1;
+#ifdef CONFIG_OTR_HW_PROFILE_P4_43
+    assert(remount() && lastWidth==4 && lastFreq==20000 && radioAlive); // Fallback if 40 MHz will not mount.
+    mountFailures=2;
+    assert(remount() && lastWidth==1 && lastFreq==20000 && radioAlive);
+#else
     assert(remount() && lastWidth==1 && radioAlive);
+#endif
     assert(info().lastError==ESP_OK);
     const uint32_t generation=info().generation;
     assert(format() && formatCalls==1 && info().generation==generation+1);

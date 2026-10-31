@@ -119,9 +119,29 @@ Hela kedjan är aktiv i alla byggen, inte bara i diagnostikbygget:
   HTTP-kroppen tas emot och slängs. Uppladdningen räknas fortfarande som
   misslyckad och den temporära filen tas bort.
 
-Utlösaren, alltså varför svaret på CMD12 tappas och varför CRC-fel uppstår,
-är inte förklarad. Startklockan är oförändrad för att fixen ska kunna
-verifieras mot felet.
+Ägarens test av v0.23.9: ingen watchdog. Felet upptäcktes på cirka 0,1 s
+och kortet återmonterades, men själva skrivningen misslyckades fortfarande.
+
+### Gemensam klocka för SD och C6 (v0.23.10)
+
+SD-kortet (slot 0) och C6-radion via ESP-Hosted (slot 1) har egna pinnar men
+delar samma SDMMC-controller i P4. Controllern har en gemensam klockdelare
+och bara en extra delare per slot. ESP-IDF programmerar om den gemensamma
+delaren varje gång nästa kommando gäller en slot med annan frekvens.
+
+Med SD på 20 MHz och SDIO på 40 MHz hände det vid varje växling under en
+uppladdning via Wi-Fi. Läget 10 MHz vid återhämtning gav samma växlingar.
+Det stämmer med att kortets automatiska CMD12 tappas, men sambandet är en
+hypotes tills det har verifierats på hårdvara.
+
+Från v0.23.10 körs P4:s SD-kort på 40 MHz, samma som
+`CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ`. Inställningen är låst i
+`sdkconfig.defaults.esp32p4`, och bygget stoppas om värdena skiljer sig.
+Även återhämtning sker på 40 MHz efter en strömcykel av kortet.
+
+Om kortet inte går att montera på 40 MHz provas 20 MHz med 4 och sedan 1
+datalinje. Loggen varnar då för att delarna åter skiljer sig. Kontrollera att
+startloggen visar `mounted ...: 4-bit 40000 kHz`.
 
 API: `GET /api/log/sd` ger `{"enabled":true|false}`;
 adminskyddat `POST /api/log/sd?enabled=0|1&pin=...` ändrar SD-loggning.
