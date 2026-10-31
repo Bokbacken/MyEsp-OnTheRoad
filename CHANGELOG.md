@@ -10,6 +10,17 @@ a published GitHub Release.
 
 ## v0.23.6 (unreleased)
 
+- Maps may now be up to 128×128 (was 80×80). `Otr::MAX_W/MAX_H` are 128; the
+  live-view JSON buffer is 96 KiB and `SdSession::SAVE_CAP` is 459,674 bytes.
+  Saves remain compatible. Engine memory grows (World ≈181 KB, Planner ≈640 KB,
+  all in PSRAM); not yet checked on S3/P4 hardware. One 128×128 map is ≈16.5 KB
+  of source, so the 64 KiB file limit still applies.
+- The editor can create new `.adv` files (folder, name, title, size; validated
+  first, never overwrites), add maps, resize a map with a chosen fill glyph and
+  zoom the canvas.
+- The device menu entry is now "Äventyr"/"Adventure" without "(test)", with an
+  updated description.
+
 - Added the graphical map view to the hosted Adventure editor (`/adventure-editor`):
   map tabs per internal map, a canvas with paint/erase/pick/move tools, a palette
   of built-in glyphs, NPC digits, legend glyphs and resource glyphs, and an

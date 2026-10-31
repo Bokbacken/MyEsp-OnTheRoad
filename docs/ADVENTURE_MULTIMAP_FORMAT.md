@@ -23,7 +23,7 @@ och högst tre ytterligare kartor med explicita, unika id:n 2–255:
 ...karta 7:s rader...
 ```
 
-Varje karta måste vara högst 80×80 och innehålla exakt ett `S`. `@meta
+Varje karta måste vara högst 128×128 och innehålla exakt ett `S`. `@meta
 map_id` är fortsatt filens vanliga separata kartidentitet och ändras inte av
 internkart-id:n. Deklarationsordningen för extrakartor kan väljas fritt.
 
@@ -154,7 +154,7 @@ kan inte användas för ett multimap-äventyr.
 - Högst **4 interna kartor** inklusive huvudkartan; kart-id 1–255.
 - Högst **32 destinationsnamn** och **32 portalrader** per fil.
 - `.adv`-fil högst **64 KiB**; en källrad högst 1199 byte.
-- Varje karta högst **80×80**, en `S`; högst 36 plattgrupper, 48 skatter,
+- Varje karta högst **128×128**, en `S`; högst 36 plattgrupper, 48 skatter,
   8 fiender, 16 mörkerrektanglar, 16 resursglyfdefinitioner och 160
   resursplaceringar per karta.
 - Per fil gäller även 16 NPC-definitioner, 128 story-noder, 64 flaggor,
@@ -167,11 +167,13 @@ kan inte användas för ett multimap-äventyr.
 
 På ESP ligger `Adv::Loaded` och de serialiserade kartbilderna i PSRAM. Allokera
 inte `Loaded` eller `Otr::World` på taskstacken. Hoststorlekar i denna
-version: `sizeof(Loaded)=88,088`, `sizeof(World)=71,544`,
-`sizeof(SdSession)=1,032`; en serialiserad World-bild ryms inom 44,977 byte.
-`SdSession::SAVE_CAP` är **180,122 byte** för fyra maximalt stora bilder.
+version: `sizeof(Loaded)=108,488`, `sizeof(World)=181,368`,
+`sizeof(SdSession)=1,032`; en serialiserad World-bild ryms inom 114,865 byte.
+`SdSession::SAVE_CAP` är **459,674 byte** för fyra maximalt stora bilder.
 UI:ts save-buffer måste minst vara `Adv::SdSession::SAVE_CAP`; den gamla
 65,536-bytegränsen räcker inte för multimap.
+En 128×128-karta är ca 16,5 KB källtext, så en fil med flera stora kartor kan
+nå gränsen 64 KiB (`MAX_FILE`) innan den når fyra kartor.
 
 ## 6. Spelbart prov
 

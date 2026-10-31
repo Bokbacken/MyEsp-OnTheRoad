@@ -60,6 +60,19 @@
     </label>
     <button id="browse" type="button" class="secondary">Visa äventyr</button>
     <button id="open" type="button" class="secondary">Öppna</button>
+    <button id="new-toggle" type="button" class="secondary">Ny fil</button>
+  </div>
+  <div id="new-panel" hidden>
+    <h3>Skapa ny äventyrsfil</h3>
+    <div class="legend-form">
+      <label>Mapp <input id="nf-folder" value="mina_aventyr" maxlength="40" autocomplete="off" spellcheck="false"></label>
+      <label>Filnamn <input id="nf-file" value="nytt" maxlength="40" autocomplete="off" spellcheck="false"></label>
+      <label>Titel <input id="nf-title" value="Nytt äventyr" maxlength="60" autocomplete="off"></label>
+      <label>Bredd <input id="nf-w" type="number" min="4" max="128" value="24"></label>
+      <label>Höjd <input id="nf-h" type="number" min="4" max="128" value="16"></label>
+      <button id="nf-create" type="button">Skapa och öppna</button>
+    </div>
+    <p class="muted">Skapar <code>/otr/adventure/mapp/filnamn.adv</code> med en tom mur-omgärdad karta (start S och mål X). Befintliga filer skrivs aldrig över. Kräver Admin-PIN.</p>
   </div>
   <div id="browser-list" hidden></div>
   <div class="editor-toolbar" style="margin-top:.7rem">
@@ -121,10 +134,20 @@
         <p class="muted">Välj verktyget <em>Mörkt område</em> och dra en rektangel på kartan.</p>
         <h3>Kartstorlek</h3>
         <div class="legend-form">
-          <label>Bredd <input id="rs-w" type="number" min="1" max="80"></label>
-          <label>Höjd <input id="rs-h" type="number" min="1" max="80"></label>
+          <label>Bredd <input id="rs-w" type="number" min="1" max="128"></label>
+          <label>Höjd <input id="rs-h" type="number" min="1" max="128"></label>
+          <label>Ny yta fylls med <select id="rs-fill"><option value=".">. gräs</option><option value=",">, sand</option><option value="_">_ golv</option><option value="#"># vägg</option><option value="~">~ vatten</option><option value="^">^ lava</option><option value="T">T träd</option></select></label>
           <button id="rs-apply" type="button" class="secondary">Ändra storlek</button>
         </div>
+        <p class="muted">Koordinater i textavsnitt (skatter, fiender m.m.) justeras inte vid storleksändring; kontrollera dem i textläget. Högst 128×128 per karta och 64 KiB per fil.</p>
+        <h3>Fler kartor</h3>
+        <div class="legend-form">
+          <label>Bredd <input id="am-w" type="number" min="4" max="128" value="16"></label>
+          <label>Höjd <input id="am-h" type="number" min="4" max="128" value="12"></label>
+          <button id="am-add" type="button" class="secondary">Lägg till karta</button>
+        </div>
+        <h3>Zoom</h3>
+        <label>Rutstorlek <select id="zoom"><option value="0">Automatisk</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option><option>32</option></select></label>
       </div>
     </div>
   </div>
@@ -267,6 +290,31 @@ $('validate').onclick = () => guarded(checkSource);
 $('save').onclick = () => guarded(saveSource);
 updateSize();
 
+async function createFile() {
+  const folder = $('nf-folder').value.trim(), file = $('nf-file').value.trim().replace(/\.adv$/i, '');
+  const w = Number($('nf-w').value), h = Number($('nf-h').value);
+  if (!window.AdvModel.validStem(folder) || !window.AdvModel.validStem(file)) throw new Error('Mapp och filnamn får bara innehålla A–Z, a–z, 0–9, _ och - (och inte saves, maps, bitmaps).');
+  const text = window.AdvModel.newAdventure({id: file, title: $('nf-title').value, mapId: window.AdvModel.suggestMapId(file), width: w, height: h});
+  const dir = `/otr/adventure/${folder}`, path = `${dir}/${file}.adv`;
+  const check = await fetch('/api/adventure/validate', {method:'POST', headers:{...pinHeaders(), 'Content-Type':'text/plain; charset=utf-8'}, body:text});
+  const verdict = await check.json().catch(() => ({}));
+  if (!check.ok || !verdict.ok) throw new Error(verdict.error || `Valideringen misslyckades (${check.status}).`);
+  if (!verdict.valid) throw new Error(verdict.error);
+  const mk = await fetch('/api/files/mkdir', {method:'POST', headers:{...pinHeaders(), 'Content-Type':'application/json'}, body:JSON.stringify({root:'sd', path:dir})});
+  const made = await mk.json().catch(() => ({}));
+  if (!mk.ok || made.ok === false) throw new Error(made.error || `Kunde inte skapa mappen (${mk.status}).`);
+  const up = await fetch('/api/fs/upload?' + new URLSearchParams({root:'sd', path}), {method:'POST', headers:{...pinHeaders(), 'Content-Type':'application/octet-stream'}, body:text});
+  const answer = await up.json().catch(() => ({}));
+  if (up.status === 409) throw new Error(`${path} finns redan. Öppna den i stället eller välj ett annat namn.`);
+  if (!up.ok || !answer.ok) throw new Error(answer.error || `Skapandet misslyckades (${up.status}).`);
+  $('path').value = path;
+  $('new-panel').hidden = true;
+  await openFile();
+  setStatus(`Skapade ${path}`, true);
+}
+$('new-toggle').onclick = () => { $('new-panel').hidden = !$('new-panel').hidden; };
+$('nf-create').onclick = () => guarded(createFile);
+
 // ---------- Kartvy ----------
 const M = window.AdvModel;
 const TILE_COLORS = {'.':'#4d8f3a', ',':'#d9c27a', '_':'#9a8f84', '#':'#3b3b44', '%':'#6e6259', 'T':'#1f5f2a',
@@ -408,7 +456,8 @@ function renderDark() {
 function drawMap() {
   const grid = M.getGrid(doc, mapId);
   const canvas = $('map-canvas');
-  cell = Math.max(16, Math.min(36, Math.floor(640 / grid[0].length)));
+  const zoom = Number($('zoom').value);
+  cell = zoom || Math.max(8, Math.min(36, Math.floor(640 / grid[0].length)));
   canvas.width = grid[0].length * cell; canvas.height = grid.length * cell;
   const ctx = canvas.getContext('2d');
   const legend = new Set(M.listLegend(doc, mapId).map(e => e.glyph));
@@ -532,10 +581,17 @@ $('lg-add').onclick = () => {
 $('rs-apply').onclick = () => {
   if (!doc) return;
   const w = Number($('rs-w').value), h = Number($('rs-h').value);
-  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > M.MAX_W || h > M.MAX_H) { setInfo('Storleken måste vara 1–80 i båda riktningar.', true); return; }
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > M.MAX_W || h > M.MAX_H) { setInfo('Storleken måste vara 1–128 i båda riktningar.', true); return; }
   const old = M.getGrid(doc, mapId);
   if ((w < old[0].length || h < old.length) && !confirm('Rutor utanför den nya storleken tas bort. Fortsätt?')) return;
-  commit(() => M.resizeMap(doc, mapId, w, h));
+  commit(() => M.resizeMap(doc, mapId, w, h, $('rs-fill').value));
+};
+$('zoom').onchange = () => { if (doc) drawMap(); };
+$('am-add').onclick = () => {
+  if (!doc) return;
+  const id = M.nextMapId(doc);
+  const w = Number($('am-w').value), h = Number($('am-h').value);
+  if (commit(() => M.addMap(doc, id, w, h))) { mapId = id; setInfo(`Lade till karta ${id}. Lägg till en @destination eller @portal i textläget för att nå den.`); renderAll(); }
 };
 syncLegendForm();
 </script>

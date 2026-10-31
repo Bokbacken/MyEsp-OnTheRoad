@@ -43,7 +43,7 @@ Status: v0.7.0 innehåller ett första **proof of concept** ("Testvärld", 60 ×
   väggar efter två, nycklar öppnar dörrar, båt krävs för vatten, lava skickar tillbaka till start,
   alla tryckplattor belastade → grindarna öppnas. 13 ädelstenar.
 - `tests/test_adventure.cpp` – 258 värdtester, inklusive en full genomspelning (13/13 ädelstenar).
-- `main/ui_adventure.cpp` – meny­kortet **Äventyr (test)** i huvudmenyn:
+- `main/ui_adventure.cpp` – meny­kortet **Äventyr** i huvudmenyn:
   - 320 × 320 vy, mjuk kamera som följer spelaren (pixelinterpolering) och stannar vid kanterna.
   - Zoom: 32 px (10 × 10 rutor) eller 16 px (20 × 20).
   - Styrplatta (håll = fortsätt gå), **Slå**, **Zoom**; håll fingret i vyn för att gå mot det, tryck på

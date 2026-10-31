@@ -59,7 +59,7 @@ Bekräftade spelregler för denna leverans:
   extra tur.
 
 - [x] Lås och dokumentera runtime-reglerna och kapacitetsgränserna.
-  Högst fyra kartor och 64 KiB källfil. Savebuffer 180 122 byte i PSRAM.
+  Högst fyra kartor och 64 KiB källfil. Savebuffer 459 674 byte i PSRAM.
 - [x] Stöd `@map` för huvudkarta, `@map N` för extra kartor och explicit
   kartval enligt formatspecifikationen. Utelämnat kartval betyder alltid
   huvudkartan, aldrig senast deklarerad eller aktiv karta.
@@ -144,7 +144,7 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 - [x] Hostas från inbäddade flash-assets på ESP32.
 - [x] Läsa/redigera/spara befintliga `.adv`-filer på SD i källtextläge.
-- [ ] Skapa nya `.adv`-filer direkt i editorn.
+- [x] Skapa nya `.adv`-filer direkt i editorn (mapp/filnamn, titel, storlek; skriver aldrig över), lägga till kartor, ändra kartstorlek (högst 128×128) och zoom.
 - [x] Kartflikar, rityta, palett (terräng, objekt, NPC-siffror, legend- och
   resursglyfer), flytta/sudda/plocka och editorintern ångra.
 - [x] Legendhjälp (skapa/ändra/ta bort `@legend`, glyfförslag, användning och
@@ -177,3 +177,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad. Motoräventyret/storyförändringar levererade i v0.23.4; ägaren har provat hela leveransen på P4. S3-verifiering återstår. |
 | 2026-10-31 | Editor steg 1: källtextläge och produktionsvalidering | Öppna/redigera/validera/spara befintliga SD-äventyr på `/adventure-editor`; visual editing och hårdvarutest återstår. |
 | 2026-10-31 | Editor steg 2: grafisk kartvy, legend- och områdeshjälp | Kartflikar, palett, rita/flytta, legendhjälp och `@dark` på `/adventure-editor`; Node-tester kör alla 63 `.adv`-filer utan ändring. Firmware-CI och fysisk test av kartvyn kvar. |
+| 2026-11-01 | Editor: nya filer, kartstorlek, 128×128 | Maxkarta höjd från 80×80 till 128×128 (World ≈181 KB, Planner ≈640 KB i PSRAM, live-JSON 96 KiB), menyknappen utan "(test)". Node- och värdtester samt CI; minnesbeteende och editorn på S3/P4 är inte hårdvaruprovade. |

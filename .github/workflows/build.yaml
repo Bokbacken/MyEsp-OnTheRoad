@@ -87,7 +87,7 @@ jobs:
           python3 tests/test_host_ota.py
           node tests/test_board_diagnostics_web.js
           node tests/test_adventure_editor_web.js
-          node tests/test_adventure_model.js
+          ADV_SAMPLE_DIR=/tmp/newadv node tests/test_adventure_model.js
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o /tmp/test_fspath
           /tmp/test_fspath
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload
@@ -95,6 +95,7 @@ jobs:
           node tests/test_files_upload_web.js
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_validator.cpp main/adv_validator.cpp main/adv_loader.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_validator
           /tmp/test_adv_validator
+          /tmp/test_adv_validator /tmp/newadv/*.adv
 
       - name: Read firmware version
         id: firmware

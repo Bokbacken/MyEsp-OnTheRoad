@@ -52,7 +52,7 @@ constexpr int REF_CAP = 96;
 constexpr int MAX_NPCS = 9;        // Map digits 1..9
 constexpr int MAX_ITEMS = Otr::Story::MAX_ITEMS;
 constexpr int MAX_CHOICES = Otr::Story::MAX_CHOICES + 1;   // + the device's own "Okej" / "Gå vidare"
-constexpr size_t JSON_CAP = 48 * 1024;   // 80x80 layers, resources and a long dialogue
+constexpr size_t JSON_CAP = 96 * 1024;   // 128x128 layers (3 x 16 KiB), resources and a long dialogue
 
 struct NpcInfo {
     uint8_t num, x, y, look;

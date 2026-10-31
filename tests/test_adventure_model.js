@@ -105,14 +105,68 @@ assert.equal(M.listDark(inline, 1).length, 0);
 doc = M.parse(SRC);
 M.resizeMap(doc, 1, 6, 5);
 assert.deepEqual(M.getGrid(doc, 1), ['#####.', '#S.p#.', '#.o=#.', '#####.', '......']);
+M.resizeMap(doc, 1, 6, 5, '#');
+assert.deepEqual(M.getGrid(doc, 1), ['#####.', '#S.p#.', '#.o=#.', '#####.', '......']);
 M.resizeMap(doc, 1, 3, 4);
 assert.ok(doc.lines.includes('@plategroup 1: 1,2 2,1') && !doc.lines.some(l => l.startsWith('@gategroup')));
 assert.throws(() => M.resizeMap(doc, 1, 1, 1), /startrutan/);
 assert.throws(() => M.setGrid(doc, 1, ['ab', 'c']), /rektangulär/);
+
+// new files, extra maps, size limits
+const fresh2 = M.newAdventure({id: 'min_bana', title: 'Min # bana\nrad', mapId: 123, width: 128, height: 128});
+const fd = M.parse(fresh2);
+assert.deepEqual(M.mapIds(fd), [1]);
+const fg = M.getGrid(fd, 1);
+assert.equal(fg.length, 128);
+assert.ok(fg.every(r => r.length === 128));
+assert.equal(fg.join('').split('S').length - 1, 1);
+assert.equal(fg[1][1], 'S');
+assert.equal(fg[126][126], 'X');
+assert.ok(fresh2.includes('title.sv: Min bana rad') && fresh2.includes('map_id: 123'));
+assert.ok(new TextEncoder().encode(fresh2).length < 65536);
+assert.throws(() => M.newAdventure({id: 'x', width: 129, height: 10}), /Storleken/);
+assert.throws(() => M.newAdventure({id: 'x', width: 3, height: 10}), /Storleken/);
+assert.throws(() => M.newAdventure({id: '../x', width: 8, height: 8}), /Namnet/);
+assert.throws(() => M.newAdventure({id: 'saves', width: 8, height: 8}), /Namnet/);
+assert.ok(M.suggestMapId('abc') >= 90 && M.suggestMapId('abc') <= 239);
+assert.equal(M.suggestMapId('abc'), M.suggestMapId('abc'));
+const small = M.parse(M.newAdventure({id: 'a', width: 4, height: 4}));
+assert.deepEqual(M.getGrid(small, 1), ['####', '#S.#', '#.X#', '####']);
+assert.equal(M.nextMapId(small), 2);
+M.addMap(small, 2, 6, 5);
+M.addMap(small, 9, 4, 4);
+assert.deepEqual(M.mapIds(small), [1, 2, 9]);
+assert.ok(!M.getGrid(small, 2).join('').includes('X'));
+assert.equal(M.nextMapId(small), 3);
+assert.throws(() => M.addMap(small, 2, 4, 4), /redan/);
+assert.throws(() => M.addMap(small, 1, 4, 4), /2–255/);
+M.addMap(small, 3, 4, 4);
+assert.throws(() => M.addMap(small, 4, 4, 4), /högst 4/);
+assert.equal(M.getGrid(M.parse(M.serialize(small)), 9).length, 4);
+const big = M.parse(M.newAdventure({id: 'b', width: 128, height: 128}));
+M.resizeMap(big, 1, 128, 128, '~');
+assert.throws(() => M.resizeMap(big, 1, 129, 128), /1–128/);
+assert.throws(() => M.resizeMap(big, 1, 0, 8), /1–128/);
+assert.throws(() => M.resizeMap(big, 1, 130, 8, '.'), /1–128/);
+assert.throws(() => M.resizeMap(big, 1, 100, 100, 'Z'), /fyllnad/);
+const grow = M.parse(M.newAdventure({id: 'g', width: 10, height: 10}));
+M.resizeMap(grow, 1, 12, 11, '~');
+assert.equal(M.getGrid(grow, 1)[10][11], '~');
+assert.equal(M.getGrid(grow, 1)[5][10], '~');
+assert.throws(() => M.setGrid(big, 1, Array(129).fill('S'.repeat(4))), /128×128/);
 
 // CRLF is preserved
 const crlf = '@map\r\n.S\r\n';
 const cd = M.parse(crlf);
 M.paintCell(cd, 1, 0, 0, '#');
 assert.equal(M.serialize(cd), '@map\r\n#S\r\n');
+if (process.env.ADV_SAMPLE_DIR) {
+  fs.mkdirSync(process.env.ADV_SAMPLE_DIR, {recursive: true});
+  for (const [name, w, h] of [['min', 4, 4], ['mid', 40, 30], ['max', 128, 128], ['wide', 128, 4], ['tall', 4, 128]]) {
+    fs.writeFileSync(path.join(process.env.ADV_SAMPLE_DIR, `${name}.adv`), M.newAdventure({id: name, title: name, mapId: M.suggestMapId(name), width: w, height: h}));
+  }
+  const multi = M.parse(M.newAdventure({id: 'multi', width: 20, height: 12}));
+  M.addMap(multi, 2, 128, 128);
+  fs.writeFileSync(path.join(process.env.ADV_SAMPLE_DIR, 'multi.adv'), M.serialize(multi));
+}
 console.log(`Adventure model checks passed (${files.length} files, ${maps} maps round-tripped)`);

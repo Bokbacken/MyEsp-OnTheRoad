@@ -19,6 +19,12 @@ assert.match(page, /id="map-canvas"/);
 assert.match(page, /id="lg-add"/);
 assert.match(page, /data-tool="move"/);
 assert.match(page, /data-tool="dark"/);
+assert.match(page, /id="nf-create"/);
+assert.match(page, /id="am-add"/);
+assert.match(page, /id="rs-fill"/);
+assert.match(page, /id="zoom"/);
+assert.match(page, /\/api\/files\/mkdir/);
+assert.doesNotMatch(page, /1–80/);
 assert.match(fs.readFileSync('tools/embed_web.py', 'utf8'), /"\/adventure-model\.js"/);
 
 const script = page.match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];

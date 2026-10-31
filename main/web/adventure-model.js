@@ -3,7 +3,7 @@
 (function (root) {
 'use strict';
 
-const MAX_W = 80, MAX_H = 80, MAX_LEGEND = 128, MAX_DARK = 16;
+const MAX_W = 128, MAX_H = 128, MAX_MAPS = 4, MAX_LEGEND = 128, MAX_DARK = 16;
 const COLORS = ['red', 'green', 'blue', 'yellow', 'purple', 'cyan'];
 const RESERVED = new Set(['S', ' ', '\t', '@']);
 const GROUP_RE = /^[0-9A-Za-z]$/;
@@ -322,9 +322,13 @@ function moveCell(doc, id, fx, fy, tx, ty) {
     return [x, y];
   });
 }
+const FILLS = ['.', ',', '_', '#', '~', '^', 'T'];
 function resizeMap(doc, id, width, height, fill) {
   const grid = getGrid(doc, id);
   const f = fill || '.';
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > MAX_W || height > MAX_H)
+    throw new Error(`Storleken måste vara 1–${MAX_W} i båda riktningar.`);
+  if (!FILLS.includes(f)) throw new Error('Ogiltig fyllnadsglyf.');
   const next = [];
   for (let y = 0; y < height; y++) {
     const row = y < grid.length ? grid[y] : '';
@@ -335,7 +339,62 @@ function resizeMap(doc, id, width, height, fill) {
   remapGroupCells(doc, id, (x, y) => (x < width && y < height ? [x, y] : null));
 }
 
+// A walled room with S in the top-left corner and, for the main map, an exit X in the opposite corner.
+function blankGrid(width, height, withExit = true) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 4 || height < 4 || width > MAX_W || height > MAX_H)
+    throw new Error(`Storleken måste vara 4–${MAX_W} i båda riktningar.`);
+  const rows = [];
+  for (let y = 0; y < height; y++) {
+    rows.push(y === 0 || y === height - 1 ? '#'.repeat(width) : '#' + '.'.repeat(width - 2) + '#');
+  }
+  rows[1] = rows[1].slice(0, 1) + 'S' + rows[1].slice(2);
+  if (withExit) {
+    const last = rows[height - 2];
+    rows[height - 2] = last.slice(0, width - 2) + 'X' + last.slice(width - 1);
+  }
+  return rows;
+}
+function oneLine(text, max) {
+  return String(text || '').replace(/[\r\n#]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+// Safe folder and file stems: ASCII letters, digits, underscore and hyphen.
+function validStem(name) { return /^[A-Za-z0-9_-]{1,40}$/.test(name) && !['saves', 'maps', 'bitmaps'].includes(name.toLowerCase()); }
+function newAdventure(opts) {
+  const id = oneLine(opts.id, 40);
+  if (!validStem(id)) throw new Error('Namnet får bara innehålla A–Z, a–z, 0–9, _ och - (högst 40 tecken).');
+  const title = oneLine(opts.title, 60) || id;
+  const mapId = Number.isInteger(opts.mapId) && opts.mapId >= 0 && opts.mapId <= 255 ? opts.mapId : 90;
+  const lines = [
+    '@meta', `id: ${id}`, `world: ${mapId}`, `map_id: ${mapId}`, '',
+    '@about', `title.sv: ${title}`, `title.en: ${title}`, 'desc.sv: Nytt äventyr.', 'desc.en: New adventure.', '',
+    '@rules', 'start_energy: 8', 'energy_cap: 12', 'lives: 3', '',
+    '@map', ...blankGrid(opts.width, opts.height), ''
+  ];
+  return lines.join('\n');
+}
+// Stable 90..239 id from a name, so new files rarely share a save identity with the built-in worlds.
+function suggestMapId(name) {
+  let h = 0;
+  for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return 90 + (h % 150);
+}
+function nextMapId(doc) {
+  const used = new Set(mapIds(doc));
+  for (let id = 2; id <= 255; id++) if (!used.has(id)) return id;
+  return 0;
+}
+function addMap(doc, id, width, height) {
+  const ids = mapIds(doc);
+  if (!Number.isInteger(id) || id < 2 || id > 255) throw new Error('Kart-id måste vara 2–255.');
+  if (ids.includes(id)) throw new Error(`Karta ${id} finns redan.`);
+  if (ids.length >= MAX_MAPS) throw new Error('En fil kan ha högst 4 kartor.');
+  const rows = blankGrid(width, height, false);
+  if (doc.lines.length && doc.lines[doc.lines.length - 1].trim() !== '') doc.lines.push('');
+  doc.lines.push(`@map ${id}`, ...rows);
+}
+
 const api = {
+  newAdventure, suggestMapId, nextMapId, addMap, blankGrid, validStem, MAX_MAPS, FILLS,
   MAX_W, MAX_H, MAX_LEGEND, MAX_DARK, COLORS, TERRAIN, OBJECTS,
   parse, serialize, sections, mapIds, getGrid, setGrid,
   listLegend, resourceGlyphs, addLegend, removeLegend, updateLegend, legendValue, suggestGlyph, usage,
