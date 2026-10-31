@@ -1,5 +1,6 @@
 #include "adv_sd_session.h"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -46,7 +47,8 @@ bool walkMineSafe(Adv::SdSession &session, Adv::Loaded &loaded, World &world,
     const int width = world.width(), height = world.height();
     const int start = world.playerY() * width + world.playerX();
     const int target = ty * width + tx;
-    std::vector<int> previous(width * height, -1), direction(width * height, -1);
+    const size_t cellCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+    std::vector<int> previous(cellCount, -1), direction(cellCount, -1);
     std::queue<int> queue;
     previous[start] = start;
     queue.push(start);
