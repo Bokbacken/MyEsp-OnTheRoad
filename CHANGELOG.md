@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.5 (unreleased)
+
+- Added the first hosted Adventure editor step: browse, open and edit existing
+  SD `.adv` files in source mode, with validation through the production parser,
+  story validator and world loader before saving.
+- Saves reuse the file manager's staged atomic upload and require explicit
+  confirmation before replacing an existing adventure. Validation is limited
+  to 64 KiB and requires the admin PIN when configured.
+- Host validator and web UI checks are added. Firmware CI and physical S3/P4
+  verification remain pending; visual map editing is not included yet.
+
 ## v0.23.4 (unreleased)
 
 - Added guarded `world tile map=N ...` and `world object map=N ...` story effects
@@ -16,10 +27,11 @@ a published GitHub Release.
   unchanged.
 - Added the numbered Motoräventyret SD chapters, installation/playing guide,
   spoiler solution traces and a mechanics-verification matrix.
-- Host Adventure, story, resource, multimap, catalog and campaign tests pass;
-  CodeQL reports no alerts. Firmware CI passed for S3, P4 and C6 on the initial
-  implementation commit (`c87b57c`); current follow-up commits still need a
-  fresh workflow run. Physical S3/P4 testing remains pending.
+- Host Adventure, story, resource, multimap, catalog and campaign tests passed.
+  Firmware CI passed for S3, P4 and C6 on the initial implementation commit
+  (`c87b57c`); current follow-up commits still need a fresh workflow run. The
+  owner reports testing the complete campaign and story-driven map changes on
+  P4; S3 hardware verification remains pending.
 
 ## Historical release notes through v0.23.3
 

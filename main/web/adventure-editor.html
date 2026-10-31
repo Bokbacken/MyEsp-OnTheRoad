@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>OnTheRoad – Äventyrsredigerare</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/device-name.js" defer></script>
+<style>
+.editor-toolbar { display:flex; flex-wrap:wrap; gap:.5rem; align-items:end; }
+.editor-toolbar label { flex:1 1 24rem; margin:0; }
+.editor-toolbar input { width:100%; }
+#browser-list { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.6rem; }
+#source { width:100%; min-height:62vh; resize:vertical; font: .9rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space:pre; tab-size:4; }
+#status { white-space:pre-wrap; }
+#status.good { color:var(--otr-green); }
+#status.bad { color:var(--otr-red); }
+.editor-footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.4rem; }
+</style>
+</head>
+<body>
+<header class="otr-brand">
+  <div class="otr-head">
+    <div class="otr-logo">&#9998;</div>
+    <div class="otr-project">ONTHEROAD<small>Äventyrsredigerare · första steget</small></div>
+  </div>
+</header>
+<nav class="otr-nav">
+  <a href="/">Översikt</a>
+  <a href="/adventure">Äventyr live</a>
+  <a href="/files">Filer</a>
+  <a href="/adventure-editor" class="active">Redigerare</a>
+</nav>
+
+<h2>Öppna ett äventyr från SD-kortet</h2>
+<div class="card">
+  <div class="editor-toolbar">
+    <label for="path">Sökväg till .adv-fil
+      <input id="path" type="text" value="/otr/adventure/motoraventyr/01_motvind.adv" autocomplete="off" spellcheck="false">
+    </label>
+    <button id="browse" type="button" class="secondary">Visa äventyr</button>
+    <button id="open" type="button" class="secondary">Öppna</button>
+  </div>
+  <div id="browser-list" hidden></div>
+  <div class="editor-toolbar" style="margin-top:.7rem">
+    <label for="pin">Admin-PIN
+      <input id="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+    </label>
+    <button id="validate" type="button" class="secondary" disabled>Kontrollera</button>
+    <button id="save" type="button" disabled>Spara säkert</button>
+  </div>
+  <p id="status" class="muted" role="status" aria-live="polite">Öppna en äventyrsfil för att börja.</p>
+  <textarea id="source" aria-label="Äventyrstext" spellcheck="false" autocapitalize="off" autocomplete="off" disabled></textarea>
+  <div class="editor-footer muted">
+    <span id="size">Ingen fil öppnad</span>
+    <span>Max 64 KiB · original ersätts först efter validering och bekräftelse</span>
+  </div>
+</div>
+<div class="card">
+  <p>Det här första steget är en källtexteditor: kommentarer och syntax som editorn ännu inte känner till
+  behålls när du öppnar och sparar. <strong>Spara säkert</strong> kontrollerar filen med samma parser,
+  storyvalidering och kartmotor som firmware använder. Sparningen går via filhanterarens temporärfil
+  och atomiska installation, och kräver admin-PIN om en sådan är inställd.</p>
+  <p class="muted">Kartvy, palett och direkt manipulation av rutorna kommer i nästa steg.
+  Se <a href="/files">filhanteraren</a> eller <a href="https://github.com/Bokbacken/MyEsp-OnTheRoad/blob/main/docs/AUTHORING_ADVENTURES.md">författarguiden</a>.</p>
+</div>
+<div class="toast" id="toast"></div>
+<footer>MyEsp-OnTheRoad · redigeraren kräver SD-kort</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const PIN_KEY = 'otr-admin-pin';
+let currentDirectory = '/otr/adventure';
+let opened = false;
+$('pin').value = sessionStorage.getItem(PIN_KEY) || '';
+$('pin').addEventListener('input', () => sessionStorage.setItem(PIN_KEY, $('pin').value));
+
+function setStatus(message, good = false) {
+  $('status').textContent = message;
+  $('status').className = good ? 'good' : 'bad';
+}
+function pinHeaders() {
+  return $('pin').value ? {'X-Admin-Pin': $('pin').value} : {};
+}
+function editorPath() {
+  const path = $('path').value.trim();
+  if (!path.startsWith('/otr/adventure/') || !path.toLowerCase().endsWith('.adv') ||
+      path.split('/').some(part => part === '..' || part === '.')) {
+    throw new Error('Välj en .adv-fil under /otr/adventure/.');
+  }
+  return path;
+}
+function updateSize() {
+  const bytes = new TextEncoder().encode($('source').value).length;
+  $('size').textContent = `${bytes.toLocaleString('sv-SE')} byte`;
+  $('save').disabled = !opened || bytes > 65536;
+  $('validate').disabled = !opened || bytes > 65536;
+}
+async function openFile() {
+  const path = editorPath();
+  const query = new URLSearchParams({root:'sd', path});
+  const response = await fetch('/api/fs/download?' + query, {cache:'no-store'});
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `Kunde inte öppna filen (${response.status}).`);
+  }
+  $('source').value = await response.text();
+  $('source').disabled = false;
+  opened = true;
+  updateSize();
+  setStatus(`Öppnade ${path}`, true);
+}
+async function validateSource() {
+  const path = editorPath();
+  const body = $('source').value;
+  const bytes = new TextEncoder().encode(body).length;
+  if (bytes > 65536) throw new Error('Äventyrsfilen får vara högst 64 KiB.');
+  const response = await fetch('/api/adventure/validate', {
+    method:'POST', headers:{...pinHeaders(), 'Content-Type':'text/plain; charset=utf-8'}, body
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.ok) throw new Error(result.error || `Valideringen misslyckades (${response.status}).`);
+  if (!result.valid) throw new Error(`${path}${result.error_map ? ` · karta ${result.error_map}` : ''}: ${result.error}`);
+  return result;
+}
+async function checkSource() {
+  const result = await validateSource();
+  setStatus(`Godkänd av produktionsmotorn · ${result.maps.length} karta/kartor: ${result.maps.join(', ')}`, true);
+}
+async function saveSource() {
+  const path = editorPath();
+  const result = await validateSource();
+  if (!confirm(`Filen är giltig. Spara ${path} och ersätta befintlig fil om den finns?`)) return;
+  const query = new URLSearchParams({root:'sd', path, overwrite:'1'});
+  const response = await fetch('/api/fs/upload?' + query, {
+    method:'POST', headers:{...pinHeaders(), 'Content-Type':'application/octet-stream'}, body:$('source').value
+  });
+  const answer = await response.json().catch(() => ({}));
+  if (!response.ok || !answer.ok) throw new Error(answer.error || `Sparningen misslyckades (${response.status}).`);
+  setStatus(`Sparad och validerad · ${result.maps.length} karta/kartor: ${result.maps.join(', ')}`, true);
+}
+async function browse(directory = currentDirectory) {
+  currentDirectory = directory;
+  const query = new URLSearchParams({root:'sd', path:directory});
+  const response = await fetch('/api/fs/list?' + query, {cache:'no-store'});
+  const data = await response.json();
+  if (!response.ok || !data.ok || !data.mounted) throw new Error(data.error || 'SD-kortet är inte monterat.');
+  const list = $('browser-list');
+  list.replaceChildren();
+  list.hidden = false;
+  if (directory !== '/otr/adventure') {
+    const parent = document.createElement('button');
+    parent.type = 'button'; parent.className = 'secondary'; parent.textContent = '↑ Upp';
+    parent.onclick = () => browse(directory.slice(0, directory.lastIndexOf('/')) || '/otr/adventure');
+    list.append(parent);
+  }
+  for (const entry of data.entries) {
+    if (entry.dir) {
+      if (directory === '/otr/adventure' || entry.name !== 'saves' && entry.name !== 'bitmaps') {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'secondary'; button.textContent = `📁 ${entry.name}`;
+        button.onclick = () => browse(`${directory}/${entry.name}`);
+        list.append(button);
+      }
+    } else if (entry.name.toLowerCase().endsWith('.adv')) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'secondary'; button.textContent = entry.name;
+      button.onclick = () => {
+        $('path').value = `${directory}/${entry.name}`;
+        $('browser-list').hidden = true;
+        guarded(openFile);
+      };
+      list.append(button);
+    }
+  }
+  if (!list.childElementCount) list.textContent = 'Inga .adv-filer eller mappar här.';
+}
+function guarded(action) {
+  Promise.resolve().then(action).catch(error => setStatus(error.message));
+}
+$('source').addEventListener('input', updateSize);
+$('open').onclick = () => guarded(openFile);
+$('browse').onclick = () => guarded(() => browse());
+$('validate').onclick = () => guarded(checkSource);
+$('save').onclick = () => guarded(saveSource);
+updateSize();
+</script>
+</body>
+</html>

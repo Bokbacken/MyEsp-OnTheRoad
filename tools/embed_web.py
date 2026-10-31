@@ -28,6 +28,7 @@ ASSETS = [
     ("WEB_GAME_HTML", "game.html", HTML, ["/game", "/game.html"]),
     ("WEB_PLAY_HTML", "play.html", HTML, ["/play", "/play.html"]),
     ("WEB_ADVENTURE_HTML", "adventure.html", HTML, ["/adventure", "/adventure.html"]),
+    ("WEB_ADVENTURE_EDITOR_HTML", "adventure-editor.html", HTML, ["/adventure-editor", "/adventure-editor.html"]),
     ("WEB_FILES_HTML", "files.html", HTML, ["/files", "/files.html"]),
     ("WEB_KARAOKE_HTML", "karaoke.html", HTML, ["/karaoke", "/karaoke.html"]),
     ("WEB_SONGS_PICKER_HTML", "songs_picker.html", HTML, ["/karaoke/songs", "/songs_picker.html"]),
