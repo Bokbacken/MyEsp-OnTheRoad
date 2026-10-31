@@ -113,7 +113,7 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   const result = await uploadWith('skip', Array.from({length: 6}, (_, i) =>
     i === 0 ? {ok: true, skipped: true} : {ok: true}), 6);
   assert.equal(result.requests.length, 6, 'batch continues after a skipped conflict');
-  assert.equal(result.maxActive, 4, 'SD upload concurrency is capped at four');
+  assert.equal(result.maxActive, 1, 'file uploads are serialized to protect SD writes');
   assert.equal(result.progress, 100, 'aggregate progress completes');
   assert.match(result.requests[0].url, /skip=1/);
   assert.doesNotMatch(result.requests[0].url, /overwrite=1/);
@@ -123,9 +123,9 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
     {ok: false, error: 'exists'}, {ok: true}, {ok: true}, {ok: true},
     {ok: true}, {ok: true}
   ], 6);
-  assert.equal(stopped.requests.length, 4, 'failure stops scheduling files beyond the in-flight batch');
+  assert.equal(stopped.requests.length, 1, 'failure stops scheduling later files');
   assert.doesNotMatch(stopped.requests[0].url, /skip=1|overwrite=1/);
-  assert.deepEqual(stopped.toasts, ['same.mid: exists (3 andra filer hann bli klara)']);
+  assert.deepEqual(stopped.toasts, ['same.mid: exists']);
 
   const overwrite = await uploadWith('overwrite', [{ok: true}, {ok: true}]);
   assert.equal(overwrite.requests.length, 2);
@@ -148,5 +148,10 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   assert.equal(tooDeep.mkdirs.length, 0);
   assert.match(tooDeep.toasts[0], /högst 3 mappnivåer/);
 
-  console.log('File upload policies, four-way SD sessions, and serialized flash uploads passed');
+  console.log('File upload policies, serialized SD/flash uploads, and directory handling passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+const server = fs.readFileSync('main/app_web_files.cpp', 'utf8');
+assert.match(server, /static constexpr int MAX_UPLOADS = 1;/);
+assert.match(server, /if \(ok && !skipped\) changed\(t\);/);
+assert.match(server, /if \(sdIoFailed\)[\s\S]*BoardSd::remount\(\)/);

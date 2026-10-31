@@ -56,7 +56,7 @@ static constexpr size_t CHUNK = 32768;
 static constexpr size_t DOWNLOAD_CHUNK = 8192;
 static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
-static constexpr int MAX_UPLOADS = 4;
+static constexpr int MAX_UPLOADS = 1;
 static std::atomic<int> s_activeUploads{0};
 static std::atomic<int> s_activeDownloads{0};
 static std::atomic<bool> s_formatting{false};
@@ -291,6 +291,11 @@ static esp_err_t handleList(httpd_req_t *r)
 static esp_err_t handleDownload(httpd_req_t *r)
 {
     MyWeb::Req q(r);
+    long maxSize = 0;
+    bool badLimit = false;
+    const bool hasSizeLimit = q.has("max_size");
+    if (hasSizeLimit && !q.getInt("max_size", 1, 16384, maxSize, badLimit))
+        return MyWeb::sendError(r, 400, "Ogiltig max_size");
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
@@ -303,6 +308,13 @@ static esp_err_t handleDownload(httpd_req_t *r)
         f = (stat(t.path, &st) == 0 && !S_ISDIR(st.st_mode)) ? fopen(t.path, "rb") : nullptr;
     }
     if (!f) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
+    if (hasSizeLimit && st.st_size > maxSize) {
+        {
+            Lock lk(t.sd);
+            fclose(f);
+        }
+        return MyWeb::sendError(r, 413, "Filen är större än max_size");
+    }
     char *buf = (char *)psAlloc(DOWNLOAD_CHUNK);
     if (!buf) {
         fclose(f);
@@ -353,6 +365,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     char tmp[PATH_CAP], backup[PATH_CAP];
     FILE *f = nullptr;
     int err = 0;
+    bool sdIoFailed = false;
     const int64_t uploadStart = esp_timer_get_time();
     {
         Lock lk(t.sd);
@@ -426,6 +439,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     while (ok && left > 0) {
         if (pipeline.error.load()) {
             err = pipeline.error.load();
+            sdIoFailed = t.sd && err == EIO;
             ok = false;
             char drain[512];
             while (left > 0) {
@@ -472,6 +486,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
         if (pipeline.error.load()) {
             ok = false;
             err = pipeline.error.load();
+            sdIoFailed = t.sd && err == EIO;
         }
     }
     bool skipped = false;
@@ -482,6 +497,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             if (fflush(f) != 0) {
                 ok = false;
                 err = errno == ENOSPC ? ENOSPC : EIO;
+                sdIoFailed = t.sd && err == EIO;
             }
             flushUs = esp_timer_get_time() - flushStart;
         }
@@ -491,6 +507,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
         if (closeResult != 0 && ok) {
             ok = false;
             err = EIO;
+            sdIoFailed = t.sd;
         }
         if (ok) {
             const FsUpload::InstallResult result = FsUpload::install(tmp, t.path, backup, overwrite, skipExisting);
@@ -498,6 +515,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             if (result == FsUpload::InstallResult::FAILED) {
                 ok = false;
                 err = errno ? errno : EIO;
+                sdIoFailed = t.sd && err == EIO;
             }
         }
         if (!ok || skipped) FsUpload::discard(tmp);
@@ -508,7 +526,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     if (pipeline.ready) vQueueDelete(pipeline.ready);
     if (pipeline.available) vQueueDelete(pipeline.available);
     if (pipeline.finished) vSemaphoreDelete(pipeline.finished);
-    if (!skipped) changed(t);
+    if (ok && !skipped) changed(t);
     ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, buffer wait %llu ms, SD lock wait %llu ms, "
                   "write %llu ms, flush %llu ms, close %llu ms, cache %u B (%s)", t.path,
              skipped ? "skipped" : ok ? "complete" : "failed", (unsigned)total,
@@ -521,6 +539,10 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
+        if (sdIoFailed) {
+            ESP_LOGW(TAG, "recovering SD card after upload I/O error");
+            if (!BoardSd::remount()) ESP_LOGW(TAG, "SD recovery after upload failure did not mount the card");
+        }
         if (err == ENOMEM) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
         return ioError(r, err);
     }

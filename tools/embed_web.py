@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "main" / "web"
 OUT = ROOT / "main" / "web_assets.h"
+SPRITES = ROOT / "docs" / "adventures" / "sprites"
 
 HTML = "text/html; charset=utf-8"
 # (C name, file, mime, URIs that serve it)
@@ -29,6 +30,7 @@ ASSETS = [
     ("WEB_PLAY_HTML", "play.html", HTML, ["/play", "/play.html"]),
     ("WEB_ADVENTURE_HTML", "adventure.html", HTML, ["/adventure", "/adventure.html"]),
     ("WEB_ADVENTURE_EDITOR_HTML", "adventure-editor.html", HTML, ["/adventure-editor", "/adventure-editor.html"]),
+    ("WEB_ADVENTURE_MODEL_JS", "adventure-model.js", "text/javascript; charset=utf-8", ["/adventure-model.js"]),
     ("WEB_FILES_HTML", "files.html", HTML, ["/files", "/files.html"]),
     ("WEB_KARAOKE_HTML", "karaoke.html", HTML, ["/karaoke", "/karaoke.html"]),
     ("WEB_SONGS_PICKER_HTML", "songs_picker.html", HTML, ["/karaoke/songs", "/songs_picker.html"]),
@@ -57,10 +59,16 @@ def render() -> str:
         "",
     ]
     table = []
-    for name, fname, mime, uris in ASSETS:
-        raw = (DATA / fname).read_bytes()
+    sprite_assets = [
+        (f"WEB_ADVENTURE_SPRITE_{path.stem.upper()}", path, "image/png",
+         [f"/adventure-sprites/{path.name}"])
+        for path in sorted(SPRITES.glob("*.png"))
+    ]
+    for name, fname, mime, uris in ASSETS + sprite_assets:
+        raw = (fname if isinstance(fname, Path) else DATA / fname).read_bytes()
         packed = gz(raw)
-        lines.append(f"// {fname}: {len(raw)} bytes -> {len(packed)} bytes gzip")
+        label = fname.relative_to(ROOT).as_posix() if isinstance(fname, Path) else fname
+        lines.append(f"// {label}: {len(raw)} bytes -> {len(packed)} bytes gzip")
         lines.append(f"static const uint8_t {name}_DATA[] = {{")
         for i in range(0, len(packed), 20):
             chunk = ", ".join(f"0x{b:02x}" for b in packed[i:i + 20])

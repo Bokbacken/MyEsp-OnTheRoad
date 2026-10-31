@@ -8,7 +8,55 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
-## v0.23.5 (unreleased)
+## v0.23.6 (unreleased)
+
+- The HTTP server now sizes its URI-handler table from the generated web asset
+  count and reserves room for API/WebSocket routes. This prevents the expanded
+  Adventure editor sprite assets from blocking API registration at startup.
+- SD uploads are serialized. After an SD write/flush/close/install I/O failure,
+  the server attempts the existing card recovery/remount path and skips the
+  post-upload usage refresh. A reported timeout/watchdog incident still needs
+  hardware reproduction; the software mitigation does not establish card health.
+- Maps may now be up to 128×128 (was 80×80). `Otr::MAX_W/MAX_H` are 128; the
+  live-view JSON buffer is 96 KiB and `SdSession::SAVE_CAP` is 459,674 bytes.
+  Saves remain compatible. Engine memory grows (World ≈181 KB, Planner ≈640 KB,
+  all in PSRAM); not yet checked on S3/P4 hardware. One 128×128 map is ≈16.5 KB
+  of source, so the 64 KiB file limit still applies.
+- The editor can create new `.adv` files (folder, name, title, size; validated
+  first, never overwrites), add maps, resize a map with a chosen fill glyph and
+  zoom the canvas.
+- The device menu entry is now "Äventyr"/"Adventure" without "(test)", with an
+  updated description.
+
+- Added the graphical map view to the hosted Adventure editor (`/adventure-editor`):
+  map tabs per internal map, a canvas with paint/erase/pick/move tools, a palette
+  of built-in glyphs, NPC digits, legend glyphs and resource glyphs, and an
+  editor-level undo for the current session.
+- Added a legend helper (create/edit/remove `@legend` entries with kind, group,
+  colour and belt direction checks, glyph suggestion, usage counts and
+  undefined-glyph warnings) and an area helper for `@dark` rectangles. Moving a
+  glyph also moves matching `@plategroup`/`@gategroup` coordinates; resizing
+  drops coordinates that fall outside the map.
+- The new lossless text model (`main/web/adventure-model.js`) rewrites only map
+  rows, legend lines, dark rectangles and group coordinates; comments and other
+  sections are kept byte for byte. Saves still go through production validation.
+- Node tests round-trip all 63 bundled/documented `.adv` files unchanged.
+  Destinations, portals, enemies, treasures and resource placements are still
+  edited in text mode. Firmware CI and physical S3/P4 verification remain pending.
+- Fixed text-mode edit preservation, empty-map fallback and existing legend
+  editing; comment parsing and plate/gate group coordinates now remain valid
+  through map edits and moves.
+- Added image-symbol/character map display with retained tile colours, clearer
+  tooltips and automatic width-fitting zoom. Legend/layout controls adapt to
+  narrow screens; section text, group coordinates and individual dark areas can
+  be edited or highlighted directly in the graphical workspace.
+- The image mode and palette now use exported device sprites, including the
+  device's standard resource bag. Resource entries show their adventure-specific
+  `bitmaps/` PNG when it passes the device's size and 32×32 checks; missing or
+  invalid overrides fall back to the same bag. The section helper can create a
+  guided `@node` with speaker, localized text and a linked choice.
+
+## v0.23.5
 
 - Added the first hosted Adventure editor step: browse, open and edit existing
   SD `.adv` files in source mode, with validation through the production parser,

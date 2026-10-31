@@ -443,19 +443,19 @@ rekommendation innan kod skrivs.
      UTF-8/UTF-16, temp-/URI-gränser, avbruten staging och befintligt innehåll.
    - [x] Konfliktval vid uppladdning: hoppa över (standard), avbryt eller skriv
      över; hoppa över fortsätter batchen och byter aldrig ut befintligt innehåll.
-   - [x] Högst fyra SD-uppladdningar kan köras samtidigt. Varje uppladdning
-     dubbelbuffrar mottagningen i 32 KiB-block och försöker använda en 32 KiB
-     intern DMA-kapabel skrivcache, med PSRAM-cache som reserv; intern flash
-     fortsätter sekventiellt. SD:s öppna filgräns höjs till åtta.
+   - [x] SD-uppladdningar körs en i taget efter rapporterade SDMMC-skrivfel.
+     En uppladdning dubbelbuffrar mottagningen i 32 KiB-block och försöker
+     använda en 32 KiB intern DMA-kapabel skrivcache, med PSRAM-cache som reserv.
+     SD:s öppna filgräns höjs till åtta.
    - [x] Uppladdningsloggen skiljer mottagning, buffertväntan, SD-låsväntan,
      skrivning, flush och stängning åt för prestandadiagnos.
    - [x] **CI:** ESP32-S3, ESP32-P4 och C6-jobbet passerade för v0.23.2 (run 183).
    - [ ] **Hårdvara:** prova 87/81-teckennamnen, Unicode och gränsfall samt
      avbruten/överskrivande uppladdning på båda korten. Verifiering återstår.
-   - [ ] **Hårdvara/prestanda:** upprepa 144 MB-uppladdningen på båda korten
-     med och utan samtidiga uppladdningar. Jämför `recv`, `buffer wait`, `SD lock wait`,
-     `write` och `flush`; effekten av fyra sessioner och större buffertar på hårdvara
-     är ännu inte verifierad.
+   - [ ] **Hårdvara/prestanda:** verifiera uppladdning och återhämtning efter
+     SD-I/O-fel på den berörda enheten; watchdog- och kortstatusbeteendet är
+     okänt. Upprepa även 144 MB-uppladdningen på båda korten och jämför `recv`,
+     `buffer wait`, `SD lock wait`, `write` och `flush`.
 
 9. **Filhantering och SD-kort (v0.23.3).**
    - [x] Lägg till explicit FAT-formatering av SD-kort med två bekräftelsesteg;

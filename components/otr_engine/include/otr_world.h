@@ -30,8 +30,8 @@
 
 namespace Otr {
 
-constexpr int MAX_W = 80;   // v0.17.0: raised from 64 for larger SD-authored adventures (map cells live in PSRAM)
-constexpr int MAX_H = 80;
+constexpr int MAX_W = 128;  // v0.23.6: raised from 80 (64 before v0.17.0); map cells live in PSRAM. Coordinates must fit uint8_t.
+constexpr int MAX_H = 128;
 constexpr int CRACK_HITS = 2;
 constexpr int LIVES_INFINITE = -1;
 constexpr int MAX_LIVES = 9;
@@ -482,7 +482,7 @@ private:
     enum Cat : uint8_t { C_BLOCK, C_FREE, C_LAVA, C_BOAT, C_UNKNOWN, C_DEADLY };
     Cat category(const World &w, int x, int y, WalkMode mode) const;
     bool search(const World &w, int tx, int ty, WalkMode mode, Path &out);
-    void heapPush(uint64_t key);   // v0.17.0: 64-bit key packs f<<16 | cell (cell up to 80*80-1 = 6399 > 12-bit)
+    void heapPush(uint64_t key);   // v0.17.0: 64-bit key packs f<<16 | cell (cell up to 128*128-1 = 16383 > 12-bit)
     uint64_t heapPop();
 
     static constexpr uint32_t STEP_COST = 4;   // Cost of one ground step (see search())
