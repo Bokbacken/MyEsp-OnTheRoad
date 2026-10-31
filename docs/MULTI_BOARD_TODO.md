@@ -173,6 +173,8 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] v0.23.11: verifiera separat `50mhz-experimental`-bygge. Båda slotar
   ska logga faktisk klocka 50000 kHz; jämför samma filer mot 40 MHz.
   Standardbygget behåller 40 MHz och en samtidig SD-uppladdning.
+- [x] Felsökningsresan, bevisgränser och återanvändning på fler P4-kort
+  dokumenterade i [SD/Wi-Fi-utredningen](P4_SD_WIFI_INVESTIGATION.md).
 - [ ] Återaktivera flera SD-uppladdningar separat efter klocktestet.
   Samordna återhämtning så att en session inte återmonterar kortet medan
   en annan fortfarande har en fil öppen.

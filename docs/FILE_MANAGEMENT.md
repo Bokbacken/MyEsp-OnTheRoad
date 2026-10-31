@@ -1,5 +1,8 @@
 # Filhantering och SD-prestanda
 
+För felsökningshistorik, bekräftade fynd och återanvändning på andra P4-kort,
+se [P4: SD- och Wi-Fi-utredningen](P4_SD_WIFI_INVESTIGATION.md).
+
 ## Förbättringar
 
 - FAT Long File Name-gränsen höjdes från 64 till 255 UTF-16-kodenheter. Webbfilsystemet validerar UTF-8, komponent- och fullständiga sökvägsgränser.

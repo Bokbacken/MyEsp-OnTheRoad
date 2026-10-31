@@ -19,6 +19,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 | [Adventure authoring reference](docs/AUTHORING_ADVENTURES.md) | Supported `.adv` syntax and mechanics |
 | [Motoräventyret campaign](sdcard_bundle/otr/adventure/motoraventyr/README.md) | Install and play the numbered SD chapters |
 | [File management](docs/FILE_MANAGEMENT.md) | SD uploads, folders, formatting and performance |
+| [P4 SD/Wi-Fi investigation](docs/P4_SD_WIFI_INVESTIGATION.md) | Failure timeline, shared-controller clock findings and testing on other P4 boards |
 | [Karaoke and SoundFonts](docs/MUSIC_KARAOKE_PLAN.md) | Audio architecture and memory/quality tradeoffs |
 | [Multiplayer design](docs/MULTIPLAYER_DESIGN.md) | Host-authoritative Yatzy and joining devices |
 | [Adventure work plan](docs/ADVENTURE_TODO.md) | Adventure/editor delivery status and remaining tests |
