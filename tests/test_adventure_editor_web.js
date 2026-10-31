@@ -14,6 +14,13 @@ assert.match(page, /\/api\/fs\/upload/);
 assert.match(page, /overwrite:'1'/);
 assert.match(page, /\/otr\/adventure\//);
 
+assert.match(page, /<script src="\/adventure-model\.js"><\/script>/);
+assert.match(page, /id="map-canvas"/);
+assert.match(page, /id="lg-add"/);
+assert.match(page, /data-tool="move"/);
+assert.match(page, /data-tool="dark"/);
+assert.match(fs.readFileSync('tools/embed_web.py', 'utf8'), /"\/adventure-model\.js"/);
+
 const script = page.match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
 new vm.Script(script);
 const server = fs.readFileSync('main/app_web_adventure_editor.cpp', 'utf8');

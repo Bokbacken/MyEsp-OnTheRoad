@@ -121,7 +121,7 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 ## IV. Legend och authoring-underlag inför editorn
 
-- [ ] Slutför legendstöd där editorns palett behöver det.
+- [x] Slutför legendstöd där editorns palett behöver det (palett och legendhjälp i kartvyn).
 - [x] Synka feature-gap-listan, authoring och Quickguide med det nya
   storystödet och Motoräventyrets levererade syntax.
 - [ ] Håll koordinatlistor, mörkerrektanglar och andra funktioner åtskilda.
@@ -145,8 +145,13 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [x] Hostas från inbäddade flash-assets på ESP32.
 - [x] Läsa/redigera/spara befintliga `.adv`-filer på SD i källtextläge.
 - [ ] Skapa nya `.adv`-filer direkt i editorn.
-- [ ] Kartflikar, terräng, objekt, grupper, mörker, skatter, resurser,
-  utrustning, fiender, NPC:er, portaler och story: alla stödda funktioner.
+- [x] Kartflikar, rityta, palett (terräng, objekt, NPC-siffror, legend- och
+  resursglyfer), flytta/sudda/plocka och editorintern ångra.
+- [x] Legendhjälp (skapa/ändra/ta bort `@legend`, glyfförslag, användning och
+  odefinierade glyfer) och mörkerrektanglar; grupp-koordinater följer flyttade
+  rutor.
+- [ ] Grafisk redigering av skatter, resurser, fiender, NPC-placering,
+  destinationer, portaler, `@andgate`, rutor för spakar/tidsgrind och story.
 - [x] Textläge som behåller kommentarer och okänd syntax vid öppna/spara.
 - [x] Visa valideringsfel med rad från parsern och kart-ID från motorn.
 
@@ -171,3 +176,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Slutlig kodversion `084ae6e` byggd med ESP-IDF 6.1; fysisk ESP-verifiering kvar. |
 | 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad. Motoräventyret/storyförändringar levererade i v0.23.4; ägaren har provat hela leveransen på P4. S3-verifiering återstår. |
 | 2026-10-31 | Editor steg 1: källtextläge och produktionsvalidering | Öppna/redigera/validera/spara befintliga SD-äventyr på `/adventure-editor`; visual editing och hårdvarutest återstår. |
+| 2026-10-31 | Editor steg 2: grafisk kartvy, legend- och områdeshjälp | Kartflikar, palett, rita/flytta, legendhjälp och `@dark` på `/adventure-editor`; Node-tester kör alla 63 `.adv`-filer utan ändring. Firmware-CI och fysisk test av kartvyn kvar. |

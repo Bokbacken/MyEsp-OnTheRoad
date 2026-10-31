@@ -8,7 +8,25 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
-## v0.23.5 (unreleased)
+## v0.23.6 (unreleased)
+
+- Added the graphical map view to the hosted Adventure editor (`/adventure-editor`):
+  map tabs per internal map, a canvas with paint/erase/pick/move tools, a palette
+  of built-in glyphs, NPC digits, legend glyphs and resource glyphs, and an
+  editor-level undo for the current session.
+- Added a legend helper (create/edit/remove `@legend` entries with kind, group,
+  colour and belt direction checks, glyph suggestion, usage counts and
+  undefined-glyph warnings) and an area helper for `@dark` rectangles. Moving a
+  glyph also moves matching `@plategroup`/`@gategroup` coordinates; resizing
+  drops coordinates that fall outside the map.
+- The new lossless text model (`main/web/adventure-model.js`) rewrites only map
+  rows, legend lines, dark rectangles and group coordinates; comments and other
+  sections are kept byte for byte. Saves still go through production validation.
+- Node tests round-trip all 63 bundled/documented `.adv` files unchanged.
+  Destinations, portals, enemies, treasures and resource placements are still
+  edited in text mode. Firmware CI and physical S3/P4 verification remain pending.
+
+## v0.23.5
 
 - Added the first hosted Adventure editor step: browse, open and edit existing
   SD `.adv` files in source mode, with validation through the production parser,

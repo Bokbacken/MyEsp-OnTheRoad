@@ -7,6 +7,7 @@
 <title>OnTheRoad – Äventyrsredigerare</title>
 <link rel="stylesheet" href="/style.css">
 <script src="/device-name.js" defer></script>
+<script src="/adventure-model.js"></script>
 <style>
 .editor-toolbar { display:flex; flex-wrap:wrap; gap:.5rem; align-items:end; }
 .editor-toolbar label { flex:1 1 24rem; margin:0; }
@@ -18,13 +19,30 @@
 #status.good { color:var(--otr-green); }
 #status.bad { color:var(--otr-red); }
 .editor-footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.4rem; }
+#modes { display:flex; gap:.4rem; margin:.7rem 0 .3rem; }
+#modes button.active { background:var(--otr-accent, #2d6cdf); color:#fff; }
+#map-tabs, #tools { display:flex; flex-wrap:wrap; gap:.4rem; margin:.4rem 0; }
+#map-tabs button.active, #tools button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
+#map-wrap { overflow:auto; max-height:70vh; border:1px solid var(--otr-border, #888); touch-action:none; }
+#map-canvas { display:block; image-rendering:pixelated; cursor:crosshair; }
+#palette { display:flex; flex-wrap:wrap; gap:.3rem; margin:.4rem 0; }
+#palette button { min-width:2.6rem; padding:.2rem .4rem; font-family:ui-monospace, Consolas, monospace; }
+#palette button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
+.panel-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(17rem, 1fr)); gap:.8rem; margin-top:.8rem; }
+.panel-grid h3 { margin:.2rem 0; }
+.row-list { list-style:none; padding:0; margin:.3rem 0; }
+.row-list li { display:flex; gap:.4rem; align-items:center; justify-content:space-between; padding:.15rem 0; }
+.row-list code { white-space:pre-wrap; }
+.legend-form { display:grid; grid-template-columns:repeat(auto-fit, minmax(7rem, 1fr)); gap:.4rem; align-items:end; }
+.legend-form label { margin:0; }
+#map-info { min-height:1.3em; }
 </style>
 </head>
 <body>
 <header class="otr-brand">
   <div class="otr-head">
     <div class="otr-logo">&#9998;</div>
-    <div class="otr-project">ONTHEROAD<small>Äventyrsredigerare · första steget</small></div>
+    <div class="otr-project">ONTHEROAD<small>Äventyrsredigerare · kartvy</small></div>
   </div>
 </header>
 <nav class="otr-nav">
@@ -52,18 +70,78 @@
     <button id="save" type="button" disabled>Spara säkert</button>
   </div>
   <p id="status" class="muted" role="status" aria-live="polite">Öppna en äventyrsfil för att börja.</p>
-  <textarea id="source" aria-label="Äventyrstext" spellcheck="false" autocapitalize="off" autocomplete="off" disabled></textarea>
+  <div id="modes" role="tablist">
+    <button id="mode-map" type="button" class="secondary active" disabled>Kartvy</button>
+    <button id="mode-text" type="button" class="secondary" disabled>Text</button>
+    <button id="undo" type="button" class="secondary" disabled>Ångra</button>
+  </div>
+  <div id="map-panel" hidden>
+    <div id="map-tabs"></div>
+    <div id="tools">
+      <button type="button" class="secondary active" data-tool="paint">Måla</button>
+      <button type="button" class="secondary" data-tool="erase">Sudda</button>
+      <button type="button" class="secondary" data-tool="pick">Plocka</button>
+      <button type="button" class="secondary" data-tool="move">Flytta</button>
+      <button type="button" class="secondary" data-tool="dark">Mörkt område</button>
+    </div>
+    <div id="palette" aria-label="Palett"></div>
+    <div id="map-wrap"><canvas id="map-canvas" aria-label="Karta"></canvas></div>
+    <p id="map-info" class="muted" aria-live="polite"></p>
+    <div class="panel-grid">
+      <div>
+        <h3>Legend</h3>
+        <ul id="legend-list" class="row-list"></ul>
+        <div class="legend-form">
+          <label>Glyf <input id="lg-glyph" maxlength="1" autocomplete="off" spellcheck="false"></label>
+          <label>Typ
+            <select id="lg-kind">
+              <option value="plate">Tryckplatta</option><option value="gate">Grind</option><option value="lever">Spak</option>
+              <option value="key">Nyckel</option><option value="door">Dörr</option><option value="box">Låda</option>
+              <option value="belt">Transportband</option><option value="ice">Is</option><option value="skates">Skridskor</option>
+              <option value="suction">Sugpropp</option><option value="poison">Giftmark</option><option value="swamp">Träsk</option>
+              <option value="sharp_rocks">Vassa stenar</option>
+            </select>
+          </label>
+          <label id="lg-group-l">Grupp <input id="lg-group" maxlength="1" placeholder="0–9, A–Z" autocomplete="off"></label>
+          <label id="lg-color-l">Färg
+            <select id="lg-color"><option value="">–</option><option>red</option><option>green</option><option>blue</option><option>yellow</option><option>purple</option><option>cyan</option></select>
+          </label>
+          <label id="lg-dir-l">Riktning
+            <select id="lg-dir"><option>up</option><option>right</option><option>down</option><option>left</option></select>
+          </label>
+        </div>
+        <div class="editor-toolbar" style="margin-top:.4rem">
+          <button id="lg-suggest" type="button" class="secondary">Föreslå glyf</button>
+          <button id="lg-add" type="button">Lägg till legend</button>
+        </div>
+      </div>
+      <div>
+        <h3>Mörka områden</h3>
+        <ul id="dark-list" class="row-list"></ul>
+        <p class="muted">Välj verktyget <em>Mörkt område</em> och dra en rektangel på kartan.</p>
+        <h3>Kartstorlek</h3>
+        <div class="legend-form">
+          <label>Bredd <input id="rs-w" type="number" min="1" max="80"></label>
+          <label>Höjd <input id="rs-h" type="number" min="1" max="80"></label>
+          <button id="rs-apply" type="button" class="secondary">Ändra storlek</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <textarea id="source" aria-label="Äventyrstext" spellcheck="false" autocapitalize="off" autocomplete="off" disabled hidden></textarea>
   <div class="editor-footer muted">
     <span id="size">Ingen fil öppnad</span>
     <span>Max 64 KiB · original ersätts först efter validering och bekräftelse</span>
   </div>
 </div>
 <div class="card">
-  <p>Det här första steget är en källtexteditor: kommentarer och syntax som editorn ännu inte känner till
+  <p>Kartvyn ändrar bara kartrader, <code>@legend</code>, <code>@dark</code> och koordinater i
+  <code>@plategroup</code>/<code>@gategroup</code>; kommentarer och syntax som editorn ännu inte känner till
   behålls när du öppnar och sparar. <strong>Spara säkert</strong> kontrollerar filen med samma parser,
   storyvalidering och kartmotor som firmware använder. Sparningen går via filhanterarens temporärfil
   och atomiska installation, och kräver admin-PIN om en sådan är inställd.</p>
-  <p class="muted">Kartvy, palett och direkt manipulation av rutorna kommer i nästa steg.
+  <p class="muted">Destinationer, portaler, fiender, skatter och resursplaceringar redigeras ännu i textläget;
+  flyttar du en ruta som de pekar på fångar valideringen det vid sparning.
   Se <a href="/files">filhanteraren</a> eller <a href="https://github.com/Bokbacken/MyEsp-OnTheRoad/blob/main/docs/AUTHORING_ADVENTURES.md">författarguiden</a>.</p>
 </div>
 <div class="toast" id="toast"></div>
@@ -110,6 +188,8 @@ async function openFile() {
   $('source').disabled = false;
   opened = true;
   updateSize();
+  undoStack.length = 0;
+  enterMapMode();
   setStatus(`Öppnade ${path}`, true);
 }
 async function validateSource() {
@@ -186,6 +266,278 @@ $('browse').onclick = () => guarded(() => browse());
 $('validate').onclick = () => guarded(checkSource);
 $('save').onclick = () => guarded(saveSource);
 updateSize();
+
+// ---------- Kartvy ----------
+const M = window.AdvModel;
+const TILE_COLORS = {'.':'#4d8f3a', ',':'#d9c27a', '_':'#9a8f84', '#':'#3b3b44', '%':'#6e6259', 'T':'#1f5f2a',
+  '~':'#2f6fd0', '^':'#d9480f', 'o':'#c9a227', '=':'#8a5a2b', 'Q':'#7c4dff', 'S':'#00b894', 'X':'#e84393'};
+let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
+let cell = 22;
+const undoStack = [];
+
+function mapMode() { return !$('map-panel').hidden; }
+function snapshot() { undoStack.push(doc.lines.slice()); if (undoStack.length > 60) undoStack.shift(); $('undo').disabled = false; }
+function commit(change) {
+  snapshot();
+  try { change(); } catch (error) { undoStack.pop(); $('undo').disabled = !undoStack.length; setInfo(error.message, true); return false; }
+  $('source').value = M.serialize(doc);
+  updateSize();
+  setInfo('');
+  renderAll();
+  return true;
+}
+function setInfo(message, bad = false) { $('map-info').textContent = message; $('map-info').style.color = bad ? 'var(--otr-red)' : ''; }
+function enterMapMode() {
+  try {
+    doc = M.parse($('source').value);
+    const ids = M.mapIds(doc);
+    if (!ids.length) throw new Error('Filen saknar @map; redigera i textläget.');
+    if (!ids.includes(mapId)) mapId = ids[0];
+    M.getGrid(doc, mapId);
+  } catch (error) {
+    doc = null;
+    showMode(false);
+    setStatus(error.message);
+    return;
+  }
+  showMode(true);
+  renderAll();
+}
+function showMode(map) {
+  $('map-panel').hidden = !map;
+  $('source').hidden = map;
+  $('mode-map').classList.toggle('active', map);
+  $('mode-text').classList.toggle('active', !map);
+  $('mode-map').disabled = $('mode-text').disabled = !opened;
+  $('undo').hidden = !map;
+}
+function enterTextMode() {
+  if (doc) $('source').value = M.serialize(doc);
+  showMode(false);
+  updateSize();
+}
+function renderAll() {
+  if (!doc) return;
+  renderTabs(); renderPalette(); renderLegend(); renderDark(); drawMap();
+  const grid = M.getGrid(doc, mapId);
+  $('rs-w').value = grid[0].length; $('rs-h').value = grid.length;
+  const use = M.usage(doc, mapId);
+  const notes = [];
+  if (use.undefinedGlyphs.length) notes.push('Odefinierade glyfer: ' + use.undefinedGlyphs.join(' ') + ' (motorn avvisar dem)');
+  if (use.unused.length) notes.push('Oanvända legendglyfer: ' + use.unused.join(' '));
+  if (notes.length && !$('map-info').textContent) setInfo(notes.join(' · '));
+}
+function renderTabs() {
+  const box = $('map-tabs');
+  box.replaceChildren();
+  for (const id of M.mapIds(doc)) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'secondary' + (id === mapId ? ' active' : '');
+    b.textContent = id === 1 ? 'Karta 1 (huvud)' : `Karta ${id}`;
+    b.onclick = () => { mapId = id; setInfo(''); renderAll(); };
+    box.append(b);
+  }
+}
+function paletteEntries() {
+  const entries = [];
+  for (const [g, name] of M.TERRAIN.concat(M.OBJECTS)) entries.push([g, name]);
+  for (let n = 1; n <= 9; n++) entries.push([String(n), `Person ${n}`]);
+  for (const e of M.listLegend(doc, mapId)) entries.push([e.glyph, `Legend: ${e.value}`]);
+  for (const g of M.resourceGlyphs(doc, mapId)) entries.push([g, 'Resurs']);
+  return entries;
+}
+function renderPalette() {
+  const box = $('palette');
+  box.replaceChildren();
+  for (const [g, name] of paletteEntries()) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'secondary' + (g === brush ? ' active' : '');
+    b.textContent = g; b.title = `${g} · ${name}`;
+    b.style.borderBottom = `4px solid ${TILE_COLORS[g] || '#8e6bd8'}`;
+    b.onclick = () => { brush = g; setTool('paint'); renderPalette(); setInfo(`Vald glyf ${g}: ${name}`); };
+    box.append(b);
+  }
+}
+function setTool(next) {
+  tool = next;
+  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('active', b.dataset.tool === next));
+}
+function legendLabel(def) {
+  return def.value;
+}
+function renderLegend() {
+  const list = $('legend-list');
+  list.replaceChildren();
+  const use = M.usage(doc, mapId);
+  const entries = M.listLegend(doc, mapId);
+  if (!entries.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Inga legendposter på den här kartan.'; list.append(li); }
+  for (const e of entries) {
+    const li = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = `${e.glyph} = ${legendLabel(e)} · ${use.counts[e.glyph] || 0} st`;
+    const use1 = document.createElement('button');
+    use1.type = 'button'; use1.className = 'secondary'; use1.textContent = 'Välj';
+    use1.onclick = () => { brush = e.glyph; setTool('paint'); renderPalette(); };
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'secondary'; del.textContent = 'Ta bort';
+    del.onclick = () => {
+      const n = use.counts[e.glyph] || 0;
+      if (n && !confirm(`${e.glyph} används på ${n} rutor och blir odefinierad. Ta bort ändå?`)) return;
+      commit(() => M.removeLegend(doc, mapId, e.glyph));
+    };
+    li.append(code, use1, del);
+    list.append(li);
+  }
+}
+function renderDark() {
+  const list = $('dark-list');
+  list.replaceChildren();
+  const rects = M.listDark(doc, mapId);
+  if (!rects.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Inga mörka områden.'; list.append(li); }
+  rects.forEach((r, i) => {
+    const li = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = `${r.x1},${r.y1} → ${r.x2},${r.y2}`;
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'secondary'; del.textContent = 'Ta bort';
+    del.onclick = () => commit(() => M.removeDark(doc, mapId, i));
+    li.append(code, del);
+    list.append(li);
+  });
+}
+function drawMap() {
+  const grid = M.getGrid(doc, mapId);
+  const canvas = $('map-canvas');
+  cell = Math.max(16, Math.min(36, Math.floor(640 / grid[0].length)));
+  canvas.width = grid[0].length * cell; canvas.height = grid.length * cell;
+  const ctx = canvas.getContext('2d');
+  const legend = new Set(M.listLegend(doc, mapId).map(e => e.glyph));
+  const use = M.usage(doc, mapId);
+  const bad = new Set(use.undefinedGlyphs);
+  ctx.font = `${Math.floor(cell * .62)}px ui-monospace, Consolas, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  grid.forEach((row, y) => [...row].forEach((g, x) => {
+    ctx.fillStyle = bad.has(g) ? '#b00020' : TILE_COLORS[g] || (legend.has(g) ? '#8e6bd8' : '#555');
+    ctx.fillRect(x * cell, y * cell, cell, cell);
+    if (g !== '.' && g !== '#' && g !== ',' && g !== '_') { ctx.fillStyle = '#fff'; ctx.fillText(g, x * cell + cell / 2, y * cell + cell / 2 + 1); }
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeRect(x * cell + .5, y * cell + .5, cell, cell);
+  }));
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 2;
+  for (const r of M.listDark(doc, mapId)) {
+    const x = Math.min(r.x1, r.x2), y = Math.min(r.y1, r.y2);
+    const w = Math.abs(r.x2 - r.x1) + 1, h = Math.abs(r.y2 - r.y1) + 1;
+    ctx.fillRect(x * cell, y * cell, w * cell, h * cell); ctx.strokeRect(x * cell + 1, y * cell + 1, w * cell - 2, h * cell - 2);
+  }
+  if (drag && drag.to) {
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    if (tool === 'dark') {
+      const x = Math.min(drag.from.x, drag.to.x), y = Math.min(drag.from.y, drag.to.y);
+      ctx.strokeRect(x * cell + 1, y * cell + 1, (Math.abs(drag.to.x - drag.from.x) + 1) * cell - 2, (Math.abs(drag.to.y - drag.from.y) + 1) * cell - 2);
+    } else if (tool === 'move') {
+      ctx.strokeRect(drag.from.x * cell + 1, drag.from.y * cell + 1, cell - 2, cell - 2);
+      ctx.strokeRect(drag.to.x * cell + 1, drag.to.y * cell + 1, cell - 2, cell - 2);
+    }
+  }
+}
+function cellAt(event) {
+  const rect = $('map-canvas').getBoundingClientRect();
+  const grid = M.getGrid(doc, mapId);
+  const x = Math.floor((event.clientX - rect.left) * $('map-canvas').width / rect.width / cell);
+  const y = Math.floor((event.clientY - rect.top) * $('map-canvas').height / rect.height / cell);
+  return {x: Math.max(0, Math.min(grid[0].length - 1, x)), y: Math.max(0, Math.min(grid.length - 1, y))};
+}
+function applyAt(pos, glyph) {
+  const grid = M.getGrid(doc, mapId);
+  if (grid[pos.y][pos.x] === glyph) return;
+  commit(() => M.paintCell(doc, mapId, pos.x, pos.y, glyph));
+}
+const canvas = $('map-canvas');
+canvas.addEventListener('pointerdown', event => {
+  if (!doc) return;
+  canvas.setPointerCapture(event.pointerId);
+  const pos = cellAt(event);
+  const grid = M.getGrid(doc, mapId);
+  const glyph = grid[pos.y][pos.x];
+  if (tool === 'pick') {
+    brush = glyph; setTool('paint'); renderPalette(); setInfo(`Plockade glyf ${glyph}`);
+  } else if (tool === 'paint' || tool === 'erase') {
+    drag = {from: pos, last: pos};
+    applyAt(pos, tool === 'erase' ? '.' : brush);
+  } else if (tool === 'move') {
+    if (glyph === '.') { setInfo('Välj en ruta med ett objekt att flytta.'); return; }
+    drag = {from: pos, to: pos};
+    setInfo(`Flyttar ${glyph} · släpp på målrutan`);
+    drawMap();
+  } else if (tool === 'dark') {
+    drag = {from: pos, to: pos};
+    drawMap();
+  }
+});
+canvas.addEventListener('pointermove', event => {
+  if (!doc || !drag) return;
+  const pos = cellAt(event);
+  if (tool === 'paint' || tool === 'erase') {
+    if (pos.x !== drag.last.x || pos.y !== drag.last.y) { drag.last = pos; applyAt(pos, tool === 'erase' ? '.' : brush); }
+  } else if (drag.to && (pos.x !== drag.to.x || pos.y !== drag.to.y)) {
+    drag.to = pos; drawMap();
+  }
+});
+function finishDrag(event) {
+  if (!doc || !drag) return;
+  const d = drag;
+  drag = null;
+  if (tool === 'move' && d.to) {
+    const pos = cellAt(event);
+    commit(() => M.moveCell(doc, mapId, d.from.x, d.from.y, pos.x, pos.y));
+  } else if (tool === 'dark' && d.to) {
+    const pos = cellAt(event);
+    commit(() => M.addDark(doc, mapId, {x1: d.from.x, y1: d.from.y, x2: pos.x, y2: pos.y}));
+  } else {
+    drawMap();
+  }
+}
+canvas.addEventListener('pointerup', finishDrag);
+canvas.addEventListener('pointercancel', () => { drag = null; if (doc) drawMap(); });
+
+document.querySelectorAll('#tools button').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+$('mode-map').onclick = () => enterMapMode();
+$('mode-text').onclick = () => enterTextMode();
+$('undo').onclick = () => {
+  if (!undoStack.length || !doc) return;
+  doc.lines = undoStack.pop();
+  $('undo').disabled = !undoStack.length;
+  $('source').value = M.serialize(doc);
+  updateSize();
+  renderAll();
+};
+function legendForm() {
+  return {kind: $('lg-kind').value, group: $('lg-group').value.trim(), color: $('lg-color').value, dir: $('lg-dir').value};
+}
+function syncLegendForm() {
+  const kind = $('lg-kind').value;
+  $('lg-group-l').hidden = !['plate', 'gate', 'lever'].includes(kind);
+  $('lg-color-l').hidden = !['plate', 'key', 'door', 'box'].includes(kind);
+  $('lg-dir-l').hidden = kind !== 'belt';
+}
+$('lg-kind').onchange = syncLegendForm;
+$('lg-suggest').onclick = () => { if (doc) $('lg-glyph').value = M.suggestGlyph(doc, mapId); };
+$('lg-add').onclick = () => {
+  if (!doc) return;
+  const glyph = $('lg-glyph').value;
+  const def = legendForm();
+  if (def.kind === 'plate' && !def.group) delete def.group;
+  if (!def.color) delete def.color;
+  if (commit(() => M.addLegend(doc, mapId, glyph, def))) { brush = glyph; setTool('paint'); renderPalette(); $('lg-glyph').value = ''; setInfo(`Lade till ${glyph}; den är vald i paletten.`); }
+};
+$('rs-apply').onclick = () => {
+  if (!doc) return;
+  const w = Number($('rs-w').value), h = Number($('rs-h').value);
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > M.MAX_W || h > M.MAX_H) { setInfo('Storleken måste vara 1–80 i båda riktningar.', true); return; }
+  const old = M.getGrid(doc, mapId);
+  if ((w < old[0].length || h < old.length) && !confirm('Rutor utanför den nya storleken tas bort. Fortsätt?')) return;
+  commit(() => M.resizeMap(doc, mapId, w, h));
+};
+syncLegendForm();
 </script>
 </body>
 </html>
