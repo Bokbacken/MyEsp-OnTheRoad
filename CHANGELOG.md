@@ -10,6 +10,10 @@ a published GitHub Release.
 
 ## v0.23.6 (unreleased)
 
+- SD uploads are serialized. After an SD write/flush/close/install I/O failure,
+  the server attempts the existing card recovery/remount path and skips the
+  post-upload usage refresh. A reported timeout/watchdog incident still needs
+  hardware reproduction; the software mitigation does not establish card health.
 - Maps may now be up to 128×128 (was 80×80). `Otr::MAX_W/MAX_H` are 128; the
   live-view JSON buffer is 96 KiB and `SdSession::SAVE_CAP` is 459,674 bytes.
   Saves remain compatible. Engine memory grows (World ≈181 KB, Planner ≈640 KB,

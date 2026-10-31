@@ -44,7 +44,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   the SD card. Volumes and on/off on the device and in the web settings.
 - **microSD + file browser** – FAT storage over 4-bit SDMMC (1-bit fallback).
   `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
-  folder, directory uploads and up to four concurrent SD upload sessions.
+  folder and directory uploads. SD uploads are serialized to reduce contention
+  during card writes.
   Existing files are skipped by default; overwrite is explicit. SD formatting
   requires separate confirmations, including for an unmountable card.
   Changes require the admin PIN when configured. See the file-management reference.
@@ -491,7 +492,7 @@ g++ -std=c++17 -Wall -Wextra -Imain tests/test_multiplayer_protocol.cpp -o /tmp/
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_audio.cpp main/audio_synth.cpp main/sound_bank.cpp -o tests/test_audio && ./tests/test_audio   # synth, MML, WAV parsing
 g++ -std=c++17 -Wall -Wextra -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o tests/test_fspath && ./tests/test_fspath   # file browser path safety
 g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload && /tmp/test_fs_upload   # safe upload staging and replacement
-node tests/test_files_upload_web.js   # conflict defaults, directory depth, four-way SD and serialized flash uploads
+node tests/test_files_upload_web.js   # conflict defaults, directory depth, serialized SD/flash uploads
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include -Itests tests/test_joystick.cpp -o tests/test_joystick && ./tests/test_joystick   # joystick zones/rate/diagonal
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_story/include -Itests tests/test_story.cpp components/otr_story/*.cpp -o tests/test_story && ./tests/test_story   # dialogue engine + village script
 g++ -std=c++17 -Wall -Wextra -Imain -Itests -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_advlive.cpp main/adv_live.cpp components/otr_engine/*.cpp components/otr_story/*.cpp -o tests/test_advlive && ./tests/test_advlive   # adventure live snapshot + JSON
