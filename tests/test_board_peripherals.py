@@ -274,7 +274,11 @@ int main() {
     using namespace BoardSd;
     assert(begin() && info().mounted && info().width==4);
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
+#ifdef CONFIG_OTR_SD_50MHZ_EXPERIMENT
+    assert(lastFreq==50000 && powerCycles==0);
+#else
     assert(lastFreq==40000 && powerCycles==0); // Same clock as ESP-Hosted on the shared controller.
+#endif
 #else
     assert(lastFreq==20000);
 #endif
@@ -338,7 +342,11 @@ int main() {
     poll(4000);
     assert(mounted() && info().generation==2 && radioAlive);
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
+#ifdef CONFIG_OTR_SD_50MHZ_EXPERIMENT
+    assert(powerCycles>=1 && lastFreq==50000);
+#else
     assert(powerCycles>=1 && lastFreq==40000); // VDD reset, same clock as the shared C6 slot.
+#endif
 #else
     assert(lastFreq==20000 && powerCycles==0);
 #endif
@@ -425,14 +433,18 @@ def main():
             path = work / header
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "test_idf.h"\n')
-        for name, code, targets in [("rtc", RTC, ["p4"]), ("adc", ADC, ["s3", "p4"]), ("sd", SD, ["s3", "p4"])]:
+        for name, code, targets in [("rtc", RTC, ["p4"]), ("adc", ADC, ["s3", "p4"]), ("sd", SD, ["s3", "p4", "p4-50"])]:
             source = work / f"{name}.cpp"
             source.write_text(code)
             for target in targets:
                 binary = work / f"{name}-{target}"
-                flags = ["-DCONFIG_IDF_TARGET_ESP32P4", "-DCONFIG_OTR_HW_PROFILE_P4_43"] if target == "p4" else ["-DCONFIG_IDF_TARGET_ESP32S3"]
-                if name == "sd" and target == "p4":
+                flags = ["-DCONFIG_IDF_TARGET_ESP32P4", "-DCONFIG_OTR_HW_PROFILE_P4_43"] if target.startswith("p4") else ["-DCONFIG_IDF_TARGET_ESP32S3"]
+                if name == "sd" and target.startswith("p4"):
                     flags += ["-DCONFIG_OTR_SD_IO_DIAGNOSTICS"]
+                    clock = 50000 if target == "p4-50" else 40000
+                    flags += [f"-DCONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ={clock}"]
+                    if target == "p4-50":
+                        flags += ["-DCONFIG_OTR_SD_50MHZ_EXPERIMENT"]
                 subprocess.run([
                     "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable",
                     *flags, "-include", str(work / "test_idf.h"),

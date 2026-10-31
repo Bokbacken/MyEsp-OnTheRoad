@@ -51,7 +51,7 @@ jobs:
           if-no-files-found: error
 
   build:
-    name: build-${{ matrix.target }}
+    name: build-${{ matrix.target }}${{ matrix.experiment && '-50mhz' || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -64,6 +64,10 @@ jobs:
           - board: p4-43
             target: esp32p4
             label: "-unverified"
+          - board: p4-43
+            target: esp32p4
+            label: "-50mhz-experimental"
+            experiment: true
 
     steps:
       - name: Checkout
@@ -80,6 +84,7 @@ jobs:
         run: |
           python3 tests/test_board_peripherals.py
           python3 tests/test_sd_log_diagnostics.py
+          python3 tests/test_sd_clock.py
           python3 tests/test_flash_repair.py
           python3 tests/test_nvs_backup.py
           node tests/test_nvs_web.js
@@ -121,8 +126,16 @@ jobs:
           esp_idf_version: v6.1
           target: ${{ matrix.target }}
           command: |
+            if [ "${{ matrix.experiment }}" = "true" ]; then
+              sed -i 's/^CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=.*/CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=50000/' sdkconfig.defaults.esp32p4
+              echo 'CONFIG_OTR_SD_50MHZ_EXPERIMENT=y' >> sdkconfig.defaults.esp32p4
+            fi
             idf.py --version
             idf.py set-target ${{ matrix.target }}
+            if [ "${{ matrix.experiment }}" = "true" ]; then
+              grep -qx 'CONFIG_OTR_SD_50MHZ_EXPERIMENT=y' sdkconfig
+              grep -qx 'CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=50000' sdkconfig
+            fi
             idf.py build
             idf.py merge-bin -o merged.bin
 

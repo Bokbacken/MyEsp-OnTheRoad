@@ -153,8 +153,12 @@ void traceTask(void *)
 // Slot 0 (card) and slot 1 (ESP-Hosted C6) share one SDMMC controller and its host clock divider;
 // only a second divider is per slot. ESP-IDF reprograms the shared divider whenever the next
 // transaction is for a slot with another frequency, which can cut off the card's pending auto
-// CMD12. Equal clocks keep the divider fixed (160 MHz / 4, no per-slot divider).
+// CMD12. Equal clocks keep the divider fixed during transfers.
+#if defined(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
+constexpr int SHARED_FREQ_KHZ = 50000;
+#else
 constexpr int SHARED_FREQ_KHZ = SDMMC_FREQ_HIGHSPEED;
+#endif
 #if defined(CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ)
 static_assert(CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ == SHARED_FREQ_KHZ,
               "SD card and ESP-Hosted SDIO must use the same clock on the shared P4 SDMMC controller");

@@ -143,6 +143,34 @@ Om kortet inte går att montera på 40 MHz provas 20 MHz med 4 och sedan 1
 datalinje. Loggen varnar då för att delarna åter skiljer sig. Kontrollera att
 startloggen visar `mounted ...: 4-bit 40000 kHz`.
 
+### Experiment: 50 MHz på P4 (v0.23.11)
+
+Vanliga bygget behåller 40 MHz. CI bygger dessutom ett separat artifact
+med suffixet **`-50mhz-experimental`**. Endast detta aktiverar
+`CONFIG_OTR_SD_50MHZ_EXPERIMENT=y` och
+`CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=50000`. Antalet samtidiga
+SD-uppladdningar är fortfarande ett, så klocktestet görs separat.
+
+ESP-IDF v6.1 begränsar normalt SDIO-high-speed till 40 MHz även om värden
+begär 50 MHz. Experimentet använder samma linker-wrapper för
+`sdmmc_io_enable_hs_mode` som MyPi-Hotspot: först efter lyckad förhandling
+höjs gränsen till 50 MHz. SD-minneskortets drivrutin förhandlar redan den
+hastigheten. P4 väljer då 200 MHz SDIO-klockkälla och delar med fyra;
+detta är high-speed, inte UHS SDR50 eller ett byte till 1,8 V.
+
+En wrapper för `sdmmc_init_host_frequency` kontrollerar resultatet och
+loggar `sdclock` för både slot 0 (SD) och slot 1 (C6). Båda ska visa
+`requested=50000 negotiated=50000 actual=50000 kHz`. En begäran om
+50 MHz som inte förhandlas eller uppnås ger ett uttryckligt initieringsfel.
+SD-kortets befintliga monteringsfallback till 20 MHz finns kvar med varning;
+en sådan körning verifierar **inte** 50/50 MHz. C6 som inte når 50 MHz
+kan hindra Wi-Fi från att starta.
+
+Spara seriell logg från start och kopiera samma stora filer som i
+40 MHz-testet. Jämför tid, SD-fel och Wi-Fi-beteende. MyPi-Hotspot använde
+C5; det bevisar inte stabilitet med denna C6 och detta SD-kort. Behåll
+40 MHz-bygget för återgång via USB om Wi-Fi/OTA inte startar.
+
 API: `GET /api/log/sd` ger `{"enabled":true|false}`;
 adminskyddat `POST /api/log/sd?enabled=0|1&pin=...` ändrar SD-loggning.
 `GET /api/log/download?ram=1` ger enbart `info.txt` och `ram.log`.

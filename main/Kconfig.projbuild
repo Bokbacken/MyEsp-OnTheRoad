@@ -19,6 +19,16 @@ menu "OnTheRoad hardware profile"
 endmenu
 
 menu "OnTheRoad diagnostics"
+    config OTR_SD_50MHZ_EXPERIMENT
+        bool "Experimental 50 MHz SD card and C6 SDIO clocks"
+        depends on OTR_HW_PROFILE_P4_43
+        default n
+        help
+            Requires ESP_HOSTED_HOST_SDIO_CLK_KHZ=50000. Raises both P4
+            SDMMC slots to 50 MHz using the 200 MHz SDIO clock source.
+            Verifies negotiated and actual clocks. Keep disabled for
+            normal 40 MHz builds; hardware stability is not established.
+
     config OTR_SD_IO_DIAGNOSTICS
         bool "Sample SD card transactions without accessing the card"
         default n

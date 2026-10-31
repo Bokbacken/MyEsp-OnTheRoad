@@ -8,6 +8,20 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.11 (unreleased)
+
+- Added a separate P4 `50mhz-experimental` CI artifact. Normal P4 builds
+  remain at 40 MHz; simultaneous SD uploads remain disabled.
+- The experiment requests 50 MHz for both SD and C6 SDIO. As in MyPi-Hotspot,
+  a linker wrapper lifts ESP-IDF v6.1's 40 MHz SDIO cap only after successful
+  high-speed negotiation. SD memory cards already negotiate 50 MHz.
+  A second wrapper logs negotiated and actual clocks on both slots and
+  rejects a requested 50 MHz initialization that does not reach 50 MHz.
+- Owner log for v0.23.10 confirms completed Wi-Fi uploads of 29,258,148 and
+  265,847,632 bytes with SD at 40 MHz. No SD errors, watchdogs or remounts
+  appear after that boot. Earlier failures in the same log precede v0.23.10.
+  This is evidence of improvement, not full stability or 50 MHz verification.
+
 ## v0.23.10 (unreleased)
 
 - P4 SD card now runs at 40 MHz, the same clock as the ESP-Hosted C6 SDIO link

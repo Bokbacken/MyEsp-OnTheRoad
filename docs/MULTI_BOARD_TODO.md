@@ -167,10 +167,15 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [x] v0.23.9 på hårdvara, 20 MHz: ingen watchdog, CMD12 tar kortet ur
   mottagningsläget och återmonteringen går snabbt. Skrivningen misslyckas
   fortfarande.
-- [ ] v0.23.10: SD på 40 MHz, samma klocka som C6, så att den gemensamma
-  klockdelaren inte växlar. Verifiera upprepade stora uppladdningar via Wi-Fi
-  utan `handle_idle_state_events unhandled` och utan
-  `card left in receive state`.
+- [x] v0.23.10: två Wi-Fi-uppladdningar på 29,3 och 265,8 MB slutförda
+  med SD på 40 MHz. Ägarens logg visar inga SD-fel, watchdogs eller
+  återmonteringar efter v0.23.10-starten. Längre belastningstest återstår.
+- [ ] v0.23.11: verifiera separat `50mhz-experimental`-bygge. Båda slotar
+  ska logga faktisk klocka 50000 kHz; jämför samma filer mot 40 MHz.
+  Standardbygget behåller 40 MHz och en samtidig SD-uppladdning.
+- [ ] Återaktivera flera SD-uppladdningar separat efter klocktestet.
+  Samordna återhämtning så att en session inte återmonterar kortet medan
+  en annan fortfarande har en fil öppen.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om
