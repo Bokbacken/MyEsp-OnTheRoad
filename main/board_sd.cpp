@@ -9,6 +9,7 @@
 #include "driver/gpio.h"
 #include "driver/sdmmc_host.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "ff.h"
 #include "diskio_sdmmc.h"   // After ff.h (needs BYTE)
@@ -31,6 +32,70 @@ sdmmc_card_t *s_card = nullptr;
 Info s_info{};
 uint32_t s_nextPoll = 0;
 bool s_logMissing = true;
+#if defined(CONFIG_OTR_SD_IO_DIAGNOSTICS)
+struct IoTrace {
+    uint32_t commands = 0, statusPolls = 0;
+    uint32_t dataBlock = 0, dataBytes = 0, response = 0;
+    int opcode = 0, dataOpcode = 0, core = 0;
+    uint32_t arg = 0;
+    int64_t startedUs = 0, durationUs = 0;
+    esp_err_t error = ESP_OK;
+    bool active = false;
+};
+portMUX_TYPE s_traceMux = portMUX_INITIALIZER_UNLOCKED;
+IoTrace s_trace;
+TaskHandle_t s_traceTask = nullptr;
+esp_err_t (*s_transaction)(int, sdmmc_command_t *) = nullptr;
+
+esp_err_t tracedTransaction(int slot, sdmmc_command_t *cmd)
+{
+    const int64_t start = esp_timer_get_time();
+    portENTER_CRITICAL(&s_traceMux);
+    ++s_trace.commands;
+    s_trace.opcode = cmd->opcode;
+    s_trace.arg = cmd->arg;
+    s_trace.core = xPortGetCoreID();
+    s_trace.startedUs = start;
+    s_trace.active = true;
+    s_trace.statusPolls = cmd->opcode == 13 ? s_trace.statusPolls + 1 : 0;
+    if (cmd->data) {
+        s_trace.dataOpcode = cmd->opcode;
+        s_trace.dataBlock = cmd->arg;
+        s_trace.dataBytes = cmd->datalen;
+    }
+    portEXIT_CRITICAL(&s_traceMux);
+    const esp_err_t err = s_transaction(slot, cmd);
+    const int64_t duration = esp_timer_get_time() - start;
+    portENTER_CRITICAL(&s_traceMux);
+    s_trace.durationUs = duration;
+    s_trace.error = err == ESP_OK ? cmd->error : err;
+    s_trace.response = cmd->response[0];
+    s_trace.active = false;
+    portEXIT_CRITICAL(&s_traceMux);
+    return err;
+}
+
+void traceTask(void *)
+{
+    uint32_t previous = 0;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        portENTER_CRITICAL(&s_traceMux);
+        const IoTrace t = s_trace;
+        portEXIT_CRITICAL(&s_traceMux);
+        if (t.commands == previous && !t.active) continue;
+        previous = t.commands;
+        const int64_t age = t.active ? esp_timer_get_time() - t.startedUs : 0;
+        // No BoardSd lock or card access: this must run while a write owns the card.
+        ESP_LOGI("sdtrace", "cmd=%d arg=%08x data_cmd=%d block=%u bytes=%u polls=%u active=%d "
+                           "age_ms=%llu last_ms=%llu err=%x r1=%08x core=%d",
+                 t.opcode, (unsigned)t.arg, t.dataOpcode, (unsigned)t.dataBlock,
+                 (unsigned)t.dataBytes, (unsigned)t.statusPolls, t.active,
+                 (unsigned long long)(age / 1000), (unsigned long long)(t.durationUs / 1000),
+                 (unsigned)t.error, (unsigned)t.response, t.core);
+    }
+}
+#endif
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
 sd_pwr_ctrl_handle_t s_pwr = nullptr;   // Card IO power from on-chip LDO, kept for the whole runtime
 bool s_recover = false;
@@ -59,6 +124,10 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT, bool formatIfFail = f
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = freqKhz;
+#if defined(CONFIG_OTR_SD_IO_DIAGNOSTICS)
+    s_transaction = host.do_transaction;
+    host.do_transaction = tracedTransaction;
+#endif
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     // Slot 1 belongs to ESP-Hosted (ESP32-C6); deinit_p only releases our slot on unmount.
     host.slot = SD_SLOT;
@@ -170,6 +239,12 @@ void unlock()
 
 bool begin()
 {
+#if defined(CONFIG_OTR_SD_IO_DIAGNOSTICS)
+    // P4 CPU 0 can be starved by the writer; sample independently on CPU 1.
+    if (!s_traceTask &&
+        xTaskCreatePinnedToCore(traceTask, "sd_trace", 4096, nullptr, 1, &s_traceTask, 1) != pdPASS)
+        ESP_LOGE(TAG, "SD transaction sampler could not start");
+#endif
     if (!s_mux) s_mux = xSemaphoreCreateRecursiveMutex();
     Guard g;
     bool ok = mountLocked();

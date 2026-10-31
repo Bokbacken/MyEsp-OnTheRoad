@@ -154,6 +154,12 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Felkod exponeras i webbdiagnostik. Slot 1/C6 lämnas igång.
 - [ ] **Hårdvara:** verifiera att SD håller sig läs-/skrivbart samtidigt
   som Wi-Fi används, och att återmontering fungerar efter timeout.
+- [x] v0.23.8: P4-diagnostik med frame pointers och oberoende SD-kommandosampling
+  på CPU 1; pausbar SD-loggning och RAM-only ZIP. Ägarens seriella logg
+  2026-10-31 bekräftar IDLE0-watchdog med `fs_upload_sd` på CPU 0.
+- [ ] Reproducera med v0.23.8 och avkoda full stack mot exakt ELF. Jämför
+  SD-loggning på/av före andra ändringar; klockhastighet och delad controller
+  är ännu inte uteslutna. Diagnostikbygget är inte en stabilitetsfix.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om

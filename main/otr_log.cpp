@@ -55,6 +55,7 @@ portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 vprintf_like_t s_prev = nullptr;
 SemaphoreHandle_t s_sdMtx = nullptr;
 std::atomic<int> s_sseClients{0};
+std::atomic<bool> s_sdEnabled{true};
 bool s_ready = false;
 
 void *psAlloc(size_t n)
@@ -150,6 +151,10 @@ void sdTask(void *)
         vTaskDelay(pdMS_TO_TICKS(SD_PERIOD_MS));
         if (!buf) continue;
         const bool mounted = BoardSd::mounted();
+        if (!s_sdEnabled.load()) {
+            wasMounted = false;
+            continue;
+        }
         if (mounted && !wasMounted) {   // (Re)inserted card: mark the gap, then write the backlog
             static const char mark[] = "----- otr log: SD attached, " FW_VERSION " -----\n";
             xSemaphoreTake(s_sdMtx, portMAX_DELAY);
@@ -163,7 +168,7 @@ void sdTask(void *)
         }
         xSemaphoreTake(s_sdMtx, portMAX_DELAY);
         size_t n;
-        while ((n = ringRead(buf, 8192, &pos)) > 0)
+        while (s_sdEnabled.load() && (n = ringRead(buf, 8192, &pos)) > 0)
             if (!appendSd(buf, n)) break;
         xSemaphoreGive(s_sdMtx);
     }
@@ -340,6 +345,9 @@ void zipFile(ZipOut &z, const char *path, const char *name, char *buf, size_t ca
 esp_err_t handleDownload(httpd_req_t *req)
 {
     if (!s_ready) return MyWeb::sendError(req, 503, "log capture off");
+    MyWeb::Req q(req);
+    bool ramOnly = false;
+    q.getBool("ram", ramOnly);
     char *ram = (char *)psAlloc(RING_BYTES);
     char *buf = (char *)psAlloc(8192);
     if (!ram || !buf) {
@@ -371,27 +379,47 @@ esp_err_t handleDownload(httpd_req_t *req)
     char info[384];
     const int il = snprintf(info, sizeof(info),
                             "MyEsp-OnTheRoad %s\nuptime_s=%llu\nfree_heap=%u\nfree_internal=%u\nram_log_bytes=%u\n"
-                            "captured_total=%llu\nsd=%s\nreset_reason=%d\n",
+                            "captured_total=%llu\nsd=%s\nreset_reason=%d\nsd_log_enabled=%d\n",
                             FW_VERSION, (unsigned long long)(esp_timer_get_time() / 1000000),
                             (unsigned)esp_get_free_heap_size(),
                             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)ramLen,
                             (unsigned long long)ringHead(), BoardSd::mounted() ? "mounted" : "none",
-                            (int)esp_reset_reason());
+                            (int)esp_reset_reason(), s_sdEnabled.load());
     z.memEntry("info.txt", info, il > 0 ? (size_t)il : 0);
     z.memEntry("ram.log", ram, ramLen);
     free(ram);
 
-    xSemaphoreTake(s_sdMtx, portMAX_DELAY);
-    for (int i = FILE_COUNT - 1; i >= 0 && z.ok; i--) {   // Oldest first
-        char p[48], n[16];
-        filePath(p, sizeof(p), i);
-        snprintf(n, sizeof(n), "otr_%d.log", i);
-        zipFile(z, p, n, buf, 8192);
+    if (!ramOnly) {
+        xSemaphoreTake(s_sdMtx, portMAX_DELAY);
+        for (int i = FILE_COUNT - 1; i >= 0 && z.ok; i--) {   // Oldest first
+            char p[48], n[16];
+            filePath(p, sizeof(p), i);
+            snprintf(n, sizeof(n), "otr_%d.log", i);
+            zipFile(z, p, n, buf, 8192);
+        }
+        xSemaphoreGive(s_sdMtx);
     }
-    xSemaphoreGive(s_sdMtx);
     free(buf);
     z.finish();
     return z.ok ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t handleSdLogStatus(httpd_req_t *req)
+{
+    return MyWeb::sendJsonStr(req, 200, s_sdEnabled.load() ? "{\"enabled\":true}" : "{\"enabled\":false}");
+}
+
+esp_err_t handleSdLogControl(httpd_req_t *req)
+{
+    MyWeb::Req q(req);
+    if (!q.adminAllowed()) return MyWeb::sendError(req, 403, "Admin PIN required");
+    char value[8];
+    if (!q.get("enabled", value, sizeof(value)) || (strcmp(value, "0") && strcmp(value, "1")))
+        return MyWeb::sendError(req, 400, "enabled must be 0 or 1");
+    s_sdEnabled.store(!strcmp(value, "1"));
+    ESP_LOGI(TAG, "SD log persistence %s (RAM capture remains on)",
+             s_sdEnabled.load() ? "enabled" : "paused");
+    return handleSdLogStatus(req);
 }
 
 }  // namespace
@@ -419,6 +447,8 @@ bool otr_log_register_routes()
 {
     bool ok = MyWeb::on("/api/log/stream", HTTP_GET, handleStream);
     ok &= MyWeb::on("/api/log/download", HTTP_GET, handleDownload);
+    ok &= MyWeb::on("/api/log/sd", HTTP_GET, handleSdLogStatus);
+    ok &= MyWeb::on("/api/log/sd", HTTP_POST, handleSdLogControl);
     return ok;
 }
 

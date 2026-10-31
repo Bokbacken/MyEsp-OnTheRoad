@@ -17,3 +17,13 @@ menu "OnTheRoad hardware profile"
     endchoice
 
 endmenu
+
+menu "OnTheRoad diagnostics"
+    config OTR_SD_IO_DIAGNOSTICS
+        bool "Sample SD card transactions without accessing the card"
+        default n
+        help
+            Records command progress in RAM and reports it once per second
+            while SD transactions are active. Does not instrument the C6 radio
+            slot or change clocks, timeouts, task priorities or watchdog limits.
+endmenu

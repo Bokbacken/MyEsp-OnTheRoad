@@ -7,6 +7,8 @@
 // - Web:
 //     GET /api/log/stream    Server-Sent Events, one "data:" event per log line (max 2 clients)
 //     GET /api/log/download  ZIP (store) with ram.log, info.txt and the SD log files
+//         ?ram=1 omits all SD file access.
+//     GET/POST /api/log/sd   SD persistence status / admin-protected enabled=0|1
 #pragma once
 
 #include <stddef.h>

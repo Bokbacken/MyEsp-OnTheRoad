@@ -62,3 +62,39 @@ Hårdvarutest återstår för v0.23.3: verifiera PIN-skydd och bekräftelser fö
 Ägaren rapporterade 2026-10-31 att en lyckad uppladdning på 64 013 byte följdes av SDMMC-fel `0x107` vid skrivning, upprepade skrivfel och en watchdog-varning där `fs_upload_sd` kördes på CPU 0. SD-kortet blev därefter otillgängligt tills enheten återställdes. Loggen fastställer inte om grundorsaken var kortet, kortgränssnittet eller samtidig belastning.
 
 Som försiktighetsåtgärd körs nu SD-uppladdningar en i taget. Vid ett SD-I/O-fel under skrivning, flush, stängning eller installation försöker servern använda den befintliga återmonterings-/återställningsvägen; den gör ingen usage-refresh efter misslyckad uppladdning. Detta är en programvarumitigering, inte bevis på att kort eller hårdvara är felfria. Reproduktion, återhämtning och watchdog-beteende behöver verifieras på den berörda enheten.
+
+### Diagnostikbygge v0.23.8
+
+En senare seriell logg bekräftar `IDLE0`-watchdog medan CPU 0 kör
+`fs_upload_sd`, följd av SD-timeouter. Adresserna i v0.23.7 pekar på
+FreeRTOS kömottagning; ett annat register pekar på SD-statuskommandot.
+Utan full stack är det inte bevis för en specifik loop eller grundorsak.
+
+P4-bygget aktiverar frame pointers och `CONFIG_OTR_SD_IO_DIAGNOSTICS`.
+En separat task på CPU 1 samplar SD-kortets kommandon en gång per sekund
+utan att ta SD-låset eller använda kortet. `sdtrace` visar aktuellt
+`cmd`/`arg`, föregående datakommando (`data_cmd`, `block`, `bytes`),
+antal efterföljande CMD13-statusfrågor (`polls`), pågående kommando
+(`active`, `age_ms`), senaste avslutade kommandots tid/felkod/R1-svar
+(`last_ms`, `err`, `r1`) och den anropande kärnan (`core`).
+`block` är kommandoargumentet (sektoradress för SDHC, byteadress för SDSC);
+föregående datakommando kan även vara ett initieringskommando.
+Samplingen ändrar inte returvärden, hastighet, bussbredd, watchdog eller
+uppladdningens prioritet. C6-radions slot instrumenteras inte.
+
+1. Flasha P4-bygget och spara hela seriella loggen från start genom ett
+   kopieringsförsök med samma fil som tidigare. Spara även byggets ELF.
+2. Öppna Diagnostik och välj **Ladda ner bara RAM (utan SD)** direkt efter
+   felet, före omstart. Detta ZIP läser inga SD-filer. Watchdog-utskriften
+   kan fortfarande vara enbart seriell, så RAM-loggen ersätter inte serial.
+3. Gör ett jämförande försök med **Pausa SD-loggning**, admin-PIN om den
+   är konfigurerad. Vänta tills eventuell pågående loggskrivning avslutats
+   innan försöket; pausen avbryter inte ett redan blockerat SD-anrop.
+   RAM och seriell logg fortsätter, och senaste RAM-backlog skrivs när
+   SD-loggningen återupptas. Pausen sparas inte över omstart.
+4. Jämför stack och `sdtrace` innan klocka, bussbredd eller schemaläggning
+   ändras. Ett lyckat enskilt försök bevisar inte stabilitet.
+
+API: `GET /api/log/sd` ger `{"enabled":true|false}`;
+adminskyddat `POST /api/log/sd?enabled=0|1&pin=...` ändrar SD-loggning.
+`GET /api/log/download?ram=1` ger enbart `info.txt` och `ram.log`.

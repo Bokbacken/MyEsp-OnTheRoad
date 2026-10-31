@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.8 (unreleased)
+
+- P4 diagnostic build enables frame pointers for watchdog backtraces and a
+  CPU-1 SD transaction sampler. Reports current command, preceding data command,
+  status-poll streak, response and duration through serial/RAM logs without
+  accessing the SD card. The C6 slot is not instrumented.
+- Diagnostics can pause SD log persistence while leaving RAM/serial capture on,
+  and download a RAM-only ZIP without reading SD files. Clock, bus width,
+  watchdog limits and upload scheduling are unchanged; this is instrumentation,
+  not a verified fix for SD timeouts or CPU starvation.
+
 ## v0.23.7 (unreleased)
 
 - Moved internal-flash repair beside the SD format button, at the top right of

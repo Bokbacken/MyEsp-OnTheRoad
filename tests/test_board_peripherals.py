@@ -44,6 +44,9 @@ using SemaphoreHandle_t=void *;
 inline void *xSemaphoreCreateRecursiveMutex() { return reinterpret_cast<void *>(1); }
 inline void xSemaphoreTakeRecursive(void *, int) {}
 inline void xSemaphoreGiveRecursive(void *) {}
+using TaskHandle_t=void *;
+inline int64_t esp_timer_get_time() { return ticks; }
+inline int xPortGetCoreID() { return 0; }
 
 using adc_oneshot_unit_handle_t=void *;
 using adc_cali_handle_t=void *;
@@ -105,13 +108,32 @@ constexpr int SDMMC_FREQ_DEFAULT=20000, SDMMC_SLOT_FLAG_INTERNAL_PULLUP=1;
 inline bool radioAlive=true;
 inline int hostInit() { return ESP_OK; }
 inline int hostDeinit(int slot) { assert(slot==0); assert(radioAlive); return ESP_OK; }
+struct sdmmc_command_t {
+    int opcode;
+    uint32_t arg;
+    void *data;
+    size_t datalen;
+    esp_err_t error;
+    uint32_t response[4];
+};
+inline int transactionResult=ESP_OK, commandError=ESP_OK;
+inline int transactionCalls=0;
+inline int fakeTransaction(int slot, sdmmc_command_t *cmd) {
+    assert(slot==0 || slot==1);
+    ++transactionCalls;
+    ticks+=2500;
+    cmd->error=commandError;
+    cmd->response[0]=0x900;
+    return transactionResult;
+}
 struct sdmmc_host_t {
     int slot, max_freq_khz;
     void *pwr_ctrl_handle;
     int (*init)();
     int (*deinit_p)(int);
+    int (*do_transaction)(int, sdmmc_command_t *);
 };
-#define SDMMC_HOST_DEFAULT() {1,20000,nullptr,hostInit,hostDeinit}
+#define SDMMC_HOST_DEFAULT() {1,20000,nullptr,hostInit,hostDeinit,fakeTransaction}
 struct sdmmc_slot_config_t { int width,clk,cmd,d0,d1,d2,d3,flags; };
 #define SDMMC_SLOT_CONFIG_DEFAULT() {0,-1,-1,-1,-1,-1,-1,0}
 struct esp_vfs_fat_sdmmc_mount_config_t {
@@ -127,6 +149,7 @@ inline int formatMountCalls=0;
 inline bool acceptFormatMount=false;
 inline int formatCalls=0;
 inline int lastWidth=0, lastFreq=0;
+inline int (*mountedTransaction)(int, sdmmc_command_t *)=nullptr;
 inline int esp_vfs_fat_sdmmc_mount(const char *, const sdmmc_host_t *h, const sdmmc_slot_config_t *s,
                                  const esp_vfs_fat_sdmmc_mount_config_t *c, sdmmc_card_t **out) {
     if (c->format_if_mount_failed) {
@@ -140,6 +163,7 @@ inline int esp_vfs_fat_sdmmc_mount(const char *, const sdmmc_host_t *h, const sd
     assert(h->slot==1 && s->clk==5 && s->cmd==4 && s->d0==6);
 #endif
     ++mountCalls; lastWidth=s->width; lastFreq=h->max_freq_khz;
+    mountedTransaction=h->do_transaction;
     if (mountFailures) { --mountFailures; return ESP_ERR_TIMEOUT; }
     fakeCard.real_freq_khz=h->max_freq_khz; *out=&fakeCard; return ESP_OK;
 }
@@ -234,6 +258,24 @@ SD = r'''
 int main() {
     using namespace BoardSd;
     assert(begin() && info().mounted && info().width==4);
+    sdmmc_command_t cmd{25, 123, reinterpret_cast<void *>(1), 32768, ESP_OK, {}};
+    assert(mountedTransaction(0, &cmd)==ESP_OK && transactionCalls==1);
+#ifdef CONFIG_OTR_SD_IO_DIAGNOSTICS
+    assert(s_trace.commands==1 && !s_trace.active && s_trace.dataBlock==123);
+    assert(s_trace.dataOpcode==25 && s_trace.dataBytes==32768 && s_trace.durationUs==2500);
+    cmd.opcode=13; cmd.data=nullptr;
+    for (int i=0;i<1000;++i) assert(mountedTransaction(0,&cmd)==ESP_OK);
+    assert(s_trace.statusPolls==1000 && s_trace.dataOpcode==25 && s_trace.dataBlock==123);
+    commandError=ESP_ERR_TIMEOUT;
+    assert(mountedTransaction(0,&cmd)==ESP_OK && s_trace.error==ESP_ERR_TIMEOUT);
+    commandError=ESP_OK; transactionResult=ESP_FAIL;
+    assert(mountedTransaction(0,&cmd)==ESP_FAIL && s_trace.error==ESP_FAIL);
+    transactionResult=ESP_OK;
+    cmd.opcode=24; cmd.data=reinterpret_cast<void *>(1);
+    assert(mountedTransaction(0,&cmd)==ESP_OK && s_trace.statusPolls==0);
+#else
+    assert(mountedTransaction==fakeTransaction);
+#endif
     assert(info().generation==1 && info().totalBytes==32000000);
     unmountResult=ESP_FAIL;
     assert(!remount() && mounted()); // Do not discard ownership or reinit after failed unmount.
@@ -320,7 +362,7 @@ def main():
             "freertos/portmacro.h", "freertos/semphr.h", "esp_adc/adc_cali.h",
             "esp_adc/adc_cali_scheme.h", "esp_adc/adc_oneshot.h", "driver/gpio.h",
             "driver/sdmmc_host.h", "esp_vfs_fat.h", "ff.h", "diskio_sdmmc.h",
-            "sdmmc_cmd.h", "sd_pwr_ctrl_by_on_chip_ldo.h",
+            "sdmmc_cmd.h", "sd_pwr_ctrl_by_on_chip_ldo.h", "esp_timer.h",
         ]
         for header in headers:
             path = work / header
@@ -332,6 +374,8 @@ def main():
             for target in targets:
                 binary = work / f"{name}-{target}"
                 flags = ["-DCONFIG_IDF_TARGET_ESP32P4", "-DCONFIG_OTR_HW_PROFILE_P4_43"] if target == "p4" else ["-DCONFIG_IDF_TARGET_ESP32S3"]
+                if name == "sd" and target == "p4":
+                    flags += ["-DCONFIG_OTR_SD_IO_DIAGNOSTICS"]
                 subprocess.run([
                     "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable",
                     *flags, "-include", str(work / "test_idf.h"),

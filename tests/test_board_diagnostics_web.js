@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 async function page(file, data) {
+  const requests = [];
+  let sdEnabled = true;
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
@@ -14,15 +16,22 @@ async function page(file, data) {
   };
   const sandbox = {
     document: {getElementById: element, querySelectorAll: () => [], createElement: () => element(Symbol())},
-    window: {addEventListener() {}}, EventSource: class {close() {}},
-    fetch: async () => ({json: async () => data}), setInterval() {}, setTimeout() {},
+    window: {addEventListener() {}, prompt: () => ''}, EventSource: class {close() {}},
+    fetch: async (url, options) => {
+      requests.push({url, options});
+      if (url.startsWith('/api/log/sd')) {
+        if (options?.method === 'POST') sdEnabled = url.includes('enabled=1');
+        return {ok: true, json: async () => ({enabled: sdEnabled})};
+      }
+      return {ok: true, json: async () => data};
+    }, setInterval() {}, setTimeout() {},
     console,
   };
   vm.createContext(sandbox);
   const script = fs.readFileSync(file, 'utf8').match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
   vm.runInContext(script, sandbox);
   await vm.runInContext('refresh()', sandbox);
-  return {element, run: s => vm.runInContext(s, sandbox)};
+  return {element, requests, run: s => vm.runInContext(s, sandbox)};
 }
 
 (async () => {
@@ -59,6 +68,34 @@ async function page(file, data) {
     assert.equal(diag.element('wifi').innerHTML.includes('3.0.10'), p4);
     assert(diag.element('battery').innerHTML.includes('3636 mV'));
     assert(diag.element('raw').textContent.includes('scale_permille'));
+    await diag.run('sdLogRefresh()');
+    assert.equal(diag.element('log-sd-toggle').disabled, false);
+    assert.equal(diag.element('log-sd-state').textContent, 'SD-loggning på');
+    diag.run(`window.prompt = () => '12&34'`);
+    await diag.element('log-sd-toggle').onclick();
+    assert.equal(diag.element('log-sd-toggle').textContent, 'Återuppta SD-loggning');
+    assert.equal(diag.requests.at(-1).url, '/api/log/sd?enabled=0&pin=12%2634');
+    assert.equal(diag.requests.at(-1).options.method, 'POST');
+    await diag.element('log-sd-toggle').onclick();
+    assert.equal(diag.element('log-sd-toggle').textContent, 'Pausa SD-loggning');
+    const beforeCancel = diag.requests.length;
+    diag.run('window.prompt = () => null');
+    await diag.element('log-sd-toggle').onclick();
+    assert.equal(diag.requests.length, beforeCancel);
+    diag.run(`const originalFetch = fetch; window.prompt = () => ''; fetch = async () => ({
+      ok: false, json: async () => ({error: 'Fel PIN'})
+    })`);
+    await diag.element('log-sd-toggle').onclick();
+    assert.equal(diag.element('log-sd-state').textContent, 'Fel PIN');
+    assert.equal(diag.element('log-sd-toggle').disabled, false);
+    assert.equal(diag.element('log-sd-toggle').textContent, 'Pausa SD-loggning');
+    diag.run(`fetch = async () => ({ok: true, json: async () => ({})})`);
+    await diag.element('log-sd-toggle').onclick();
+    assert.equal(diag.element('log-sd-state').textContent, 'Ogiltig SD-loggstatus');
+    diag.run(`fetch = async () => { throw new Error('Network failed'); }`);
+    await diag.element('log-sd-toggle').onclick();
+    assert.equal(diag.element('log-sd-state').textContent, 'Network failed');
+    diag.run('fetch = originalFetch');
     data.display.sleeping = true;
     data.display.brightness = 55;
     await diag.run('refresh()');
