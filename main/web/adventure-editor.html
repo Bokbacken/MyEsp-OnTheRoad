@@ -14,28 +14,41 @@
 .editor-toolbar input { width:100%; }
 #browser-list { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.6rem; }
 #source { width:100%; min-height:62vh; resize:vertical; font: .9rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
-  white-space:pre; tab-size:4; }
+  white-space:pre; tab-size:4; box-sizing:border-box; }
 #status { white-space:pre-wrap; }
 #status.good { color:var(--otr-green); }
 #status.bad { color:var(--otr-red); }
 .editor-footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.4rem; }
 #modes { display:flex; gap:.4rem; margin:.7rem 0 .3rem; }
 #modes button.active { background:var(--otr-accent, #2d6cdf); color:#fff; }
-#map-tabs, #tools { display:flex; flex-wrap:wrap; gap:.4rem; margin:.4rem 0; }
+#map-tabs, #tools, #display-modes { display:flex; flex-wrap:wrap; gap:.4rem; margin:.4rem 0; }
 #map-tabs button.active, #tools button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
-#map-wrap { overflow:auto; max-height:70vh; border:1px solid var(--otr-border, #888); touch-action:none; }
+#display-modes button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
+#map-wrap { width:100%; overflow:auto; max-height:70vh; border:1px solid var(--otr-border, #888); touch-action:none; }
 #map-canvas { display:block; image-rendering:pixelated; cursor:crosshair; }
 #palette { display:flex; flex-wrap:wrap; gap:.3rem; margin:.4rem 0; }
 #palette button { min-width:2.6rem; padding:.2rem .4rem; font-family:ui-monospace, Consolas, monospace; }
 #palette button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
-.panel-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(17rem, 1fr)); gap:.8rem; margin-top:.8rem; }
+.panel-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap:.8rem; margin-top:.8rem; }
+.panel-grid > div, .legend-form, .section-editors, .section-editors details { min-width:0; }
 .panel-grid h3 { margin:.2rem 0; }
 .row-list { list-style:none; padding:0; margin:.3rem 0; }
-.row-list li { display:flex; gap:.4rem; align-items:center; justify-content:space-between; padding:.15rem 0; }
-.row-list code { white-space:pre-wrap; }
-.legend-form { display:grid; grid-template-columns:repeat(auto-fit, minmax(7rem, 1fr)); gap:.4rem; align-items:end; }
+.row-list li { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.35rem 0; border-bottom:1px solid var(--otr-border, #888); }
+.row-list code { white-space:pre-wrap; overflow-wrap:anywhere; flex:1 1 100%; }
+.row-list textarea { flex:1 1 100%; min-width:0; }
+.legend-form { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap:.5rem; align-items:end; }
 .legend-form label { margin:0; }
+.legend-form input, .legend-form select, .section-editors textarea { width:100%; min-width:0; box-sizing:border-box; }
+.section-editors { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap:.6rem; margin-top:1rem; }
+.section-editors details { border:1px solid var(--otr-border, #888); border-radius:.4rem; padding:.5rem; }
+.section-editors summary { cursor:pointer; font-weight:600; overflow-wrap:anywhere; }
+.section-editors textarea { min-height:8rem; margin:.5rem 0; font: .85rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 #map-info { min-height:1.3em; }
+@media (max-width: 40rem) {
+  .editor-toolbar label { flex-basis:100%; }
+  #map-wrap { max-height:55vh; }
+  #modes button, #tools button, #display-modes button { flex:1 1 auto; }
+}
 </style>
 </head>
 <body>
@@ -91,11 +104,15 @@
   <div id="map-panel" hidden>
     <div id="map-tabs"></div>
     <div id="tools">
-      <button type="button" class="secondary active" data-tool="paint">Måla</button>
-      <button type="button" class="secondary" data-tool="erase">Sudda</button>
-      <button type="button" class="secondary" data-tool="pick">Plocka</button>
-      <button type="button" class="secondary" data-tool="move">Flytta</button>
-      <button type="button" class="secondary" data-tool="dark">Mörkt område</button>
+      <button type="button" class="secondary active" data-tool="paint" title="Klicka eller dra på kartan för att måla med vald glyf.">Måla</button>
+      <button type="button" class="secondary" data-tool="erase" title="Klicka eller dra för att ersätta rutor med gräs (.).">Sudda</button>
+      <button type="button" class="secondary" data-tool="pick" title="Klicka på en ruta för att välja dess glyf i paletten.">Plocka</button>
+      <button type="button" class="secondary" data-tool="move" title="Dra en ruta till en ny position. Målrutan skrivs över.">Flytta</button>
+      <button type="button" class="secondary" data-tool="dark" title="Dra en rektangel för att skapa eller ändra ett mörkt område.">Mörkt område</button>
+    </div>
+    <div id="display-modes" aria-label="Kartvisning">
+      <button id="display-image" type="button" class="secondary active" title="Visa kartans symboler som bilder/ikoner.">Bildsymboler</button>
+      <button id="display-text" type="button" class="secondary" title="Visa kartans teckenglyfer. Kartans färger behålls.">Tecken</button>
     </div>
     <div id="palette" aria-label="Palett"></div>
     <div id="map-wrap"><canvas id="map-canvas" aria-label="Karta"></canvas></div>
@@ -132,6 +149,8 @@
         <h3>Mörka områden</h3>
         <ul id="dark-list" class="row-list"></ul>
         <p class="muted">Välj verktyget <em>Mörkt område</em> och dra en rektangel på kartan.</p>
+        <h3>Platt- och grindgrupper</h3>
+        <ul id="group-list" class="row-list"></ul>
         <h3>Kartstorlek</h3>
         <div class="legend-form">
           <label>Bredd <input id="rs-w" type="number" min="1" max="128"></label>
@@ -147,9 +166,18 @@
           <button id="am-add" type="button" class="secondary">Lägg till karta</button>
         </div>
         <h3>Zoom</h3>
-        <label>Rutstorlek <select id="zoom"><option value="0">Automatisk</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option><option>32</option></select></label>
+        <label title="Rutstorlek är rutans bredd och höjd i bildpixlar. Automatisk anpassar kartan till tillgänglig bredd.">Rutstorlek (px)
+          <select id="zoom" title="Automatisk anpassar kartan till tillgänglig bredd.">
+            <option value="0">Automatisk – anpassa till bredd</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option><option>32</option>
+          </select>
+        </label>
       </div>
     </div>
+    <section>
+      <h3>Textområden i äventyrsfilen</h3>
+      <p class="muted">Öppna ett avsnitt för att ändra dess rader utan att lämna kartvyn. Kartavsnitt redigeras på ritytan.</p>
+      <div id="section-editors" class="section-editors"></div>
+    </section>
   </div>
   <textarea id="source" aria-label="Äventyrstext" spellcheck="false" autocapitalize="off" autocomplete="off" disabled hidden></textarea>
   <div class="editor-footer muted">
@@ -319,8 +347,14 @@ $('nf-create').onclick = () => guarded(createFile);
 const M = window.AdvModel;
 const TILE_COLORS = {'.':'#4d8f3a', ',':'#d9c27a', '_':'#9a8f84', '#':'#3b3b44', '%':'#6e6259', 'T':'#1f5f2a',
   '~':'#2f6fd0', '^':'#d9480f', 'o':'#c9a227', '=':'#8a5a2b', 'Q':'#7c4dff', 'S':'#00b894', 'X':'#e84393'};
+const TILE_ICONS = {'.':'🌿', ',':'🏖️', '_':'▫️', '#':'🧱', '%':'🪨', 'T':'🌳', '~':'💧', '^':'🔥',
+  'o':'🟡', '=':'🚪', 'Q':'💜', 'S':'🟢', 'X':'🚩', 'R':'🪨', 'r':'🪨', 'c':'📦', 'C':'📦',
+  'k':'🔑', 'K':'🔑', 'D':'🚪', 'B':'🛶', '*':'💎', '+':'💎', '$':'💎', 'b':'🌿', 'p':'🧪',
+  'h':'❤️', 'u':'🧥', 'l':'💚', 'a':'💣', 'z':'💣', 'f':'🔦', 'j':'🦘', 'm':'💣'};
 let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
 let editingLegend = null;
+let displayMode = 'image', selectedGroupCells = [], selectedDarkIndex = null, editingDarkIndex = null;
+let groupListSignature = '', darkListSignature = '', sectionEditorSignature = '';
 let cell = 22;
 const undoStack = [];
 
@@ -373,7 +407,7 @@ function enterTextMode() {
 }
 function renderAll() {
   if (!doc) return;
-  renderTabs(); renderPalette(); renderLegend(); renderDark(); drawMap();
+  renderTabs(); renderPalette(); renderLegend(); renderDark(); renderGroups(); renderSectionEditors(); drawMap();
   const grid = M.getGrid(doc, mapId);
   $('rs-w').value = grid[0].length; $('rs-h').value = grid.length;
   const use = M.usage(doc, mapId);
@@ -391,6 +425,7 @@ function renderTabs() {
     b.textContent = id === 1 ? 'Karta 1 (huvud)' : `Karta ${id}`;
     b.onclick = () => {
       if (editingLegend && editingLegend.id !== id) cancelLegendEdit();
+      if (mapId !== id) { selectedGroupCells = []; selectedDarkIndex = editingDarkIndex = null; }
       mapId = id; setInfo(''); renderAll();
     };
     box.append(b);
@@ -404,13 +439,16 @@ function paletteEntries() {
   for (const g of M.resourceGlyphs(doc, mapId)) entries.push([g, 'Resurs']);
   return entries;
 }
+function displaySymbol(glyph) {
+  return displayMode === 'image' ? TILE_ICONS[glyph] || (/[1-9]/.test(glyph) ? '👤' : glyph) : glyph;
+}
 function renderPalette() {
   const box = $('palette');
   box.replaceChildren();
   for (const [g, name] of paletteEntries()) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'secondary' + (g === brush ? ' active' : '');
-    b.textContent = g; b.title = `${g} · ${name}`;
+    b.textContent = displaySymbol(g); b.title = `${g} · ${name}`;
     b.style.borderBottom = `4px solid ${TILE_COLORS[g] || '#8e6bd8'}`;
     b.onclick = () => { brush = g; setTool('paint'); renderPalette(); setInfo(`Vald glyf ${g}: ${name}`); };
     box.append(b);
@@ -451,26 +489,114 @@ function renderLegend() {
   }
 }
 function renderDark() {
+  const rects = M.listDark(doc, mapId);
+  const signature = `${mapId}:${JSON.stringify(rects)}`;
+  if (signature === darkListSignature) return;
+  darkListSignature = signature;
   const list = $('dark-list');
   list.replaceChildren();
-  const rects = M.listDark(doc, mapId);
   if (!rects.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Inga mörka områden.'; list.append(li); }
   rects.forEach((r, i) => {
     const li = document.createElement('li');
     const code = document.createElement('code');
     code.textContent = `${r.x1},${r.y1} → ${r.x2},${r.y2}`;
+    const show = document.createElement('button');
+    show.type = 'button'; show.className = 'secondary'; show.textContent = 'Visa';
+    show.title = 'Markera området på kartan.';
+    show.onclick = () => { selectedDarkIndex = i; editingDarkIndex = null; selectedGroupCells = []; drawMap(); };
+    const edit = document.createElement('button');
+    edit.type = 'button'; edit.className = 'secondary'; edit.textContent = 'Ändra';
+    edit.title = 'Dra den nya rektangeln på kartan för att flytta eller ändra området.';
+    edit.onclick = () => {
+      selectedDarkIndex = editingDarkIndex = i; selectedGroupCells = []; setTool('dark');
+      setInfo('Dra den nya rektangeln på kartan för att ändra området.');
+      drawMap();
+    };
     const del = document.createElement('button');
     del.type = 'button'; del.className = 'secondary'; del.textContent = 'Ta bort';
-    del.onclick = () => commit(() => M.removeDark(doc, mapId, i));
-    li.append(code, del);
+    del.title = 'Ta bort det här mörka området.';
+    del.onclick = () => {
+      selectedDarkIndex = editingDarkIndex = null;
+      commit(() => M.removeDark(doc, mapId, i));
+    };
+    li.append(code, show, edit, del);
     list.append(li);
   });
+}
+function renderGroups() {
+  const groups = M.listGroups(doc, mapId);
+  const signature = `${mapId}:${JSON.stringify(groups)}`;
+  if (signature === groupListSignature) return;
+  groupListSignature = signature;
+  const list = $('group-list');
+  list.replaceChildren();
+  if (!groups.length) {
+    const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Inga platt- eller grindgrupper på kartan.'; list.append(li);
+  }
+  groups.forEach((g, index) => {
+    const li = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = `@${g.kind} ${g.group}: ${g.cells.map(c => c.join(',')).join(' ')}`;
+    const coords = document.createElement('textarea');
+    coords.rows = 2; coords.value = g.cells.map(c => c.join(',')).join(' ');
+    coords.setAttribute('aria-label', `Koordinater för ${g.kind} ${g.group}`);
+    const show = document.createElement('button');
+    show.type = 'button'; show.className = 'secondary'; show.textContent = 'Visa';
+    show.title = 'Markera gruppens rutor på kartan.';
+    show.onclick = () => { selectedGroupCells = g.cells; selectedDarkIndex = editingDarkIndex = null; drawMap(); };
+    const save = document.createElement('button');
+    save.type = 'button'; save.className = 'secondary'; save.textContent = 'Spara koordinater';
+    save.title = 'Flytta gruppens referenser till de angivna koordinaterna.';
+    save.onclick = () => {
+      const cells = coords.value.trim().split(/\s+/).filter(Boolean).map(token => {
+        const m = /^(\d+),(\d+)$/.exec(token);
+        return m ? [+m[1], +m[2]] : null;
+      });
+      if (cells.some(c => !c)) { setInfo('Ange koordinater som x,y separerade med mellanslag.', true); return; }
+      if (commit(() => M.updateGroup(doc, mapId, index, cells))) {
+        selectedGroupCells = cells;
+        drawMap();
+      }
+    };
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'secondary'; del.textContent = 'Ta bort';
+    del.title = 'Ta bort gruppens direktiv.';
+    del.onclick = () => {
+      selectedGroupCells = [];
+      commit(() => M.removeGroup(doc, mapId, index));
+    };
+    li.append(code, show, coords, save, del);
+    list.append(li);
+  });
+}
+function renderSectionEditors() {
+  const sections = M.sections(doc).filter(s => s.tag !== '@map');
+  const signature = JSON.stringify(sections.map(s => [s.start, s.end, s.tag, s.arg, doc.lines.slice(s.start + 1, s.end)]));
+  if (signature === sectionEditorSignature) return;
+  sectionEditorSignature = signature;
+  const box = $('section-editors');
+  box.replaceChildren();
+  for (const section of sections) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = `${section.tag}${section.arg ? ` ${section.arg}` : ''}`;
+    const editor = document.createElement('textarea');
+    editor.value = doc.lines.slice(section.start + 1, section.end).join('\n');
+    editor.setAttribute('aria-label', `Text för ${summary.textContent}`);
+    const save = document.createElement('button');
+    save.type = 'button'; save.className = 'secondary'; save.textContent = 'Spara avsnitt';
+    save.title = 'Ersätt raderna i det här direktivavsnittet.';
+    save.onclick = () => commit(() => M.replaceSection(doc, section.start, editor.value));
+    details.append(summary, editor, save);
+    box.append(details);
+  }
 }
 function drawMap() {
   const grid = M.getGrid(doc, mapId);
   const canvas = $('map-canvas');
   const zoom = Number($('zoom').value);
-  cell = zoom || Math.max(8, Math.min(36, Math.floor(640 / grid[0].length)));
+  const available = Math.max(1, Math.min(640, $('map-wrap').clientWidth - 12));
+  cell = zoom || Math.max(4, Math.min(36, Math.floor(available / grid[0].length)));
   canvas.width = grid[0].length * cell; canvas.height = grid.length * cell;
   const ctx = canvas.getContext('2d');
   const legend = new Set(M.listLegend(doc, mapId).map(e => e.glyph));
@@ -481,7 +607,14 @@ function drawMap() {
   grid.forEach((row, y) => [...row].forEach((g, x) => {
     ctx.fillStyle = bad.has(g) ? '#b00020' : TILE_COLORS[g] || (legend.has(g) ? '#8e6bd8' : '#555');
     ctx.fillRect(x * cell, y * cell, cell, cell);
-    if (g !== '.' && g !== '#' && g !== ',' && g !== '_') { ctx.fillStyle = '#fff'; ctx.fillText(g, x * cell + cell / 2, y * cell + cell / 2 + 1); }
+    if (displayMode === 'image') {
+      ctx.font = `${Math.floor(cell * .72)}px sans-serif`;
+      ctx.fillText(displaySymbol(g), x * cell + cell / 2, y * cell + cell / 2 + 1);
+    } else {
+      ctx.font = `${Math.floor(cell * .62)}px ui-monospace, Consolas, monospace`;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(g, x * cell + cell / 2, y * cell + cell / 2 + 1);
+    }
     ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeRect(x * cell + .5, y * cell + .5, cell, cell);
   }));
   ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 2;
@@ -490,6 +623,17 @@ function drawMap() {
     const w = Math.abs(r.x2 - r.x1) + 1, h = Math.abs(r.y2 - r.y1) + 1;
     ctx.fillRect(x * cell, y * cell, w * cell, h * cell); ctx.strokeRect(x * cell + 1, y * cell + 1, w * cell - 2, h * cell - 2);
   }
+  ctx.lineWidth = Math.max(2, Math.floor(cell / 8));
+  if (selectedDarkIndex !== null) {
+    const r = M.listDark(doc, mapId)[selectedDarkIndex];
+    if (r) {
+      ctx.strokeStyle = '#00e5ff';
+      ctx.strokeRect(Math.min(r.x1, r.x2) * cell + 2, Math.min(r.y1, r.y2) * cell + 2,
+        (Math.abs(r.x2 - r.x1) + 1) * cell - 4, (Math.abs(r.y2 - r.y1) + 1) * cell - 4);
+    }
+  }
+  ctx.strokeStyle = '#fff';
+  for (const [x, y] of selectedGroupCells) ctx.strokeRect(x * cell + 2, y * cell + 2, cell - 4, cell - 4);
   if (drag && drag.to) {
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     if (tool === 'dark') {
@@ -553,7 +697,11 @@ function finishDrag(event) {
     commit(() => M.moveCell(doc, mapId, d.from.x, d.from.y, pos.x, pos.y));
   } else if (tool === 'dark' && d.to) {
     const pos = cellAt(event);
-    commit(() => M.addDark(doc, mapId, {x1: d.from.x, y1: d.from.y, x2: pos.x, y2: pos.y}));
+    const rect = {x1: d.from.x, y1: d.from.y, x2: pos.x, y2: pos.y};
+    const index = editingDarkIndex;
+    editingDarkIndex = null;
+    if (index === null) commit(() => M.addDark(doc, mapId, rect));
+    else if (commit(() => M.updateDark(doc, mapId, index, rect))) selectedDarkIndex = index;
   } else {
     drawMap();
   }
@@ -564,6 +712,14 @@ canvas.addEventListener('pointercancel', () => { drag = null; if (doc) drawMap()
 document.querySelectorAll('#tools button').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 $('mode-map').onclick = () => enterMapMode();
 $('mode-text').onclick = () => enterTextMode();
+$('display-image').onclick = () => {
+  displayMode = 'image'; $('display-image').classList.add('active'); $('display-text').classList.remove('active');
+  renderPalette(); if (doc) drawMap();
+};
+$('display-text').onclick = () => {
+  displayMode = 'text'; $('display-text').classList.add('active'); $('display-image').classList.remove('active');
+  renderPalette(); if (doc) drawMap();
+};
 $('undo').onclick = () => {
   if (!undoStack.length || !doc) return;
   doc.lines = undoStack.pop();
@@ -634,6 +790,7 @@ $('rs-apply').onclick = () => {
   commit(() => M.resizeMap(doc, mapId, w, h, $('rs-fill').value));
 };
 $('zoom').onchange = () => { if (doc) drawMap(); };
+window.addEventListener('resize', () => { if (doc && mapMode() && !$('zoom').value) drawMap(); });
 $('am-add').onclick = () => {
   if (!doc) return;
   const id = M.nextMapId(doc);

@@ -150,6 +150,9 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [x] Legendhjälp (skapa/ändra/ta bort `@legend`, glyfförslag, användning och
   odefinierade glyfer) och mörkerrektanglar; grupp-koordinater följer flyttade
   rutor.
+- [x] Växla mellan bildsymboler och teckenglyfer med bibehållna kartfärger;
+  visa och redigera gruppkoordinater/mörkerområden, samt redigera textavsnitt
+  direkt från kartvyn. Automatisk zoom anpassar sig till tillgänglig bredd.
 - [ ] Grafisk redigering av skatter, resurser, fiender, NPC-placering,
   destinationer, portaler, `@andgate`, rutor för spakar/tidsgrind och story.
 - [x] Textläge som behåller kommentarer och okänd syntax vid öppna/spara.

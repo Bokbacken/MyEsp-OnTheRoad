@@ -41,6 +41,12 @@ assert.deepEqual(M.mapIds(doc), [1, 7]);
 assert.deepEqual(M.getGrid(doc, 1), ['#####', '#S.p#', '#.o=#', '#####']);
 assert.deepEqual(M.getGrid(doc, 7), ['....', '.S..']);
 
+const sectionDoc = M.parse('@meta\nid: old\n\n@about\ntitle.sv: Gammal\n@map\nS.\n');
+const metaSection = M.sections(sectionDoc).find(s => s.tag === '@meta');
+M.replaceSection(sectionDoc, metaSection.start, 'id: new\nworld: 42');
+assert.equal(M.serialize(sectionDoc), '@meta\nid: new\nworld: 42\n@about\ntitle.sv: Gammal\n@map\nS.\n');
+assert.throws(() => M.replaceSection(sectionDoc, metaSection.start, '@about\ninvalid'), /direktivrad/);
+
 const hashLegend = M.parse('@map 7 #note\n.S\n@legend map=7\n# = ice\nx = ice #note\n');
 assert.deepEqual(M.mapIds(hashLegend), [7]);
 assert.deepEqual(M.listLegend(hashLegend, 7).map(e => [e.glyph, e.value]), [['#', 'ice'], ['x', 'ice']]);
@@ -78,9 +84,19 @@ assert.throws(() => M.moveCell(doc, 1, 2, 1, 1, 1), /startrutan/);
 const selectedGroup = M.parse('@map 7 #note\n..So\n....\n@plategroup map=7 1: 3,0\n');
 M.moveCell(selectedGroup, 7, 3, 0, 1, 1);
 assert.ok(selectedGroup.lines.includes('@plategroup map=7 1: 1,1'));
+const selectedGroupEdit = M.parse('@map 7\nSoo\n...\n@plategroup map=7 1: 1,0 2,0 # keep\n');
+M.updateGroup(selectedGroupEdit, 7, 0, [[2, 0]]);
+assert.ok(selectedGroupEdit.lines.includes('@plategroup map=7 1: 2,0 # keep'));
 const selectedGate = M.parse('@map 7\n.S..\n..=.\n@gategroup 2 map=7: 2,1\n');
 M.resizeMap(selectedGate, 7, 2, 2);
 assert.ok(!selectedGate.lines.some(l => l.startsWith('@gategroup')));
+const groupEdit = M.parse('@map\nSoo\n...\n@plategroup 1: 1,0 2,0\n');
+assert.deepEqual(M.listGroups(groupEdit, 1).map(g => [g.kind, g.group, g.cells]), [['plategroup', '1', [[1, 0], [2, 0]]]]);
+M.updateGroup(groupEdit, 1, 0, [[2, 0]]);
+assert.ok(groupEdit.lines.includes('@plategroup 1: 2,0'));
+assert.throws(() => M.updateGroup(groupEdit, 1, 0, [[0, 0]]), /unika plattor eller grindar/);
+M.removeGroup(groupEdit, 1, 0);
+assert.ok(!groupEdit.lines.some(l => l.startsWith('@plategroup')));
 
 // legend helper
 doc = M.parse(SRC);
@@ -117,8 +133,11 @@ assert.ok(doc.lines.includes('@dark') && doc.lines.includes('1,1 2,2'));
 assert.throws(() => M.addDark(doc, 1, {x1: 0, y1: 0, x2: 9, y2: 9}), /utanför/);
 M.removeDark(doc, 7, 0);
 assert.equal(M.listDark(doc, 7).length, 1);
-const inline = M.parse('@map\nS.\n@dark map=1 0,0 1,0\n');
+const inline = M.parse('@map\nS.\n@dark map=1 0,0 1,0 # keep\n');
 assert.equal(M.listDark(inline, 1).length, 1);
+M.updateDark(inline, 1, 0, {x1: 0, y1: 0, x2: 1, y2: 0});
+assert.equal(M.listDark(inline, 1)[0].x2, 1);
+assert.ok(inline.lines.includes('@dark map=1 0,0 1,0 # keep'));
 M.removeDark(inline, 1, 0);
 assert.equal(M.listDark(inline, 1).length, 0);
 

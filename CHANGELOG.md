@@ -39,6 +39,10 @@ a published GitHub Release.
 - Fixed text-mode edit preservation, empty-map fallback and existing legend
   editing; comment parsing and plate/gate group coordinates now remain valid
   through map edits and moves.
+- Added image-symbol/character map display with retained tile colours, clearer
+  tooltips and automatic width-fitting zoom. Legend/layout controls adapt to
+  narrow screens; section text, group coordinates and individual dark areas can
+  be edited or highlighted directly in the graphical workspace.
 
 ## v0.23.5
 

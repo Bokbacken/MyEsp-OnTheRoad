@@ -55,6 +55,13 @@ function sections(doc) {
   });
   return out;
 }
+function replaceSection(doc, start, text) {
+  const sec = sections(doc).find(s => s.start === start);
+  if (!sec || sec.tag === '@map') throw new Error('Textavsnittet finns inte eller är en karta.');
+  const lines = text === '' ? [] : String(text).split(/\r?\n/);
+  if (lines.some(line => line.trimStart().startsWith('@'))) throw new Error('Ett textavsnitt kan inte innehålla en ny direktivrad.');
+  doc.lines.splice(start + 1, sec.end - start - 1, ...lines);
+}
 function mapSections(doc) {
   return sections(doc).filter(s => s.tag === '@map').map(s => {
     const idText = s.arg.split('#', 1)[0].trim();
@@ -268,8 +275,60 @@ function removeDark(doc, id, index) {
     doc.lines.splice(rect.line, 1);
   }
 }
+function updateDark(doc, id, index, rect) {
+  const old = listDark(doc, id)[index];
+  if (!old) throw new Error('Det mörka området finns inte.');
+  const grid = getGrid(doc, id);
+  const x1 = Math.min(rect.x1, rect.x2), x2 = Math.max(rect.x1, rect.x2);
+  const y1 = Math.min(rect.y1, rect.y2), y2 = Math.max(rect.y1, rect.y2);
+  if (![x1, x2, y1, y2].every(Number.isInteger) || x1 < 0 || y1 < 0 || x2 >= grid[0].length || y2 >= grid.length)
+    throw new Error('Området ligger utanför kartan.');
+  const coords = `${x1},${y1} ${x2},${y2}`;
+  if (old.inline) {
+    const line = doc.lines[old.line];
+    const selector = /(?:^|\s)map=\d+/.exec(line);
+    const comment = /(\s+#.*)$/.exec(line);
+    doc.lines[old.line] = `${selector ? `@dark ${selector[0].trim()}` : '@dark'} ${coords}${comment ? comment[1] : ''}`;
+  } else {
+    const line = doc.lines[old.line];
+    const selector = /^(\s*map=\d+:\s*)/.exec(line);
+    const comment = /(\s+#.*)$/.exec(line);
+    doc.lines[old.line] = `${selector ? selector[1] : ''}${coords}${comment ? comment[1] : ''}`;
+  }
+}
 
 const GROUP_LINE = /^(\s*@)(plategroup|gategroup)(\s+)(?:(map=(\d+)\s+))?([0-9A-Za-z])(\s+map=(\d+))?(\s*:\s*)([^#]*?)(\s+#.*|\s*)$/;
+function listGroups(doc, id) {
+  const out = [];
+  for (let line = 0; line < doc.lines.length; line++) {
+    const m = GROUP_LINE.exec(doc.lines[line]);
+    if (!m || ((m[5] || m[8]) ? Number(m[5] || m[8]) : 1) !== id) continue;
+    const cells = m[10].trim().split(/\s+/).filter(Boolean).map(token => {
+      const c = /^(\d+),(\d+)$/.exec(token);
+      return c ? [+c[1], +c[2]] : null;
+    });
+    if (cells.length && cells.every(Boolean)) out.push({kind: m[2], group: m[6], cells, line});
+  }
+  return out;
+}
+function updateGroup(doc, id, index, cells) {
+  const entry = listGroups(doc, id)[index];
+  if (!entry || !Array.isArray(cells) || !cells.length) throw new Error('Gruppen eller dess koordinater saknas.');
+  const grid = getGrid(doc, id), seen = new Set();
+  for (const [x, y] of cells) {
+    const key = `${x},${y}`;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || y < 0 || y >= grid.length || x < 0 || x >= grid[0].length ||
+        seen.has(key) || !supportsGroupCell(doc, id, entry.kind, grid[y][x])) throw new Error('Gruppens koordinater måste peka på unika plattor eller grindar på kartan.');
+    seen.add(key);
+  }
+  const m = GROUP_LINE.exec(doc.lines[entry.line]);
+  doc.lines[entry.line] = `${m[1]}${m[2]}${m[3]}${m[4] || ''}${m[6]}${m[7] || ''}${m[9]}${cells.map(([x, y]) => `${x},${y}`).join(' ')}${m[11].trim() ? m[11] : ''}`;
+}
+function removeGroup(doc, id, index) {
+  const entry = listGroups(doc, id)[index];
+  if (!entry) throw new Error('Gruppen finns inte.');
+  doc.lines.splice(entry.line, 1);
+}
 function remapGroupCells(doc, id, fn, includeGroup = () => true) {
   for (let i = doc.lines.length - 1; i >= 0; i--) {
     const m = GROUP_LINE.exec(doc.lines[i]);
@@ -407,9 +466,10 @@ function addMap(doc, id, width, height) {
 const api = {
   newAdventure, suggestMapId, nextMapId, addMap, blankGrid, validStem, MAX_MAPS, FILLS,
   MAX_W, MAX_H, MAX_LEGEND, MAX_DARK, COLORS, TERRAIN, OBJECTS,
-  parse, serialize, sections, mapIds, getGrid, setGrid,
+  parse, serialize, sections, replaceSection, mapIds, getGrid, setGrid,
   listLegend, resourceGlyphs, addLegend, removeLegend, updateLegend, legendValue, suggestGlyph, usage,
-  listDark, addDark, removeDark, paintCell, moveCell, resizeMap
+  listDark, addDark, removeDark, updateDark, listGroups, updateGroup, removeGroup,
+  paintCell, moveCell, resizeMap
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 else root.AdvModel = api;
