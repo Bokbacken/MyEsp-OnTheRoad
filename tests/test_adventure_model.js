@@ -41,6 +41,11 @@ assert.deepEqual(M.mapIds(doc), [1, 7]);
 assert.deepEqual(M.getGrid(doc, 1), ['#####', '#S.p#', '#.o=#', '#####']);
 assert.deepEqual(M.getGrid(doc, 7), ['....', '.S..']);
 
+const hashLegend = M.parse('@map 7 #note\n.S\n@legend map=7\n# = ice\nx = ice #note\n');
+assert.deepEqual(M.mapIds(hashLegend), [7]);
+assert.deepEqual(M.listLegend(hashLegend, 7).map(e => [e.glyph, e.value]), [['#', 'ice'], ['x', 'ice']]);
+assert.throws(() => M.addLegend(hashLegend, 7, '#', {kind: 'ice'}), /redan/);
+
 // paint keeps comments, protects S, relocates S
 M.paintCell(doc, 1, 2, 1, 'k');
 assert.equal(M.getGrid(doc, 1)[1], '#Skp#');
@@ -51,15 +56,31 @@ assert.throws(() => M.paintCell(doc, 1, 9, 9, '#'), /utanför/);
 assert.ok(M.serialize(doc).includes('# fri kommentar'));
 assert.ok(M.serialize(doc).includes('g = gate 2  # kommentar'));
 
-// moving a cell moves group coordinates with it (and swaps references to the target)
+// Painting over grouped cells removes references that no longer match their glyph type.
+const grouped = M.parse('@map\nSo=.\n@plategroup 1: 1,0\n@gategroup 2: 2,0\n');
+M.paintCell(grouped, 1, 1, 0, '#');
+M.paintCell(grouped, 1, 2, 0, 'o');
+assert.deepEqual(M.getGrid(grouped, 1), ['S#o.']);
+assert.ok(!grouped.lines.some(l => l.startsWith('@plategroup') || l.startsWith('@gategroup')));
+const groupedLegend = M.parse('@map\nSop.\n@legend\np = plate red\n@plategroup 1: 1,0\n');
+M.paintCell(groupedLegend, 1, 1, 0, 'p');
+assert.ok(groupedLegend.lines.includes('@plategroup 1: 1,0'));
+
+// Moving a cell moves its own group coordinate and removes an overwritten target reference.
 doc = M.parse(SRC);
 M.moveCell(doc, 1, 3, 1, 2, 1);
 assert.equal(M.getGrid(doc, 1)[1], '#Sp.#');
-assert.ok(doc.lines.includes('@plategroup 1: 1,2 3,1'));
+assert.ok(doc.lines.includes('@plategroup 1: 1,2'));
 M.moveCell(doc, 1, 3, 2, 3, 1);
 assert.ok(doc.lines.includes('@gategroup 1: 3,1'));
 assert.throws(() => M.moveCell(doc, 1, 4, 4, 1, 1), /utanför/);
 assert.throws(() => M.moveCell(doc, 1, 2, 1, 1, 1), /startrutan/);
+const selectedGroup = M.parse('@map 7 #note\n..So\n....\n@plategroup map=7 1: 3,0\n');
+M.moveCell(selectedGroup, 7, 3, 0, 1, 1);
+assert.ok(selectedGroup.lines.includes('@plategroup map=7 1: 1,1'));
+const selectedGate = M.parse('@map 7\n.S..\n..=.\n@gategroup 2 map=7: 2,1\n');
+M.resizeMap(selectedGate, 7, 2, 2);
+assert.ok(!selectedGate.lines.some(l => l.startsWith('@gategroup')));
 
 // legend helper
 doc = M.parse(SRC);

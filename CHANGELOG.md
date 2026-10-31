@@ -36,6 +36,9 @@ a published GitHub Release.
 - Node tests round-trip all 63 bundled/documented `.adv` files unchanged.
   Destinations, portals, enemies, treasures and resource placements are still
   edited in text mode. Firmware CI and physical S3/P4 verification remain pending.
+- Fixed text-mode edit preservation, empty-map fallback and existing legend
+  editing; comment parsing and plate/gate group coordinates now remain valid
+  through map edits and moves.
 
 ## v0.23.5
 

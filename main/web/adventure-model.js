@@ -32,8 +32,9 @@ function serialize(doc) {
 }
 
 function stripComment(s) {
-  const i = s.search(/(^|\s)#(\s|$)/);
-  return i < 0 ? s : s.slice(0, i);
+  const text = s.trimStart();
+  const i = text.indexOf(' #');
+  return i < 0 ? text : text.slice(0, i);
 }
 function mapOf(text) {
   const m = /(?:^|\s)map=(\d+)(?=\s|:|$)/.exec(text);
@@ -56,7 +57,7 @@ function sections(doc) {
 }
 function mapSections(doc) {
   return sections(doc).filter(s => s.tag === '@map').map(s => {
-    const idText = stripComment(s.arg).trim();
+    const idText = s.arg.split('#', 1)[0].trim();
     return {...s, id: idText ? Number(idText) : 1};
   });
 }
@@ -268,12 +269,12 @@ function removeDark(doc, id, index) {
   }
 }
 
-const GROUP_LINE = /^(\s*@(?:plategroup|gategroup)\s+[0-9A-Za-z])(\s+map=(\d+))?(\s*:\s*)([^#]*?)(\s+#.*|\s*)$/;
-function remapGroupCells(doc, id, fn) {
+const GROUP_LINE = /^(\s*@)(plategroup|gategroup)(\s+)(?:(map=(\d+)\s+))?([0-9A-Za-z])(\s+map=(\d+))?(\s*:\s*)([^#]*?)(\s+#.*|\s*)$/;
+function remapGroupCells(doc, id, fn, includeGroup = () => true) {
   for (let i = doc.lines.length - 1; i >= 0; i--) {
     const m = GROUP_LINE.exec(doc.lines[i]);
-    if (!m || (m[3] ? Number(m[3]) : 1) !== id) continue;
-    const cells = m[5].trim().split(/\s+/).filter(Boolean).map(tok => {
+    if (!m || ((m[5] || m[8]) ? Number(m[5] || m[8]) : 1) !== id || !includeGroup(m[2])) continue;
+    const cells = m[10].trim().split(/\s+/).filter(Boolean).map(tok => {
       const c = /^(\d+),(\d+)$/.exec(tok);
       if (!c) return tok;
       const r = fn(+c[1], +c[2]);
@@ -281,10 +282,15 @@ function remapGroupCells(doc, id, fn) {
     }).filter(t => t !== null);
     // A group line without cells is not valid, so it is removed together with its last cell.
     if (!cells.length) doc.lines.splice(i, 1);
-    else doc.lines[i] = `${m[1]}${m[2] || ''}${m[4]}${cells.join(' ')}${m[6].trim() ? m[6] : ''}`;
+    else doc.lines[i] = `${m[1]}${m[2]}${m[3]}${m[4] || ''}${m[6]}${m[7] || ''}${m[9]}${cells.join(' ')}${m[11].trim() ? m[11] : ''}`;
   }
 }
 
+function supportsGroupCell(doc, id, group, glyph) {
+  const kind = group === 'plategroup' ? 'plate' : 'gate';
+  if (glyph === (kind === 'plate' ? 'o' : '=')) return true;
+  return listLegend(doc, id).some(e => e.glyph === glyph && e.value.split(/\s+/)[0] === kind);
+}
 function checkCell(grid, x, y) {
   if (y < 0 || y >= grid.length || x < 0 || x >= grid[0].length) throw new Error('Rutan ligger utanför kartan.');
 }
@@ -296,6 +302,7 @@ function paintCell(doc, id, x, y, glyph) {
   if (glyph !== 'S' && RESERVED.has(glyph) && glyph !== ' ') throw new Error(`Glyfen ${glyph} kan inte ritas.`);
   if (glyph.length !== 1 || glyph.charCodeAt(0) <= 32 || glyph.charCodeAt(0) >= 127) throw new Error('Ogiltig glyf.');
   if (grid[y][x] === 'S' && glyph !== 'S') throw new Error('Startrutan S kan inte skrivas över; flytta den istället.');
+  const previous = grid[y][x];
   if (glyph === 'S') {
     for (let r = 0; r < grid.length; r++) {
       const at = grid[r].indexOf('S');
@@ -304,6 +311,10 @@ function paintCell(doc, id, x, y, glyph) {
   }
   grid[y] = withChar(grid[y], x, glyph);
   setGrid(doc, id, grid);
+  if (previous !== glyph) {
+    remapGroupCells(doc, id, (cx, cy) => cx === x && cy === y ? null : [cx, cy],
+      group => !supportsGroupCell(doc, id, group, glyph));
+  }
 }
 // Move the glyph at (fx,fy) to (tx,ty); the origin becomes floor. Group coordinates follow the cell.
 function moveCell(doc, id, fx, fy, tx, ty) {
@@ -318,7 +329,7 @@ function moveCell(doc, id, fx, fy, tx, ty) {
   setGrid(doc, id, grid);
   remapGroupCells(doc, id, (x, y) => {
     if (x === fx && y === fy) return [tx, ty];
-    if (x === tx && y === ty) return [fx, fy];
+    if (x === tx && y === ty) return null;
     return [x, y];
   });
 }

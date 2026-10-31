@@ -320,6 +320,7 @@ const M = window.AdvModel;
 const TILE_COLORS = {'.':'#4d8f3a', ',':'#d9c27a', '_':'#9a8f84', '#':'#3b3b44', '%':'#6e6259', 'T':'#1f5f2a',
   '~':'#2f6fd0', '^':'#d9480f', 'o':'#c9a227', '=':'#8a5a2b', 'Q':'#7c4dff', 'S':'#00b894', 'X':'#e84393'};
 let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
+let editingLegend = null;
 let cell = 22;
 const undoStack = [];
 
@@ -340,8 +341,11 @@ function enterMapMode() {
     doc = M.parse($('source').value);
     const ids = M.mapIds(doc);
     if (!ids.length) throw new Error('Filen saknar @map; redigera i textläget.');
+    for (const id of ids) {
+      const grid = M.getGrid(doc, id);
+      if (!grid.length || !grid[0].length) throw new Error(`Karta ${id} saknar kartrader; redigera i textläget.`);
+    }
     if (!ids.includes(mapId)) mapId = ids[0];
-    M.getGrid(doc, mapId);
   } catch (error) {
     doc = null;
     showMode(false);
@@ -360,7 +364,10 @@ function showMode(map) {
   $('undo').hidden = !map;
 }
 function enterTextMode() {
-  if (doc) $('source').value = M.serialize(doc);
+  if (mapMode() && doc) $('source').value = M.serialize(doc);
+  undoStack.length = 0;
+  $('undo').disabled = true;
+  cancelLegendEdit();
   showMode(false);
   updateSize();
 }
@@ -382,7 +389,10 @@ function renderTabs() {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'secondary' + (id === mapId ? ' active' : '');
     b.textContent = id === 1 ? 'Karta 1 (huvud)' : `Karta ${id}`;
-    b.onclick = () => { mapId = id; setInfo(''); renderAll(); };
+    b.onclick = () => {
+      if (editingLegend && editingLegend.id !== id) cancelLegendEdit();
+      mapId = id; setInfo(''); renderAll();
+    };
     box.append(b);
   }
 }
@@ -426,6 +436,9 @@ function renderLegend() {
     const use1 = document.createElement('button');
     use1.type = 'button'; use1.className = 'secondary'; use1.textContent = 'Välj';
     use1.onclick = () => { brush = e.glyph; setTool('paint'); renderPalette(); };
+    const edit = document.createElement('button');
+    edit.type = 'button'; edit.className = 'secondary'; edit.textContent = 'Ändra';
+    edit.onclick = () => loadLegendEntry(e);
     const del = document.createElement('button');
     del.type = 'button'; del.className = 'secondary'; del.textContent = 'Ta bort';
     del.onclick = () => {
@@ -433,7 +446,7 @@ function renderLegend() {
       if (n && !confirm(`${e.glyph} används på ${n} rutor och blir odefinierad. Ta bort ändå?`)) return;
       commit(() => M.removeLegend(doc, mapId, e.glyph));
     };
-    li.append(code, use1, del);
+    li.append(code, use1, edit, del);
     list.append(li);
   }
 }
@@ -568,15 +581,49 @@ function syncLegendForm() {
   $('lg-color-l').hidden = !['plate', 'key', 'door', 'box'].includes(kind);
   $('lg-dir-l').hidden = kind !== 'belt';
 }
+function cancelLegendEdit() {
+  editingLegend = null;
+  $('lg-glyph').disabled = false;
+  $('lg-add').textContent = 'Lägg till legend';
+}
+function loadLegendEntry(entry) {
+  const [kind, ...args] = entry.value.split(/\s+/);
+  $('lg-glyph').value = entry.glyph;
+  $('lg-glyph').disabled = true;
+  $('lg-kind').value = kind;
+  $('lg-group').value = '';
+  $('lg-color').value = '';
+  $('lg-dir').value = '';
+  if (kind === 'plate') {
+    if (args.length === 1 && M.COLORS.includes(args[0])) $('lg-color').value = args[0];
+    else { $('lg-group').value = args[0] || ''; $('lg-color').value = args[1] || ''; }
+  } else if (['gate', 'lever'].includes(kind)) {
+    $('lg-group').value = args[0] || '';
+  } else if (['key', 'door', 'box'].includes(kind)) {
+    $('lg-color').value = args[0] || '';
+  } else if (kind === 'belt') {
+    $('lg-dir').value = args[0] || '';
+  }
+  editingLegend = {id: mapId, glyph: entry.glyph};
+  $('lg-add').textContent = 'Spara ändring';
+  syncLegendForm();
+}
 $('lg-kind').onchange = syncLegendForm;
 $('lg-suggest').onclick = () => { if (doc) $('lg-glyph').value = M.suggestGlyph(doc, mapId); };
 $('lg-add').onclick = () => {
   if (!doc) return;
-  const glyph = $('lg-glyph').value;
+  const editing = editingLegend;
+  const glyph = editing ? editing.glyph : $('lg-glyph').value;
   const def = legendForm();
   if (def.kind === 'plate' && !def.group) delete def.group;
   if (!def.color) delete def.color;
-  if (commit(() => M.addLegend(doc, mapId, glyph, def))) { brush = glyph; setTool('paint'); renderPalette(); $('lg-glyph').value = ''; setInfo(`Lade till ${glyph}; den är vald i paletten.`); }
+  const saved = commit(() => editing ? M.updateLegend(doc, editing.id, glyph, def) : M.addLegend(doc, mapId, glyph, def));
+  if (saved) {
+    cancelLegendEdit();
+    brush = glyph; setTool('paint'); renderPalette();
+    $('lg-glyph').value = '';
+    setInfo(editing ? `Ändrade ${glyph}.` : `Lade till ${glyph}; den är vald i paletten.`);
+  }
 };
 $('rs-apply').onclick = () => {
   if (!doc) return;
