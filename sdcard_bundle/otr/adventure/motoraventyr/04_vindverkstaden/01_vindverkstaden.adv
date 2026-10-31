@@ -1,0 +1,74 @@
+@meta
+id: motoraventyr_vindverkstaden
+world: 123
+map_id: 123
+
+@about
+title.sv: Vindverkstaden
+title.en: The Wind Workshop
+desc.sv: Samarbeta med spakar och plattor, ta tid på grinden och korsa sedan strandens faror.
+desc.en: Combine levers and plates, race the timed gate, then cross the shore hazards.
+
+@rules
+start_energy: 18
+energy_cap: 20
+lives: 4
+
+@legend map=1
+a = plate 1
+A = gate 1
+! = lever 1
+
+@legend map=2
+a = plate 2
+G = gate 2
+i = ice
+> = belt right
+
+@legend map=3
+p = poison
+w = swamp
+t = sharp_rocks
+
+@andgate 1 map=1
+@timedgate 2 map=2: 8
+@plategroup 1 map=1: 4,1
+@gategroup 1 map=1: 6,1
+@plategroup 2 map=2: 4,1
+@gategroup 2 map=2: 5,1
+
+@destinations
+map=2: timed_course 1,1
+map=3: rocky_shore 1,1
+map=4: windmill 1,1
+
+@portals
+map=1: 8,1 -> timed_course
+map=2: 9,1 -> rocky_shore
+map=3: 10,1 -> windmill
+
+@map
+###########
+#S.Ra.A...#
+#...!.....#
+#.........#
+###########
+
+@map 2
+###########
+#S.RaG....#
+#.........#
+#..i>>>...#
+###########
+
+@map 3
+############
+#S.uB~pwt^.#
+#...Q......#
+############
+
+@map 4
+##########
+#S..Q...X#
+#..*.....#
+##########

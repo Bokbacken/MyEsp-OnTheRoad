@@ -1,0 +1,80 @@
+@meta
+id: motoraventyr_stenporten
+world: 121
+map_id: 121
+
+@about
+title.sv: Stenporten
+title.en: The Stone Gate
+desc.sv: Lär dig tryckplattor, färglådor, nycklar och Dra. Leta efter vägen mellan kartorna.
+desc.en: Learn pressure plates, colored boxes, keys and Pull. Find the route between maps.
+
+@rules
+start_energy: 18
+energy_cap: 20
+lives: 4
+
+@legend map=2
+b = plate 2 green
+B = box green
+G = gate 2
+
+@legend map=3
+a = plate 3 red
+r = box red
+b = box blue
+c = plate 3 blue
+G = gate 3
+q = key red
+H = door red
+s = suction
+! = lever 3
+
+@andgate 3 map=3
+
+@legend map=4
+o = plate
+= = gate
+
+@plategroup 1 map=4: 6,3
+@gategroup 1 map=4: 8,3 9,3
+
+@destinations
+map=2: gron_sluss 1,1
+map=3: dubbelport 1,1
+map=4: draghall 7,3
+
+@portals
+map=1: 8,1 -> gron_sluss
+map=2: 7,1 -> dubbelport
+map=3: 16,1 -> draghall
+
+@map
+##########
+#S...=...#
+#..Ro#####
+#....#####
+##########
+
+@map 2
+##########
+#S...G...#
+#..Bb#####
+#....#####
+##########
+
+@map 3
+###################
+#S.r.a.bc.GqHj#s..#
+#.........#...#...#
+#........!....#...#
+###################
+
+@map 4
+############
+#S..########
+#...########
+#...#Ro.==X#
+#...########
+#...########
+############

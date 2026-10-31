@@ -1,0 +1,26 @@
+@meta
+id: motoraventyr_motvind
+world: 120
+map_id: 120
+
+@about
+title.sv: Motvind över myren
+title.en: Headwind over the bog
+desc.sv: Röj en säker stig genom ett litet minfält. Hela den säkra marken är målet.
+desc.en: Clear a safe path through a small minefield. Every safe cell is the goal.
+
+@rules
+start_energy: 8
+energy_cap: 12
+lives: 3
+mine_damage: 4
+mine_level: 1
+
+@map
+#########
+#S.uaz..#
+#1......#
+#..m....#
+#.....m.#
+#...m...#
+#########
