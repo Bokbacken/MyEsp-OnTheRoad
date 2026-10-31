@@ -69,7 +69,7 @@ lives: infinite
 #########
 ```
 
-Kartan är ett tecken per ruta, högst 80×80, med lika långa rader och exakt ett
+Kartan är ett tecken per ruta, högst 128×128, med lika långa rader och exakt ett
 `S` (kontrolleras när motorn laddar kartan). `X` är vanlig utgång men krävs inte
 av själva motorn; minsveparläget vinner utan att nå `X`. Inuti `@map` är `#`
 alltid en vägg, inte en kommentar. En tom rad hoppas över; en rad som efter
@@ -292,7 +292,7 @@ kampanjnivå och ge dem numrerade filnamn. Ett komplett 12-banors exempel finns 
 ## 6. Flerkartor och portaler
 
 En fil kan ha huvudkartan `@map` (id 1) och upp till tre extra kartor:
-`@map 2`, `@map 3` osv. Varje karta är fortfarande max 80×80 och kräver en
+`@map 2`, `@map 3` osv. Varje karta är fortfarande max 128×128 och kräver en
 `S`. Väljare som saknas betyder alltid huvudkartan, oavsett var direktivet
 står. Sektioner som `@rules`, `@enemies`, `@resources` och `@dark` kan välja
 karta på taggen; flera listor accepterar även `map=2:` per rad.

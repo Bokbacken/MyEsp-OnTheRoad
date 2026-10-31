@@ -57,10 +57,43 @@ void testCampaign()
     }
 }
 
+std::string room(int width, int height)
+{
+    std::string text = "@meta\nid: size\nworld: 90\nmap_id: 90\n@map\n";
+    for (int y = 0; y < height; ++y) {
+        std::string row(width, '.');
+        if (y == 0) row[0] = 'S';
+        if (y == height - 1) row[width - 1] = 'X';
+        text += row + "\n";
+    }
+    return text;
+}
+
+void testSizeLimits()
+{
+    accepts(room(128, 128));
+    accepts(room(128, 4));
+    accepts(room(4, 128));
+    rejects(room(129, 4));
+    rejects(room(4, 129));
+}
+
 }  // namespace
 
-int main()
+int main(int argc, char **argv)
 {
+    for (int i = 1; i < argc; ++i) {
+        std::ifstream input(argv[i], std::ios::binary);
+        CHECK(input.good());
+        const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::fprintf(stderr, "validating %s\n", argv[i]);
+        accepts(text);
+    }
+    if (argc > 1) {
+        std::printf("Adventure text validation: %d checks passed for %d supplied files\n", checks, argc - 1);
+        return 0;
+    }
+    testSizeLimits();
     accepts("@meta\nid: editor_test\nworld: 1\nmap_id: 1\n@map\n#####\n#S.X#\n#####\n");
     rejects("@unknown\n");
     rejects("@map\nS?X\n", 1);

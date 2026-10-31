@@ -253,6 +253,52 @@ static void testBigMapWalkableBorder()
     CHECK(path.len > 0);
 }
 
+// The largest supported map: 128x128 loads, plans the longest corner-to-corner route and
+// round-trips through a save image. One more row or column is rejected.
+static void testMaxMap()
+{
+    CHECK(Otr::MAX_W == 128 && Otr::MAX_H == 128);
+    static std::string store[Otr::MAX_H + 1];
+    static const char *rows[Otr::MAX_H + 1];
+    for (int y = 0; y <= Otr::MAX_H; y++) {
+        store[y] = std::string(Otr::MAX_W + 1, '.');
+        rows[y] = store[y].c_str();
+    }
+    store[0][0] = 'S';
+    store[Otr::MAX_H - 1][Otr::MAX_W - 1] = 'X';
+    for (int y = 0; y < Otr::MAX_H; y++) store[y].resize(Otr::MAX_W);
+
+    Otr::MapDef def{};
+    def.id = 93;
+    def.rows = rows;
+    def.h = Otr::MAX_H;
+    def.rules = {8, 20, Otr::LIVES_INFINITE, 3, 4, 3, 1, 2, 1, false, 0};
+    static Otr::World w;
+    CHECK(w.load(def));
+    CHECK(w.width() == Otr::MAX_W && w.height() == Otr::MAX_H);
+
+    static Otr::Planner pl;
+    static Otr::Path path;
+    path = Otr::Path{};
+    CHECK(pl.plan(w, Otr::MAX_W - 1, Otr::MAX_H - 1, Otr::WalkMode::PRO, path) == Otr::PlanResult::OK);
+    CHECK(path.len == (Otr::MAX_W - 1) + (Otr::MAX_H - 1));
+
+    static uint8_t image[200000];
+    const size_t n = w.save(image, sizeof(image));
+    CHECK(n > (size_t)Otr::MAX_W * Otr::MAX_H * 7 && n < sizeof(image));
+    static Otr::World restored;
+    CHECK(restored.load(def));
+    CHECK(restored.restore(image, n));
+    CHECK(restored.width() == Otr::MAX_W && restored.height() == Otr::MAX_H);
+
+    def.h = Otr::MAX_H + 1;
+    CHECK(!w.load(def));
+    def.h = Otr::MAX_H;
+    store[0].push_back('.');
+    CHECK(!w.load(def));
+    store[0].resize(Otr::MAX_W);
+}
+
 // --- 6. @resources glyph-clash and duplicate detection (A4 validate) -------------------------
 static void testResourceGlyphClash()
 {
@@ -392,6 +438,7 @@ int main(int argc, char **argv)
     testResourcesDemo();
     testTreasureReveal();
     testBigMapWalkableBorder();
+    testMaxMap();
     testResourceGlyphClash();
     testDarkParse();
     testFlashlightPogoParse();

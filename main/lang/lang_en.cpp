@@ -288,8 +288,8 @@ extern const Entry LANG_EN[] = {
     {Str::G_SCC_CARGO_HINT, "Hold the cargo or roll it again"},
 
     // v0.7.0 adventure engine test
-    {Str::GAME_NAME_ADV, "Adventure (test)"},
-    {Str::MENU_SUB_GAME_ADV, "60x60 tiles: walk, push, hit and scroll"},
+    {Str::GAME_NAME_ADV, "Adventure"},
+    {Str::MENU_SUB_GAME_ADV, "Maps up to 128x128: explore, push, solve puzzles"},
     {Str::ADV_TITLE, "Test world"},
     {Str::ADV_HIT, "Hit"},
     {Str::ADV_JUMP, "Jump"},

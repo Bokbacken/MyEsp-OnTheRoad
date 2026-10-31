@@ -21,7 +21,7 @@ kartan med ASCII-tecken och skriver dialogen som text på svenska och engelska.
 >
 > Övriga nyheter i v0.17.0, alla dokumenterade nedan:
 > - `@about` – det SD-menyn visar (titel/beskrivning/författare/omslag) — avsnitt 3
-> - Kartor upp till **80×80** med **gångbar ram** — avsnitt 5
+> - Kartor upp till **128×128** med **gångbar ram** — avsnitt 5
 > - `@treasures` – dolda skatter under täckande objekt — avsnitt 8
 > - `@resources` – resursmetadata (glyf → story-id, namn, bild + tak) — avsnitt 9
 > - `carry`/`reset` i `@rules` – vad som följer med mellan nivåer — avsnitt 4
@@ -455,6 +455,12 @@ num: 1                   # matchar siffran '1' i @map
 En nod är en replik. **Flera noder får dela id** – den första vars `cond`
 stämmer används. Så får en person "minne": en variant för första mötet, en för
 senare. En nod `<npc>.start` är ingången när man pratar med personen.
+
+Kartvyns avsnittsformulär kan skapa en grundnod med talare, svensk och engelsk
+replik samt ett val. Välj nod-id med omsorg: talaren ska finnas som `@npc`, och
+valets mål ska vara ett deklarerat nod-id eller `END`. Villkor och effekter
+behöver också deklarerade flaggor, uppdrag och föremål. Granska den skapade
+noden i avsnittsredigeraren och kör produktionsvalideringen innan du sparar.
 
 ```
 @node jakob.start
@@ -1140,7 +1146,7 @@ chaser 30 4
 - `area` är en **inklusive** rektangel. Utelämnad rektangel betyder hela
   kartan. Start, rutt, sökning och varje steg måste hålla sig inom området.
   Om spelaren står utanför jagarens område väntar jagaren.
-- Högst **8 fiender**, **16 vägpunkter per patrull**, karta högst **80×80**.
+- Högst **8 fiender**, **16 vägpunkter per patrull**, karta högst **128×128**.
   Ogiltiga typer, lägen, argument, koordinater, startkollisioner, områden,
   rutter och överskridna gränser ger loaderfel med radnummer.
 - Jagaren använder bredden-först-sökning på den **aktuella** kartan inför
@@ -1240,8 +1246,10 @@ cachas i PSRAM och skalas till 16/32 px. Firmware behöver
 `CONFIG_LV_USE_LODEPNG=y` (ingår nu i `sdkconfig.defaults`; uppdatera en
 befintlig `sdkconfig` via menuconfig eller generera om den enligt projektets
 bygginstruktion). Webblivevyn använder samma fil via befintlig SD-filendpoint.
-Generell ersättning av standardobjektens sprites och visning av `cover`
-är **inte** implementerade av denna leverans; `cover` läses som metadata.
+Generell ersättning av standardobjektens sprites i spelet och visning av
+`cover` är **inte** implementerade av denna leverans; `cover` läses som
+metadata. Editorn förhandsvisar däremot de exporterade standardbilderna i
+kartvyn.
 
 ```
 /otr/adventure/stenhuggaren/
@@ -1254,9 +1262,14 @@ Generell ersättning av standardobjektens sprites och visning av `cover`
 
 **Standard-sprites att utgå från:** verktyget `tools/sprite_export` +
 `tools/sprite_png.py` exporterar motorns inbyggda, proceduritade symboler till
-**61 färdiga 32×32 PNG-filer** under
+**71 färdiga 32×32 PNG-filer** under
 [`docs/adventures/sprites/`](adventures/sprites/). Kopiera en därifrån och rita
 om den som mall för dina egna.
+
+Äventyrseditorns bildläge använder dessa sprites direkt. För en resurs med eget
+bildnamn läser editorn samma `bitmaps/`-fil som enheten och visar bara bilden om
+den är högst 16 KiB och avkodas som 32×32 PNG; saknad eller ogiltig bild visas
+som enhetens gula påse. I teckenläge behålls kartans färger.
 
 ---
 
@@ -1264,7 +1277,7 @@ om den som mall för dina egna.
 
 En `.adv`-fil kan innehålla en huvudkarta (`@map`, internt id 1) och högst
 tre extra kartor (`@map 2` … `@map 255`, med unika id:n). Varje karta är
-fortfarande högst 80×80 och måste ha exakt ett `S`. `@meta map_id` fortsätter
+fortfarande högst 128×128 och måste ha exakt ett `S`. `@meta map_id` fortsätter
 vara filens separata identitet. Kartorna i en fil är inte samma sak som flera
 separata `.adv`-filer i äventyrsmappen.
 
@@ -1415,7 +1428,7 @@ Begränsningar: högst 4 interna kartor, 32 destinationsnamn, 32 portalrader
 och 64 KiB per `.adv`-fil. Varje karta måste kunna laddas av motorn; övriga
 befintliga begränsningar för kartor, NPC:er, fiender, resurser och storydata
 gäller fortfarande. På ESP måste `Adv::Loaded` och `Otr::World` ligga i PSRAM;
-UI-save-bufferten måste vara minst `Adv::SdSession::SAVE_CAP` (180,122 byte).
+UI-save-bufferten måste vara minst `Adv::SdSession::SAVE_CAP` (459,674 byte).
 Se [formatreferensen](ADVENTURE_MULTIMAP_FORMAT.md) för minnesmått och
 fullständiga kapaciteter.
 
@@ -1440,7 +1453,7 @@ den bästa checklistan när du skrivit klart. Du får fel om:
 
 `Adv::parse()` bygger data men anropar inte dessa två validerare automatiskt.
 Kontrollera även resultatet med `Script::validate()` och `World::load()`:
-kartan måste ha lika långa rader, vara inom **80×80** och innehålla exakt ett
+kartan måste ha lika långa rader, vara inom **128×128** och innehålla exakt ett
 `S`. `@legend` har som tidigare företräde framför `@resources`; använd
 olika glyfer för att faktiskt placera resurser. SD-sessionen kör både
 script- och motorvalidering före spelstart.

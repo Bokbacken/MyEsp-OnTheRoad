@@ -146,5 +146,15 @@ async function page(file, data) {
   }
   assert.match(fs.readFileSync('main/web_assets.h', 'utf8'), /"\/favicon\.ico", "image\/svg\+xml"/);
 
+  const assetHeader = fs.readFileSync('main/web_assets.h', 'utf8');
+  const assetTable = assetHeader.match(/WEB_ASSETS\[\]\s*=\s*\{([\s\S]*?)\n\};/)[1];
+  const assetCount = [...assetTable.matchAll(/^\s*\{"\//gm)].length;
+  const appWeb = fs.readFileSync('main/app_web.cpp', 'utf8');
+  const reserve = Number(appWeb.match(/c\.maxUris\s*=\s*sizeof\(WEB_ASSETS\)\s*\/\s*sizeof\(WEB_ASSETS\[0\]\)\s*\+\s*(\d+);/)[1]);
+  const routeCount = fs.readdirSync('main').filter(file => file.endsWith('.cpp'))
+    .reduce((count, file) => count + (fs.readFileSync(`main/${file}`, 'utf8').match(/\b(?:MyWeb::on|httpd_register_uri_handler)\s*\(/g) || []).length, 0);
+  assert(assetCount + reserve >= assetCount + routeCount + 4,
+    'HTTP URI handler capacity includes every generated asset and registered API/WebSocket route with headroom');
+
   console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery, screen power, text size and RGB availability passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

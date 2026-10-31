@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <initializer_list>
 #include <string>
 
 // ---- constants mirrored from ui_adventure.cpp -------------------------------
@@ -33,6 +34,7 @@ enum {
     S_MINE, S_NUM1, S_NUM2, S_NUM3, S_NUM4, S_NUM5, S_NUM6, S_NUM7, S_NUM8,
     S_NPC0,
     S_NPC_LAST = S_NPC0 + 3 * 4 - 1,
+    S_FLASH, S_POGO, S_POISON, S_SWAMP, S_SHARP, S_SKATES, S_BOX, S_COLOR_PLATE, S_SUCTION,
     S_COUNT
 };
 
@@ -327,6 +329,28 @@ static void makeArt(Sprites *sp)
     line(b[S_BASALT], 20, 18, 31, 15, rgb(36, 34, 40));
     line(b[S_BASALT], 12, 8, 10, 0, rgb(36, 34, 40));
     line(b[S_BASALT], 20, 18, 16, 31, rgb(36, 34, 40));
+    fillNoise(b[S_POISON], 78, 40, 100, 7, 81);
+    line(b[S_POISON], 7, 23, 24, 29, rgb(240, 235, 205), 3);
+    line(b[S_POISON], 7, 29, 24, 23, rgb(240, 235, 205), 3);
+    disc(b[S_POISON], 16, 12, 9, rgb(240, 235, 205));
+    rect(b[S_POISON], 12, 17, 19, 21, rgb(240, 235, 205));
+    disc(b[S_POISON], 12, 11, 2.5f, rgb(30, 20, 35));
+    disc(b[S_POISON], 20, 11, 2.5f, rgb(30, 20, 35));
+    rect(b[S_POISON], 15, 15, 16, 17, rgb(30, 20, 35));
+    fillNoise(b[S_SWAMP], 67, 83, 46, 8, 82);
+    disc(b[S_SWAMP], 11, 22, 8, rgb(35, 44, 26));
+    disc(b[S_SWAMP], 23, 12, 6, rgb(35, 44, 26));
+    line(b[S_SWAMP], 5, 23, 15, 23, rgb(152, 163, 91), 2);
+    for (int x : {5, 17, 27}) {
+        line(b[S_SWAMP], x, 18, x, 5, rgb(196, 181, 111), 2);
+        line(b[S_SWAMP], x, 12, x - 4, 8, rgb(196, 181, 111), 2);
+    }
+    fillNoise(b[S_SHARP], 90, 86, 85, 6, 83);
+    for (int x : {8, 22}) {
+        for (int y = 6; y <= 27; ++y)
+            rect(b[S_SHARP], x - (y - 6) / 3, y, x + (y - 6) / 3, y, rgb(205, 210, 218));
+        line(b[S_SHARP], x, 6, x, 26, rgb(70, 73, 82), 2);
+    }
     artGrass(b[S_PLATE], 2);
     rect(b[S_PLATE], 4, 4, 27, 27, rgb(96, 96, 108));
     rect(b[S_PLATE], 6, 6, 25, 25, rgb(170, 168, 180));
@@ -349,6 +373,24 @@ static void makeArt(Sprites *sp)
     for (int y = 6; y <= 26; y += 5) line(b[S_CRATE], 6, y, 25, y, rgb(146, 96, 46));
     line(b[S_CRATE], 6, 6, 25, 26, rgb(110, 70, 34), 3);
     line(b[S_CRATE], 25, 6, 6, 26, rgb(110, 70, 34), 3);
+    fillKey(b[S_BOX]);
+    rect(b[S_BOX], 3, 3, 28, 29, rgb(70, 65, 60));
+    rect(b[S_BOX], 5, 5, 26, 26, rgb(210, 200, 185));
+    rect(b[S_BOX], 8, 8, 23, 23, rgb(130, 120, 110));
+    line(b[S_BOX], 5, 26, 26, 26, rgb(245, 240, 225), 2);
+    artFloor(b[S_COLOR_PLATE], 5);
+    rect(b[S_COLOR_PLATE], 3, 22, 28, 28, rgb(65, 65, 70));
+    rect(b[S_COLOR_PLATE], 5, 20, 26, 25, rgb(210, 205, 195));
+    line(b[S_COLOR_PLATE], 8, 22, 23, 22, rgb(245, 240, 225), 2);
+    fillKey(b[S_SKATES]);
+    for (int x : {3, 17}) {
+        rect(b[S_SKATES], x + 1, 5, x + 7, 18, rgb(52, 126, 212));
+        rect(b[S_SKATES], x + 1, 15, x + 11, 21, rgb(85, 173, 245));
+        for (int y = 8; y <= 14; y += 3)
+            line(b[S_SKATES], x + 3, y, x + 7, y, rgb(245, 250, 255), 2);
+        rect(b[S_SKATES], x + 3, 22, x + 4, 25, rgb(230, 240, 250));
+        line(b[S_SKATES], x, 27, x + 12, 27, rgb(230, 240, 250), 2);
+    }
     fillKey(b[S_KEY]);
     disc(b[S_KEY], 11.f, 16.f, 6.f, rgb(214, 160, 30));
     disc(b[S_KEY], 11.f, 16.f, 2.5f, KEY);
@@ -474,6 +516,36 @@ static void makeArt(Sprites *sp)
     ball(b[S_MINE], 16.f, 16.f, 9.f, 70, 70, 80, 0, 0);
     disc(b[S_MINE], 13.f, 13.f, 2.f, rgb(230, 230, 240));
     disc(b[S_MINE], 19.f, 19.f, 1.8f, rgb(230, 40, 40));
+    fillKey(b[S_FLASH]);
+    for (int y = 1; y <= 8; y++) {
+        const int half = y;
+        rect(b[S_FLASH], 16 - half, 9 - y, 15 + half, 9 - y, rgb(255, 238, 150));
+    }
+    rect(b[S_FLASH], 11, 9, 20, 13, rgb(70, 72, 82));
+    rect(b[S_FLASH], 11, 9, 20, 9, rgb(150, 152, 165));
+    disc(b[S_FLASH], 16.f, 10.f, 3.5f, rgb(255, 250, 210));
+    rect(b[S_FLASH], 13, 13, 18, 28, rgb(40, 120, 180));
+    rect(b[S_FLASH], 13, 13, 13, 28, rgb(100, 180, 230));
+    rect(b[S_FLASH], 13, 20, 18, 21, rgb(20, 60, 90));
+    fillKey(b[S_POGO]);
+    rect(b[S_POGO], 14, 5, 17, 22, rgb(210, 60, 60));
+    rect(b[S_POGO], 14, 5, 14, 22, rgb(245, 125, 125));
+    rect(b[S_POGO], 8, 4, 23, 6, rgb(60, 60, 70));
+    disc(b[S_POGO], 8.f, 5.f, 2.f, rgb(40, 40, 50));
+    disc(b[S_POGO], 23.f, 5.f, 2.f, rgb(40, 40, 50));
+    rect(b[S_POGO], 9, 18, 13, 20, rgb(60, 60, 70));
+    rect(b[S_POGO], 18, 18, 22, 20, rgb(60, 60, 70));
+    for (int i = 0; i < 4; i++) {
+        const int yy = 22 + i * 2;
+        line(b[S_POGO], 13, yy, 18, yy + 1, rgb(190, 190, 200), 2);
+        line(b[S_POGO], 18, yy + 1, 13, yy + 2, rgb(190, 190, 200), 2);
+    }
+    rect(b[S_POGO], 14, 30, 17, 31, rgb(40, 40, 50));
+    fillKey(b[S_SUCTION]);
+    rect(b[S_SUCTION], 12, 4, 19, 17, rgb(55, 205, 215));
+    rect(b[S_SUCTION], 9, 15, 22, 19, rgb(215, 245, 250));
+    disc(b[S_SUCTION], 16, 23, 8, rgb(45, 160, 185));
+    disc(b[S_SUCTION], 16, 23, 4, rgb(20, 45, 65));
     static const uint8_t GLYPH[8][7] = {
         {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
         {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E}, {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02},
@@ -526,7 +598,18 @@ static const char *NAMES[S_COUNT] = {
     "npc0_up", "npc0_right", "npc0_down", "npc0_left",
     "npc1_up", "npc1_right", "npc1_down", "npc1_left",
     "npc2_up", "npc2_right", "npc2_down", "npc2_left",
+    "flash", "pogo", "poison", "swamp", "sharp", "skates", "box", "color_plate", "suction",
 };
+
+static void makeResourceBag(uint16_t *sprite)
+{
+    fillKey(sprite);
+    for (int y = 0; y < SPR; y++) for (int x = 0; x < SPR; x++) {
+        if ((y >= 10 && y <= 27 && x >= 7 && x <= 25) ||
+            (y >= 4 && y <= 9 && x >= 11 && x <= 21))
+            sprite[y * SPR + x] = rgb( y == 10 || y == 11 ? 95 : 235, 155, 45);
+    }
+}
 
 static void dumpRGBA(const std::string &path, const uint16_t *src, int w, int h, bool keyed)
 {
@@ -560,8 +643,12 @@ int main(int argc, char **argv)
         dumpRGBA(out + "/" + base + ".rgba", sp.big[i], SPR, SPR, true);
         if (man) fprintf(man, "%s %d %d\n", base.c_str(), SPR, SPR);
     }
+    uint16_t bag[SPR * SPR];
+    makeResourceBag(bag);
+    dumpRGBA(out + "/resource_bag.rgba", bag, SPR, SPR, true);
+    if (man) fprintf(man, "resource_bag %d %d\n", SPR, SPR);
     if (man) fclose(man);
-    fprintf(stderr, "wrote %d sprites (32x32 RGBA) to %s\n", (int)S_COUNT, out.c_str());
+    fprintf(stderr, "wrote %d sprites (32x32 RGBA) to %s\n", (int)S_COUNT + 1, out.c_str());
 
     // ---- Joseph override set (optional 2nd arg) -----------------------------
     // Brown-robe hero drawn with the SAME artPerson builder, so it matches the

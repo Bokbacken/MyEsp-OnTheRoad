@@ -288,8 +288,8 @@ extern const Entry LANG_SV[] = {
     {Str::G_SCC_CARGO_HINT, "Håll lasten eller kasta om den"},
 
     // v0.7.0 adventure engine test
-    {Str::GAME_NAME_ADV, "Äventyr (test)"},
-    {Str::MENU_SUB_GAME_ADV, "60x60 rutor: gå, putta, slå och scrolla"},
+    {Str::GAME_NAME_ADV, "Äventyr"},
+    {Str::MENU_SUB_GAME_ADV, "Kartor upp till 128x128: utforska, putta, lös pussel"},
     {Str::ADV_TITLE, "Testvärld"},
     {Str::ADV_HIT, "Slå"},
     {Str::ADV_JUMP, "Hoppa"},

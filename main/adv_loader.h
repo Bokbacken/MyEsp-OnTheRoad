@@ -30,7 +30,7 @@ namespace Adv {
 // Fixed capacities. Kept at or below the engine's own limits where they exist, generous where the
 // engine has none. A file that exceeds any of these fails to parse with a clear error rather than
 // overflowing a buffer.
-constexpr int MAX_ROWS = Otr::MAX_H;                 // 80 map rows
+constexpr int MAX_ROWS = Otr::MAX_H;                 // 128 map rows
 constexpr int ROW_CAP = Otr::MAX_W + 1;              // one row + NUL
 constexpr int MAX_NPCS = 16;
 constexpr int MAX_NODES = 128;
