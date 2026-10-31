@@ -189,6 +189,20 @@ static void testText()
     CHECK(st.popEvent(got) && got.kind == Kind::ROW && strlen(got.text) < TEXT_CAP);
     static char big[JSON_CAP];
     CHECK(toJson(got, big, sizeof(big)) > 0 && big[strlen(big) - 1] == '}');
+    // A maximum-size .lyr row and its next row must both reach the browser intact.
+    s.clear();
+    const std::string current(512, 'a'), next(512, 'b');
+    s.text = current + next;
+    s.syls.push_back(Midi::Syllable{1000, 0, 512, Midi::SYL_LINE});
+    s.syls.push_back(Midi::Syllable{5000, 512, 512, Midi::SYL_LINE});
+    s.lines.push_back(Midi::Line{1000, 5000, 0, 1, false});
+    s.lines.push_back(Midi::Line{5000, 9000, 1, 1, false});
+    st.drain(); tr.reset();
+    tr.update(s, 1000, st);
+    CHECK(st.popEvent(got) && got.kind == Kind::ROW);
+    CHECK(std::string(got.text) == current + NEXT_SEP + next);
+    CHECK(toJson(got, big, sizeof(big)) > 0);
+    CHECK(std::string(big).find(current) != std::string::npos && std::string(big).find(next) != std::string::npos);
 }
 
 // ---- v0.13.6 countdown dots ---------------------------------------------------------------------

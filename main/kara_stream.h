@@ -22,7 +22,7 @@ constexpr int RATE = 22050;
 constexpr uint32_t RING_SAMPLES = 16384;   // 32 kB = 0.74 s (power of two)
 constexpr uint32_t FRAME_SAMPLES = 512;    // Binary frame size (1 024 bytes, ~43 frames/s)
 constexpr uint32_t EVT_CAP = 16;           // Pending lyric events (power of two)
-constexpr size_t TEXT_CAP = 256;           // Event text bytes (UTF-8, truncated on a character boundary)
+constexpr size_t TEXT_CAP = 1028;          // Two 512-byte .lyr rows plus separators and terminator
 constexpr size_t JSON_CAP = TEXT_CAP * 6 + 128;   // Worst case escaping
 constexpr char SYL_SEP = '\x1f';           // ROW text: syllables separated by SYL_SEP ...
 constexpr char NEXT_SEP = '\x1e';          // ... then NEXT_SEP and the next line's text

@@ -258,7 +258,14 @@ mät P4-renderbelastning och faktisk flerklientbandbredd före 44.1 kHz.
 
 ## 3. Registret `karaoke.reg`
 
-Textfil i `/otr/karaoke/`, skapas automatiskt och kan redigeras för hand:
+Extern sångtext för MIDI utan inbäddad text: se
+[`.lyr`-filer och LRC-tidssynk](KARAOKE_LYRICS.md). Samma filnamn med
+`.lyr` i låtens mapp visas scrollbar utan tider eller tidssynkad med LRC.
+
+Textfil på SD: **`/otr/karaoke/karaoke.reg`** (firmware-sökväg
+`/sdcard/otr/karaoke/karaoke.reg`). I filhanteraren väljer du **SD-kort** och
+öppnar `otr` → `karaoke`. Filen skapas först när en låtinställning ändras,
+inte bara när en MIDI-fil laddas upp eller öppnas, och kan redigeras för hand:
 
 ```
 # OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% [sf2=font] name
@@ -272,6 +279,11 @@ Textfil i `/otr/karaoke/`, skapas automatiskt och kan redigeras för hand:
 - Nyckel = CRC32 + filstorlek, så inställningarna följer med om filen byter namn. Namnet är bara information.
 - `melody` -1 = automatisk detektering, 0–15 = vald kanal (visas som kanal 1–16 i UI). Trumkanalen kan inte väljas.
 - En rad skrivs när man ändrar något för låten. Skrivningen går via en tmp-fil och rename.
+  En misslyckad skrivning loggas och den tidigare registerfilen bevaras.
+
+Webbkaraoken använder hela sidbredden. Aktuell rad har större responsiv text
+som anpassas till högst två rader ned till 24 px; extremt långa rader får
+fortsätta radbrytas i stället för att bli oläsligt små.
 
 ## 4. Melodispårsdetektering
 

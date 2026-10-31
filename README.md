@@ -39,6 +39,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   multiple SoundFonts (song-list global default, existing per-song registry overrides), plays `.mid`/`.kar` from the SD card through a SoundFont synth
   (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
   per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
+  MIDI without lyrics can use a matching [`.lyr` text/LRC sidecar](docs/KARAOKE_LYRICS.md).
+  Web karaoke uses the browser width with responsive lyrics.
 - **Sound** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
   channels, built-in chiptune synth (square/triangle/noise, ADSR, MML tunes). Any sound can be replaced by a WAV on
   the SD card. Volumes and on/off on the device and in the web settings.
@@ -48,7 +50,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   during card writes.
   Existing files are skipped by default; overwrite is explicit. SD formatting
   requires separate confirmations, including for an unmountable card.
-  Changes require the admin PIN when configured. See the file-management reference.
+  NVS settings memory has a separate information view and binary backup download
+  (the backup may contain credentials). Changes and NVS downloads require the
+  admin PIN when configured. See the [file-management reference](docs/FILE_MANAGEMENT.md).
 
 ### SD card layout (optional)
 
@@ -60,7 +64,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 /sdcard/otr/adventure/saves/        adventure saves (fallback: internal flash)
 /sdcard/otr/adventure/maps/         reserved for future maps
 /sdcard/otr/karaoke/                karaoke songs (.mid / .kar, max 1 MB each); "Artist_Title.mid" gives artist + title
-/sdcard/otr/karaoke/karaoke.reg     per-song settings (melody track, key, tempo) – created automatically, plain text
+/sdcard/otr/karaoke/<song>.lyr      optional UTF-8 lyric sheet or LRC timestamps beside matching .mid/.kar
+/sdcard/otr/karaoke/karaoke.reg     per-song settings (melody track, key, tempo) – created on a settings change, plain text
 /sdcard/otr/sf2/                    SoundFonts (.sf2 v2); per-song or global bank selection
 ```
 

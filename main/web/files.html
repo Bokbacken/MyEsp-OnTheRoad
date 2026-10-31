@@ -54,6 +54,20 @@
 </nav>
 
 <h2>Filhanterare</h2>
+<details class="card">
+  <summary>NVS – inställningsminne och backup</summary>
+  <p>NVS lagrar nycklar och värden i en egen flashpartition, inte JSON-filer.
+    Den påverkas inte av formatering av intern flash (FFat).</p>
+  <p id="nvs-info" role="status">Ange Admin-PIN nedan och läs minnesinformationen.</p>
+  <div class="row">
+    <button type="button" class="secondary" id="nvs-read">Visa minnesinformation</button>
+    <button type="button" class="secondary" id="nvs-backup">Ladda ner NVS-backup</button>
+  </div>
+  <p class="muted">Backupen är en binär partitionsbild, inte en JSON-export. Den kan innehålla
+    Wi-Fi-lösenord och Admin-PIN: förvara den säkert. Ändra inga inställningar under
+    nedladdningen. Återställning ingår inte i filhanteraren; bilden hör till enhetens
+    NVS-partition och är inte en vanlig fil att ladda upp till FFat.</p>
+</details>
 <div class="card">
   <div class="row storage-row" style="margin-top:0">
     <span class="seg">
@@ -65,6 +79,7 @@
       <label for="pin" style="margin:0">Admin-PIN</label>
       <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" style="max-width:8rem;margin:0">
       <button type="button" class="danger" id="format-btn" hidden>&#9888; Formatera SD-kort</button>
+      <button type="button" class="danger" id="repair-btn" hidden>&#9873; Reparera intern flash</button>
     </span>
   </div>
   <div class="row">
@@ -79,7 +94,6 @@
       <option value="stop">Avbryt uppladdningen</option>
       <option value="overwrite">Skriv över</option>
     </select>
-    <button type="button" class="danger" id="repair-btn" hidden>&#9873; Reparera intern flash</button>
   </div>
   <div class="crumbs" id="crumbs"></div>
   <div id="nocard" hidden>
@@ -183,10 +197,10 @@ async function sendJson(method, url, data) {
 async function guarded(fn) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn').forEach(b => b.disabled = true);
+  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn, #repair-btn, #nvs-read, #nvs-backup').forEach(b => b.disabled = true);
   try { await fn(); } catch (err) { toast(err.message, false); }
   busy = false;
-  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn').forEach(b => b.disabled = false);
+  document.querySelectorAll('.actions button, #mkdir-btn, #pick-btn, #pick-dir-btn, #format-btn, #repair-btn, #nvs-read, #nvs-backup').forEach(b => b.disabled = false);
   updateActions();
 }
 function bulkResult(j, verb) {
@@ -410,6 +424,28 @@ $('repair-btn').onclick = () => guarded(async () => {
   if (!j.playersReloaded) parts.push('starta om enheten för att läsa in spelare');
   toast((j.message || 'Intern flash reparerad') + ' (' + parts.join('; ') + ')', true);
   await load();
+});
+$('nvs-read').onclick = () => guarded(async () => {
+  $('nvs-info').textContent = 'Läser NVS …';
+  try {
+    const j = await answer(await fetch('/api/nvs', {headers: pinHdr(), cache: 'no-store'}));
+    $('nvs-info').textContent = `${size(j.bytes)} · ${j.namespaces} namnrymder · ${j.used} använda, ${j.free} lediga av ${j.total} poster`;
+  } catch (error) {
+    $('nvs-info').textContent = error.message;
+    throw error;
+  }
+});
+$('nvs-backup').onclick = () => guarded(async () => {
+  if (!confirm('NVS-backupen kan innehålla lösenord och Admin-PIN. Förvara den säkert och ändra inga inställningar under nedladdningen. Fortsätt?')) return;
+  const response = await fetch('/api/nvs/backup', {headers: pinHdr(), cache: 'no-store'});
+  if (!response.ok) { await answer(response); return; }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'otr-nvs.bin';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('NVS-backup nedladdad');
 });
 
 // ---- Upload (button or drag & drop) ----

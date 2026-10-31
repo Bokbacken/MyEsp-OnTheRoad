@@ -31,6 +31,7 @@
 #include "board_sd.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "files_page.h"
@@ -41,6 +42,7 @@
 #include "my_log.h"
 #include "my_storage.h"
 #include "my_web.h"
+#include "nvs.h"
 #include "web_util.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -1275,6 +1277,55 @@ static esp_err_t handleFsRepair(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
+static esp_err_t handleNvsInfo(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, "nvs");
+    nvs_stats_t stats{};
+    if (!partition || nvs_get_stats("nvs", &stats) != ESP_OK) {
+        return MyWeb::sendError(r, 500, "Could not read NVS information");
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddNumberToObject(o, "bytes", partition->size);
+    cJSON_AddNumberToObject(o, "used", stats.used_entries);
+    cJSON_AddNumberToObject(o, "free", stats.free_entries);
+    cJSON_AddNumberToObject(o, "total", stats.total_entries);
+    cJSON_AddNumberToObject(o, "namespaces", stats.namespace_count);
+    httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+    return MyWeb::sendJson(r, 200, o);
+}
+
+static esp_err_t handleNvsBackup(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+#ifdef CONFIG_NVS_ENCRYPTION
+    return MyWeb::sendError(r, 409, "Encrypted NVS requires a backup of its encryption keys");
+#else
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, "nvs");
+    if (!partition) return MyWeb::sendError(r, 500, "NVS partition not found");
+    uint8_t *image = static_cast<uint8_t *>(heap_caps_malloc(
+        partition->size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!image) return MyWeb::sendError(r, 503, "Not enough memory for NVS backup");
+    const esp_err_t read = esp_partition_read(partition, 0, image, partition->size);
+    if (read != ESP_OK) {
+        free(image);
+        ESP_LOGE(TAG, "NVS backup read failed: %s", esp_err_to_name(read));
+        return MyWeb::sendError(r, 500, "Could not read NVS backup");
+    }
+    httpd_resp_set_type(r, "application/octet-stream");
+    httpd_resp_set_hdr(r, "Content-Disposition", "attachment; filename=\"otr-nvs.bin\"");
+    httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+    const esp_err_t result = httpd_resp_send(r, reinterpret_cast<const char *>(image), partition->size);
+    free(image);
+    return result;
+#endif
+}
+
 bool registerRoutes()
 {
     bool ok = MyWeb::on("/api/fs/list", HTTP_GET, handleList);
@@ -1287,6 +1338,8 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/sd/format", HTTP_POST, handleSdFormat);
     ok &= MyWeb::on("/api/sd/format/status", HTTP_GET, handleSdFormatStatus);
     ok &= MyWeb::on("/api/fs/repair", HTTP_POST, handleFsRepair);
+    ok &= MyWeb::on("/api/nvs", HTTP_GET, handleNvsInfo);
+    ok &= MyWeb::on("/api/nvs/backup", HTTP_GET, handleNvsBackup);
     ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
     ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);
     ok &= MyWeb::on("/api/files/bulk", HTTP_DELETE, handleFilesBulkDelete);

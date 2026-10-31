@@ -50,6 +50,7 @@ namespace Config {
 static int saveCalls;
 AppConfig &get() { static AppConfig c{}; return c; }
 bool save() { ++saveCalls; return true; }
+bool validKaraVoices(uint8_t v) { return v == 32 || v == 64 || v == 96 || v == 128 || v == 160 || v == 192; }
 }
 namespace BankChoice {
 static bool s_open;
@@ -87,6 +88,7 @@ static bool opened, muted, rejectTranspose;
 static int speed = 100, key = 0, channel = 0, vol = 80;
 static int ensures, closes, unloads, opens;
 static std::string usedBank;
+static std::string plain;
 bool loadIndex() { return true; }
 void rescanAsync() {}
 bool scanning() { return false; }
@@ -106,6 +108,7 @@ Err open(const SongFile &) {
 void close() { ++closes; opened = BankChoice::s_open = false; state.playing = false; }
 bool isOpen() { return opened; }
 const Midi::Song *song() { return opened ? &data : nullptr; }
+std::string plainLyrics() { return plain; }
 const char *errText(Err) { return "Long error text: ÅÄÖ. Please select another song or sound bank."; }
 FontState fontState() { return font; }
 Err fontError() { return Err::NO_MEMORY; }
@@ -138,6 +141,7 @@ bool melodyMuted() { return muted; }
 void setMelodyMuted(bool b) { muted = b; }
 uint8_t volume() { return vol; }
 void setVolume(uint8_t v) { vol = v; Config::get().karaVolume = v; }
+void setVoiceLimit(uint8_t v) { Config::get().karaVoices = v; }
 bool takeTransposeRejected() { bool r = rejectTranspose; rejectTranspose = false; return r; }
 }
 using namespace UiKaraoke;
@@ -431,10 +435,36 @@ static void checkPlayer() {
     closeMenu();
     assert(Karaoke::melodyMuted() != muted);
 }
-int main() {
+static void checkPlainSheet() {
+    Karaoke::opened = true;
+    Karaoke::plain = "First lyric line\n";
+    for (int i = 0; i < 100; i++) Karaoke::plain += "Long scrollable lyric line with ÅÄÖ\n";
+    showPlayer(); settle();
+    assert(P.plainMode && lv_obj_is_hidden(P.cur) && !lv_obj_is_hidden(P.plain));
+    assert(lv_obj_get_scroll_y(P.lyrics) == 0 && lv_obj_get_y(P.plain) >= 0);
+    assert(lv_obj_get_scroll_bottom(P.lyrics) > 0);
+    assert(std::string(lv_label_get_text(P.plain)) == Karaoke::plain);
+    lv_obj_scroll_to_y(P.lyrics, LV_COORD_MAX, LV_ANIM_OFF); settle();
+    assert(lv_obj_get_scroll_y(P.lyrics) > 0);
+    Karaoke::plain.clear();
+    showPlayer(); settle();
+}
+int main(int argc, char **) {
     lv_init();
     Theme::setBatteryIndicatorReader(sampleBatteryIndicator);
     auto *display = lv_display_create(320,480);
+    if (argc > 1) {
+        for (auto size : {lv_point_t{320,480}, lv_point_t{480,800}})
+            for (bool flip : {false,true}) for (const char *language : {"sv","en"}) {
+                lv_display_set_rotation(display, LV_DISPLAY_ROTATION_0);
+                lv_display_set_resolution(display, size.x, size.y);
+                Lang::setLang(language);
+                Config::get().soundOn = true; Config::get().karaFlip = flip;
+                checkPlainSheet();
+            }
+        puts("Scrollable plain lyrics: first line reachable and vertical scrolling on S3/P4 layouts passed");
+        return 0;
+    }
     for (auto size : {lv_point_t{320,480}, lv_point_t{480,800}}) {
         for (bool flip : {false,true}) for (const char *language : {"sv","en"}) {
             lv_display_set_rotation(display, LV_DISPLAY_ROTATION_0);
@@ -490,6 +520,7 @@ int main() {
             openEntry(s_firstSong); settle();
             assert(Karaoke::usedBank == Karaoke::defaultFont());
             checkPlayer();
+            checkPlainSheet();
             assert(s_entries.capacity() == 0); // Old list screen and its UI-only view are gone
             click(button(P.scr,LV_SYMBOL_LEFT)); assert(!Karaoke::isOpen());
             assert(!s_sheet && s_listTimer);
@@ -566,4 +597,4 @@ target_link_libraries(layout PRIVATE lvgl m)
 ''')
 subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja", "-DCMAKE_CXX_FLAGS="], check=True)
 subprocess.run(["cmake", "--build", str(WORK / "build"), "--target", "layout", "-j", "2"], check=True)
-subprocess.run([str(WORK / "build/layout")], check=True)
+subprocess.run([str(WORK / "build/layout")] + (["--plain-only"] if "--plain-only" in sys.argv else []), check=True)

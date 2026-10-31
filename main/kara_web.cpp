@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <string>
+
 #include "board_audio.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
@@ -32,8 +34,11 @@ volatile bool s_running = false;
 // Song state (UI task writes, sender task reads; guarded by s_mux)
 bool s_songOpen = false;
 volatile bool s_songOpenAtomic = false;   // Read by the mixer-task tap
+volatile bool s_plainLyricsAtomic = false;
 uint32_t s_songSeq = 0;
 char s_songName[NAME_CAP] = "";
+SemaphoreHandle_t s_bookMux = nullptr;
+std::string s_plainLyrics;
 
 KaraStream::Stream s_stream;
 KaraStream::LyricTracker s_tracker;   // Mixer task only
@@ -114,6 +119,61 @@ size_t stateJson(const char *type, char *out, size_t cap)
     return (size_t)(p - out);
 }
 
+bool sameSongSeq(uint32_t seq)
+{
+    portENTER_CRITICAL(&s_mux);
+    const bool same = s_songSeq == seq;
+    portEXIT_CRITICAL(&s_mux);
+    return same;
+}
+
+void sendPlainLyrics(int fd, uint32_t seq)
+{
+    if (!s_bookMux) return;
+    xSemaphoreTake(s_bookMux, portMAX_DELAY);
+    const bool current = sameSongSeq(seq);
+    const bool plain = !s_plainLyrics.empty();
+    const size_t size = s_plainLyrics.size();
+    xSemaphoreGive(s_bookMux);
+    if (!current) return;
+    const char *start = plain ? "{\"type\":\"bookstart\",\"plain\":true}" :
+                                "{\"type\":\"bookstart\",\"plain\":false}";
+    if (!sendFrame(fd, HTTPD_WS_TYPE_TEXT, start, strlen(start)) || !plain) return;
+
+    size_t pos = 0;
+    while (pos < size) {
+        char chunk[640];
+        size_t n = 0;
+        size_t copied = 0;
+        xSemaphoreTake(s_bookMux, portMAX_DELAY);
+        if (!sameSongSeq(seq)) {
+            xSemaphoreGive(s_bookMux);
+            return;
+        }
+        n = size - pos;
+        if (n > 512) n = 512;
+        while (n && pos + n < size && (((uint8_t)s_plainLyrics[pos + n] & 0xC0) == 0x80)) n--;
+        memcpy(chunk, s_plainLyrics.data() + pos, n);
+        copied = n;
+        xSemaphoreGive(s_bookMux);
+        char *json = s_json;   // Sender-task buffer: keep large escaped frames off its stack.
+        const char prefix[] = "{\"type\":\"book\",\"text\":\"";
+        const char suffix[] = "\"}";
+        size_t p = sizeof(prefix) - 1;
+        memcpy(json, prefix, p);
+        char *out = json + p;
+        char *end = json + sizeof(s_json);
+        if (!KaraStream::jsonEscape(chunk, copied, out, end) || end - out < (ptrdiff_t)sizeof(suffix)) {
+            ESP_LOGE(TAG, "Plain lyrics frame exceeded JSON buffer");
+            return;
+        }
+        memcpy(out, suffix, sizeof(suffix));
+        const size_t len = (size_t)(out - json) + sizeof(suffix) - 1;
+        if (!sendFrame(fd, HTTPD_WS_TYPE_TEXT, json, len)) return;
+        pos += n;
+    }
+}
+
 void senderTask(void *)
 {
     bool enabled = false, muted = false;
@@ -151,13 +211,21 @@ void senderTask(void *)
         if (nh) {
             s_stream.requestResync();
             const size_t len = stateJson("hello", s_json, sizeof(s_json));
-            for (int i = 0; i < nh; i++) sendFrame(helloFd[i], HTTPD_WS_TYPE_TEXT, s_json, len);
+            for (int i = 0; i < nh; i++) {
+                sendFrame(helloFd[i], HTTPD_WS_TYPE_TEXT, s_json, len);
+            }
+            for (int i = 0; i < nh; i++) sendPlainLyrics(helloFd[i], seq);
         }
         if (seq != seenSeq) {   // Song opened / closed
             seenSeq = seq;
             if (enabled) {
+                s_stream.drain();
+                s_stream.requestResync();
                 const size_t len = stateJson("state", s_json, sizeof(s_json));
                 broadcast(HTTPD_WS_TYPE_TEXT, s_json, len);
+                int currentFd[MAX_CLIENTS];
+                const int nfd = snapshot(currentFd);
+                for (int i = 0; i < nfd; i++) sendPlainLyrics(currentFd[i], seq);
             }
         }
         const bool mute = active && open;
@@ -251,6 +319,12 @@ bool begin()
         return false;
     }
     s_stream.init(pcm, KaraStream::RING_SAMPLES, ev, KaraStream::EVT_CAP);
+    if (!s_bookMux) s_bookMux = xSemaphoreCreateMutex();
+    if (!s_bookMux) {
+        heap_caps_free(pcm);
+        heap_caps_free(ev);
+        return false;
+    }
 
     httpd_uri_t u = {};
     u.uri = "/ws/karaoke";
@@ -267,22 +341,31 @@ bool begin()
 
 bool running() { return s_running; }
 
-void setSong(bool open, const char *name)
+void setSong(bool open, const char *name, const char *plainLyrics)
 {
     char tmp[NAME_CAP] = "";
     if (open && name) KaraStream::copyUtf8(tmp, sizeof(tmp), name, strlen(name));
+    if (s_bookMux) xSemaphoreTake(s_bookMux, portMAX_DELAY);
+    s_plainLyrics = open && plainLyrics ? plainLyrics : "";
     portENTER_CRITICAL(&s_mux);
     s_songOpen = open;
     s_songSeq = s_songSeq + 1;
     memcpy(s_songName, tmp, sizeof(tmp));
     portEXIT_CRITICAL(&s_mux);
+    if (s_bookMux) xSemaphoreGive(s_bookMux);
+    s_plainLyricsAtomic = open && plainLyrics && *plainLyrics;
     s_songOpenAtomic = open;
     if (open) s_stream.requestResync();
 }
 
 void onRender(const Midi::Song &song, uint32_t posUs)
 {
-    if (s_running && s_songOpenAtomic) s_tracker.update(song, posUs, s_stream);
+    if (!s_running || !s_songOpenAtomic) return;
+    if (s_plainLyricsAtomic) {
+        s_tracker.reset();
+        return;
+    }
+    s_tracker.update(song, posUs, s_stream);
 }
 
 int clients() { return s_count; }

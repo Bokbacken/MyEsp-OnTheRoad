@@ -30,6 +30,21 @@ for (const file of files) {
 }
 assert.ok(maps >= 15);
 
+const layeredText = '@map\nS.R.\n....\n@map 2\n.S..\n....\n' +
+  '@treasures\n2 0 suction 2 # hidden under rock\nmap=2: 1,1 gem\n' +
+  '@enemies map=2\nchaser 1 1 area 0 0 3 1\n' +
+  '@portals\n2,0 -> next\n@destinations\nnext 2,0\n' +
+  '@treasures map=2\nmap=1: 3 1 pogo\n9 9 gem\n1 1 unknown\ninvalid\n';
+const layered = M.parse(layeredText);
+assert.deepEqual(M.coordinateLayers(layered, 1).layers.map(l => [l.x, l.y, l.kind, l.sprite]),
+  [[2, 0, 'treasures', 'suction'], [2, 0, 'portals', undefined],
+    [2, 0, 'destinations', undefined], [3, 1, 'treasures', 'pogo']]);
+assert.equal(M.coordinateLayers(layered, 1).errors.length, 0);
+assert.deepEqual(M.coordinateLayers(layered, 2).layers.map(l => l.kind), ['treasures', 'enemies']);
+assert.equal(M.coordinateLayers(layered, 2).errors.length, 3);
+assert.equal(M.serialize(layered), layeredText);
+assert.equal(M.getGrid(layered, 1)[0], 'S.R.');
+
 const SRC = [
   '# kommentar', '@meta', 'id: t', '', '@map', '#####', '#S.p#', '#.o=#', '#####', '# fri kommentar',
   '@legend', 'g = gate 2  # kommentar', '@plategroup 1: 1,2 2,1', '@gategroup 1: 3,2',

@@ -80,6 +80,10 @@ jobs:
         run: |
           python3 tests/test_board_peripherals.py
           python3 tests/test_flash_repair.py
+          python3 tests/test_nvs_backup.py
+          node tests/test_nvs_web.js
+          node tests/test_karaoke_web.js
+          python3 tests/test_karaoke_book.py
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py
           python3 tests/test_screen_power.py
@@ -88,6 +92,12 @@ jobs:
           node tests/test_board_diagnostics_web.js
           node tests/test_adventure_editor_web.js
           ADV_SAMPLE_DIR=/tmp/newadv node tests/test_adventure_model.js
+          trap 'rm -f tests/.test_kara_lyrics' EXIT
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_kara_lyrics.cpp main/kara_lyrics.cpp -o tests/.test_kara_lyrics
+          tests/.test_kara_lyrics
+          rm -f tests/.test_kara_lyrics
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_midi/include -Itests tests/test_karastream.cpp main/kara_stream.cpp components/otr_midi/otr_midi.cpp -o /tmp/test_karastream
+          /tmp/test_karastream
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o /tmp/test_fspath
           /tmp/test_fspath
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload

@@ -87,6 +87,59 @@ function mapSections(doc) {
 }
 function mapIds(doc) { return mapSections(doc).map(s => s.id); }
 
+// Read-only coordinate overlays; the production validator remains authoritative.
+function coordinateLayers(doc, id) {
+  const layers = [], errors = [];
+  const grid = getGrid(doc, id);
+  for (const sec of sections(doc)) {
+    if (!['@treasures', '@enemies', '@portals', '@destinations'].includes(sec.tag)) continue;
+    for (let i = sec.start + 1; i < sec.end; i++) {
+      let text = stripComment(doc.lines[i]).trim();
+      if (!text || text.startsWith('#')) continue;
+      let map = mapOf(sec.arg);
+      const prefix = /^map=(\d+)\s*:\s*/.exec(text);
+      if (prefix) { map = Number(prefix[1]); text = text.slice(prefix[0].length); }
+      if (map !== id) continue;
+      let match, x, y, label, sprite;
+      if (sec.tag === '@treasures') {
+        match = /^(\d+)[ ,\t]+(\d+)[ ,\t]+(\w+)(?:[ ,\t]+(\d+))?$/.exec(text);
+        if (match) {
+          x = Number(match[1]); y = Number(match[2]);
+          const item = match[3].toLowerCase();
+          const sprites = {key:'key', gem:'gem', boat:'boat', potion:'potion', heart:'heart',
+            suit:'suit', life:'life', bomb3:'num3', bomb4:'num4', flashlight:'flash',
+            flash:'flash', pogo:'pogo', pogostick:'pogo', skates:'skates', suction:'suction'};
+          sprite = sprites[item];
+          label = `Skatt: ${item} × ${match[4] || 1}`;
+          if (!sprite) match = null;
+        }
+      } else if (sec.tag === '@enemies') {
+        match = /^(patrol|chaser)\s+(\d+)\s+(\d+)(?:\s|$)/i.exec(text);
+        if (match) {
+          x = Number(match[2]); y = Number(match[3]);
+          label = `Fiendestart: ${match[1]}`;
+        }
+      } else if (sec.tag === '@portals') {
+        match = /^(\d+)\s*,\s*(\d+)\s*->\s*(\S+)$/.exec(text);
+        if (match) {
+          x = Number(match[1]); y = Number(match[2]); label = `Portal → ${match[3]}`;
+        }
+      } else {
+        match = /^(\S+)\s+(\d+)\s*,\s*(\d+)$/.exec(text);
+        if (match) {
+          x = Number(match[2]); y = Number(match[3]); label = `Ankomst: ${match[1]}`;
+        }
+      }
+      if (!match || x >= grid[0].length || y >= grid.length) {
+        errors.push(`Rad ${i + 1}: kan inte visa ${sec.tag} (${text}).`);
+        continue;
+      }
+      layers.push({x, y, label, sprite, line: i + 1, kind: sec.tag.slice(1)});
+    }
+  }
+  return {layers, errors};
+}
+
 function isRow(line) {
   const t = line.trim();
   return t !== '' && !(t[0] === '#' && /\s/.test(t[1] || ''));
@@ -486,6 +539,7 @@ function addMap(doc, id, width, height) {
 }
 
 const api = {
+  coordinateLayers,
   newAdventure, suggestMapId, nextMapId, addMap, blankGrid, validStem, MAX_MAPS, FILLS,
   MAX_W, MAX_H, MAX_LEGEND, MAX_DARK, COLORS, TERRAIN, OBJECTS,
   parse, serialize, sections, replaceSection, addSection, mapIds, getGrid, setGrid,

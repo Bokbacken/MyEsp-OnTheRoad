@@ -1271,6 +1271,16 @@ bildnamn läser editorn samma `bitmaps/`-fil som enheten och visar bara bilden o
 den är högst 16 KiB och avkodas som 32×32 PNG; saknad eller ogiltig bild visas
 som enhetens gula påse. I teckenläge behålls kartans färger.
 
+**Visa dolda lager** visar skatter från `@treasures`, fiendestarter från
+`@enemies`, portaler och ankomstpunkter ovanpå grundkartan. Orange markering
+och antal visar hur många koordinatlager som finns i rutan; skattens bild
+visas som en liten extra symbol. Listan visar alla lager och grundglyfen,
+även om flera objekt delar en ruta. **Visa** centrerar den valda koordinaten.
+Visningen ändrar inte filen; flytta/måla påverkar fortfarande grundglyfen.
+Ändra lagrens koordinater i textavsnitten. Story-styrda spawn/förändringar
+simuleras inte. Ogiltiga lagerkoordinater visas som fel; Kontrollera använder
+fortfarande produktionsmotorns fullständiga validering.
+
 ---
 
 ## 12. Flerkartor och portaler
