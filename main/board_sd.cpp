@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <atomic>
 
 #include "board_pins.h"
 #include "driver/gpio.h"
@@ -33,6 +34,9 @@ sdmmc_card_t *s_card = nullptr;
 Info s_info{};
 uint32_t s_nextPoll = 0;
 bool s_logMissing = true;
+uint32_t s_transfers = 0;
+bool s_recoveryPending = false;
+std::atomic<uint32_t> s_traceUntil{0};
 esp_err_t (*s_rawTransaction)(int, sdmmc_command_t *) = nullptr;
 esp_err_t (*s_transaction)(int, sdmmc_command_t *) = nullptr;   // Raw, or traced in diagnostic builds
 
@@ -102,6 +106,7 @@ TaskHandle_t s_traceTask = nullptr;
 
 esp_err_t tracedTransaction(int slot, sdmmc_command_t *cmd)
 {
+    if (!traceEnabled()) return s_rawTransaction(slot, cmd);
     const int64_t start = esp_timer_get_time();
     portENTER_CRITICAL(&s_traceMux);
     ++s_trace.commands;
@@ -133,6 +138,7 @@ void traceTask(void *)
     uint32_t previous = 0;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        if (!traceEnabled()) continue;
         portENTER_CRITICAL(&s_traceMux);
         const IoTrace t = s_trace;
         portEXIT_CRITICAL(&s_traceMux);
@@ -238,6 +244,7 @@ bool tryMount(int width, int freqKhz = SDMMC_FREQ_DEFAULT, bool formatIfFail = f
         return false;
     }
     s_info.mounted = true;
+    s_recoveryPending = false;
     s_info.lastError = ESP_OK;
     s_info.width = (uint8_t)width;
     s_info.freqKhz = (uint32_t)s_card->real_freq_khz;
@@ -329,6 +336,65 @@ bool begin()
 
 bool mounted() { return s_info.mounted; }
 
+bool transferHealthy()
+{
+    Guard g;
+    return s_info.mounted && !s_recoveryPending;
+}
+
+bool beginTransfer()
+{
+    Guard g;
+    if (!s_info.mounted || s_recoveryPending) return false;
+    ++s_transfers;
+    return true;
+}
+
+void requestRecovery()
+{
+    Guard g;
+    if (!s_recoveryPending) ESP_LOGW(TAG, "SD recovery requested; waiting for %u transfers to close",
+                                   (unsigned)s_transfers);
+    s_recoveryPending = true;
+    s_nextPoll = 0;
+}
+
+void endTransfer()
+{
+    Guard g;
+    if (!s_transfers) {
+        ESP_LOGE(TAG, "unbalanced SD transfer release");
+        return;
+    }
+    --s_transfers;
+    if (!s_transfers && s_recoveryPending && !remount())
+        ESP_LOGE(TAG, "SD recovery after transfers closed failed");
+}
+
+bool traceSupported()
+{
+#if defined(CONFIG_OTR_SD_IO_DIAGNOSTICS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+uint32_t traceRemainingSeconds()
+{
+    const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000000);
+    const uint32_t until = s_traceUntil.load();
+    return until > now ? until - now : 0;
+}
+
+bool traceEnabled() { return traceSupported() && traceRemainingSeconds() > 0; }
+
+void setTrace(bool enabled)
+{
+    s_traceUntil.store(enabled && traceSupported()
+                           ? (uint32_t)(esp_timer_get_time() / 1000000) + 600 : 0);
+}
+
 Info info()
 {
     Guard g;
@@ -365,6 +431,10 @@ uint32_t clusterBytes()
 bool remount()
 {
     Guard g;
+    if (s_transfers) {
+        ESP_LOGW(TAG, "cannot remount SD with %u active transfers", (unsigned)s_transfers);
+        return false;
+    }
     if (!unmountLocked()) return false;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     s_recover = true;
@@ -376,6 +446,10 @@ bool remount()
 bool format()
 {
     Guard g;
+    if (s_transfers || s_recoveryPending) {
+        ESP_LOGW(TAG, "cannot format SD during transfers or recovery");
+        return false;
+    }
     if (!s_info.mounted && !mountLocked(true)) return false;
     if (!s_card) return false;
 
@@ -411,6 +485,15 @@ void poll(uint32_t nowMs)
 {
     if (!s_mux || (int32_t)(nowMs - s_nextPoll) < 0) return;
     Guard g;
+    if (s_transfers) {
+        s_nextPoll = nowMs + 1000;
+        return;
+    }
+    if (s_recoveryPending) {
+        s_nextPoll = nowMs + 15000;
+        if (!remount()) ESP_LOGW(TAG, "pending SD recovery failed");
+        return;
+    }
     if (s_info.mounted) {
         s_nextPoll = nowMs + 3000;
         const esp_err_t err = sdmmc_get_status(s_card);

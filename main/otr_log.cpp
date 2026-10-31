@@ -56,6 +56,7 @@ vprintf_like_t s_prev = nullptr;
 SemaphoreHandle_t s_sdMtx = nullptr;
 std::atomic<int> s_sseClients{0};
 std::atomic<bool> s_sdEnabled{true};
+std::atomic<int> s_logLevel{ESP_LOG_INFO};
 bool s_ready = false;
 
 void *psAlloc(size_t n)
@@ -126,20 +127,36 @@ void rotate()
 bool appendSd(const char *data, size_t n)
 {
     BoardSd::Guard g;
-    if (!BoardSd::mounted()) return false;
+    if (!BoardSd::transferHealthy()) return false;
     struct stat st = {};
     if (stat(LOG_DIR, &st) != 0) {
         mkdir("/sdcard/otr", 0775);
-        if (mkdir(LOG_DIR, 0775) != 0 && errno != EEXIST) return false;
+        if (mkdir(LOG_DIR, 0775) != 0 && errno != EEXIST) {
+            const int dirError = errno;
+            ESP_LOGW(TAG, "SD log directory creation failed (%d)", dirError);
+            if (dirError == EIO) BoardSd::requestRecovery();
+            return false;
+        }
     }
     char p[48];
     filePath(p, sizeof(p), 0);
     if (stat(p, &st) == 0 && (size_t)st.st_size + n > FILE_MAX) rotate();
     FILE *f = fopen(p, "ab");
-    if (!f) return false;
+    if (!f) {
+        const int openError = errno;
+        ESP_LOGW(TAG, "SD log open failed (%d); preserving RAM backlog", openError);
+        if (openError == EIO) BoardSd::requestRecovery();
+        return false;
+    }
     const bool ok = fwrite(data, 1, n, f) == n;
-    fclose(f);
-    return ok;
+    const int writeError = ok ? 0 : (errno ? errno : EIO);
+    const bool closed = fclose(f) == 0;
+    const int closeError = closed ? 0 : (errno ? errno : EIO);
+    if (!ok || !closed) {
+        ESP_LOGW(TAG, "SD log append failed; preserving RAM backlog");
+        if (writeError == EIO || closeError == EIO) BoardSd::requestRecovery();
+    }
+    return ok && closed;
 }
 
 void sdTask(void *)
@@ -150,7 +167,7 @@ void sdTask(void *)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(SD_PERIOD_MS));
         if (!buf) continue;
-        const bool mounted = BoardSd::mounted();
+        const bool mounted = BoardSd::transferHealthy();
         if (!s_sdEnabled.load()) {
             wasMounted = false;
             continue;
@@ -163,13 +180,15 @@ void sdTask(void *)
         }
         wasMounted = mounted;
         if (!mounted) {
-            pos = ringHead();   // Nothing to keep up with; skip what was logged without a card
             continue;
         }
         xSemaphoreTake(s_sdMtx, portMAX_DELAY);
         size_t n;
-        while (s_sdEnabled.load() && (n = ringRead(buf, 8192, &pos)) > 0)
+        uint64_t next = pos;
+        while (s_sdEnabled.load() && (n = ringRead(buf, 8192, &next)) > 0) {
             if (!appendSd(buf, n)) break;
+            pos = next;
+        }
         xSemaphoreGive(s_sdMtx);
     }
 }
@@ -302,6 +321,12 @@ struct ZipOut {
 // Streams one SD file in two passes (CRC, then data). Caller holds s_sdMtx.
 void zipFile(ZipOut &z, const char *path, const char *name, char *buf, size_t cap)
 {
+    BoardSd::Transfer transfer;
+    if (!transfer.active) {
+        ESP_LOGW(TAG, "SD log ZIP interrupted by unavailable card or recovery");
+        z.ok = false;
+        return;
+    }
     FILE *f;
     {
         BoardSd::Guard g;
@@ -313,7 +338,16 @@ void zipFile(ZipOut &z, const char *path, const char *name, char *buf, size_t ca
         size_t n;
         {
             BoardSd::Guard g;
+            if (!BoardSd::transferHealthy()) {
+                z.ok = false;
+                break;
+            }
             n = fread(buf, 1, cap, f);
+            if (ferror(f)) {
+                BoardSd::requestRecovery();
+                z.ok = false;
+                break;
+            }
         }
         if (!n) break;
         crc = OtrLogCore::crc32Update(crc, buf, n);
@@ -323,23 +357,33 @@ void zipFile(ZipOut &z, const char *path, const char *name, char *buf, size_t ca
         BoardSd::Guard g;
         rewind(f);
     }
-    z.begin(name, crc, size);
+    if (z.ok) z.begin(name, crc, size);
     uint32_t left = size;
     while (z.ok && left > 0) {
         size_t n;
         {
             BoardSd::Guard g;
+            if (!BoardSd::transferHealthy()) {
+                z.ok = false;
+                break;
+            }
             n = fread(buf, 1, left < cap ? left : cap, f);
         }
-        if (!n) {   // File shrank (card trouble): pad so the archive stays consistent
-            memset(buf, 0, left < cap ? left : cap);
-            n = left < cap ? left : cap;
+        if (!n || ferror(f)) {
+            ESP_LOGW(TAG, "SD log ZIP read failed");
+            BoardSd::requestRecovery();
+            z.ok = false;
+            break;
         }
         z.send(buf, n);
         left -= (uint32_t)n;
     }
     BoardSd::Guard g;
-    fclose(f);
+    if (fclose(f) != 0) {
+        ESP_LOGW(TAG, "SD log ZIP close failed");
+        BoardSd::requestRecovery();
+        z.ok = false;
+    }
 }
 
 esp_err_t handleDownload(httpd_req_t *req)
@@ -422,6 +466,54 @@ esp_err_t handleSdLogControl(httpd_req_t *req)
     return handleSdLogStatus(req);
 }
 
+const char *logLevelName(int level)
+{
+    switch (level) {
+        case ESP_LOG_ERROR: return "error";
+        case ESP_LOG_WARN: return "warning";
+        case ESP_LOG_DEBUG: return "debug";
+        default: return "info";
+    }
+}
+
+esp_err_t handleLogConfigStatus(httpd_req_t *req)
+{
+    char json[180];
+    snprintf(json, sizeof(json),
+             "{\"level\":\"%s\",\"sd_trace\":%s,\"sd_trace_supported\":%s,\"trace_seconds\":%u}",
+             logLevelName(s_logLevel.load()), BoardSd::traceEnabled() ? "true" : "false",
+             BoardSd::traceSupported() ? "true" : "false",
+             (unsigned)BoardSd::traceRemainingSeconds());
+    return MyWeb::sendJsonStr(req, 200, json);
+}
+
+esp_err_t handleLogConfigControl(httpd_req_t *req)
+{
+    MyWeb::Req q(req);
+    if (!q.adminAllowed()) return MyWeb::sendError(req, 403, "Admin PIN required");
+    char level[16], trace[8];
+    if (!q.get("level", level, sizeof(level)) || !q.get("sd_trace", trace, sizeof(trace)) ||
+        (strcmp(trace, "0") && strcmp(trace, "1")))
+        return MyWeb::sendError(req, 400, "level and sd_trace=0|1 required");
+    int selected;
+    if (!strcmp(level, "error")) selected = ESP_LOG_ERROR;
+    else if (!strcmp(level, "warning")) selected = ESP_LOG_WARN;
+    else if (!strcmp(level, "info")) selected = ESP_LOG_INFO;
+    else if (!strcmp(level, "debug")) selected = ESP_LOG_DEBUG;
+    else return MyWeb::sendError(req, 400, "Invalid log level");
+    const bool enabled = !strcmp(trace, "1");
+    if (enabled && !BoardSd::traceSupported())
+        return MyWeb::sendError(req, 400, "SD tracing is unavailable on this build");
+    xSemaphoreTake(s_sdMtx, portMAX_DELAY);
+    esp_log_level_set("*", (esp_log_level_t)selected);
+    s_logLevel.store(selected);
+    BoardSd::setTrace(enabled);
+    // Explicit SD tracing remains visible even when general verbosity is warning/error.
+    esp_log_level_set("sdtrace", enabled ? ESP_LOG_INFO : (esp_log_level_t)selected);
+    xSemaphoreGive(s_sdMtx);
+    return handleLogConfigStatus(req);
+}
+
 }  // namespace
 
 bool otr_log_init()
@@ -449,6 +541,8 @@ bool otr_log_register_routes()
     ok &= MyWeb::on("/api/log/download", HTTP_GET, handleDownload);
     ok &= MyWeb::on("/api/log/sd", HTTP_GET, handleSdLogStatus);
     ok &= MyWeb::on("/api/log/sd", HTTP_POST, handleSdLogControl);
+    ok &= MyWeb::on("/api/log/config", HTTP_GET, handleLogConfigStatus);
+    ok &= MyWeb::on("/api/log/config", HTTP_POST, handleLogConfigControl);
     return ok;
 }
 

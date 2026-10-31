@@ -273,6 +273,8 @@ SD = r'''
 int main() {
     using namespace BoardSd;
     assert(begin() && info().mounted && info().width==4);
+    assert(!traceEnabled() && traceRemainingSeconds()==0);
+    setTrace(true);
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
 #ifdef CONFIG_OTR_SD_50MHZ_EXPERIMENT
     assert(lastFreq==50000 && powerCycles==0);
@@ -370,6 +372,28 @@ int main() {
     formatResult=ESP_OK;
     acceptFormatMount=true;
     assert(format() && formatMountCalls==1 && formatCalls==3 && mounted());
+    // A failed session blocks new work, aborts its peers and waits for every open file to close.
+    const uint32_t beforeRecovery=info().generation;
+    Transfer first, second;
+    assert(first.active && second.active);
+    assert(!remount() && !format());
+    requestRecovery();
+    assert(!transferHealthy());
+    Transfer rejected;
+    assert(!rejected.active);
+    poll(40000);
+    assert(mounted() && info().generation==beforeRecovery);
+    first.finish();
+    assert(info().generation==beforeRecovery);
+    second.finish();
+    assert(transferHealthy() && info().generation==beforeRecovery+1);
+    second.finish(); // Idempotent: no extra remount.
+    assert(info().generation==beforeRecovery+1);
+    setTrace(false);
+    assert(!traceEnabled());
+    setTrace(true);
+    ticks+=601000000;
+    assert(!traceEnabled() && traceRemainingSeconds()==0);
 }
 '''
 

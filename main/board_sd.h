@@ -24,6 +24,22 @@ struct Info {
 
 bool begin();                // Mount at boot (false = no card / failed, logged)
 bool mounted();
+bool transferHealthy();      // Mounted and no recovery requested
+void requestRecovery();      // Abort transfers; remount only after the last transfer closes
+bool beginTransfer();
+void endTransfer();
+struct Transfer {
+    bool active;
+    explicit Transfer(bool enabled = true) : active(enabled && beginTransfer()) {}
+    Transfer(const Transfer &) = delete;
+    Transfer &operator=(const Transfer &) = delete;
+    void finish() { if (active) { active = false; endTransfer(); } }
+    ~Transfer() { finish(); }
+};
+bool traceSupported();
+void setTrace(bool enabled); // Temporary, expires after ten minutes; off after restart
+bool traceEnabled();
+uint32_t traceRemainingSeconds();
 Info info();                 // Cheap: totals are cached (refreshed by poll / after mount)
 void poll(uint32_t nowMs);   // Call from the main loop (every ~20 ms is fine; works on its own schedule)
 bool remount();              // Unmount (if needed) and mount again; used by the web UI / settings

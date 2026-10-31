@@ -126,7 +126,29 @@ med fyra. Det är inte UHS SDR50 eller ett byte till 1,8 V.
 Experimentet loggar begärd, förhandlad och faktisk klocka på båda slotar
 och avvisar en 50 MHz-initiering som inte når 50 MHz. MyPi-Hotspot använde
 C5, så dess tester verifierar inte denna C6, detta kort eller denna layout.
-50 MHz är ännu inte hårdvaruverifierat.
+Ägarens efterföljande test bekräftade faktisk 50 MHz på båda slotar.
+Tre filer laddades upp utan SD-fel eller watchdog: Unison två gånger
+(33,241/33,293 s) och MuseScore General, 215 614 036 byte (259,775 s).
+För Unison blev skrivtiden 6,200/6,316 s mot 6,469 s vid 40 MHz:
+cirka 3,3% kortare i medel. Total tid förbättrades cirka 3,4%.
+Det är observerade skillnader, inte isolerade mätningar av klockvinsten.
+
+Ägaren valde därför att behålla 40 MHz. Från v0.23.12 tas experimentbygget
+bort från den vanliga CI-matrisen; opt-in-koden finns kvar för reproduktion.
+
+## v0.23.12: normaldrift och samtidighet
+
+Fyra samtidiga SD-uppladdningar återaktiveras, med fortsatt serialisering
+av kortoperationer. I/O-fel blockerar nya filhållare och avbryter andra
+sessioner. Återmontering väntar tills spårade uppladdningar, nedladdningar
+och SD-loggexport har stängt filerna. Manuell formatering/återmontering och
+kortstatuspollning får inte avmontera kortet medan överföringar pågår.
+
+Normal Info-loggning återställs vid start och kommandospårningen är av.
+Diagnostik erbjuder generella loggnivåer och separat SD-spårning som
+automatiskt upphör efter tio minuter. RAM-backloggen behålls inom ringens
+storlek genom SD-avbrott och misslyckade appends. Dessa nya beteenden
+behöver hårdvarutestas; sekventiella framgångar verifierar inte samtidighet.
 
 ## Att återanvända på nästa P4-kort
 
@@ -154,9 +176,9 @@ uppladdningssession fortfarande har en fil öppen.
 
 ## Kvar att verifiera
 
-50/50 MHz, längre stabilitetstest och hashkontroll av överförda filer
-återstår. Flera samtidiga sessioner behöver samordnad återhämtning innan
-de slås på igen. GPIO42-varningen vid återmontering och orsaken till
+Längre stabilitetstest, hashkontroll av överförda filer och hårdvarutest av
+flera samtidiga sessioner med samordnad återhämtning återstår.
+GPIO42-varningen vid återmontering och orsaken till
 skärmblinkningen är ännu inte förklarade. Kopplingen mellan SD-felen och
 Wi-Fi-avbrotten behöver tidskorreleras; förbättrat SD är inte bevis för
 att alla nätverksproblem är lösta.

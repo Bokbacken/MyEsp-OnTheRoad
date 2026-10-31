@@ -58,7 +58,7 @@ static constexpr size_t CHUNK = 32768;
 static constexpr size_t DOWNLOAD_CHUNK = 8192;
 static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
-static constexpr int MAX_UPLOADS = 1;
+static constexpr int MAX_UPLOADS = 4;
 static std::atomic<int> s_activeUploads{0};
 static std::atomic<int> s_activeDownloads{0};
 static std::atomic<bool> s_formatting{false};
@@ -67,10 +67,11 @@ static std::atomic<int> s_formatStatus{0};
 namespace {
 
 struct SdUse {
+    BoardSd::Transfer transfer;
     bool active = false;
-    explicit SdUse(bool sd)
+    explicit SdUse(bool sd) : transfer(sd && !s_formatting.load())
     {
-        if (!sd || s_formatting.load()) return;
+        if (!sd || !transfer.active || s_formatting.load()) return;
         s_activeDownloads.fetch_add(1);
         if (s_formatting.load()) s_activeDownloads.fetch_sub(1);
         else active = true;
@@ -120,13 +121,16 @@ void uploadWriterTask(void *arg)
             if (pipeline->target->sd) BoardSd::lock();
             pipeline->lockUs += esp_timer_get_time() - lockStart;
             const int64_t writeStart = esp_timer_get_time();
-            const bool wrote = fwrite(pipeline->buffers[chunk.index], 1, chunk.length, pipeline->file) == chunk.length;
+            const bool healthy = !pipeline->target->sd || BoardSd::transferHealthy();
+            const bool wrote = healthy &&
+                fwrite(pipeline->buffers[chunk.index], 1, chunk.length, pipeline->file) == chunk.length;
             pipeline->writeUs += esp_timer_get_time() - writeStart;
-            if (pipeline->target->sd) BoardSd::unlock();
             if (!wrote) {
-                error = errno == ENOSPC ? ENOSPC : EIO;
+                error = healthy && errno == ENOSPC ? ENOSPC : EIO;
+                if (pipeline->target->sd && error == EIO) BoardSd::requestRecovery();
                 pipeline->error.store(error);
             }
+            if (pipeline->target->sd) BoardSd::unlock();
         }
         xQueueSend(pipeline->available, &chunk.index, portMAX_DELAY);
     }
@@ -302,24 +306,37 @@ static esp_err_t handleDownload(httpd_req_t *r)
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
     SdUse sdUse(t.sd);
-    if (t.sd && !sdUse.active) return MyWeb::sendError(r, 503, "SD-kortet formateras");
+    if (t.sd && !sdUse.active) return MyWeb::sendError(r, 503, "SD-kortet är upptaget eller återhämtas");
     FILE *f;
+    int openError = 0;
     struct stat st = {};
     {
         Lock lk(t.sd);
+        if (t.sd && !BoardSd::transferHealthy())
+            return MyWeb::sendError(r, 503, "SD-kortet återhämtas");
         f = (stat(t.path, &st) == 0 && !S_ISDIR(st.st_mode)) ? fopen(t.path, "rb") : nullptr;
+        if (!f) openError = S_ISDIR(st.st_mode) ? ENOENT : (errno ? errno : EIO);
     }
-    if (!f) return MyWeb::sendError(r, 404, tr(Str::WEB_ERR_FS_NOTFOUND));
-    if (hasSizeLimit && st.st_size > maxSize) {
-        {
-            Lock lk(t.sd);
-            fclose(f);
+    if (!f) {
+        if (t.sd && openError == EIO) BoardSd::requestRecovery();
+        return ioError(r, openError);
+    }
+    const auto closeFile = [&]() {
+        Lock lk(t.sd);
+        const bool closed = fclose(f) == 0;
+        if (!closed) {
+            ESP_LOGW(TAG, "download %s close failed", t.path);
+            if (t.sd) BoardSd::requestRecovery();
         }
+        return closed;
+    };
+    if (hasSizeLimit && st.st_size > maxSize) {
+        if (!closeFile()) return ioError(r, EIO);
         return MyWeb::sendError(r, 413, "Filen är större än max_size");
     }
     char *buf = (char *)psAlloc(DOWNLOAD_CHUNK);
     if (!buf) {
-        fclose(f);
+        closeFile();
         return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
     }
     char disp[300];
@@ -332,17 +349,26 @@ static esp_err_t handleDownload(httpd_req_t *r)
         size_t got;
         {
             Lock lk(t.sd);
+            if (t.sd && !BoardSd::transferHealthy()) {
+                e = ESP_FAIL;
+                break;
+            }
             got = fread(buf, 1, DOWNLOAD_CHUNK, f);
+            if (ferror(f)) {
+                e = ESP_FAIL;
+                if (t.sd) BoardSd::requestRecovery();
+                break;
+            }
         }
         if (!got) break;
         if ((e = httpd_resp_send_chunk(r, buf, got)) != ESP_OK) break;
     }
-    {
-        Lock lk(t.sd);
-        fclose(f);
-    }
+    if (!closeFile()) e = ESP_FAIL;
     free(buf);
-    if (e != ESP_OK) return e;
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "download %s interrupted", t.path);
+        return e;
+    }
     return httpd_resp_send_chunk(r, nullptr, 0);
 }
 
@@ -356,6 +382,9 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     Target t;
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
+    BoardSd::Transfer transfer(t.sd);
+    if (t.sd && !transfer.active)
+        return MyWeb::sendError(r, 503, "SD-kortet återhämtas");
     if (FsPath::isRoot(t.root, t.path) || !FsPath::validName(baseName(t.path)))
         return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
     bool overwrite = false;
@@ -371,13 +400,17 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     const int64_t uploadStart = esp_timer_get_time();
     {
         Lock lk(t.sd);
+        if (t.sd && !BoardSd::transferHealthy())
+            return MyWeb::sendError(r, 503, "SD-kortet återhämtas");
         struct stat st = {};
         if (stat(t.path, &st) == 0) {
             if (skipExisting && !overwrite) return sendUploadSkipped(r);
             if (S_ISDIR(st.st_mode) || !overwrite)
                 return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
         } else if (errno != ENOENT) {
-            return ioError(r, errno ? errno : EIO);
+            const int statError = errno ? errno : EIO;
+            if (t.sd && statError == EIO) BoardSd::requestRecovery();
+            return ioError(r, statError);
         }
         if (t.sd && total > BoardSd::info().freeBytes) return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
         for (int attempt = 0; attempt < 8; attempt++) {
@@ -399,7 +432,10 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             if (err != EEXIST) break;
         }
     }
-    if (!f) return ioError(r, err ? err : EEXIST);
+    if (!f) {
+        if (t.sd && err == EIO) BoardSd::requestRecovery();
+        return ioError(r, err ? err : EEXIST);
+    }
     UploadPipeline pipeline{};
     pipeline.target = &t;
     pipeline.file = f;
@@ -431,7 +467,10 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     }
     if (!ok) {
         Lock lk(t.sd);
-        fclose(f);
+        if (fclose(f) != 0 && t.sd) {
+            sdIoFailed = true;
+            BoardSd::requestRecovery();
+        }
         f = nullptr;
         FsUpload::discard(tmp);
     }
@@ -440,6 +479,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     int timeouts = 0;
     int64_t recvUs = 0, flushUs = 0, closeUs = 0;
     while (ok && left > 0) {
+        if (t.sd && !BoardSd::transferHealthy()) pipeline.error.store(EIO);
         if (pipeline.error.load()) {
             err = pipeline.error.load();
             sdIoFailed = t.sd && err == EIO;
@@ -490,22 +530,35 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     bool skipped = false;
     if (f) {
         Lock lk(t.sd);
+        if (t.sd && !BoardSd::transferHealthy()) {
+            ok = false;
+            err = EIO;
+            sdIoFailed = true;
+        }
         if (ok) {
             const int64_t flushStart = esp_timer_get_time();
             if (fflush(f) != 0) {
                 ok = false;
                 err = errno == ENOSPC ? ENOSPC : EIO;
                 sdIoFailed = t.sd && err == EIO;
+                if (sdIoFailed) BoardSd::requestRecovery();
             }
             flushUs = esp_timer_get_time() - flushStart;
         }
         const int64_t closeStart = esp_timer_get_time();
         const int closeResult = fclose(f);
         closeUs = esp_timer_get_time() - closeStart;
-        if (closeResult != 0 && ok) {
-            ok = false;
-            err = EIO;
-            sdIoFailed = t.sd;
+        if (closeResult != 0) {
+            const int closeError = errno == ENOSPC ? ENOSPC : EIO;
+            ESP_LOGW(TAG, "upload %s close failed", t.path);
+            if (ok) {
+                ok = false;
+                err = closeError;
+            }
+            if (t.sd && closeError == EIO) {
+                sdIoFailed = true;
+                BoardSd::requestRecovery();
+            }
         }
         if (ok) {
             const FsUpload::InstallResult result = FsUpload::install(tmp, t.path, backup, overwrite, skipExisting);
@@ -514,6 +567,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
                 ok = false;
                 err = errno ? errno : EIO;
                 sdIoFailed = t.sd && err == EIO;
+                if (sdIoFailed) BoardSd::requestRecovery();
             }
         }
         if (!ok || skipped) FsUpload::discard(tmp);
@@ -524,6 +578,8 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     if (pipeline.ready) vQueueDelete(pipeline.ready);
     if (pipeline.available) vQueueDelete(pipeline.available);
     if (pipeline.finished) vSemaphoreDelete(pipeline.finished);
+    if (sdIoFailed) BoardSd::requestRecovery();
+    transfer.finish();   // Last closed SD transfer performs any pending recovery before HTTP draining
     if (ok && !skipped) changed(t);
     ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, buffer wait %llu ms, SD lock wait %llu ms, "
                   "write %llu ms, flush %llu ms, close %llu ms, cache %u B (%s)", t.path,
@@ -537,15 +593,6 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
-        if (sdIoFailed) {
-            ESP_LOGW(TAG, "recovering SD card after upload I/O error");
-            if (BoardSd::remount()) {
-                Lock lk(true);
-                FsUpload::discard(tmp);   // The first discard may have hit the failed card
-            } else {
-                ESP_LOGW(TAG, "SD recovery after upload failure did not mount the card");
-            }
-        }
         char drain[512];
         while (drainBody && left > 0) {
             const int n = httpd_req_recv(r, drain, left < sizeof(drain) ? left : sizeof(drain));

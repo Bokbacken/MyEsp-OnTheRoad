@@ -170,14 +170,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [x] v0.23.10: två Wi-Fi-uppladdningar på 29,3 och 265,8 MB slutförda
   med SD på 40 MHz. Ägarens logg visar inga SD-fel, watchdogs eller
   återmonteringar efter v0.23.10-starten. Längre belastningstest återstår.
-- [ ] v0.23.11: verifiera separat `50mhz-experimental`-bygge. Båda slotar
-  ska logga faktisk klocka 50000 kHz; jämför samma filer mot 40 MHz.
-  Standardbygget behåller 40 MHz och en samtidig SD-uppladdning.
+- [x] v0.23.11: båda slotar loggade faktisk klocka 50000 kHz och tre
+  uppladdningar slutfördes utan SD-fel/watchdog. Unison skrivtid förbättrades
+  cirka 3,3% i medel. Ägaren valde 40 MHz för liten vinst mot eventuell risk.
 - [x] Felsökningsresan, bevisgränser och återanvändning på fler P4-kort
   dokumenterade i [SD/Wi-Fi-utredningen](P4_SD_WIFI_INVESTIGATION.md).
-- [ ] Återaktivera flera SD-uppladdningar separat efter klocktestet.
-  Samordna återhämtning så att en session inte återmonterar kortet medan
-  en annan fortfarande har en fil öppen.
+- [x] v0.23.12: fyra SD-uppladdningar med samordnad återhämtning efter
+  att överföringarnas filer stängts. Normal Info-loggning, valbara nivåer
+  och separat tillfällig SD-spårning i Diagnostik.
+- [ ] Hårdvara v0.23.12: flera stora filer samtidigt, hashkontroll,
+  avbrutna överföringar och återhämtning med flera filhållare.
+  Verifiera loggnivåer, SD-spårningens timeout och normalnivå efter omstart.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om

@@ -8,7 +8,7 @@ se [P4: SD- och Wi-Fi-utredningen](P4_SD_WIFI_INVESTIGATION.md).
 - FAT Long File Name-gränsen höjdes från 64 till 255 UTF-16-kodenheter. Webbfilsystemet validerar UTF-8, komponent- och fullständiga sökvägsgränser.
 - Uppladdningar skriver först till en unik, exklusivt skapad temporär syskonfil. En befintlig destination sparas tills den nya filen installerats; avbrutna eller misslyckade skrivningar ersätter inte originalet.
 - Konflikter kan stoppas, hoppas över eller skrivas över. Hoppa över är standard och en hoppad fil avbryter inte resten av batchen.
-- SD-uppladdningar körs en i taget både i webbläsarens batch och på servern. En uppladdning dubbelbuffrar mottagningen i 32 KiB-block och försöker använda en 32 KiB DMA-kapabel skrivcache, med PSRAM som reserv. Skrivningarna till själva SD-kortet är fortsatt serialiserade.
+- SD-uppladdningar tillåter upp till fyra samtidiga sessioner i webbläsarens batch och på servern. En uppladdning dubbelbuffrar mottagningen i 32 KiB-block och försöker använda en 32 KiB DMA-kapabel skrivcache, med PSRAM som reserv. Skrivningarna till själva SD-kortet är fortsatt serialiserade. Batchuppladdning till intern flash körs en i taget.
 - Kataloger kan väljas eller släppas från webbläsaren; deras struktur återskapas upp till tre mappnivåer.
 - SD-kort kan formateras som FAT från filhanteraren. Enheten använder inte exFAT; FAT-formatering kan därför göra större kort användbara. Två separata bekräftelser krävs, och en konfigurerad admin-PIN måste anges. Formatering raderar allt på kortet. Den uttryckliga åtgärden kan också formatera ett kort vars filsystem inte gick att montera; vanlig start och automatisk återmontering formaterar aldrig kortet. Webbläsaren visar status medan formateringen pågår och ett tydligt resultat efteråt.
 
@@ -64,7 +64,9 @@ Hårdvarutest återstår för v0.23.3: verifiera PIN-skydd och bekräftelser fö
 
 Ägaren rapporterade 2026-10-31 att en lyckad uppladdning på 64 013 byte följdes av SDMMC-fel `0x107` vid skrivning, upprepade skrivfel och en watchdog-varning där `fs_upload_sd` kördes på CPU 0. SD-kortet blev därefter otillgängligt tills enheten återställdes. Loggen fastställer inte om grundorsaken var kortet, kortgränssnittet eller samtidig belastning.
 
-Som försiktighetsåtgärd körs nu SD-uppladdningar en i taget. Vid ett SD-I/O-fel under skrivning, flush, stängning eller installation försöker servern använda den befintliga återmonterings-/återställningsvägen; den gör ingen usage-refresh efter misslyckad uppladdning. Detta är en programvarumitigering, inte bevis på att kort eller hårdvara är felfria. Reproduktion, återhämtning och watchdog-beteende behöver verifieras på den berörda enheten.
+Som försiktighetsåtgärd begränsades då SD-uppladdningar till en i taget.
+Från v0.23.12 tillåts fyra sessioner med samordnad återhämtning enligt nedan.
+Det är inte bevis på att kort eller hårdvara är felfria.
 
 ### Diagnostikbygge v0.23.8
 
@@ -148,8 +150,8 @@ startloggen visar `mounted ...: 4-bit 40000 kHz`.
 
 ### Experiment: 50 MHz på P4 (v0.23.11)
 
-Vanliga bygget behåller 40 MHz. CI bygger dessutom ett separat artifact
-med suffixet **`-50mhz-experimental`**. Endast detta aktiverar
+Vanliga bygget behåller 40 MHz. CI för v0.23.11 byggde dessutom ett separat
+artifact med suffixet **`-50mhz-experimental`**. Detta aktiverade
 `CONFIG_OTR_SD_50MHZ_EXPERIMENT=y` och
 `CONFIG_ESP_HOSTED_HOST_SDIO_CLK_KHZ=50000`. Antalet samtidiga
 SD-uppladdningar är fortfarande ett, så klocktestet görs separat.
@@ -173,6 +175,55 @@ Spara seriell logg från start och kopiera samma stora filer som i
 40 MHz-testet. Jämför tid, SD-fel och Wi-Fi-beteende. MyPi-Hotspot använde
 C5; det bevisar inte stabilitet med denna C6 och detta SD-kort. Behåll
 40 MHz-bygget för återgång via USB om Wi-Fi/OTA inte startar.
+
+Ägarens test visade faktisk 50 MHz på båda slotar och tre slutförda
+uppladdningar utan SD-fel eller watchdog. För samma Unison-fil var total tid
+33,241/33,293 s mot 34,438 s på 40 MHz; skrivtid var 6,200/6,316 s mot
+6,469 s, cirka 3,3% kortare i medel. Vinsten bedömdes för liten i förhållande
+till möjlig risk. Från v0.23.12 bygger vanlig CI bara 40 MHz-varianten;
+50 MHz-opt-in och det tidigare artifactet finns kvar för reproduktion.
+
+### Samtidiga uppladdningar och återhämtning (v0.23.12)
+
+Fyra uppladdningar kan ta emot data samtidigt, men varje kortoperation
+tar det gemensamma SD-låset. Tillfälliga filer är unika och en misslyckad
+överföring installeras inte över destinationen.
+
+Vid SD-I/O-fel markeras återhämtning som väntande under samma lås.
+Nya överföringar avvisas, andra uppladdningar slutar skriva/installeras inte
+och nedladdningar samt SD-loggexport avbryts vid nästa kortoperation.
+Kortet monteras om först när alla dessa filhållare har stängt sina filer.
+En manuell återmontering eller formatering avvisas medan överföringar
+pågår. Kortstatuspollning väntar också; den får inte avmontera under en
+överföring. Slut på utrymme är inte i sig skäl att strömcykla kortet.
+
+Pågående HTTP-sändning/mottagning kan behöva avslutas eller nå sin timeout
+innan sista filhållaren släpper kortet. Klienten får ett fel, inte ett
+lyckat resultat med en ofullständig fil. Fyra samtidiga sessioner och
+felåterhämtning behöver fortfarande testas på hårdvara.
+
+### Normal loggning och tillfällig debug (v0.23.12)
+
+Diagnostik har nu **Enhetens loggnivå**: Fel, Varning och fel,
+Info (normal), samt Debug. Info är standard vid omstart. Nivån styr nya
+ESP-IDF-loggmeddelanden i serieport/RAM/SD/liveflöde; checkboxfiltren i
+loggfönstret filtrerar bara visningen. Redan insamlade rader, direkt
+loggade apphändelser och bootloader-/watchdog-utskrifter ändras inte.
+Debug kan öka belastningen och mängden loggar.
+
+**Starta SD-spårning (10 min)** aktiverar endast kommandosamplingen.
+Den är av vid start och slås av automatiskt efter tio minuter.
+Spårning visas även om den generella loggnivån är Fel eller Varning.
+Den kan stoppas manuellt och är endast tillgänglig i byggen med
+`CONFIG_OTR_SD_IO_DIAGNOSTICS` (vanliga P4-bygget, inte S3).
+Ändringar kräver Admin-PIN när en sådan är konfigurerad och sparas inte
+över omstart. SD-loggningens separata pausknapp och RAM-only ZIP finns kvar.
+Tillgänglig RAM-backlog behålls nu genom kortavbrott och misslyckade
+loggskrivningar, men äldre rader kan fortfarande skrivas över i 64 KiB-ringen.
+
+`GET /api/log/config` ger `level`, `sd_trace`, `sd_trace_supported` och
+`trace_seconds`. Admin-skyddad `POST /api/log/config?level=error|warning|info|debug&sd_trace=0|1`
+ändrar båda värdena; `sd_trace=1` startar en ny tiominutersperiod.
 
 API: `GET /api/log/sd` ger `{"enabled":true|false}`;
 adminskyddat `POST /api/log/sd?enabled=0|1&pin=...` ändrar SD-loggning.

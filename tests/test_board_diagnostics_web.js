@@ -6,6 +6,7 @@ const vm = require('node:vm');
 async function page(file, data) {
   const requests = [];
   let sdEnabled = true;
+  let logConfig = {level: 'info', sd_trace: false, sd_trace_supported: data.chip === 'esp32p4', trace_seconds: 0};
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
@@ -22,6 +23,14 @@ async function page(file, data) {
       if (url.startsWith('/api/log/sd')) {
         if (options?.method === 'POST') sdEnabled = url.includes('enabled=1');
         return {ok: true, json: async () => ({enabled: sdEnabled})};
+      }
+      if (url.startsWith('/api/log/config')) {
+        if (options?.method === 'POST') {
+          const q = new URL('http://localhost' + url).searchParams;
+          logConfig = {...logConfig, level: q.get('level'), sd_trace: q.get('sd_trace') === '1'};
+          logConfig.trace_seconds = logConfig.sd_trace ? 600 : 0;
+        }
+        return {ok: true, json: async () => logConfig};
       }
       return {ok: true, json: async () => data};
     }, setInterval() {}, setTimeout() {},
@@ -69,6 +78,23 @@ async function page(file, data) {
     assert(diag.element('battery').innerHTML.includes('3636 mV'));
     assert(diag.element('raw').textContent.includes('scale_permille'));
     await diag.run('sdLogRefresh()');
+    await diag.run('logConfigRefresh()');
+    assert.equal(diag.element('log-level').value, 'info');
+    assert.equal(diag.element('log-trace-toggle').disabled, !p4);
+    diag.run(`window.prompt = () => '12&34'`);
+    diag.element('log-level').value = 'debug';
+    await diag.element('log-level').onchange();
+    assert.equal(diag.element('log-level').value, 'debug');
+    assert.match(diag.requests.at(-1).url, /level=debug&sd_trace=0&pin=12%2634/);
+    if (p4) {
+      await diag.element('log-trace-toggle').onclick();
+      assert.equal(diag.element('log-trace-toggle').textContent, 'Stoppa SD-spårning');
+      assert.match(diag.requests.at(-1).url, /sd_trace=1/);
+    }
+    diag.run('window.prompt = () => null');
+    diag.element('log-level').value = 'error';
+    await diag.element('log-level').onchange();
+    assert.equal(diag.element('log-level').value, 'debug');
     assert.equal(diag.element('log-sd-toggle').disabled, false);
     assert.equal(diag.element('log-sd-state').textContent, 'SD-loggning på');
     diag.run(`window.prompt = () => '12&34'`);
@@ -95,6 +121,12 @@ async function page(file, data) {
     diag.run(`fetch = async () => { throw new Error('Network failed'); }`);
     await diag.element('log-sd-toggle').onclick();
     assert.equal(diag.element('log-sd-state').textContent, 'Network failed');
+    diag.run('fetch = originalFetch');
+    diag.run(`fetch = async () => ({ok: false, json: async () => ({error: 'Fel PIN'})})`);
+    diag.element('log-level').value = 'error';
+    await diag.element('log-level').onchange();
+    assert.equal(diag.element('log-level').value, 'debug');
+    assert.equal(diag.element('log-config-state').textContent, 'Fel PIN');
     diag.run('fetch = originalFetch');
     data.display.sleeping = true;
     data.display.brightness = 55;

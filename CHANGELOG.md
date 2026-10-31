@@ -8,6 +8,27 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.12 (unreleased)
+
+- Restored up to four concurrent SD upload sessions in browser batches and
+  the server. Card operations remain serialized; internal-flash batches remain
+  sequential. Recovery blocks new transfers, aborts peers and waits for every
+  tracked upload, download and SD log-export file to close before remounting.
+- Normal logging is Info with SD command tracing off. Diagnostics offers
+  admin-protected Error/Warning/Info/Debug levels and independent SD tracing
+  that expires after ten minutes. Runtime choices reset at restart.
+  Debug statements are compiled in; changing verbosity affects new ESP-IDF
+  log messages, not historical entries, direct events or bootloader output.
+- Preserve available RAM log backlog through SD outages and failed appends;
+  check close errors and stop failed ZIP reads instead of zero-padding them.
+- Kept 40 MHz for both P4 slots. The owner confirmed actual 50 MHz on both
+  slots and three successful uploads without SD errors/watchdogs. Unison's
+  mean write time improved only 3.3% (6.469 to 6.258 s), so 50 MHz is not
+  promoted. Removed the extra experiment from the routine CI build matrix;
+  its opt-in code and historical v0.23.11 artifact remain for reproduction.
+- Concurrent-upload recovery and runtime logging controls need hardware
+  verification; previous sequential successes do not verify concurrency.
+
 ## v0.23.11 (unreleased)
 
 - Added a separate P4 `50mhz-experimental` CI artifact. Normal P4 builds

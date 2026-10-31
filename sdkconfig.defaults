@@ -28,6 +28,8 @@ CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y
 
 # --- Logging (console selection is per target) ---
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y
 CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
 
 # --- OTA: rollback, the app marks itself valid once it has booted fine ---

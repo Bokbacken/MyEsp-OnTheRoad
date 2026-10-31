@@ -47,13 +47,16 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   the SD card. Volumes and on/off on the device and in the web settings.
 - **microSD + file browser** – FAT storage over 4-bit SDMMC (1-bit fallback).
   `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
-  folder and directory uploads. SD uploads are serialized to reduce contention
-  during card writes.
+  folder and directory uploads. Up to four SD uploads run concurrently while
+  card operations remain serialized, with recovery deferred until transfer files close.
   Existing files are skipped by default; overwrite is explicit. SD formatting
   requires separate confirmations, including for an unmountable card.
   NVS settings memory has a separate information view and binary backup download
   (the backup may contain credentials). Changes and NVS downloads require the
   admin PIN when configured. See the [file-management reference](docs/FILE_MANAGEMENT.md).
+- **Diagnostics logging** – Info by default, with temporary Error/Warning/Info/Debug
+  controls and independent ten-minute SD tracing on P4. Changes require admin authorization
+  and reset at restart; RAM-only log export remains available during SD trouble.
 
 ### SD card layout (optional)
 
@@ -481,6 +484,8 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o te
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 python3 tests/test_board_peripherals.py   # P4 internal RTC, S3/P4 ADC/SD recovery and per-board NVS calibration defaults
+python3 tests/test_upload_pipeline.py   # queued writes abort when another SD session requests recovery
+python3 tests/test_sd_log_diagnostics.py   # runtime levels, SD persistence and RAM-only export
 python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting
 python3 tests/test_ota_stream.py   # incremental erase, progress and failed validation leave the boot slot unchanged
 python3 tests/test_screen_power.py   # S3/P4 idle/manual off, wake-only touch + 250 ms, OTA and brightness restoration
