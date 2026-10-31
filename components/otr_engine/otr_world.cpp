@@ -1093,6 +1093,65 @@ bool World::clearObj(int x, int y)
     return true;
 }
 
+bool World::setStoryTerrain(int x, int y, int tileId)
+{
+    if (!inside(x, y) || tileId < 0 || tileId >= (int)Tile::COUNT ||
+        (x == px_ && y == py_) || enemyAt(x, y) >= 0 ||
+        rawObj(x, y) != Obj::NONE || hidden(x, y) != Obj::NONE)
+        return false;
+    const Tile next = (Tile)tileId;
+    switch (next) {
+    case Tile::GRASS: case Tile::SAND: case Tile::FLOOR: case Tile::RUBBLE:
+    case Tile::WALL: case Tile::CRACKED: case Tile::TREE: case Tile::WATER:
+    case Tile::BRIDGE: case Tile::LAVA: case Tile::BASALT: case Tile::CRATER:
+    case Tile::ICE: case Tile::BELT_UP: case Tile::BELT_RIGHT:
+    case Tile::BELT_DOWN: case Tile::BELT_LEFT:
+    case Tile::POISON: case Tile::SWAMP: case Tile::SHARP_ROCKS:
+        break;
+    default:
+        return false;
+    }
+    if (tile(x, y) == Tile::PLATE || tile(x, y) == Tile::GATE ||
+        tile(x, y) == Tile::LEVER || plate(tile(x, y)))
+        return false;
+    terrain_[y][x] = (uint8_t)next;
+    ++rev_;
+    return true;
+}
+
+bool World::placeStoryObject(int x, int y, int objectId)
+{
+    if (!inside(x, y) || objectId <= (int)Obj::NONE || objectId >= (int)Obj::COUNT ||
+        (x == px_ && y == py_) || enemyAt(x, y) >= 0 ||
+        rawObj(x, y) != Obj::NONE || hidden(x, y) != Obj::NONE)
+        return false;
+    const Tile t = tile(x, y);
+    if (!isGround(t) || t == Tile::PLATE || t == Tile::CHECKPOINT || t == Tile::EXIT ||
+        plate(t) || t == Tile::ICE || (t >= Tile::BELT_UP && t <= Tile::BELT_LEFT))
+        return false;
+    const Obj next = (Obj)objectId;
+    switch (next) {
+    case Obj::ROCK: case Obj::CRATE: case Obj::KEY: case Obj::DOOR: case Obj::BOAT:
+    case Obj::BUSH: case Obj::POTION: case Obj::HEART: case Obj::SUIT:
+    case Obj::LIFE: case Obj::BOMB3: case Obj::BOMB4:
+    case Obj::KEY_RED: case Obj::KEY_GREEN: case Obj::KEY_BLUE:
+    case Obj::KEY_YELLOW: case Obj::KEY_PURPLE: case Obj::KEY_CYAN:
+    case Obj::DOOR_RED: case Obj::DOOR_GREEN: case Obj::DOOR_BLUE:
+    case Obj::DOOR_YELLOW: case Obj::DOOR_PURPLE: case Obj::DOOR_CYAN:
+    case Obj::BOX_RED: case Obj::BOX_GREEN: case Obj::BOX_BLUE:
+    case Obj::BOX_YELLOW: case Obj::BOX_PURPLE: case Obj::BOX_CYAN:
+    case Obj::SKATES: case Obj::SUCTION:
+        break;
+    default:
+        return false;
+    }
+    obj_[y][x] = (uint8_t)next;
+    val_[y][x] = 0;
+    if (next == Obj::GEM) ++gemsTotal_;
+    ++rev_;
+    return true;
+}
+
 void World::addKeys(int n)
 {
     keys_ = keys_ + n < 0 ? 0 : keys_ + n > 99 ? 99 : keys_ + n;

@@ -1,0 +1,19 @@
+@meta
+id: motoraventyr_fyll_pa
+world: 126
+map_id: 126
+
+@rules
+start_energy: 10
+energy_cap: 16
+lives: 3
+carry: energy maxenergy lives items
+reset: items
+
+@resources
+t : stone : Sten : Stone : 2 :
+
+@map
+######
+#St.X#
+######

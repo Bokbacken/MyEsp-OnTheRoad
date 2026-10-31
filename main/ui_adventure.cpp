@@ -1541,18 +1541,19 @@ public:
         s_dirty = true;
         updateStats();
     }
-    void worldActionOnMap(const char *verb, int mapId, int argc, const int *a) override
+    bool worldActionOnMap(const char *verb, int mapId, int argc, const int *a) override
     {
         char err[160];
         if (!s_sd.active() || !s_sd.applyWorldActionOnMap(verb, mapId, argc, a,
                 *s_adv, *s_world, s_storyState, s_story, err, sizeof err)) {
             ESP_LOGW(TAG, "story: world %s map=%d failed", verb, mapId);
             toast(s_sd.active() ? err : tr(Str::ADV_SD_LOAD_FAIL), Theme::RED, 5000);
-            return;
+            return false;
         }
         s_dirty = true;
         s_saveWanted = true;
         updateStats();
+        return true;
     }
     void worldTravel(const char *destination) override
     {

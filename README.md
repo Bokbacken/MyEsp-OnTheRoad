@@ -17,6 +17,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 |---|---|
 | [Adventure quick guide](docs/ADVENTURE_AUTHORING_QUICKSTART.md) | Create and install adventures |
 | [Adventure authoring reference](docs/AUTHORING_ADVENTURES.md) | Supported `.adv` syntax and mechanics |
+| [Motoräventyret campaign](sdcard_bundle/otr/adventure/motoraventyr/README.md) | Install and play the numbered SD chapters |
 | [File management](docs/FILE_MANAGEMENT.md) | SD uploads, folders, formatting and performance |
 | [Karaoke and SoundFonts](docs/MUSIC_KARAOKE_PLAN.md) | Audio architecture and memory/quality tradeoffs |
 | [Multiplayer design](docs/MULTIPLAYER_DESIGN.md) | Host-authoritative Yatzy and joining devices |
@@ -27,8 +28,10 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 
 - **Dice games** – Yatzy, Maxi-Yatzy, Pig, Farkle and Ship-Captain-Crew.
 - **Tile adventures** – SD-loaded `.adv` campaigns, internal maps and portals,
-  puzzles, resources, NPC dialogue, checkpoints and saved progress. See the
-  authoring reference for supported mechanics and limits.
+  puzzles, story-driven terrain/object changes, resources, NPC dialogue,
+  checkpoints and saved progress. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
+  and the [authoring reference](docs/AUTHORING_ADVENTURES.md) for examples,
+  supported mechanics and limits.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device
   or a browser, with personal player PINs and host-authoritative game state.
 - **Karaoke** – responsive landscape layout at logical

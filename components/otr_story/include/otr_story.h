@@ -140,9 +140,11 @@ class Host {
 public:
     virtual ~Host() = default;
     virtual void worldAction(const char *verb, int argc, const int *argv) = 0;
-    virtual void worldActionOnMap(const char *verb, int mapId, int argc, const int *argv)
+    virtual bool worldActionOnMap(const char *verb, int mapId, int argc, const int *argv)
     {
-        if (mapId == 1) worldAction(verb, argc, argv);
+        if (mapId != 1) return false;
+        worldAction(verb, argc, argv);
+        return true;
     }
     virtual void worldTravel(const char *destination) { (void)destination; }
     virtual void sound(const char *name) = 0;

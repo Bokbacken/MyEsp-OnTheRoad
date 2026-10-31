@@ -176,7 +176,17 @@ void addNote(Note *notes, int *count, int cap, NoteKind k, int id, int amount)
 bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *host, Note *notes, int *noteCount, int noteCap)
 {
     if (!effects) return true;
+    if (st && !runEffects(sc, nullptr, effects, nullptr, nullptr, nullptr, 0)) return false;
+    StoryState staged;
+    StoryState *original = st;
+    const int originalNoteCount = noteCount ? *noteCount : 0;
+    if (st) {
+        staged = *st;
+        st = &staged;
+    }
     Span rest{effects, strlen(effects)}, eff;
+    int mappedActionCount = 0;
+    bool hasTerrainObjectAction = false;
     while (nextPart(rest, ';', eff)) {
         if (!eff.n) return false;
         Span w[6];
@@ -234,6 +244,11 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
                 }
                 continue;
             }
+            const bool terrainObjectAction = w[1].eq("tile") || w[1].eq("object");
+            if (terrainObjectAction) {
+                if (wc != 6) return false;
+                hasTerrainObjectAction = true;
+            }
             int argv[3] = {0, 0, 0};
             int mapId = 1, argc = 0;
             bool hasMap = false;
@@ -250,13 +265,22 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
                     argc++;
                 }
             }
-            if (hasMap && !w[1].eq("open") && !w[1].eq("npc_move") && !w[1].eq("npc_remove"))
+            if (hasMap && !w[1].eq("open") && !w[1].eq("npc_move") &&
+                !w[1].eq("npc_remove") && !w[1].eq("tile") && !w[1].eq("object"))
                 return false;
+            if ((w[1].eq("tile") || w[1].eq("object")) && (!hasMap || argc != 3))
+                return false;
+            if (hasMap && ++mappedActionCount > 1 && hasTerrainObjectAction) return false;
             if (st && host) {
                 char v[16];
                 memcpy(v, w[1].p, w[1].n);
                 v[w[1].n] = 0;
-                if (hasMap) host->worldActionOnMap(v, mapId, argc, argv);
+                if (hasMap) {
+                    if (!host->worldActionOnMap(v, mapId, argc, argv)) {
+                        if (noteCount) *noteCount = originalNoteCount;
+                        return false;
+                    }
+                }
                 else host->worldAction(v, argc, argv);
             }
         } else if (verb.eq("sound")) {
@@ -271,6 +295,7 @@ bool runEffects(const Script &sc, StoryState *st, const char *effects, Host *hos
             return false;
         }
     }
+    if (original) *original = staged;
     return true;
 }
 
@@ -530,7 +555,11 @@ bool Dialog::enter(const char *id)
         }
     }
     if (!node_) return false;
-    applyEffects(*sc_, *st_, node_->effects, host_, notes_, &noteCount_, MAX_NOTES);
+    if (!applyEffects(*sc_, *st_, node_->effects, host_, notes_, &noteCount_, MAX_NOTES)) {
+        node_ = nullptr;
+        count_ = 0;
+        return false;
+    }
     for (int c = 0; c < MAX_CHOICES; c++) {
         const Choice &ch = node_->choices[c];
         if (!ch.text.s[0]) continue;
@@ -561,7 +590,7 @@ bool Dialog::choose(int i)
     if (!node_ || !enabled(i)) return false;
     noteCount_ = 0;
     const Choice &ch = choice(i);
-    applyEffects(*sc_, *st_, ch.effects, host_, notes_, &noteCount_, MAX_NOTES);
+    if (!applyEffects(*sc_, *st_, ch.effects, host_, notes_, &noteCount_, MAX_NOTES)) return false;
     enter(ch.next);
     return true;
 }

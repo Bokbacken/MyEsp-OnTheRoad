@@ -336,6 +336,8 @@ public:
     bool removeNpc(int num);
     // Story effects on the world
     bool clearObj(int x, int y);                 // Opens a door / removes a rock, crate or bush
+    bool setStoryTerrain(int x, int y, int tileId);
+    bool placeStoryObject(int x, int y, int objectId);
     void addKeys(int n);
 
     // v0.17.0: granular setters used by SD adventures to carry selected player resources from the

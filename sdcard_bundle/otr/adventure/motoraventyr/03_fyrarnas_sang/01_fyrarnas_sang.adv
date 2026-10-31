@@ -1,0 +1,102 @@
+@meta
+id: motoraventyr_fyrarnas_sang
+world: 122
+map_id: 122
+
+@about
+title.sv: Fyrarnas sång
+title.en: The Song of the Lighthouses
+desc.sv: Hjälp två fyrvaktare, bygg en bro och sök sedan genom arkivet.
+desc.en: Help two lighthouse keepers, build a bridge, then search the archive.
+
+@rules
+start_energy: 16
+energy_cap: 20
+lives: 4
+
+@resources
+w : plank : Planka : Plank : 2 :
+v : beacon : Fyrlykta : Beacon : 1 :
+
+@flags
+bridge_built
+archive_lit
+archive_rewarded
+
+@counters
+trust
+
+@quests
+crossing : Över sundet : Crossing
+archive : Fyrarkivet : Lighthouse archive
+
+@npc byggare
+name: Signe, brobyggare | Signe, bridge builder
+num: 1
+
+@npc budbarare
+name: Olof, lykthållare | Olof, lantern keeper
+num: 2
+
+@npc arkivarie map=2
+name: Arkivarien | The archivist
+num: 3
+
+@node byggare.start
+speaker: byggare
+text.sv: En planka räcker för den smala strömmen. Jag bygger när du lämnar den.
+text.en: One plank spans the narrow current. I can build when you leave it.
+choice: Bygg bron. | Build the bridge. => END ?? has:plank & !bridge_built !! world tile map=1 6 1 8; take plank; set bridge_built; add trust 1; quest crossing active
+choice: Jag återkommer. | I'll come back. => END
+
+@node budbarare.start
+speaker: budbarare
+text.sv: Fyrarkivet ligger bortom sundet. Jag kan lägga en gåva där innan du kommer.
+text.en: The lighthouse archive lies beyond the strait. I can leave a gift there before you arrive.
+choice: Skicka fyrlyktan. | Send the beacon. => END ?? has:beacon & !archive_lit !! world object map=2 6 2 3; take beacon; set archive_lit; add trust 1; quest archive active
+choice: Vänta lite. | Wait a little. => END
+
+@node arkivarie.start
+speaker: arkivarie
+text.sv: Någon har tänt en lykta här. Arkivet är öppet; checkpointen står vid dörren.
+text.en: Someone left a beacon here. The archive is open; the checkpoint is by the door.
+choice: Ta med en lykta. | Take a beacon. => END ?? archive_lit & !archive_rewarded !! give beacon; set archive_rewarded
+choice: Tillbaka till fyren. | Return to the lighthouse. => END ?? archive_lit !! world travel home
+choice: Jag tittar vidare. | I'll keep looking. => END
+
+@destinations
+home 8,2
+map=2: archive 1,1
+
+@portals
+9,1 -> archive
+map=2: 1,1 -> home
+
+@dark map=2
+5,1 8,3
+
+@enemies map=2
+patrol 5 4 loop area 5 4 8 4 route 5,4 8,4
+chaser 8 2 area 7 1 9 3
+
+@treasures map=2
+7 3 gem
+
+@map
+###########
+#Swv12~...#
+#.........#
+#.........#
+#.........#
+#.........#
+###########
+
+@map 2
+###########
+#S.f......#
+#.........#
+#......R..#
+#..3......#
+#........Q#
+#........X#
+###########

@@ -11,8 +11,8 @@ finns i [Sokoban-demot](adventures/sokoban/sokoban.adv) och
 [0.21.1-demot](adventures/s4_demo/README.md).
 
 Versionsnumren i demohänvisningarna anger när respektive mekanik introducerades,
-inte att den bara stöds i den versionen. I repot är äventyrsmotorns senaste
-dokumenterade version 0.21.2; tidigare mekanik finns kvar.
+inte att den bara stöds i den versionen. Firmware 0.23.4 innehåller
+storystyrda terräng-/objektändringar; tidigare mekanik finns kvar.
 
 **0.21.2:** `@resources` är spelbara pickups, inte bara metadata.
 [Resursprovet](adventures/z_resource_test/README.md) kan kopieras direkt till SD.
@@ -304,7 +304,25 @@ Energi/liv och resursinventory delas; kartlokala grupper, fiender och
 mörkerlag behåller separata tillstånd. Fullständig syntax, kapaciteter och
 save-buffer-krav finns i [flerkartsreferensen](ADVENTURE_MULTIMAP_FORMAT.md).
 
-## 7. Kontrollera filen
+## 7. Storystyrd ändring av en karta
+
+En dialog kan göra en begränsad ändring på en uttryckligt vald karta:
+
+```text
+choice: Bygg bron. | Build the bridge. => END ?? has:plank & !bridge_built !! world tile map=1 6 1 8; take plank; set bridge_built
+choice: Skicka nyckeln. | Send the key. => END ?? has:beacon & !archive_lit !! world object map=2 6 2 3; take beacon; set archive_lit
+```
+
+Syntax: `world tile map=N x y tile-id` eller
+`world object map=N x y object-id`. `map=N` krävs; kartan måste finnas i samma
+`.adv`. Koordinaterna är nollbaserade, ID är befintliga numeriska enum-ID:n
+(inte tecken från `@legend`). Bara allowlistade typer kan ändras. Effekten
+avvisas utan sidoeffekter om målet är ogiltigt, upptaget av spelare/aktör/objekt
+eller dold skatt, eller reserverat för portal/destination. Kartbilden sparas
+för återbesök, checkpoint och save/restore; restart återställer startläget.
+Se [säkerhetsregler och fullständiga ID-listor](AUTHORING_ADVENTURES.md#story-styrda-terräng--och-objektändringar-0234).
+
+## 8. Kontrollera filen
 
 Ny syntax ska kontrolleras med produktionsladdaren. `tools/adv_parse.*` är
 fortfarande en S1-referensparser och validerar inte S2–S4. Kör hosttestet för

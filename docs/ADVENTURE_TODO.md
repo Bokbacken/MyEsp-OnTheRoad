@@ -18,7 +18,15 @@ Användaren arbetar via GitHub och provar firmware och testbanor på ESP32-S3.
 Varje ny firmwareleverans ska ha en unik patchversion. Testbanor med
 instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 
-### Verifierad utgångspunkt 2026-10-29
+### Verifierad utgångspunkt 2026-10-31
+
+- Aktuell `main` är firmware `0.23.3`; PR #19 om flerkartor/portaler är
+  mergad. Den äldre noteringen nedan beskriver statusen vid skrivdatumet och
+  bevaras som historik.
+- Denna leverans föreslår `0.23.4`; CI och fysisk S3/P4-provning redovisas
+  separat, utan påstående om hårdvarutest.
+- Punkterna PR #13–#18 nedan är verifierade noteringar från 2026-10-29, inte
+  påståenden om dagens status.
 
 - PR #13: skridskor, tre giftterränger, färgade Sokoban-lådor/plattor och
   kartgrupper med AND-villkor för spak och platta.
@@ -34,10 +42,9 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 
 ## I. Flerkartsformat och runtime
 
-Pågående leverans: `feat/adventure-multimap-portals`, PR #19, firmware
-`0.21.3`. Kod och testbanor är pushade där men ännu inte mergade till
-`main`. Checklistans avbockningar avser implementation på den branchen;
-fysisk ESP-verifiering återstår. Kodversion `084ae6e` byggdes med ESP-IDF
+Historisk leverans: `feat/adventure-multimap-portals`, PR #19, firmware
+`0.21.3`. Vid noteringen var kod och testbanor pushade men ännu inte mergade.
+PR #19 är nu mergad till `main`. Kodversion `084ae6e` byggdes med ESP-IDF
 6.1 för ESP32-S3 i Actions-körning `40874166116`; följande
 checklisteuppdatering ändrar ingen firmwarekod.
 Själva planen publicerades separat på `main` via PR #20.
@@ -98,14 +105,25 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 ## III. Story-styrda kartförändringar
 
-- [ ] Begränsade effekter för terräng och objekt med explicit målkarta.
-- [ ] Tydliga regler för upptagna rutor, ej besökta kartor och ogiltiga mål.
-- [ ] Testbana där exempelvis en dialog bygger en beständig bro.
+- [x] Begränsade `world tile map=N x y id`- och
+  `world object map=N x y id`-effekter med explicit målkarta; endast
+  allowlistade befintliga terräng-/objekt-ID:n kan användas.
+- [x] Avvisa ogiltiga kartor/koordinater/ID:n samt rutor med spelare, aktör,
+  objekt, dold skatt, portal eller destination. Avvisad story-effekt ändrar
+  inte storyinventarium/flaggor; dialogen visar ett fel i stället för att
+  fortsätta som om ändringen lyckades.
+- [x] Testa aktiv och ännu obesökt karta, återbesök, save/restore, checkpoint,
+  restart, misslyckad/upprepad dialog samt kampanjens bro- och nyckeländring.
+- [x] Dokumentera syntax, ID-listor, säkerhetsregler och kvarvarande
+  avgränsningar i authoring/Quickguide och leverera Motoräventyret med
+  produktionsmotortrace.
+- [ ] Fysisk provning på ESP32-S3 och ESP32-P4.
 
 ## IV. Legend och authoring-underlag inför editorn
 
 - [ ] Slutför legendstöd där editorns palett behöver det.
-- [ ] Synka feature-gap-listan, authoring och Quickguide med verkligt stöd.
+- [x] Synka feature-gap-listan, authoring och Quickguide med det nya
+  storystödet och Motoräventyrets levererade syntax.
 - [ ] Håll koordinatlistor, mörkerrektanglar och andra funktioner åtskilda.
 - [ ] Produktionsparser-/loadertesta dokumenterade exempel och referensbanor.
 
@@ -145,3 +163,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
 | 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Slutlig kodversion `084ae6e` byggd med ESP-IDF 6.1; fysisk ESP-verifiering kvar. |
+| 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad, bas `0.23.3`. Motorändring och kampanjtest införda på separat PR, version föreslagen `0.23.4`. Hosttester passerade; S3/P4 CI och fysisk provning redovisas efter slutlig verifiering. |

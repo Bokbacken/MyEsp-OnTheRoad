@@ -1,0 +1,24 @@
+@meta
+id: motoraventyr_lamna
+world: 125
+map_id: 125
+
+@about
+title.sv: Resurskedjan
+title.en: The Resource Chain
+desc.sv: Lämna en sten hos nästa verkstad och följ dess lagerbok.
+desc.en: Leave a stone at the next workshop and follow its ledger.
+
+@rules
+start_energy: 10
+energy_cap: 16
+lives: 3
+carry: energy maxenergy lives items
+
+@resources
+s : stone : Sten : Stone : 2 :
+
+@map
+#####
+#SsX#
+#####

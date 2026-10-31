@@ -12,11 +12,17 @@ namespace {
 
 struct RecHost : Host {
     char log[512] = {};
+    bool acceptMapped = true;
     void worldAction(const char *verb, int argc, const int *argv) override
     {
         char b[64];
         snprintf(b, sizeof(b), "%s/%d/%d,%d,%d;", verb, argc, argv[0], argv[1], argv[2]);
         strncat(log, b, sizeof(log) - strlen(log) - 1);
+    }
+    bool worldActionOnMap(const char *verb, int mapId, int argc, const int *argv) override
+    {
+        worldAction(verb, argc, argv);
+        return acceptMapped && mapId > 0;
     }
     void sound(const char *name) override
     {
@@ -135,7 +141,20 @@ void testEffects()
     CHECK(!applyEffects(SC, st, "world", &h));
     CHECK(!applyEffects(SC, st, "world open 1 2 3 4", &h));
     CHECK(!applyEffects(SC, st, "world open x", &h));
+    CHECK(!applyEffects(SC, st, "world tile 1 2 3", &h));
+    CHECK(!applyEffects(SC, st, "world tile map=2 1 2 3; world open map=2 3 4", &h));
     CHECK(!applyEffects(SC, st, "world verylongverbname1", &h));
+    StoryState unchanged;
+    unchanged.clear();
+    Note failedNotes[8];
+    int failedNoteCount = 0;
+    h.acceptMapped = false;
+    CHECK(!applyEffects(SC, unchanged, "give apple; world tile map=2 1 2 8", &h,
+                        failedNotes, &failedNoteCount, 8));
+    CHECK(unchanged.items[0] == 0 && failedNoteCount == 0);
+    h.acceptMapped = true;
+    CHECK(applyEffects(SC, unchanged, "world tile map=2 1 2 8; give apple", &h));
+    CHECK(unchanged.items[0] == 1);
     CHECK(!applyEffects(SC, st, "sound", &h));
     CHECK(applyEffects(SC, st, nullptr, &h));
     CHECK(applyEffects(SC, st, "set a", nullptr));   // No host: world / sound are skipped

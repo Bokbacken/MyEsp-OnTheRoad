@@ -1,0 +1,17 @@
+@meta
+id: motoraventyr_nollstall
+world: 127
+map_id: 127
+
+@rules
+start_energy: 10
+energy_cap: 16
+lives: 3
+
+@items
+stone : Sten : Stone : 2
+
+@map
+#####
+#S.X#
+#####

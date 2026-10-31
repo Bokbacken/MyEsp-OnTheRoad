@@ -72,7 +72,7 @@ bara styra övergångar mellan separata `.adv`-filer.
 Grupper är lokala: grupp 2 på karta 1 och grupp 2 på karta 7 är separata.
 En fiende, timer eller annan kartaktör följer inte spelaren genom portaler.
 Endast aktiv karta uppdateras/tickar. Kartpåverkande story-effekter kan ange
-`map=N`; utan väljare avses huvudkartan:
+`map=N`; utan väljare avses huvudkartan för de äldre kartverben:
 
 ```text
 effects: world open map=7 4 2
@@ -81,10 +81,31 @@ effects: world npc_remove map=7 1
 effects: world travel cave
 ```
 
+Sedan 0.23.4 kan story även ändra terräng eller placera ett objekt:
+
+```text
+effects: world tile map=7 4 2 8
+effects: world object map=7 6 2 3
+```
+
+`tile`/`object` kräver uttryckligt `map=N`, koordinaterna är lokala och
+nollbaserade, och ID är det numeriska värdet från motorns Tile-/Obj-enum.
+Endast säkra allowlistor accepteras; plattor/grindar/spakar, färgplattor,
+NPC:er, minor, ädelstenar, mängdbärande utrustning och storyresurser skapas
+inte av dessa verb. Mål med spelare, aktör, synligt/dolt objekt, portal eller
+destination avvisas innan kartan ändras. Vid fel visas ett dialogfel och andra
+storyeffekter i samma val committas inte. Högst en `tile`/`object`-ändring får
+finnas i en effektlista, utan någon annan kartstyrd `world`-åtgärd i samma
+lista. Fullständiga ID-tabeller och detaljer finns i
+[författarguiden](AUTHORING_ADVENTURES.md#story-styrda-terräng--och-objektändringar-0234).
+
 `world travel NAME` använder samma destinationstabell som portaler. Stödda
-kartverb är `open`, `npc_move` och `npc_remove`. Effekter på ej besökt karta
-utgår från dess grundläge och sparar ändringen; de tickar inte dess fiender.
-Global story, flaggor, räknare, quests och inventory fortsätter vara delade.
+kartverb är `open`, `npc_move`, `npc_remove`, `tile` och `object`. Effekter på ej
+besökt karta utgår från dess grundläge och sparar ändringen; de tickar inte dess
+fiender. Global story, flaggor, räknare, quests och inventory fortsätter vara
+delade. Kartändringar följer befintlig checkpoint- och save/restore-semantik.
+Restart återställer hela äventyret till grundläget; save-formatet har inte
+ändrats.
 
 ## 3. Destinationer och portaler
 

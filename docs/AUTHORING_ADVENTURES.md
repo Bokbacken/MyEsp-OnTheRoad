@@ -1339,8 +1339,69 @@ effects: world npc_move map=2 1 4 6
 effects: world npc_remove map=2 1
 ```
 
-Stödda kartverb är `open`, `npc_move` och `npc_remove`; utan `map=N` avses
-huvudkartan. En ej besökt målbild startas från kartans grundläge före ändring.
+Stödda befintliga kartverb är `open`, `npc_move` och `npc_remove`; utan
+`map=N` avses huvudkartan. En ej besökt målbild startas från kartans grundläge
+före ändring.
+
+### Story-styrda terräng- och objektändringar (0.23.4)
+
+Två nya world-verb kan användas i dialogeffekter:
+
+```text
+effects: world tile map=1 6 1 8
+effects: world object map=2 6 2 3
+```
+
+Syntaxen är `world tile map=N x y tile-id` respektive
+`world object map=N x y object-id`. `map=N` är obligatoriskt för båda verb;
+N måste vara en deklarerad intern karta i samma fil. `x,y` är nollbaserade
+lokala koordinater. ID:t är det numeriska värdet i `Otr::Tile` eller `Otr::Obj`,
+inte en glyf eller ett `@legend`-värde.
+
+Tillåtna terräng-ID:n:
+
+| ID | Terräng | ID | Terräng |
+|---:|---|---:|---|
+| 0–10 | gräs, sand, golv, grus, vägg, sprucken vägg, träd, vatten, bro, lava, basalt | 15 | krater |
+| 17–21 | is, transportband upp/höger/ned/vänster | 22–24 | giftmark, träsk, vassa stenar |
+
+Tillåtna objekt-ID:n:
+
+| ID | Objekt | ID | Objekt |
+|---:|---|---:|---|
+| 1–5 | sten, låda, nyckel, dörr, båt | 7–11 | buske, dryck, hjärta, skyddsdräkt, extraliv |
+| 14–15 | bomb 3×3, bomb 4×4 | 18–23 | färgnycklar röd–cyan |
+| 24–29 | färgdörrar röd–cyan | 30 | skridskor |
+| 31–36 | färglådor röd–cyan | 37 | sugpropp |
+
+Effekterna är avsiktligt begränsade. Plattor, grindar, spakar, checkpoints,
+utgångar och färgplattor kan inte skapas med `tile`. Objekt som NPC, mina,
+ädelsten, ficklampa, hoppstylta och egna resurser kan inte skapas med
+`object`; bland annat undviker detta att tappa mängd-/räknar- eller
+storyinventeringsdata. `object` kräver ledig, gångbar mark och kan inte placera
+föremål på plattor, grindar, spakar, checkpoints, utgångar, is eller
+transportband.
+
+Båda verben avvisas utan mutation om kartan/koordinaten/ID:t är ogiltigt, om
+rutan innehåller spelaren, en fiende, ett synligt objekt eller en dold skatt,
+eller om rutan är en portal-/destinationskälla eller ankomst. Objektplacering
+kontrollerar också marktypen. Avvisad effekt ger ett synligt fel i spelet och
+committar inte efterföljande `take`, `give`, flaggor, räknare eller uppdrag.
+En effektlista får innehålla högst en sådan terräng-/objektändring och får inte
+kombinera den med en annan kartstyrd `world`-åtgärd; andra storyeffekter kan
+stå före eller efter den. Lägg ett villkor och en flagga runt en engångsbelöning
+så att dialogvalet inte förbrukar material eller belönar spelaren flera gånger:
+
+```text
+choice: Bygg bron. | Build the bridge. => END ?? has:plank & !bridge_built !! world tile map=1 6 1 8; take plank; set bridge_built
+```
+
+Ändringar på en ännu obesökt karta börjar från dess grundkarta och finns kvar
+när den öppnas. De använder befintliga kartbilder/checkpoints och save/restore;
+save-formatet har inte ändrats. `restart` börjar om hela äventyret och återställer
+story och kartor till startläget. Se
+[Motoräventyrets storytest](../sdcard_bundle/otr/adventure/motoraventyr/README.md)
+för en aktiv bro, en placerad nyckel på obesökt karta och negativa testfall.
 
 Besökta kartor bevarar ändringar och World-tillstånd. Checkpoints är
 äventyrsgemensamma och innehåller kart-id plus koordinat; dödsrespawn kan byta
@@ -1427,6 +1488,12 @@ g++ -std=c++17 -Wall -Wextra -Imain -Icomponents/otr_engine/include \
     -Icomponents/otr_story/include tests/test_adv_multimap.cpp main/adv_loader.cpp \
     main/adv_sd_session.cpp main/adv_live.cpp components/otr_engine/otr_world.cpp \
     components/otr_story/otr_story.cpp -o tests/test_adv_multimap && ./tests/test_adv_multimap
+
+# Motoräventyret: delivered files, production parser/World and story/session traces
+g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include \
+    -Icomponents/otr_story/include tests/test_motoraventyr.cpp main/adv_loader.cpp \
+    main/adv_sd_session.cpp components/otr_engine/otr_world.cpp \
+    components/otr_story/otr_story.cpp -o /tmp/test_motoraventyr && /tmp/test_motoraventyr
 ```
 
 > **Hårdvarustatus:** Ägaren har testat PR #11 på hårdvara och rapporterat att

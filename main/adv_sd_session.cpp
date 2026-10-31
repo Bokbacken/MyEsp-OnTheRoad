@@ -449,11 +449,30 @@ bool SdSession::applyWorldActionOnMap(const char *verb, int mapId, int argc, con
     snprintf(verbCopy, sizeof(verbCopy), "%s", verb);
     int argsCopy[3] = {};
     for (int i = 0; i < argc; ++i) argsCopy[i] = argv[i];
+    auto reservedCell = [&](int x, int y) {
+        for (int i = 0; i < scratch.destinationCount; ++i) {
+            const Destination &d = scratch.destinations[i];
+            if (d.mapId == mapId && d.x == x && d.y == y) return true;
+        }
+        for (int i = 0; i < scratch.portalCount; ++i) {
+            const Portal &p = scratch.portals[i];
+            if (p.mapId == mapId && p.x == x && p.y == y) return true;
+        }
+        return false;
+    };
     auto apply = [&](Otr::World &target) {
         if (!strcmp(verbCopy, "open") && argc == 2) return target.clearObj(argsCopy[0], argsCopy[1]);
         if (!strcmp(verbCopy, "npc_move") && argc == 3)
             return target.moveNpc(argsCopy[0], argsCopy[1], argsCopy[2]);
         if (!strcmp(verbCopy, "npc_remove") && argc == 1) return target.removeNpc(argsCopy[0]);
+        if (!strcmp(verbCopy, "tile") && argc == 3) {
+            if (reservedCell(argsCopy[0], argsCopy[1])) return false;
+            return target.setStoryTerrain(argsCopy[0], argsCopy[1], argsCopy[2]);
+        }
+        if (!strcmp(verbCopy, "object") && argc == 3) {
+            if (reservedCell(argsCopy[0], argsCopy[1])) return false;
+            return target.placeStoryObject(argsCopy[0], argsCopy[1], argsCopy[2]);
+        }
         return false;
     };
     if (index == internalIndex_) {

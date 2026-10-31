@@ -47,11 +47,12 @@ struct TestHost : Story::Host {
     bool actionCalled = false;
     bool travelled = false;
     void worldAction(const char *, int, const int *) override {}
-    void worldActionOnMap(const char *verb, int mapId, int argc, const int *argv) override
+    bool worldActionOnMap(const char *verb, int mapId, int argc, const int *argv) override
     {
         actionCalled = true;
         travelled = session->applyWorldActionOnMap(verb, mapId, argc, argv, *loaded, *world,
                                                    *state, *script, error, errorCap);
+        return travelled;
     }
     void worldTravel(const char *destination) override
     {

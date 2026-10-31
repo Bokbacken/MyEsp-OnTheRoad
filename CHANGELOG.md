@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.4 (unreleased)
+
+- Added guarded `world tile map=N ...` and `world object map=N ...` story effects
+  for allowlisted existing terrain/object IDs. Invalid or occupied targets fail
+  without committing related story-state changes; existing save formats are
+  unchanged.
+- Added the numbered Motoräventyret SD chapters, installation/playing guide,
+  spoiler solution traces and a mechanics-verification matrix.
+- Host Adventure, story, resource, multimap, catalog and campaign tests pass;
+  CodeQL reports no alerts. Firmware CI passed for S3, P4 and C6 on the initial
+  implementation commit (`c87b57c`); current follow-up commits still need a
+  fresh workflow run. Physical S3/P4 testing remains pending.
+
 ## Historical release notes through v0.23.3
 
 The following notes were moved from README without changing their historical
@@ -223,4 +236,3 @@ bound to an internal session id, with a 5-attempt lockout). The overview page li
 v0.5.6 builds with 0 errors / 0 warnings and passes the host tests, but is **not yet tested on
 hardware** (the rotation via MADCTL in particular). v0.5.5 web play, v0.5.0's RTC and sprite dice
 animation and v0.2.0 are hardware-verified. See [ROADMAP.md](ROADMAP.md).
-

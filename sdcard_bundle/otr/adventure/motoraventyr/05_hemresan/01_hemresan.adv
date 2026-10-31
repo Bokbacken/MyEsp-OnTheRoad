@@ -1,0 +1,51 @@
+@meta
+id: motoraventyr_hemresan
+world: 124
+map_id: 124
+
+@about
+title.sv: Hemresan
+title.en: The Way Home
+desc.sv: Samla fyrvaktarna och lämna tillbaka ljuset till hamnen.
+desc.en: Reunite the lighthouse keepers and bring the light back to the harbour.
+
+@rules
+start_energy: 12
+energy_cap: 20
+lives: 4
+
+@flags
+ending_seen
+
+@counters
+trust
+
+@quests
+crossing : Över sundet : Crossing
+
+@npc fyrvakt
+name: Fyrvaktaren | The lighthouse keeper
+num: 1
+
+@node fyrvakt.start
+speaker: fyrvakt
+effects: quest crossing active
+text.sv: Broarna håller och arkivlyktan brinner. Nu kan vi föra ljuset hem.
+text.en: The bridges hold and the archive beacon is lit. Now we can bring the light home.
+choice: Till hamnen. | To the harbour. => END ?? quest:crossing=active !! quest crossing done; add trust 1; set ending_seen; world travel harbor
+choice: Jag behöver en stund. | I need a moment. => END
+
+@destinations
+map=2: harbor 1,1
+
+@map
+###########
+#S.1......#
+#.........#
+###########
+
+@map 2
+###########
+#S....X...#
+#.........#
+###########
