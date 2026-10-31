@@ -10,6 +10,9 @@ a published GitHub Release.
 
 ## v0.23.6 (unreleased)
 
+- The HTTP server now sizes its URI-handler table from the generated web asset
+  count and reserves room for API/WebSocket routes. This prevents the expanded
+  Adventure editor sprite assets from blocking API registration at startup.
 - SD uploads are serialized. After an SD write/flush/close/install I/O failure,
   the server attempts the existing card recovery/remount path and skips the
   post-upload usage refresh. A reported timeout/watchdog incident still needs
