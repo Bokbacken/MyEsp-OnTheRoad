@@ -19,7 +19,8 @@ bool begin();          // Registers /ws/karaoke and starts the sender task (AppW
 bool running();        // begin() succeeded
 
 // Karaoke engine hooks (any task). setSong: a song was opened (name = file name) or closed.
-void setSong(bool open, const char *name);
+// Optional plainLyrics is sent to web clients as a scrollable text block; timed LRC uses events.
+void setSong(bool open, const char *name, const char *plainLyrics = nullptr);
 // Mixer task, once per block after the sequencer advanced: queues lyric events for the stream.
 void onRender(const Midi::Song &song, uint32_t posUs);
 int clients();         // Connected browsers

@@ -24,7 +24,8 @@ constexpr size_t MAX_SONGS = KaraIndex::MAX_SONGS;                  // v0.13.7: 
 enum class Err : uint8_t {
     OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED,
     SONG_TOO_BIG,  // v0.13.2: the song needs more sample data than fits, even with one velocity layer
-    BUSY           // v0.13.7: a sound bank is loading (web openByPath), try again shortly
+    BUSY,          // v0.13.7: a sound bank is loading (web openByPath), try again shortly
+    LYRICS_BAD, LYRICS_TOO_BIG
 };
 
 struct SongFile {
@@ -111,6 +112,7 @@ Err open(const SongFile &f);    // Parses the file and applies its register entr
 void close();                   // Stops playback and detaches from the mixer
 bool isOpen();
 const Midi::Song *song();       // Valid while open (immutable)
+std::string plainLyrics();      // Plain-text .lyr sidecar (empty when absent or timed LRC)
 const char *errText(Err e);     // Swedish/English user text via the language table
 
 // Playback

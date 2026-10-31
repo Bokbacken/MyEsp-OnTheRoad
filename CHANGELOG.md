@@ -8,6 +8,25 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.7 (unreleased)
+
+- Moved internal-flash repair beside the SD format button, at the top right of
+  the file manager. Added admin-protected NVS usage and binary partition backup;
+  NVS is not JSON/FFat, and the backup may contain credentials. No web restore.
+- Karaoke uses the browser width, with larger lyrics that fit up to two lines.
+  Device hints identify `/otr/karaoke/karaoke.reg`; registry writes preserve the
+  previous file on failure and report errors instead of silently discarding it.
+- MIDI/KAR without embedded lyrics can use a matching UTF-8 `.lyr` sidecar:
+  plain text scrolls manually on device/web, and LRC timestamps follow playback
+  and seeking. Embedded lyrics take priority. Limits and examples are documented
+  in `docs/KARAOKE_LYRICS.md`.
+- Adventure editor can reveal coordinate layers (hidden treasures, enemy starts,
+  portals and arrival points) with object previews, counts and a coordinate list.
+  This does not change placements or simulate story actions.
+- The owner reports the graphical editor looks good and works on P4 after USB
+  recovery. This is not a maximum-map memory test or S3 verification. New changes
+  in this version still need hardware verification.
+
 ## v0.23.6 (unreleased)
 
 - The HTTP server now sizes its URI-handler table from the generated web asset

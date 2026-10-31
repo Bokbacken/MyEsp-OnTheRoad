@@ -150,6 +150,9 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [x] Skapa nya `.adv`-filer direkt i editorn (mapp/filnamn, titel, storlek; skriver aldrig över), lägga till kartor, ändra kartstorlek (högst 128×128) och zoom.
 - [x] Kartflikar, rityta, palett (terräng, objekt, NPC-siffror, legend- och
   resursglyfer), flytta/sudda/plocka och editorintern ångra.
+- [x] Visa dolda koordinatlager: skatter, fiendestarter, portaler och
+  ankomstpunkter med bilder, antal och koordinatlista. Visningen ändrar inte
+  placeringar och simulerar inte story-styrda ändringar.
 - [x] Legendhjälp (skapa/ändra/ta bort `@legend`, glyfförslag, användning och
   odefinierade glyfer) och mörkerrektanglar; grupp-koordinater följer flyttade
   rutor.
@@ -190,3 +193,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | 2026-10-31 | Editorgranskningens åtta kodfixar | Textredigering bevaras, tomma kartor faller tillbaka till textläge, legendposter kan ändras och gruppkoordinater/kommentarer hanteras vid kartredigering. Riktade Node-tester passerar; fysisk S3/P4-verifiering återstår. |
 | 2026-10-31 | Editor: enhetssprites, egna resursbilder och guidade noder | Bildläge använder exporterade enhetssprites och äventyrsmapparnas giltiga resurs-PNG; avsnittsformuläret skapar grundläggande `@node`-dialog. Riktade Node-tester och inbäddade asset-kontroller; fysisk S3/P4-verifiering kvar. |
 | 2026-11-01 | Editor: nya filer, kartstorlek, 128×128 | Maxkarta höjd från 80×80 till 128×128 (World ≈181 KB, Planner ≈640 KB i PSRAM, live-JSON 96 KiB), menyknappen utan "(test)". Node- och värdtester samt CI; minnesbeteende och editorn på S3/P4 är inte hårdvaruprovade. |
+| 2026-10-31 | Ägaren har testat grafiska editorn på P4 | Efter USB-återställning rapporterar ägaren att kartvyn ser bra ut och fungerar. Detta verifierar inte S3 eller maxkartans minnesbelastning. Nya koordinatlager återstår att hårdvarutesta. |

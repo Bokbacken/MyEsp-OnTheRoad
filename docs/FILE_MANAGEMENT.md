@@ -9,6 +9,32 @@
 - Kataloger kan väljas eller släppas från webbläsaren; deras struktur återskapas upp till tre mappnivåer.
 - SD-kort kan formateras som FAT från filhanteraren. Enheten använder inte exFAT; FAT-formatering kan därför göra större kort användbara. Två separata bekräftelser krävs, och en konfigurerad admin-PIN måste anges. Formatering raderar allt på kortet. Den uttryckliga åtgärden kan också formatera ett kort vars filsystem inte gick att montera; vanlig start och automatisk återmontering formaterar aldrig kortet. Webbläsaren visar status medan formateringen pågår och ett tydligt resultat efteråt.
 
+## Inställningsminnet NVS
+
+NVS är en separat flashpartition med typade nycklar/värden, inte JSON-filer
+på intern flash (FFat). Wi-Fi, spel- och karaokeinställningar med mera lagras
+där. Formatering/reparation av FFat raderar inte NVS.
+
+Öppna **NVS – inställningsminne och backup** i filhanteraren. Ange Admin-PIN
+om den är konfigurerad och välj **Visa minnesinformation** för partitionens
+storlek, antal namnrymder och använda/lediga poster. **Ladda ner NVS-backup**
+hämtar hela `nvs`-partitionen som `otr-nvs.bin` direkt till datorn; ingen
+extra kopia med lösenord lämnas på FFat eller SD.
+
+Backupen kan innehålla Wi-Fi-lösenord och Admin-PIN. Förvara den säkert och
+ändra inga inställningar medan backupen läses. Den är en rå partitionsbild,
+inte ett portabelt JSON-inställningsformat. Ladda inte upp den som en vanlig
+fil till FFat. Webbaserad återställning ingår inte; eventuell återställning
+kräver rätt partitionslayout och kompatibel NVS-konfiguration. Krypterad NVS
+avvisas med ett tydligt fel eftersom också krypteringsnycklarna behövs.
+
+API: admin-skyddad `GET /api/nvs` (storlek och poststatistik) och
+`GET /api/nvs/backup` (binär nedladdning, `Cache-Control: no-store`).
+
+Reparera intern flash ligger, liksom Formatera SD-kort, uppe till höger.
+Den befintliga reparationen säkerhetskopierar läsbara `players.bin` och
+`events.log` till SD när ett kort finns; den är inte en fullständig filbackup.
+
 ## Ägarrapporterade mätvärden
 
 Alla 144 MB-test avsåg samma fil (151 001 312 byte), men körningarna gjordes under olika förhållanden. Kort, radioförhållanden och konfiguration är inte dokumenterade som identiska; jämförelserna visar därför observerade resultat och bevisar inte ensamma att en viss ändring orsakade skillnaden.

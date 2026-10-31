@@ -96,7 +96,7 @@ bool s_fontForSong = false;
 
 // Player screen
 struct Player {
-    lv_obj_t *scr, *lyrics, *cur, *slider, *volumeTrack, *volumeSlider, *volumeValue, *timeLbl,
+    lv_obj_t *scr, *lyrics, *cur, *plain, *slider, *volumeTrack, *volumeSlider, *volumeValue, *timeLbl,
         *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
     std::vector<lv_obj_t *> before, after;
     lv_span_t *spSung, *spRest;
@@ -108,6 +108,7 @@ struct Player {
     int line, syl;
     uint32_t lastSec;
     bool dragging, volumeDragging, volumeUpdating, volumeChanged, finished;
+    bool plainMode, hasPlainLyrics;
 };
 Player P{};
 lv_timer_t *s_volumeSaveTimer = nullptr;
@@ -745,6 +746,29 @@ void updateLyrics(const Karaoke::View &v, bool force)
 {
     const Midi::Song *s = Karaoke::song();
     if (!s) return;
+    if (P.hasPlainLyrics) {
+        if (!P.plainMode || force) {
+            P.plainMode = true;
+            lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            for (lv_obj_t *label : P.before) lv_obj_set_hidden(label, true);
+            for (lv_obj_t *label : P.after) lv_obj_set_hidden(label, true);
+            lv_obj_set_hidden(P.cur, true);
+            lv_obj_set_hidden(P.cdRow, true);
+            lv_obj_set_hidden(P.plain, false);
+            lv_obj_scroll_to_y(P.lyrics, 0, LV_ANIM_OFF);
+        }
+        return;
+    }
+    if (P.plainMode) {
+        P.plainMode = false;
+        lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_hidden(P.plain, true);
+        for (lv_obj_t *label : P.before) lv_obj_set_hidden(label, false);
+        for (lv_obj_t *label : P.after) lv_obj_set_hidden(label, false);
+        lv_obj_set_hidden(P.cur, false);
+        P.line = -3;
+        P.syl = -3;
+    }
     if (s->lines.empty()) {
         if (force) {
             lv_spangroup_set_span_text(P.cur, P.spSung, "");
@@ -1245,6 +1269,8 @@ void showPlayer()
     const Karaoke::SongFile f = Karaoke::current();
     if (P.timer) lv_timer_delete(P.timer);
     P = Player{};
+    const std::string plainText = Karaoke::plainLyrics();
+    P.hasPlainLyrics = !plainText.empty();
     P.line = -3;
     P.syl = -3;
     P.lastSec = 0xFFFFFFFF;
@@ -1300,6 +1326,13 @@ void showPlayer()
     const int afterCount = l.visibleLines - 1 - beforeCount;
     for (int i = 0; i < beforeCount; i++)
         P.before.push_back(lyricLabel(&my_font_18, Theme::LINE));
+    P.plain = Theme::label(P.lyrics, "", &my_font_18, Theme::TEXT);
+    lv_obj_set_width(P.plain, LV_PCT(100));
+    lv_label_set_long_mode(P.plain, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(P.plain, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_line_space(P.plain, 8, 0);
+    lv_label_set_text(P.plain, plainText.c_str());
+    lv_obj_set_hidden(P.plain, !P.hasPlainLyrics);
     P.cur = lv_spangroup_create(P.lyrics);
     lv_obj_set_width(P.cur, l.lyricsW);
     lv_obj_set_height(P.cur, LV_SIZE_CONTENT);

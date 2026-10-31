@@ -2,6 +2,7 @@
 #include "karaoke.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -19,6 +20,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "kara_web.h"
+#include "kara_lyrics.h"
+#include "fs_upload.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -43,6 +46,7 @@ void memoryMark(const char *point)
 SemaphoreHandle_t s_mux = nullptr;
 Sf::Synth s_synth;
 Midi::Song s_song;
+std::string s_plainLyrics;
 Midi::Player s_player;
 Midi::Registry s_reg;
 bool s_regLoaded = false;
@@ -160,16 +164,25 @@ void writeRegistry(const std::string &text)
 {
     if (text.empty()) return;
     BoardSd::Guard g;
-    if (!BoardSd::mounted()) return;
+    if (!BoardSd::mounted() || !BoardSd::ensureDir(DIR_SONGS)) {
+        ESP_LOGE(TAG, "Cannot save registry: SD directory unavailable");
+        return;
+    }
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "%s.tmp", REG_FILE);
     FILE *f = fopen(tmp, "wb");
-    if (!f) return;
-    const bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
-    fclose(f);
-    if (ok) {
-        remove(REG_FILE);
-        rename(tmp, REG_FILE);
+    if (!f) {
+        ESP_LOGE(TAG, "Cannot open registry temporary file");
+        return;
+    }
+    bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
+    if (fflush(f) != 0 || ferror(f)) ok = false;
+    if (fclose(f) != 0) ok = false;
+    char backup[64];
+    snprintf(backup, sizeof(backup), "%s.bak", REG_FILE);
+    if (!ok || FsUpload::install(tmp, REG_FILE, backup, true) != FsUpload::InstallResult::INSTALLED) {
+        ESP_LOGE(TAG, "Cannot save registry %s", REG_FILE);
+        FsUpload::discard(tmp);
     }
 }
 
@@ -891,6 +904,84 @@ Err open(const SongFile &sf)
         s_song.clear();
         return Err::FILE_BAD;
     }
+    s_plainLyrics.clear();
+    if (s_song.lines.empty()) {
+        const auto lyricFailure = [](Err err) {
+            s_song.clear();
+            return err;
+        };
+        std::string sidecarPath = sf.path;
+        const size_t dot = sidecarPath.find_last_of('.');
+        const size_t slash = sidecarPath.find_last_of('/');
+        if (dot != std::string::npos && (slash == std::string::npos || dot > slash))
+            sidecarPath.replace(dot, std::string::npos, ".lyr");
+        else
+            sidecarPath.clear();
+        if (!sidecarPath.empty()) {
+            std::vector<uint8_t> sidecarData;
+            bool found = false;
+            {
+                BoardSd::Guard g;
+                if (!BoardSd::mounted()) return lyricFailure(Err::NO_SD);
+                FILE *f = fopen(sidecarPath.c_str(), "rb");
+                if (f) {
+                    found = true;
+                    if (fseek(f, 0, SEEK_END) != 0) {
+                        fclose(f);
+                        return lyricFailure(Err::LYRICS_BAD);
+                    }
+                    const long sidecarSize = ftell(f);
+                    if (sidecarSize <= 0) {
+                        fclose(f);
+                        return lyricFailure(Err::LYRICS_BAD);
+                    }
+                    if ((size_t)sidecarSize > KaraLyrics::MAX_FILE) {
+                        fclose(f);
+                        return lyricFailure(Err::LYRICS_TOO_BIG);
+                    }
+                    if (fseek(f, 0, SEEK_SET) != 0) {
+                        fclose(f);
+                        return lyricFailure(Err::LYRICS_BAD);
+                    }
+                    sidecarData.resize((size_t)sidecarSize);
+                    const bool ok = fread(sidecarData.data(), 1, sidecarData.size(), f) == sidecarData.size();
+                    fclose(f);
+                    if (!ok) return lyricFailure(Err::LYRICS_BAD);
+                } else if (errno != ENOENT) {
+                    return lyricFailure(Err::LYRICS_BAD);
+                }
+            }
+            if (found) {
+                KaraLyrics::Document lyrics;
+                const KaraLyrics::Err lyricErr =
+                    KaraLyrics::parse((const char *)sidecarData.data(), sidecarData.size(), lyrics);
+                if (lyricErr == KaraLyrics::Err::TOO_BIG || lyricErr == KaraLyrics::Err::TOO_MANY_LINES ||
+                    lyricErr == KaraLyrics::Err::LINE_TOO_LONG)
+                    return lyricFailure(Err::LYRICS_TOO_BIG);
+                if (lyricErr != KaraLyrics::Err::OK) return lyricFailure(Err::LYRICS_BAD);
+                if (lyrics.timed) {
+                    s_song.text.clear();
+                    s_song.syls.clear();
+                    s_song.lines.clear();
+                    for (size_t i = 0; i < lyrics.lines.size(); i++) {
+                        const KaraLyrics::Line &line = lyrics.lines[i];
+                        const uint32_t first = (uint32_t)s_song.syls.size();
+                        const uint32_t textOffset = (uint32_t)s_song.text.size();
+                        s_song.text += line.text;
+                        s_song.syls.push_back(Midi::Syllable{line.us, textOffset, (uint16_t)line.text.size(),
+                                                              Midi::SYL_LINE});
+                        const uint32_t endUs = i + 1 < lyrics.lines.size() ? lyrics.lines[i + 1].us : s_song.lengthUs;
+                        s_song.lines.push_back(Midi::Line{line.us, endUs, first, 1, false});
+                    }
+                } else {
+                    for (size_t i = 0; i < lyrics.lines.size(); i++) {
+                        if (i) s_plainLyrics.push_back('\n');
+                        s_plainLyrics += lyrics.lines[i].text;
+                    }
+                }
+            }
+        }
+    }
     s_crc = Midi::crc32(data.data(), data.size());
     s_size = (uint32_t)data.size();
     std::vector<uint8_t>().swap(data);   // Parsing/CRC finished; do not overlap this copy with synth preparation
@@ -929,7 +1020,7 @@ Err open(const SongFile &sf)
              s_melodyReg ? " (register)" : "", (unsigned)s_crc);
     Audio::setExternalVolume(s_volume);
     Audio::setExternal(&renderCb, nullptr);
-    KaraWeb::setSong(true, s_fileName.c_str());
+    KaraWeb::setSong(true, s_fileName.c_str(), s_plainLyrics.empty() ? nullptr : s_plainLyrics.c_str());
     startDiag();
     memoryMark("song-open-end");
     return Err::OK;
@@ -948,11 +1039,17 @@ void close()
     if (!synthBusy()) s_synth.reset();
     s_player.load(nullptr);
     s_song.clear();   // Frees the event/lyric buffers (PSRAM)
+    s_plainLyrics.clear();
     memoryMark("song-closed");
 }
 
 bool isOpen() { return s_open; }
 const Midi::Song *song() { return s_open ? &s_song : nullptr; }
+std::string plainLyrics()
+{
+    Lock l;
+    return s_open ? s_plainLyrics : std::string();
+}
 
 void play(bool on)
 {
@@ -1099,6 +1196,8 @@ const char *errText(Err e)
     case Err::FILE_BAD: return tr(Str::KARA_ERR_FILE_BAD);
     case Err::SONG_TOO_BIG: return tr(Str::KARA_ERR_SONG_BIG);
     case Err::BUSY: return tr(Str::KARA_WAIT_FONT);
+    case Err::LYRICS_BAD: return tr(Str::KARA_ERR_LYRICS_BAD);
+    case Err::LYRICS_TOO_BIG: return tr(Str::KARA_ERR_LYRICS_BIG);
     }
     return "";
 }

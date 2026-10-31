@@ -8,17 +8,17 @@
 <link rel="stylesheet" href="/style.css">
 <script src="/device-name.js" defer></script>
 <style>
-body { max-width: 40rem; }
+body { max-width: none; }
 .top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
 .langs button { padding: .3rem .6rem; font-size: .9rem; }
 .langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
 #song { color: var(--otr-teal); font-weight: 600; min-height: 1.3em; word-break: break-word; }
 #status { color: var(--otr-muted); min-height: 1.3em; }
 .stage { background: var(--otr-panel); border: 1px solid var(--otr-line); border-radius: .9rem;
-  padding: 1.2rem .8rem; margin: .8rem 0; min-height: 13rem; display: flex; flex-direction: column;
+  padding: clamp(1rem, 3vw, 3rem); margin: .8rem 0; min-height: 55vh; display: flex; flex-direction: column;
   justify-content: center; text-align: center; gap: .9rem; }
-#prev, #next { color: var(--otr-muted); font-size: 1rem; min-height: 1.3em; }
-#cur { font-size: clamp(1.5rem, 7vw, 2.4rem); font-weight: 700; line-height: 1.25; min-height: 1.3em; }
+#prev, #next { color: var(--otr-muted); font-size: clamp(1rem, 2.5vw, 2rem); min-height: 1.3em; overflow-wrap: anywhere; }
+#cur { font-size: clamp(1.5rem, 6vw, 6rem); font-weight: 700; line-height: 1.25; min-height: 1.3em; overflow-wrap: anywhere; }
 #cur .sung { color: var(--otr-orange); }
 #cur .now { color: var(--otr-orange); text-decoration: underline; text-underline-offset: .2em; }
 /* v0.13.6 countdown dots in long pauses: white, then the sung colour one per second */
@@ -44,6 +44,7 @@ body { max-width: 40rem; }
   <div id="cur"></div>
   <div id="cd" aria-hidden="true"></div>
   <div id="next"></div>
+  <div id="plainLyrics" hidden></div>
 </div>
 <button id="go" onclick="toggle()" data-t="connect"></button>
 <p class="hint" data-t="hint"></p>
@@ -85,7 +86,39 @@ function showSong() { document.getElementById('song').textContent = songName ? t
 
 // --- Lyrics --------------------------------------------------------------------------------
 const lyr = { row: -1, syls: [], k: -1, prev: '', next: '' };
+function fitLyrics() {
+  const cur = document.getElementById('cur');
+  cur.style.fontSize = '';
+  const maximum = parseFloat(getComputedStyle(cur).fontSize);
+  let low = Math.min(24, maximum), high = maximum;
+  for (let i = 0; i < 8; i++) {
+    const size = (low + high) / 2;
+    cur.style.fontSize = `${size}px`;
+    if (cur.scrollHeight <= size * 1.25 * 2 + 2) low = size;
+    else high = size;
+  }
+  cur.style.fontSize = `${low}px`;
+}
+window.addEventListener('resize', fitLyrics);
+if (document.fonts) document.fonts.ready.then(fitLyrics);
+const plainLyrics = document.getElementById('plainLyrics');
+let plainMode = false;
+plainLyrics.style.maxHeight = '55vh';
+plainLyrics.style.overflowY = 'auto';
+plainLyrics.style.whiteSpace = 'pre-wrap';
+plainLyrics.style.overflowWrap = 'anywhere';
+plainLyrics.style.textAlign = 'left';
+plainLyrics.style.fontSize = 'clamp(1rem, 3vw, 2rem)';
+plainLyrics.style.width = '100%';
+plainLyrics.style.boxSizing = 'border-box';
+plainLyrics.style.flex = '1 1 auto';
+function showPlainLyrics(on) {
+  plainMode = on;
+  ['prev', 'cur', 'cd', 'next'].forEach(id => { document.getElementById(id).hidden = on; });
+  plainLyrics.hidden = !on;
+}
 function renderLyrics() {
+  showPlainLyrics(false);
   document.getElementById('prev').textContent = lyr.prev;
   document.getElementById('next').textContent = lyr.next;
   const cur = document.getElementById('cur');
@@ -97,6 +130,7 @@ function renderLyrics() {
     else if (i === lyr.k) sp.className = 'now';
     cur.appendChild(sp);
   });
+  fitLyrics();
 }
 // Countdown (v0.13.6): {"type":"countdown","dots":N,"elapsed":k}; dots 0, a new row, a syllable or
 // clear hides it. The frames come at the stream sample of each second, like the lyrics.
@@ -110,6 +144,19 @@ function showCountdown(dots, lit) {
   [...el.children].forEach((d, i) => d.classList.toggle('lit', i < lit));
 }
 function applyEvent(m) {
+  if (m.type === 'bookstart') {
+    lyricGeneration++;
+    lyr.row = -1; lyr.syls = []; lyr.k = -1; lyr.prev = ''; lyr.next = '';
+    plainLyrics.textContent = '';
+    showPlainLyrics(!!m.plain);
+    if (!m.plain) renderLyrics();
+    return;
+  }
+  if (m.type === 'book') {
+    if (plainMode) plainLyrics.appendChild(document.createTextNode(m.text || ''));
+    return;
+  }
+  if (plainMode && m.type !== 'clear') return;
   if (m.type === 'countdown') { showCountdown(m.dots, m.elapsed); return; }
   if (m.type === 'newrow' || m.type === 'lyric' || m.type === 'clear') showCountdown(0, 0);
   if (m.type === 'newrow') {
@@ -126,7 +173,7 @@ function applyEvent(m) {
 
 // --- Audio ---------------------------------------------------------------------------------
 const RATE = 22050, LEAD = 0.3, MAX_AHEAD = 1.5;
-let ctx = null, nextTime = 0;
+let ctx = null, nextTime = 0, lyricGeneration = 0;
 function makeContext() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return null;
@@ -155,10 +202,13 @@ function playPcm(buf) {
 }
 // A lyric event belongs to the sample right after the PCM received so far: show it when that plays.
 function scheduleEvent(m) {
+  if (m.type === 'bookstart' || m.type === 'book') { applyEvent(m); return; }
   if (!ctx) { applyEvent(m); return; }
   const at = Math.max(nextTime, ctx.currentTime);
   const ms = (at - ctx.currentTime + latency()) * 1000;
-  if (ms < 15) applyEvent(m); else setTimeout(() => applyEvent(m), ms);
+  const generation = lyricGeneration;
+  if (ms < 15) applyEvent(m);
+  else setTimeout(() => { if (generation === lyricGeneration) applyEvent(m); }, ms);
 }
 
 // --- WebSocket -----------------------------------------------------------------------------
@@ -174,6 +224,7 @@ function connect() {
     let m;
     try { m = JSON.parse(ev.data); } catch (e) { return; }
     if (m.type === 'hello' || m.type === 'state') {
+      lyricGeneration++;
       songName = m.open ? (m.song || '') : '';
       showSong();
       showStatus(m.open ? 'listening' : 'waiting');
@@ -185,6 +236,7 @@ function connect() {
     }
   };
   ws.onclose = () => {
+    lyricGeneration++;
     ws = null;
     if (want) { showStatus('lost'); retry = setTimeout(connect, 2000); }
     else if (statusKey !== 'full') showStatus('idle');
@@ -206,6 +258,7 @@ function toggle() {
     connect();
   } else {
     want = false;
+    lyricGeneration++;
     if (retry) { clearTimeout(retry); retry = null; }
     if (ws) ws.close();
     if (ctx) { ctx.close(); ctx = null; }

@@ -117,10 +117,17 @@
     <div id="display-modes" aria-label="Kartvisning">
       <button id="display-image" type="button" class="secondary active" title="Visa kartans symboler som bilder/ikoner.">Bildsymboler</button>
       <button id="display-text" type="button" class="secondary" title="Visa kartans teckenglyfer. Kartans färger behålls.">Tecken</button>
+      <button id="reveal-layers" type="button" class="secondary" aria-pressed="false">Visa dolda lager</button>
     </div>
     <div id="palette" aria-label="Palett"></div>
     <div id="map-wrap"><canvas id="map-canvas" aria-label="Karta"></canvas></div>
     <p id="map-info" class="muted" aria-live="polite"></p>
+    <div id="layer-panel" hidden>
+      <p class="muted">Skatter, fiendestarter, portaler och ankomstpunkter ovanpå kartans rutor.
+        Visa-markerar endast: måla/flytta ändrar fortfarande kartglyfen, inte lagrens koordinater.
+        Story-styrda förändringar simuleras inte.</p>
+      <ul id="layer-list" class="row-list"></ul>
+    </div>
     <div class="panel-grid">
       <div>
         <h3>Legend</h3>
@@ -427,6 +434,7 @@ const LEGEND_ART = {
 let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
 let editingLegend = null;
 let displayMode = 'image', selectedGroupCells = [], selectedDarkIndex = null, editingDarkIndex = null;
+let revealLayers = false, selectedLayerCell = null;
 let groupListSignature = '', darkListSignature = '', sectionEditorSignature = '';
 const spriteCache = new Map(), resourceImageCache = new Map();
 const coloredSpriteCache = new Map();
@@ -679,6 +687,7 @@ function enterTextMode() {
 function renderAll() {
   if (!doc) return;
   renderTabs(); renderPalette(); renderLegend(); renderDark(); renderGroups(); renderSectionEditors(); renderResourceImages(); drawMap();
+  renderLayers();
   const grid = M.getGrid(doc, mapId);
   $('rs-w').value = grid[0].length; $('rs-h').value = grid.length;
   const use = M.usage(doc, mapId);
@@ -697,7 +706,7 @@ function renderTabs() {
     b.onclick = () => {
       if (editingLegend && editingLegend.id !== id) cancelLegendEdit();
       if (mapId !== id) { selectedGroupCells = []; selectedDarkIndex = editingDarkIndex = null; }
-      mapId = id; setInfo(''); renderAll();
+      mapId = id; selectedLayerCell = null; setInfo(''); renderAll();
     };
     box.append(b);
   }
@@ -966,6 +975,32 @@ function addSectionFromForm() {
       $('section-arg').value = '';
     }
 }
+function renderLayers() {
+  $('layer-panel').hidden = !revealLayers;
+  const list = $('layer-list');
+  list.replaceChildren();
+  if (!revealLayers) return;
+  const {layers, errors} = M.coordinateLayers(doc, mapId);
+  for (const layer of layers) {
+    const li = document.createElement('li');
+    const label = document.createElement('code');
+    const base = M.getGrid(doc, mapId)[layer.y][layer.x];
+    label.textContent = `${layer.x},${layer.y}: ruta ${base} · ${layer.label} (rad ${layer.line})`;
+    const show = document.createElement('button');
+    show.type = 'button'; show.className = 'secondary'; show.textContent = 'Visa';
+    show.onclick = () => {
+      selectedLayerCell = layer; drawMap();
+      $('map-wrap').scrollTo({left: Math.max(0, layer.x * cell - $('map-wrap').clientWidth / 2),
+        top: Math.max(0, layer.y * cell - $('map-wrap').clientHeight / 2)});
+    };
+    li.append(label, show); list.append(li);
+  }
+  for (const error of errors) {
+    const li = document.createElement('li'); li.className = 'bad'; li.textContent = error;
+    list.append(li);
+  }
+  if (!layers.length && !errors.length) list.textContent = 'Inga koordinatlager på denna karta.';
+}
 function drawMap() {
   const grid = M.getGrid(doc, mapId);
   const canvas = $('map-canvas');
@@ -1003,6 +1038,29 @@ function drawMap() {
     const x = Math.min(r.x1, r.x2), y = Math.min(r.y1, r.y2);
     const w = Math.abs(r.x2 - r.x1) + 1, h = Math.abs(r.y2 - r.y1) + 1;
     ctx.fillRect(x * cell, y * cell, w * cell, h * cell); ctx.strokeRect(x * cell + 1, y * cell + 1, w * cell - 2, h * cell - 2);
+  }
+  if (revealLayers) {
+    const counts = new Map();
+    for (const layer of M.coordinateLayers(doc, mapId).layers) {
+      const key = `${layer.x},${layer.y}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+      if (layer.sprite && displayMode === 'image') {
+        const image = spriteAsset(layer.sprite);
+        if (image) ctx.drawImage(image, (layer.x + .35) * cell, (layer.y + .35) * cell, cell * .65, cell * .65);
+      }
+    }
+    for (const [key, count] of counts) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.strokeStyle = '#ff9c3d'; ctx.lineWidth = Math.max(1, cell / 12);
+      ctx.strokeRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+      ctx.fillStyle = '#101b2b'; ctx.fillRect(x * cell, y * cell, cell * .5, cell * .5);
+      ctx.fillStyle = '#ff9c3d'; ctx.font = `${Math.max(4, Math.floor(cell * .45))}px sans-serif`;
+      ctx.fillText(String(count), (x + .25) * cell, (y + .25) * cell);
+    }
+    if (selectedLayerCell) {
+      ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = Math.max(1, cell / 8);
+      ctx.strokeRect(selectedLayerCell.x * cell + 1, selectedLayerCell.y * cell + 1, cell - 2, cell - 2);
+    }
   }
   ctx.lineWidth = Math.max(2, Math.floor(cell / 8));
   if (selectedDarkIndex !== null) {
@@ -1171,6 +1229,12 @@ $('rs-apply').onclick = () => {
   commit(() => M.resizeMap(doc, mapId, w, h, $('rs-fill').value));
 };
 $('zoom').onchange = () => { if (doc) drawMap(); };
+$('reveal-layers').onclick = () => {
+  revealLayers = !revealLayers; selectedLayerCell = null;
+  $('reveal-layers').setAttribute('aria-pressed', String(revealLayers));
+  $('reveal-layers').classList.toggle('active', revealLayers);
+  if (doc) { renderLayers(); drawMap(); }
+};
 window.addEventListener('resize', () => { if (doc && mapMode() && !$('zoom').value) drawMap(); });
 $('section-tag').onchange = syncSectionCreator;
 $('section-add').onclick = addSectionFromForm;
