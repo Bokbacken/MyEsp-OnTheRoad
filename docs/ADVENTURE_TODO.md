@@ -117,7 +117,10 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 - [x] Dokumentera syntax, ID-listor, säkerhetsregler och kvarvarande
   avgränsningar i authoring/Quickguide och leverera Motoräventyret med
   produktionsmotortrace.
-- [ ] Fysisk provning på ESP32-S3 och ESP32-P4.
+- [x] **Hårdvara, ägarrapport 2026-10-31:** hela Motoräventyret och
+  story-styrda kartförändringar provade på ESP32-P4; ägaren bedömer att
+  det räcker för denna leverans.
+- [ ] **Hårdvara:** prova kampanjen på ESP32-S3.
 
 ## IV. Legend och authoring-underlag inför editorn
 
