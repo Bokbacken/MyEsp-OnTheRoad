@@ -42,6 +42,7 @@ void setStatus(httpd_req_t *r, int code)
     case 404: s = "404 Not Found"; break;
     case 409: s = "409 Conflict"; break;
     case 413: s = "413 Payload Too Large"; break;
+    case 415: s = "415 Unsupported Media Type"; break;
     default: s = "500 Internal Server Error"; break;
     }
     httpd_resp_set_status(r, s);
