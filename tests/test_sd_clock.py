@@ -20,8 +20,14 @@ struct sdmmc_card_t {
     int max_freq_khz, real_freq_khz;
 };
 inline int hsResult=ESP_OK, clockResult=ESP_OK, actualClock=50000, clockCalls=0;
-extern "C" inline int __real_sdmmc_io_enable_hs_mode(sdmmc_card_t *) { return hsResult; }
-extern "C" inline int __real_sdmmc_init_host_frequency(sdmmc_card_t *card) {
+extern "C" int __wrap_sdmmc_io_enable_hs_mode(sdmmc_card_t *);
+extern "C" int __wrap_sdmmc_init_host_frequency(sdmmc_card_t *);
+"""
+
+DRIVER = r"""
+#include "stub.h"
+extern "C" int sdmmc_io_enable_hs_mode(sdmmc_card_t *) { return hsResult; }
+extern "C" int sdmmc_init_host_frequency(sdmmc_card_t *card) {
     ++clockCalls;
     card->real_freq_khz=actualClock;
     return clockResult;
@@ -29,7 +35,7 @@ extern "C" inline int __real_sdmmc_init_host_frequency(sdmmc_card_t *card) {
 """
 
 TEST = r"""
-#include "main/board_sd_clock.cpp"
+#include "stub.h"
 int main() {
     sdmmc_card_t radio{{1, 50000}, 40000, 0};
     assert(__wrap_sdmmc_io_enable_hs_mode(&radio)==ESP_OK && radio.max_freq_khz==50000);
@@ -67,12 +73,41 @@ def main():
             (work / name).write_text('#include "stub.h"\n')
         source = work / "test.cpp"
         source.write_text(TEST)
+        driver = work / "driver.cpp"
+        driver.write_text(DRIVER)
+        flags = [
+            "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable",
+            f"-I{work}", f"-I{ROOT}",
+        ]
+        for name, path in (("wrapper", ROOT / "main/board_sd_clock.cpp"),
+                           ("driver", driver), ("test", source)):
+            subprocess.run([*flags, "-c", str(path), "-o", str(work / f"{name}.o")],
+                           check=True)
+        subprocess.run(["ar", "rcs", str(work / "libmain.a"), str(work / "wrapper.o")],
+                       check=True)
+        subprocess.run(["ar", "rcs", str(work / "libsdmmc.a"), str(work / "driver.o")],
+                       check=True)
+        link_flags = [
+            "-Wl,--undefined=__wrap_sdmmc_io_enable_hs_mode",
+            "-Wl,--undefined=__wrap_sdmmc_init_host_frequency",
+            "-Wl,--wrap=sdmmc_io_enable_hs_mode",
+            "-Wl,--wrap=sdmmc_init_host_frequency",
+        ]
         binary = work / "test"
         subprocess.run([
-            "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable",
-            f"-I{work}", f"-I{ROOT}", str(source), "-o", str(binary),
+            "g++", str(work / "test.o"), str(work / "libmain.a"),
+            str(work / "libsdmmc.a"), *link_flags, "-o", str(binary),
         ], check=True)
         subprocess.run([str(binary)], check=True)
+        # IDF main has no ordinary callers of the wrappers: retain them anyway.
+        source.write_text("int main() { return 0; }\n")
+        subprocess.run([
+            *flags, str(source), str(work / "libmain.a"), str(work / "libsdmmc.a"),
+            *link_flags, "-o", str(binary),
+        ], check=True)
+        symbols = subprocess.check_output(["nm", str(binary)], text=True)
+        for name in ("sdmmc_io_enable_hs_mode", "sdmmc_init_host_frequency"):
+            assert f" T __wrap_{name}" in symbols
     print("SD 50 MHz negotiation, actual clocks and errors: passed")
 
 

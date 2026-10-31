@@ -26,7 +26,11 @@ idf_component_register(
            sdmmc fatfs vfs)
 
 if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
+  # These wrappers have no ordinary callers in main; retain their archive
+  # object before the later sdmmc library introduces the wrapped references.
   target_link_libraries(${COMPONENT_LIB} INTERFACE
+    "-Wl,--undefined=__wrap_sdmmc_io_enable_hs_mode"
+    "-Wl,--undefined=__wrap_sdmmc_init_host_frequency"
     "-Wl,--wrap=sdmmc_io_enable_hs_mode"
     "-Wl,--wrap=sdmmc_init_host_frequency")
 endif()
