@@ -3,7 +3,7 @@
 Jämförelse mot klassiska 2D rutnätsmotorer (Chip's Challenge, Boulder Dash,
 Sokoban-varianter, Zelda-likes, Baba Is You, enkla roguelikes). Listan tar **bara**
 upp sådant motorn *inte* redan har. Statusen är kontrollerad mot parsern och
-motorn i repot, som anger firmwareversion 0.21.3; versionsnummer i listan
+motorn i repot, som anger firmwareversion 0.23.4; versionsnummer i listan
 beskriver när befintliga funktioner introducerades.
 
 **Svårighetsskala (för just denna kodbas):**
@@ -37,6 +37,11 @@ inom samma fil, även för dialogstyrd förflyttning. Karttillstånd bevaras vid
 återbesök, checkpoints är kartmedvetna och bara aktiv karta tickar.
 Destinationer är förflyttningsmål, inte namngivna checkpoints. Kartövergång
 över en kant ingår inte. HUD har en reserverad remsa ovanför spelplanen.
+Från **0.23.4** kan storyeffekter även ändra tillåten terräng eller placera ett
+allowlistat objekt på explicit vald karta (`world tile map=N ...`,
+`world object map=N ...`). Målet valideras atomiskt och ändringen sparas för
+återbesök/save/restore; se
+[författarguiden](AUTHORING_ADVENTURES.md#12-flerkartor-och-portaler).
 Den [beständiga checklistan](ADVENTURE_TODO.md) anger återstående leverans-
 och hårdvaruverifiering samt planen fram till en komplett editor.
 
@@ -79,7 +84,6 @@ och hårdvaruverifiering samt planen fram till en komplett editor.
 |---|----------|-------------|:--------:|
 | 21 | **Kartövergång över en kant** | Portalbaserade interna kartbyten finns; automatiska kantövergångar saknas | 3 |
 | 22 | **Namngivna checkpoints** | Namngivna destinationer och storyförflyttning finns; checkpointnamn och val mellan flera återkomstpunkter saknas | 2 |
-| 23 | **Villkorliga rutor** | Ruta ändras när en flagga sätts (t.ex. bro byggs av story) – `world VERB` finns redan | 3 |
 | 24 | **Slumpmässig utplacering** | Markera ett område, motorn strösslar föremål/fiender – rejält omspelsvärde | 3 |
 | 25 | **Generell kartlegend** | Utöka nuvarande legend för ett urval av mekaniker till valfri terräng/objekt och egna id:n | 2 |
 
@@ -105,8 +109,6 @@ och hårdvaruverifiering samt planen fram till en komplett editor.
 ---
 
 ## Möjliga nästa steg (värde för insatsen)
-- **Story-styrda kartförändringar (#23)** – nästa avgränsade motorsteg efter
-  fysisk verifiering av flerkartor och portaler.
 - **Legend och authoring-underlag (#25)** – därefter editorbackend,
   HTML-editor och provspelning enligt [checklistan](ADVENTURE_TODO.md).
 

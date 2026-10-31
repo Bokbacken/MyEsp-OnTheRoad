@@ -275,10 +275,21 @@ void play()
     CHECK(!Story::applyEffects(*script, story, "world object map=2 5 2 6", &host));
     CHECK(!Story::applyEffects(*script, story, "world tile map=2 -1 1 8", &host));
     CHECK(!Story::applyEffects(*script, story, "world tile map=2 6 2 255", &host));
+    CHECK(!Story::applyEffects(*script, story, "world tile map=2 6 2 25", &host));
+    CHECK(!Story::applyEffects(*script, story, "world object map=2 5 4 3", &host));
+    CHECK(!Story::applyEffects(*script, story, "world object map=2 8 2 3", &host));
+    CHECK(!Story::applyEffects(*script, story, "world object map=2 1 1 3", &host));
+    CHECK(!Story::applyEffects(*script, story, "world object map=1 9 1 3", &host));
     const int tileArgs[] = {world->playerX(), world->playerY(), (int)Tile::BRIDGE};
     CHECK(!session.applyWorldActionOnMap("tile", 1, 3, tileArgs, *loaded, *world, story, script,
                                         err, sizeof(err)));
+    const int objectArgs[] = {world->playerX(), world->playerY(), (int)Obj::KEY};
+    CHECK(!session.applyWorldActionOnMap("object", 1, 3, objectArgs, *loaded, *world, story,
+                                        script, err, sizeof(err)));
     CHECK(world->tile(tileArgs[0], tileArgs[1]) == Tile::GRASS);
+    CHECK(world->rawObj(objectArgs[0], objectArgs[1]) == Obj::NONE);
+    CHECK(dialog.start(*script, story, "budbarare", &host));
+    CHECK(choiceWithText(dialog, "Skicka fyrlyktan.") < 0);
 
     move(session, *loaded, *world, story, script, Dir::RIGHT);
     move(session, *loaded, *world, story, script, Dir::UP);
@@ -351,7 +362,11 @@ void play()
     move(session, *loaded, *world, story, script, Dir::UP);
     move(session, *loaded, *world, story, script, Dir::UP);
     CHECK(session.currentMapId() == 2);
-    move(session, *loaded, *world, story, script, Dir::RIGHT);
+    CHECK(world->tile(3, 3) == Tile::ICE && world->tile(4, 3) == Tile::BELT_RIGHT);
+    move(session, *loaded, *world, story, script, Dir::DOWN);
+    CHECK(move(session, *loaded, *world, story, script, Dir::RIGHT) & EV_TREASURE);
+    CHECK(world->hasSkates());
+    move(session, *loaded, *world, story, script, Dir::UP);
     CHECK(move(session, *loaded, *world, story, script, Dir::RIGHT) & EV_PUSHED);
     CHECK(world->timerRemaining(2) > 0);
     move(session, *loaded, *world, story, script, Dir::DOWN);
@@ -372,8 +387,14 @@ void play()
     move(session, *loaded, *world, story, script, Dir::UP);
     for (int i = 0; i < 5; ++i) move(session, *loaded, *world, story, script, Dir::RIGHT);
     CHECK(session.currentMapId() == 4 && world->hasBoat());
+    move(session, *loaded, *world, story, script, Dir::DOWN);
+    move(session, *loaded, *world, story, script, Dir::RIGHT);
+    CHECK(move(session, *loaded, *world, story, script, Dir::RIGHT) & EV_GEM);
+    CHECK(move(session, *loaded, *world, story, script, Dir::RIGHT) & EV_SIZZLE);
+    CHECK(world->tile(5, 2) == Tile::BASALT);
+    move(session, *loaded, *world, story, script, Dir::UP);
     uint32_t exitEvents = 0;
-    for (int i = 0; i < 7; ++i) exitEvents = move(session, *loaded, *world, story, script, Dir::RIGHT);
+    for (int i = 0; i < 4; ++i) exitEvents = move(session, *loaded, *world, story, script, Dir::RIGHT);
     CHECK(exitEvents & EV_EXIT);
     CHECK(!session.hasNext());
     CHECK(session.start(root, campaign("05_hemresan", "01_hemresan.adv"),

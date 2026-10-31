@@ -4,7 +4,12 @@ A pocket dice-game (Yatzy, Maxi-Yatzy, Pig, Farkle, Ship-Captain-Crew) and tile-
 (ST77922 QSPI 320×480 + capacitive touch, WS2812 LED). **ESP-IDF 6.1** project with **LVGL 9.6**,
 Wi-Fi station mode (on-device network setup) and a web UI for status, settings and diagnostics.
 
-> **Status: v0.23.3** – FAT supports long filenames and safe staged uploads;
+> **Status: v0.23.4** – Adventure stories can safely change explicit-map terrain
+> and place allowlisted objects; the numbered Motoräventyret campaign and
+> production-engine traces are included ([install and play guide](sdcard_bundle/otr/adventure/motoraventyr/README.md);
+> [spoiler solutions](sdcard_bundle/otr/adventure/motoraventyr/LOSNINGAR.md)).
+> Hardware play on S3/P4 remains pending.
+> FAT supports long filenames and safe staged uploads;
 > directory uploads support up to three levels, SD formatting requires explicit
 > confirmation, and existing-file uploads now skip by default. Hardware
 > verification of the new SD operations remains pending. See

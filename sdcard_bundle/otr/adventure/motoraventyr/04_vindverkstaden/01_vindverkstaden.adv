@@ -37,6 +37,9 @@ t = sharp_rocks
 @plategroup 2 map=2: 4,1
 @gategroup 2 map=2: 5,1
 
+@treasures map=2
+2 2 skates
+
 @destinations
 map=2: timed_course 1,1
 map=3: rocky_shore 1,1
@@ -70,5 +73,5 @@ map=3: 10,1 -> windmill
 @map 4
 ##########
 #S..Q...X#
-#..*.....#
+#..*R^...#
 ##########
