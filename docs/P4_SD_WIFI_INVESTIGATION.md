@@ -150,6 +150,21 @@ automatiskt upphör efter tio minuter. RAM-backloggen behålls inom ringens
 storlek genom SD-avbrott och misslyckade appends. Dessa nya beteenden
 behöver hårdvarutestas; sekventiella framgångar verifierar inte samtidighet.
 
+## Uppföljning: befintliga filer och HTTP (v0.23.13)
+
+Ägarens nästa logg visar 199 slutförda MIDI/KAR-uppladdningar, totalt
+9 199 403 byte, utan nya SD-fel, watchdog eller återmontering.
+Sju nya filer i Hit_Trax skrevs klart, men försöken med många befintliga
+filer gav 25 `parser error = 16` / HTTP 400.
+
+Async-uppladdningen svarade att en befintlig fil hoppats över utan att
+läsa HTTP-kroppen. IDF:s async-complete dränerar inte kvarvarande data;
+binär MIDI-data kunde därför tolkas som nästa HTTP-anrop på anslutningen.
+v0.23.13 läser färdigt kroppen före skip-svar utan SD-lås/lease, dränerar
+tidiga avslag och stänger anslutningen vid avbruten mottagning.
+Detta är en separat HTTP-bugg, inte belägg för återkommande SD-fel.
+Omkopiering av Hit_Trax på hårdvara återstår.
+
 ## Att återanvända på nästa P4-kort
 
 Kontrollera först kortrevision, schema, slotfördelning och drivrutinernas

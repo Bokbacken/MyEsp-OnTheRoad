@@ -160,7 +160,8 @@ assert.match(server, /static constexpr int MAX_UPLOADS = 4;/);
 assert.match(server, /if \(ok && !skipped\) changed\(t\);/);
 assert.match(server, /if \(sdIoFailed\) BoardSd::requestRecovery\(\);/);
 // SD write failure: recover the card before draining the rest of the HTTP body.
-assert.match(server, /drainBody = true;[\s\S]*transfer.finish\(\)[\s\S]*while \(drainBody && left > 0\)/);
+assert.match(server, /if \(sdIoFailed\) BoardSd::requestRecovery\(\);[\s\S]*transfer.finish\(\)[\s\S]*body.drain\(\)/);
 assert.match(server, /BoardSd::Transfer transfer\(t.sd\)/);
 assert.match(server, /if \(t.sd && !BoardSd::transferHealthy\(\)\) pipeline.error.store\(EIO\)/);
-assert.doesNotMatch(server.split('drainBody = true;')[0], /httpd_req_recv\(r, drain/);
+assert.match(server, /if \(skipAtStart\) \{\s*transfer.finish\(\);\s*if \(!body.drain\(\)\)[\s\S]*return sendUploadSkipped\(r\);/);
+assert.match(server, /handleUploadRequest\(r, body\);[\s\S]*if \(!body.drain\(\)\)[\s\S]*body.disconnect\(\);[\s\S]*httpd_req_async_handler_complete\(r\)/);

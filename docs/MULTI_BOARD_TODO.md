@@ -181,6 +181,13 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Hårdvara v0.23.12: flera stora filer samtidigt, hashkontroll,
   avbrutna överföringar och återhämtning med flera filhållare.
   Verifiera loggnivåer, SD-spårningens timeout och normalnivå efter omstart.
+- [x] Ägarens v0.23.12-logg: 199 små MIDI/KAR-uppladdningar slutförda
+  (9 199 403 byte), utan nya SD-fel/watchdog. Hit_Trax med befintliga filer
+  gav 25 HTTP-parserfel, inte SD-skrivfel.
+- [x] v0.23.13: läs färdigt hoppade HTTP-kroppar före svar och dränera
+  tidiga async-avslag före socketåteranvändning; stäng vid avbruten kropp.
+- [ ] Hårdvara v0.23.13: kopiera Hit_Trax igen med många befintliga
+  filer och några nya; kontrollera skip-resultat och frånvaro av HTTP 400.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om

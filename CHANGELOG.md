@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.13 (unreleased)
+
+- Consume skipped upload bodies before returning success, without holding
+  the SD lock or transfer lease. Async requests also drain remaining data on
+  early rejection; interrupted bodies shut down the connection before async
+  completion rather than leaving binary file data for the HTTP parser.
+- The owner's v0.23.12 log shows 199 completed uploads (9,199,403 bytes),
+  including seven new Hit_Trax files, without new SD errors or watchdogs.
+  Existing-file attempts in Hit_Trax produced 25 HTTP parser errors, matching
+  the unread-body bug. Hardware retesting of the fix remains pending.
+
 ## v0.23.12 (unreleased)
 
 - Restored up to four concurrent SD upload sessions in browser batches and

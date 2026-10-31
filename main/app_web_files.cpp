@@ -24,6 +24,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 
 #include <string>
 
@@ -216,6 +217,47 @@ void addUsage(cJSON *o, bool sd)
     }
 }
 
+struct UploadBody {
+    httpd_req_t *request;
+    size_t remaining;
+    bool failed = false;
+
+    explicit UploadBody(httpd_req_t *r) : request(r), remaining(r->content_len) {}
+
+    int receive(char *buffer, size_t capacity)
+    {
+        const int n = httpd_req_recv(request, buffer, remaining < capacity ? remaining : capacity);
+        if (n > 0) remaining -= (size_t)n;
+        else if (n != HTTPD_SOCK_ERR_TIMEOUT) failed = true;
+        return n;
+    }
+
+    bool drain()
+    {
+        if (failed) return false;
+        char buffer[1024];
+        int timeouts = 0;
+        while (remaining) {
+            const int n = receive(buffer, sizeof(buffer));
+            if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+            if (n <= 0) {
+                failed = true;
+                ESP_LOGW(TAG, "upload body interrupted with %u bytes unread", (unsigned)remaining);
+                return false;
+            }
+            timeouts = 0;
+        }
+        return true;
+    }
+
+    void disconnect()
+    {
+        // Keep httpd's session allocated until async completion releases its request.
+        if (shutdown(httpd_req_to_sockfd(request), SHUT_RDWR) != 0)
+            ESP_LOGW(TAG, "upload socket shutdown failed (%d)", errno);
+    }
+};
+
 esp_err_t sendUploadSkipped(httpd_req_t *r)
 {
     return MyWeb::sendJsonStr(r, 200, "{\"ok\":true,\"skipped\":true}");
@@ -372,7 +414,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
     return httpd_resp_send_chunk(r, nullptr, 0);
 }
 
-static esp_err_t handleUploadRequest(httpd_req_t *r)
+static esp_err_t handleUploadRequest(httpd_req_t *r, UploadBody &body)
 {
     MyWeb::Req q(r);
     if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
@@ -397,6 +439,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     FILE *f = nullptr;
     int err = 0;
     bool sdIoFailed = false;
+    bool skipAtStart = false;
     const int64_t uploadStart = esp_timer_get_time();
     {
         Lock lk(t.sd);
@@ -404,16 +447,17 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             return MyWeb::sendError(r, 503, "SD-kortet återhämtas");
         struct stat st = {};
         if (stat(t.path, &st) == 0) {
-            if (skipExisting && !overwrite) return sendUploadSkipped(r);
-            if (S_ISDIR(st.st_mode) || !overwrite)
+            skipAtStart = skipExisting && !overwrite && !S_ISDIR(st.st_mode);
+            if (S_ISDIR(st.st_mode) || (!overwrite && !skipAtStart))
                 return MyWeb::sendError(r, 409, tr(Str::WEB_ERR_FS_EXISTS));
         } else if (errno != ENOENT) {
             const int statError = errno ? errno : EIO;
             if (t.sd && statError == EIO) BoardSd::requestRecovery();
             return ioError(r, statError);
         }
-        if (t.sd && total > BoardSd::info().freeBytes) return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
-        for (int attempt = 0; attempt < 8; attempt++) {
+        if (!skipAtStart && t.sd && total > BoardSd::info().freeBytes)
+            return MyWeb::sendError(r, 507, tr(Str::WEB_ERR_FS_FULL));
+        for (int attempt = 0; !skipAtStart && attempt < 8; attempt++) {
             const uint32_t nonce = esp_random();
             if (!FsUpload::siblingPath(t.path, nonce, false, tmp, sizeof(tmp)) ||
                 !FsUpload::siblingPath(t.path, nonce, true, backup, sizeof(backup)))
@@ -431,6 +475,12 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             err = errno ? errno : EIO;
             if (err != EEXIST) break;
         }
+    }
+    if (skipAtStart) {
+        transfer.finish();
+        if (!body.drain()) return MyWeb::sendError(r, 408, "Uppladdningen avbröts");
+        ESP_LOGI(TAG, "upload %s skipped: file already exists", t.path);
+        return sendUploadSkipped(r);
     }
     if (!f) {
         if (t.sd && err == EIO) BoardSd::requestRecovery();
@@ -475,7 +525,6 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
         FsUpload::discard(tmp);
     }
     size_t left = total;
-    bool drainBody = false;
     int timeouts = 0;
     int64_t recvUs = 0, flushUs = 0, closeUs = 0;
     while (ok && left > 0) {
@@ -484,7 +533,6 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
             err = pipeline.error.load();
             sdIoFailed = t.sd && err == EIO;
             ok = false;
-            drainBody = true;   // After SD recovery, so a broken card is not left busy for the whole body
             break;
         }
         uint8_t index = 0;
@@ -495,13 +543,14 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
         }
         pipeline.bufferWaitUs += esp_timer_get_time() - waitStart;
         const int64_t recvStart = esp_timer_get_time();
-        int n = httpd_req_recv(r, (char *)pipeline.buffers[index], left < CHUNK ? left : CHUNK);
+        int n = body.receive((char *)pipeline.buffers[index], left < CHUNK ? left : CHUNK);
         recvUs += esp_timer_get_time() - recvStart;
         if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) {
             xQueueSend(pipeline.available, &index, portMAX_DELAY);
             continue;
         }
         if (n <= 0) {
+            body.failed = true;
             ok = false;
             err = EIO;
             xQueueSend(pipeline.available, &index, portMAX_DELAY);
@@ -593,12 +642,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
     if (skipped) return sendUploadSkipped(r);
     if (!ok) {
         ESP_LOGW(TAG, "upload %s failed (%d)", t.path, err);
-        char drain[512];
-        while (drainBody && left > 0) {
-            const int n = httpd_req_recv(r, drain, left < sizeof(drain) ? left : sizeof(drain));
-            if (n <= 0) break;
-            left -= (size_t)n;
-        }
+        body.drain();
         if (err == ENOMEM) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
         return ioError(r, err);
     }
@@ -609,7 +653,13 @@ static esp_err_t handleUploadRequest(httpd_req_t *r)
 static void uploadTask(void *arg)
 {
     auto *r = static_cast<httpd_req_t *>(arg);
-    handleUploadRequest(r);
+    UploadBody body(r);
+    handleUploadRequest(r, body);
+    // Async completion does not discard unread bytes, unlike synchronous handlers.
+    if (!body.drain()) {
+        ESP_LOGW(TAG, "closing upload connection after incomplete body");
+        body.disconnect();
+    }
     httpd_req_async_handler_complete(r);
     s_activeUploads.fetch_sub(1);
     vTaskDelete(nullptr);
@@ -624,7 +674,10 @@ static bool isInternalUpload(httpd_req_t *r)
 
 static esp_err_t handleUpload(httpd_req_t *r)
 {
-    if (isInternalUpload(r)) return handleUploadRequest(r);
+    if (isInternalUpload(r)) {
+        UploadBody body(r);
+        return handleUploadRequest(r, body);
+    }
     if (s_formatting.load()) return MyWeb::sendError(r, 503, "SD-kortet formateras");
     if (s_activeUploads.fetch_add(1) >= MAX_UPLOADS) {
         s_activeUploads.fetch_sub(1);
@@ -641,6 +694,8 @@ static esp_err_t handleUpload(httpd_req_t *r)
     }
     if (xTaskCreate(uploadTask, "fs_upload", 8192, copy, 3, nullptr) != pdPASS) {
         const esp_err_t response = MyWeb::sendError(r, 503, tr(Str::WEB_ERR_MEMORY));
+        UploadBody body(copy);
+        body.disconnect();
         httpd_req_async_handler_complete(copy);
         s_activeUploads.fetch_sub(1);
         return response;
