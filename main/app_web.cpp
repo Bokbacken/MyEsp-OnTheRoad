@@ -28,6 +28,7 @@
 #include "kara_songs_web.h"
 #include "kara_web.h"
 #include "adv_live.h"
+#include "app_web_adventure_editor.h"
 #include "hw_profile.h"
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
 #include "host_ota.h"
@@ -1425,6 +1426,7 @@ bool begin()
     ok &= HostOta::registerRoute();
 #endif
     ok &= AppWebFiles::registerRoutes();
+    ok &= AppWebAdventureEditor::registerRoutes();
     ok &= KaraSongsWeb::registerRoutes();   // v0.13.7 song picker API
     ok &= otr_log_register_routes();        // v0.13.7 /api/log/stream + /api/log/download
     ok &= wsBegin();

@@ -20,10 +20,10 @@ instruktioner ska ingå i `sdcard_bundle/otr/adventure/`.
 
 ### Verifierad utgångspunkt 2026-10-31
 
-- Aktuell `main` är firmware `0.23.3`; PR #19 om flerkartor/portaler är
-  mergad. Den äldre noteringen nedan beskriver statusen vid skrivdatumet och
-  bevaras som historik.
-- Denna leverans föreslår `0.23.4`; CI och fysisk S3/P4-provning redovisas
+- Aktuell `main` är firmware `0.23.4`; PR #37 med storyförändringar och
+  Motoräventyret är mergad. Den äldre noteringen nedan beskriver statusen vid
+  skrivdatumet och bevaras som historik.
+- Editorleveransen föreslår `0.23.5`; CI och fysisk S3/P4-provning redovisas
   separat, utan påstående om hårdvarutest.
 - Punkterna PR #13–#18 nedan är verifierade noteringar från 2026-10-29, inte
   påståenden om dagens status.
@@ -129,20 +129,26 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 ## V. Editorbackend på ESP32
 
-- [ ] Återanvänd SD-filhantering, sökvägskontroll och befintligt skrivskydd.
-- [ ] Strukturerad validering via produktionsparser, story och world-loader.
-- [ ] Fel/varningar med rad, kolumn och kartruta där det är möjligt.
-- [ ] Kontrollera referenser, bilder, kapacitetsgränser och destinationsmål.
-- [ ] Säkra skrivningar och konfliktkontroll; originalet ska överleva fel.
+- [x] Återanvänd SD-filhantering, sökvägskontroll och befintligt skrivskydd.
+- [x] Validera hela `.adv`-källan med produktionsparser, storyvalidator och
+  world-loader för varje intern karta.
+- [x] Visa parserns radfel och kart-ID för motorfel.
+- [x] Kontrollera parserns referenser/kapaciteter och säkra
+  portal-/destinationsrutor via motorn.
+- [x] Spara genom filhanterarens temporärfil/atomiska installation efter
+  validering och uttrycklig bekräftelse av ersättning.
+- [ ] Kontrollera bildfilers existens/format och visa kolumn/kartruta direkt
+  i editorn.
 
 ## VI. HTML-editor
 
-- [ ] Hostas av ESP32, i intern flash eller på SD om storleken kräver det.
-- [ ] Läsa/skapa/redigera/spara `.adv` på SD.
+- [x] Hostas från inbäddade flash-assets på ESP32.
+- [x] Läsa/redigera/spara befintliga `.adv`-filer på SD i källtextläge.
+- [ ] Skapa nya `.adv`-filer direkt i editorn.
 - [ ] Kartflikar, terräng, objekt, grupper, mörker, skatter, resurser,
   utrustning, fiender, NPC:er, portaler och story: alla stödda funktioner.
-- [ ] Textläge och förlustfri öppna/spara för kommentarer och okänd syntax.
-- [ ] Visa valideringsfel vid rätt rad/kartruta.
+- [x] Textläge som behåller kommentarer och okänd syntax vid öppna/spara.
+- [x] Visa valideringsfel med rad från parsern och kart-ID från motorn.
 
 ## VII. Provspelning och slutverifiering
 
@@ -163,4 +169,5 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 |---|---|---|
 | 2026-10-29 | Plan återställd efter tappad session | Utgångspunkt: PR #18, `0.21.2`. I+II och småfixar beställda. |
 | 2026-10-29 | I+II och UI-fixar i PR #19 | Kod och testbanor pushade. Slutlig kodversion `084ae6e` byggd med ESP-IDF 6.1; fysisk ESP-verifiering kvar. |
-| 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad, bas `0.23.3`. Motorändring och kampanjtest införda på separat PR, version föreslagen `0.23.4`. Hosttester passerade; S3/P4 CI och fysisk provning redovisas efter slutlig verifiering. |
+| 2026-10-31 | PR #19 finns på main; storyförändringar och Motoräventyret | PR #19 bekräftad mergad. Motoräventyret/storyförändringar levererade i v0.23.4; ägaren har provat hela leveransen på P4. S3-verifiering återstår. |
+| 2026-10-31 | Editor steg 1: källtextläge och produktionsvalidering | Öppna/redigera/validera/spara befintliga SD-äventyr på `/adventure-editor`; visual editing och hårdvarutest återstår. |
