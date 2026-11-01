@@ -261,6 +261,12 @@ to flash at `0x0` (first install, e.g. with esptool.js in the browser). Once the
 later updates can use the OTA file through the web page.
 
 The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
+S3 builds include Espressif's targeted SPI bus-lock race fix (`a16c003`)
+backported to the pinned ESP-IDF v6.1 source. CMake verifies source fingerprints
+and compiles a patched copy in the build directory, without changing the SDK.
+An SDK upgrade must explicitly review/update this backport; an unknown source
+fails configuration. P4 does not use this backport.
+
 CI builds both boards and labels the artifacts `firmware-esp32s3-v<PROJECT_VER>` and
 `firmware-esp32p4-v<PROJECT_VER>-unverified` (P4 hardware verification is incomplete;
 startup and Wi-Fi have been confirmed).

@@ -389,6 +389,29 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Boot #33/#34 behåller last-alive och verifierar core-dump-checksumman.
   FFat-räknaren ligger kvar på 256 av 257. SPI-felvägen är nu upprepad,
   men bus-lock-race kontra minneskorruption är fortfarande oavgjort.
+  Rådump 2026-11-01 verifierad: FFat + core dump är exakt 0x5F0000 byte.
+  Båda WL-v2-tillståndskopiorna (partitionsrelativt 0x5D3000/0x5D9000)
+  har giltig CRC, samma dummy-position 238 och flyttvarv 0. IDF:s
+  adressöversättning lämnar därför rotkatalogsektorerna 0x3000/0x4000
+  på samma fysiska offset. Båda innehåller exakt 4096 byte 0xFF.
+  Nästa sektor har `EVENTS.LOG` och därefter tomma poster, vilket matchar
+  256 ogiltiga + en giltig post. Detta bekräftar katalogskada, men inte
+  fysisk flashskada eller vilken avbruten skrivning som orsakade den.
+  Core dump har giltig SHA256, ELF-id `a199c9825` och fel-PC `0x40376B11`,
+  samma SPI-fel som de tidigare serieloggarna.
+  Espressifs upstream-fix `a16c00376b85ffcf48b1ba53e96d83dd47f76fd5`
+  rättar just en TOCTOU-race i `bg_exit_core`: använd en stabil lokal
+  pekare efter kontrollen, inte flera läsningar av den föränderliga
+  `lock->acquiring_dev`. Även idle-task förekommer i upstream-rapporten.
+  v0.23.18 backportar exakt denna rättning endast för S3, i byggkatalogen
+  med SHA256-kontroll av både original och resultat. P4/installerat SDK
+  lämnas orörda. CI och ägarens längre kraschtest återstår; inte ännu
+  hårdvarubevis för att alla S3-krascher försvinner.
+  Ägarrapport 2026-11-01: intern FFat formaterad, återlagda flashloggar
+  raderade och omstart utförd via webben. Ingen efterföljande
+  hälsokontroll eller längre stabilitetsperiod är ännu rapporterad.
+  S3 lämnas på v0.23.18 under observation; nästa strömspararbete fokuserar
+  på P4 utan att kräva att S3 uppdateras.
   **Formatera inte FFat innan råpartitionen och läsbara filer har säkrats.**
   Den manuella reparationsvägen säkerhetskopierar bara `players.bin` och
   `events.log`, inte alla filer/sparningar, och en formatering raderar övrigt
@@ -424,6 +447,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Hårdvarutesta v0.23.16:s valbara viloläge på S3/P4: Wi-Fi och
   I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
   inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
+- [ ] Lägg till kontrollerad omstart under enhetens lokala Inställningar
+  tillsammans med strömspararbetet. Återanvänd webbens omstartsväg och
+  skydda pågående skrivningar/OTA; bekräfta innan osparat spel lämnas.
   CPU/touch är fortsatt vakna, inte light sleep.
 - [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
   sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
