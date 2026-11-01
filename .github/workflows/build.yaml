@@ -123,6 +123,7 @@ jobs:
         if: matrix.target == 'esp32s3'
         run: |
           python3 tests/test_board_peripherals.py
+          python3 -m unittest discover -s tests -p test_idf_spi_fix.py
           python3 tests/test_sd_log_diagnostics.py
           python3 tests/test_sd_clock.py
           python3 tests/test_upload_pipeline.py

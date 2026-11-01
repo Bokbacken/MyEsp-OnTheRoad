@@ -389,6 +389,24 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Boot #33/#34 behåller last-alive och verifierar core-dump-checksumman.
   FFat-räknaren ligger kvar på 256 av 257. SPI-felvägen är nu upprepad,
   men bus-lock-race kontra minneskorruption är fortfarande oavgjort.
+  Rådump 2026-11-01 verifierad: FFat + core dump är exakt 0x5F0000 byte.
+  Båda WL-v2-tillståndskopiorna (partitionsrelativt 0x5D3000/0x5D9000)
+  har giltig CRC, samma dummy-position 238 och flyttvarv 0. IDF:s
+  adressöversättning lämnar därför rotkatalogsektorerna 0x3000/0x4000
+  på samma fysiska offset. Båda innehåller exakt 4096 byte 0xFF.
+  Nästa sektor har `EVENTS.LOG` och därefter tomma poster, vilket matchar
+  256 ogiltiga + en giltig post. Detta bekräftar katalogskada, men inte
+  fysisk flashskada eller vilken avbruten skrivning som orsakade den.
+  Core dump har giltig SHA256, ELF-id `a199c9825` och fel-PC `0x40376B11`,
+  samma SPI-fel som de tidigare serieloggarna.
+  Espressifs upstream-fix `a16c00376b85ffcf48b1ba53e96d83dd47f76fd5`
+  rättar just en TOCTOU-race i `bg_exit_core`: använd en stabil lokal
+  pekare efter kontrollen, inte flera läsningar av den föränderliga
+  `lock->acquiring_dev`. Även idle-task förekommer i upstream-rapporten.
+  v0.23.18 backportar exakt denna rättning endast för S3, i byggkatalogen
+  med SHA256-kontroll av både original och resultat. P4/installerat SDK
+  lämnas orörda. CI och ägarens längre kraschtest återstår; inte ännu
+  hårdvarubevis för att alla S3-krascher försvinner.
   **Formatera inte FFat innan råpartitionen och läsbara filer har säkrats.**
   Den manuella reparationsvägen säkerhetskopierar bara `players.bin` och
   `events.log`, inte alla filer/sparningar, och en formatering raderar övrigt

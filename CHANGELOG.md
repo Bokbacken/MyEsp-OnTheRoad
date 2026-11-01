@@ -8,6 +8,18 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.18 (unreleased)
+
+- S3 only: backport Espressif's `a16c003` SPI bus-lock TOCTOU fix,
+  matching the repeated null-pointer crashes in `bg_exit_core`.
+  Generate a fingerprint-checked patched source in the build directory;
+  never modify the installed SDK. Unknown SDK source fails configuration
+  rather than applying an unchecked patch. P4 and C6 are unchanged.
+- Raw S3 FFat evidence confirms two erased root-directory sectors with
+  valid, matching wear-levelling state. This confirms filesystem damage,
+  not physical flash failure or the precise interruption that caused it.
+- Owner hardware confirmation of crash prevention remains pending.
+
 ## v0.23.17 (unreleased)
 
 - Readable city/UTC timezone dropdowns on-device and in web settings,

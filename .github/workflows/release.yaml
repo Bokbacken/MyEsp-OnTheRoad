@@ -34,7 +34,9 @@ jobs:
         id: firmware
         run: python3 tools/firmware_release.py prepare
       - name: Test release tooling (no publication)
-        run: python3 -m unittest discover -s tests -p test_firmware_release.py
+        run: |
+          python3 -m unittest discover -s tests -p test_firmware_release.py
+          python3 -m unittest discover -s tests -p test_idf_spi_fix.py
       - name: Build and verify ES3C35P release package
         uses: espressif/esp-idf-ci-action@v1
         with:
