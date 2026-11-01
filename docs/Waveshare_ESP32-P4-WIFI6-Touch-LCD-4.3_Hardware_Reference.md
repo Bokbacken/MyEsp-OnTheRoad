@@ -167,10 +167,18 @@ certificate-time checks, but it is not a trusted current time.
 At boot, firmware logs the reset reason before applying the reset policy.
 It also logs whether `RTC_NOINIT` still contains a matching anchor
 (`magic`, `check`) and compares the stored counter with the current counter.
-A physical RESET test is needed. It must show whether the anchor survives
-and whether the counter continues or restarts. Those results determine
-whether that reset can be trusted. On many ESP chips, a pin reset reports
-the same cause as power-on, so the reset reason alone may not distinguish it.
+Owner hardware log with v0.23.14 (2026-11-01):
+
+- Web restart: `reset=3` (software); the anchor was valid and the counter
+  continued (530 s to 619 s). Time was restored as `OK`, and the
+  last-alive time was present.
+- Physical RESET and main-power removal: both reported `reset=1`
+  (power-on). The counter restarted at about 2 s, the anchor fields
+  contained garbage and no last-alive time remained.
+
+The RESET button therefore resets the RTC domain like power loss. Internal
+RTC time cannot survive it, regardless of the battery on RTC BAT. Only an
+external calendar RTC or controlled VBAT deep sleep can retain time across it.
 
 The official schematic connects Key3 to U20's KEY input (ECJ23001 power
 control), not to a P4 GPIO. BOOT/Key2 connects to GPIO35 and can be read
