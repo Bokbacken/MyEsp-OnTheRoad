@@ -28,7 +28,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 const html = fs.readFileSync('main/web/adventure.html', 'utf8');
-const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i);
+const script = html.match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i);
 assert(script, 'adventure page contains a script');
 vm.runInContext(script[1], sandbox);
 const run = source => vm.runInContext(source, sandbox);
