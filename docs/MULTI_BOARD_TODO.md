@@ -188,6 +188,15 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   tidiga async-avslag före socketåteranvändning; stäng vid avbruten kropp.
 - [x] Hårdvara v0.23.13: ägaren har flashat och provat Hit_Trax-rättningen
   och rapporterar att den fungerar klockrent. Leveransen är godkänd och mergad.
+- [x] Ägarrapport 2026-11-01: senaste bygget är installerat på båda enheterna;
+  filkopieringens nya status/presentation upplevs som mer logisk och fungerar
+  bra. Inga hash- eller långtidsresultat rapporterade.
+- [x] Ägarrapport 2026-11-01: ett specifikt Samsung 32PRO-SD-kort ger åter
+  många skrivfel efter en period med fungerande filhantering och bedöms av
+  ägaren som trasigt. Det är okänt om kortet var defekt från början eller
+  skadades under tidigare tester. Kortet är därför en bekräftad
+  hårdvarufelkälla i den historiska felsökningen, men förklarar inte i sig
+  mjukvarufel som redan reproducerats eller åtgärdats.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om
