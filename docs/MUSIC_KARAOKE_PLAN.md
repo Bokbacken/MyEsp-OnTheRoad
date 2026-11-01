@@ -257,7 +257,8 @@ genomsnittlig renderlast ≥ 100 % eller minst 5 sena mixerblock
 `overload: stopped (...)` och enhetens karaokevy visar att SF2 eller
 röstantal är för krävande för hårdvaran. Webbspelaren visar ännu inget eget
 meddelande. Kortare toppar än en period och enstaka sena block stoppar inte.
-Gränsen gäller båda korten; P4-tröskeln är inte separat mätt.
+Gränsen gäller båda korten; P4-tröskeln är inte separat mätt. Ägaren
+bekräftade på S3 (v0.23.21) att varningen visades när watchdogen larmade.
 
 ### Webbkaraoke i mono/stereo
 

@@ -8,14 +8,8 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
-## v0.23.21 (unreleased)
+## v0.23.22 (unreleased)
 
-- Karaoke overload guard: when a 5 s diagnostics period averages ≥100 %
-  render load or has ≥5 late mixer blocks, playback is paused, notes are
-  released and the device shows that the SF2 or voice count is too
-  demanding for this hardware. Prompted by an owner S3 test with a
-  ~55 MB SF2 at 96 voices (stutter + task-watchdog warnings, no reboot).
-  Documented as unsupported in the karaoke reference. Hardware check pending.
 - Memory-aware SD uploads: extra parallel uploads are admitted only while
   internal RAM keeps a 40 KiB floor (HTTP 429 otherwise; the browser waits
   and retries). The file list reports `upload_slots`; the internal DMA
@@ -28,6 +22,16 @@ a published GitHub Release.
   Effects and karaoke are unaffected.
 - OTA image/rollback state is read once at boot, so status polling no
   longer maps otadata (owner S3 log: `mmap otadata failed 0x101`).
+
+## v0.23.21 (unreleased)
+
+- Karaoke overload guard: when a 5 s diagnostics period averages ≥100 %
+  render load or has ≥5 late mixer blocks, playback is paused, notes are
+  released and the device shows that the SF2 or voice count is too
+  demanding for this hardware. Prompted by an owner S3 test with a
+  ~55 MB SF2 at 96 voices (stutter + task-watchdog warnings, no reboot).
+  Documented as unsupported in the karaoke reference. Owner confirmed on
+  S3 (v0.23.21): the warning appeared when the watchdog triggered.
 
 ## v0.23.20 (unreleased)
 
