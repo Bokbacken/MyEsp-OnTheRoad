@@ -33,7 +33,7 @@ inline void vTaskDelay(int ms) {
     if (stopSample && ms==10000) throw std::runtime_error("sample complete");
 }
 using i2c_master_bus_handle_t = void *;
-enum esp_reset_reason_t { ESP_RST_POWERON, ESP_RST_SW, ESP_RST_DEEPSLEEP };
+enum esp_reset_reason_t { ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW, ESP_RST_PANIC, ESP_RST_INT_WDT, ESP_RST_TASK_WDT, ESP_RST_WDT, ESP_RST_DEEPSLEEP, ESP_RST_BROWNOUT };
 inline esp_reset_reason_t resetReason=ESP_RST_POWERON;
 inline esp_reset_reason_t esp_reset_reason() { return resetReason; }
 inline uint64_t esp_rtc_get_time_us() { return ticks; }
@@ -223,6 +223,18 @@ int main() {
     resetReason=ESP_RST_DEEPSLEEP;
     ticks+=10000000;
     assert(begin(nullptr,&out) && out==1793282417);
+    resetReason=ESP_RST_PANIC;
+    assert(begin(nullptr,&out) && out==1793282417);
+    resetReason=ESP_RST_INT_WDT;
+    assert(begin(nullptr,&out) && out==1793282417);
+    resetReason=ESP_RST_TASK_WDT;
+    assert(begin(nullptr,&out) && out==1793282417);
+    for (esp_reset_reason_t r : {ESP_RST_EXT, ESP_RST_WDT, ESP_RST_BROWNOUT}) {
+        assert(write(1793282400));
+        resetReason=r;
+        assert(!begin(nullptr,&out)); // RTC domain or supply may have been reset.
+    }
+    assert(write(1793282400));
     resetReason=ESP_RST_POWERON;
     assert(!begin(nullptr,&out)); // Never trust a stale anchor after abrupt power loss.
     assert(write(1793282400));
