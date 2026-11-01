@@ -317,6 +317,18 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Båda targets använder samma FAT/WL-kod och 4096-byte WL-sektorer;
   partitionstabellerna överlappar inte i källan. Verifiera även S3:s faktiskt
   flashade partitionstabell innan den utesluts.
+  Serielogg 2026-11-01 verifierar även faktiskt flashad S3-tabell: samma
+  offset/storlek som `partitions.csv`, 16 MB flash, inga överlapp.
+  Spontan v0.23.14-krasch avkodad med exakt matchande ELF
+  (SHA256 börjar 756290538): LoadProhibited på adress 0 i SPI-avbrottet,
+  `spi_bus_lock.c:591` → `spi_bus_lock_bg_exit` → `spi_intr`.
+  Där försöker IDF v6.1 återuppta `lock->acquiring_dev`, som saknas.
+  Avbrottet avbröt ljudmixern; ljudfunktionerna i stacken är inte i sig
+  bevis för ett ljudfel. S3-skärmen använder SPI2 och blandar pollade
+  kommandon med köade DMA-färgöverföringar. Utred bus-lock-race och
+  eventuell minneskorruption; ingen rotorsak är ännu bevisad.
+  Efter denna panic loggas föregående körnings last-alive-tid och
+  DS3231 är OK (OSF 0). Core dump sparas med giltig checksumma.
   Hälsokontrollen avvisar alla icke-ASCII-namn, även giltiga Unicode-namn;
   dess räknare ensam är inte bevis för fysisk flashskada.
   Trolig mekanism (kodgranskning, ej bevisad med rådump): IDF:s FAT-diskio
