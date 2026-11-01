@@ -225,5 +225,11 @@ async function page(file, data) {
   assert(assetCount + reserve >= assetCount + routeCount + 4,
     'HTTP URI handler capacity includes every generated asset and registered API/WebSocket route with headroom');
 
+  const diagHtml = fs.readFileSync('main/web/diagnostics.html', 'utf8');
+  assert.match(diagHtml, /\/api\/diag\/crash\?kind=' \+ kind/);
+  assert.match(diagHtml, /confirm\('Krascha enheten nu/);
+  assert.match(appWeb, /MyWeb::on\("\/api\/diag\/crash", HTTP_POST, handleDiagCrash\)/);
+  assert.match(appWeb, /handleDiagCrash[\s\S]*?adminAllowed\(\)/);
+
   console.log('S3/P4 diagnostics and settings: board identity, RTC, SD/FFat, battery, screen power, text size and RGB availability passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

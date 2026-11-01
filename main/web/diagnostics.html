@@ -91,6 +91,17 @@
     Pågående SD-loggskrivning avslutas först. Inställningen återställs vid omstart.</p>
 </div>
 
+<h2>Testkrasch</h2>
+<div class="card">
+  <p class="muted">Kraschar enheten avsiktligt för att testa omstart, RTC-tid och core dump.
+  Pågående överföringar och osparat spel går förlorade.</p>
+  <div class="row">
+    <button type="button" class="danger" id="crash-panic">Panic (abort)</button>
+    <button type="button" class="danger" id="crash-wdt">Watchdog</button>
+  </div>
+  <div class="muted" id="crash-state"></div>
+</div>
+
 <h2>Rå JSON</h2>
 <div class="card table-wrap"><pre id="raw" class="muted" style="margin:0;white-space:pre-wrap;font-size:.8rem"></pre></div>
 
@@ -299,6 +310,22 @@ $('log-sd-toggle').onclick = async () => {
   }
 };
 sdLogRefresh();
+async function testCrash(kind) {
+  if (!confirm('Krascha enheten nu (' + kind + ')? Den startar om direkt.')) return;
+  const pin = window.prompt('Admin-PIN (lämna tomt om ingen PIN är konfigurerad)');
+  if (pin === null) return;
+  try {
+    const response = await fetch('/api/diag/crash?kind=' + kind + '&pin=' + encodeURIComponent(pin),
+      {method: 'POST', cache: 'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Testkrasch nekades');
+    $('crash-state').textContent = 'Kraschar… ladda om sidan efter omstarten.';
+  } catch (e) {
+    $('crash-state').textContent = e.message;
+  }
+}
+$('crash-panic').onclick = () => testCrash('panic');
+$('crash-wdt').onclick = () => testCrash('wdt');
 let logConfig = null, logConfigBusy = false;
 function logConfigStatus(data) {
   if (!['error', 'warning', 'info', 'debug'].includes(data.level) ||

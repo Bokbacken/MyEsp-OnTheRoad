@@ -589,6 +589,7 @@ Mini-game/result screens, theme redesign and P4 hardware support are outside thi
 | GET / POST | `/api/players` | Player registry; `action` = add (`name`) / rename (`id`, `name`) / remove (`id`, admin `pin`) |
 | POST | `/api/ota` | Firmware upload (multipart, `?size=&pin=`) |
 | POST | `/api/reboot`, `/api/reset` | Reboot / factory reset settings (reset needs the admin PIN) |
+| POST | `/api/diag/crash` | Deliberate test crash, `kind=panic` (abort) or `kind=wdt` (interrupt watchdog); admin `pin` |
 
 ## Project layout
 

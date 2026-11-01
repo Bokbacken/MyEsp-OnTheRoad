@@ -301,7 +301,8 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [x] v0.23.14 hårdvarutestat av ägaren: "last alive" loggas efter omstart
   via webben på båda korten. RTC-minnet tappas vid power-on (P4
   RESET/strömavbrott, S3 power-on) och tiden blir osäker (`?`).
-- [ ] Testa P4-tid efter panic/watchdog (kräver en kontrollerad testkrasch).
+- [ ] Testa P4-tid utan Wi-Fi efter Diagnostik → Testkrasch, både Panic
+  (`reset=4`) och Watchdog (`reset=5`, interrupt-watchdog), samt att core dump lagras.
 - [ ] Utred S3:s spontana panic-omstarter på v0.23.13. Ägarens export
   visar sju panic-boots, lagrat core dump och korrupt intern FFat
   (256 av 257 rotposter med ogiltiga namn vid senaste boot).
@@ -318,6 +319,14 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   flashade partitionstabell innan den utesluts.
   Hälsokontrollen avvisar alla icke-ASCII-namn, även giltiga Unicode-namn;
   dess räknare ensam är inte bevis för fysisk flashskada.
+  Trolig mekanism (kodgranskning, ej bevisad med rådump): IDF:s FAT-diskio
+  (`ff_wl_write`) raderar en 4096-byte-sektor och skriver den sedan i två
+  separata anrop. En reset däremellan (panic, strömavbrott, USB-urkoppling)
+  lämnar sektorn som 0xFF = 128 katalogposter med ogiltiga namn, vilket
+  stämmer med stegen 128 → 256. `MyLog` gör fopen/append/fclose per händelse
+  på `/ffat/events.log`, så rotkatalogen skrivs om ofta. S3:s många
+  panic-omstarter ökar risken. Partitionstabellen i källan är korrekt
+  (16 MB exakt, inga överlapp, 4 KB-justerat).
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.

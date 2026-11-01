@@ -317,6 +317,32 @@ static esp_err_t handleInfo(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
+// POST /api/diag/crash?kind=panic|wdt: deliberate crash to verify reset handling and core dumps.
+static esp_err_t handleDiagCrash(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    char kind[8] = "";
+    q.get("kind", kind, sizeof(kind));
+    static bool s_wdt;
+    if (!strcmp(kind, "panic")) s_wdt = false;
+    else if (!strcmp(kind, "wdt")) s_wdt = true;
+    else return MyWeb::sendError(r, 400, "kind=panic|wdt");
+    MyLog::event("diag", "test crash requested: %s", kind);
+    MyWeb::sendOk(r);
+    xTaskCreate(
+        [](void *) {
+            vTaskDelay(pdMS_TO_TICKS(500));   // Let the HTTP reply and log line go out first
+            if (s_wdt) {
+                portDISABLE_INTERRUPTS();   // Interrupt watchdog panics with reset reason INT_WDT
+                for (;;) {}
+            }
+            abort();
+        },
+        "testcrash", 3072, nullptr, 1, nullptr);
+    return ESP_OK;
+}
+
 // ----------------------------------------------------------------------------------------
 // /api/config
 // ----------------------------------------------------------------------------------------
@@ -1410,6 +1436,7 @@ bool begin()
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
     bool ok = MyWeb::on("/api/info", HTTP_GET, handleInfo);
+    ok &= MyWeb::on("/api/diag/crash", HTTP_POST, handleDiagCrash);
     ok &= MyWeb::on("/api/config", HTTP_GET, handleConfigGet);
     ok &= MyWeb::on("/api/config", HTTP_POST, handleConfigPost);
     ok &= MyWeb::on("/api/wifi", HTTP_POST, handleWifiPost);

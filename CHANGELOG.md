@@ -19,6 +19,9 @@ a published GitHub Release.
   each second and log the previous run's value at boot. Without a trusted
   clock, use the newer of that value and NVS as uncertain time.
 - Save the NVS fallback time every minute instead of every 10 minutes.
+- Diagnostics: a PIN-protected "Testkrasch" section (`POST /api/diag/crash`)
+  triggers a deliberate panic or interrupt-watchdog reset. It tests reset
+  handling, RTC retention and core dumps.
 - The owner reports that P4 web restarts keep RTC time valid. Physical RESET
   and power removal fall back to uncertain NVS time (`?`). With v0.23.14,
   owner logs show that P4 RESET and power removal both cause a power-on
