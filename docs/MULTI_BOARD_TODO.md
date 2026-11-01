@@ -296,6 +296,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   (256 av 257 rotposter med ogiltiga namn vid senaste boot).
   Exporten innehåller ingen kraschstack; samla core dump/seriell panic
   före slutsats eller reparation. USB-matning är inte fastställd som orsak.
+  Ägaren rapporterar att FFat-problemet återkommer efter upprepade
+  reparationer på S3, medan P4:s interna flash fungerar bra.
+  Den exporterade historiken visar redan 128 rapporterat ogiltiga rotposter
+  på v0.23.2, före nattens panic-omstarter; på v0.23.12 ökar antalet till 256.
+  128 FAT-poster motsvarar 4096 byte (32 byte per diskpost), vilket motiverar
+  granskning av rå katalog-/sektordata men inte bevisar en sektorbugg.
+  Båda targets använder samma FAT/WL-kod och 4096-byte WL-sektorer;
+  partitionstabellerna överlappar inte i källan. Verifiera även S3:s faktiskt
+  flashade partitionstabell innan den utesluts.
+  Hälsokontrollen avvisar alla icke-ASCII-namn, även giltiga Unicode-namn;
+  dess räknare ensam är inte bevis för fysisk flashskada.
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
