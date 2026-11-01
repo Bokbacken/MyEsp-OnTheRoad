@@ -130,6 +130,96 @@ deep sleep to switch to backup power and retain the RTC timer; do not
 assume calendar retention after abrupt main-power loss.
 See [Espressif's VBAT example](https://github.com/espressif/esp-idf/tree/v6.1/examples/lowpower/vbat).
 
+#### RTC retention: known limits and possible next steps
+
+P4 automatically probes the shared touch I2C bus for a DS3231 at `0x68`.
+If it responds, all RTC functions use the DS3231 backend: UTC calendar
+time, OSF/ticking checks, temperature and synchronization from NTP/manual
+time. If it does not respond, the internal RTC backend remains available.
+A detected DS3231 with invalid time or failed register access reports the
+problem rather than silently using the internal RTC. A new module may
+need NTP or manual time once before its battery-backed time is trusted.
+Use 3.3 V-compatible I2C levels and a cell/charging circuit appropriate to
+the module; the P4 RTC BAT connector does not power the external module.
+
+The following retention limits apply to the internal fallback, not DS3231:
+
+The internal RTC is a counter, not a DS3231-style calendar register bank.
+`MyRtc` reads `esp_rtc_get_time_us()` and combines it with a trusted UTC
+anchor in `RTC_NOINIT_ATTR` memory. NTP or manual time establishes that
+anchor. Current firmware accepts it after software reset, deep-sleep wakeup,
+panic, and interrupt- or task-watchdog resets. Other reset reasons
+invalidate it. Consequently, the current
+implementation does not verify calendar retention after main-power loss.
+The system can instead restore an older timestamp from NVS and show `?`:
+a correct date with an incorrect hour does not prove RTC retention.
+
+ESP-IDF v6.1 documents PMU switching to VBAT when entering deep sleep and
+back to the main supply on wakeup. Merely connecting a backup battery is
+not a firmware implementation of that sequence. Retention and reliable
+startup after arbitrary power removal remain unverified on this board.
+The [forum discussion](https://esp32.com/viewtopic.php?t=46596) reports
+configuration difficulties and inconsistent startup after power loss;
+it is not evidence of a reliable drop-in fix.
+
+Our P4 configuration leaves `CONFIG_ESP_VBAT_INIT_AUTO` disabled, so the
+firmware does not configure VBAT as a backup supply. With VBAT enabled,
+IDF v6.1 provides `esp_vbat_get_battery_state()`. It returns normal,
+charging (rechargeable mode only) or low battery against configured
+thresholds. It does not return a battery voltage. We have not found a
+documented ADC path for measuring the RTC cell on this board.
+
+MyTime also stores a checksummed "last alive" UTC second in `RTC_NOINIT`
+memory on both boards and saves the NVS fallback each minute. After a
+reset that keeps RTC memory but not a trusted clock, the newer of the two is
+restored as uncertain time (`?`). Neither survives as RTC memory after
+main-power loss. Either value can provide a lower bound for future
+certificate-time checks, but it is not a trusted current time.
+
+At boot, firmware logs the reset reason before applying the reset policy.
+It also logs whether `RTC_NOINIT` still contains a matching anchor
+(`magic`, `check`) and compares the stored counter with the current counter.
+Owner hardware log with v0.23.14 (2026-11-01):
+
+- Web restart: `reset=3` (software); the anchor was valid and the counter
+  continued (530 s to 619 s). Time was restored as `OK`, and the
+  last-alive time was present.
+- Physical RESET and main-power removal: both reported `reset=1`
+  (power-on). The counter restarted at about 2 s, the anchor fields
+  contained garbage and no last-alive time remained.
+
+The RESET button therefore resets the RTC domain like power loss. Internal
+RTC time cannot survive it, regardless of the battery on RTC BAT. Only an
+external calendar RTC or controlled VBAT deep sleep can retain time across it.
+
+The official schematic connects Key3 to U20's KEY input (ECJ23001 power
+control), not to a P4 GPIO. BOOT/Key2 connects to GPIO35 and can be read
+while running, but P4 deep-sleep GPIO wakeup supports GPIO0..15, not GPIO35.
+GT911 touch is polled with no connected wake interrupt in our pinmap.
+Do not implement deep sleep promising wake by BOOT or touch on this wiring.
+
+Possible paths:
+
+- A touchscreen command for controlled deep sleep, paired with a separate
+  button on a verified free RTC GPIO. Check pin conflicts, pull resistors,
+  PMU/VBAT configuration, retained memory and main-supply availability at
+  wakeup. Stop file transfers/audio and persist game state before sleep.
+- Light sleep with BOOT wakeup while the main supply remains available.
+  GPIO35 wakeup support and peripheral shutdown/resume still need testing;
+  this is not the documented VBAT deep-sleep backup sequence.
+- An external battery-backed calendar RTC, such as DS3231. Automatic P4
+  selection at I2C address 0x68 is implemented; hardware validation is
+  pending. Use a module with
+  3.3 V-compatible I2C levels and a backup-cell/charging circuit appropriate
+  to the cell; do not assume every DS3231 module has safe charging behavior.
+- Investigate power-loss detection and controlled entry to VBAT sleep only
+  if the board can provide a reliable signal and sufficient hold-up time.
+  Do not assume the power latch exposes either to firmware.
+
+Sources: the linked IDF v6.1 VBAT example; IDF P4 `soc_caps.h` (wake mask
+`0xFFFF`) and `sleep_modes.c` (RTC-GPIO validation); the official Waveshare
+schematic, Key2/Key3 and RTC BAT sections.
+
 ### microSD power switch
 
 The schematic's MicroSD section has Q1 (AO3401) switching card VDD from

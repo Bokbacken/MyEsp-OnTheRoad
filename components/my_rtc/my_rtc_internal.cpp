@@ -1,4 +1,4 @@
-#include "my_rtc.h"
+#include "my_rtc_backends.h"
 
 #include <sys/time.h>
 
@@ -9,7 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-namespace MyRtc {
+namespace MyRtc::Internal {
 namespace {
 
 constexpr time_t MIN_T = 1704067200;
@@ -58,7 +58,18 @@ bool begin(i2c_master_bus_handle_t, time_t *outTime)
     vTaskDelay(pdMS_TO_TICKS(20));
     s_st.ticking = esp_rtc_get_time_us() > before;
     const esp_reset_reason_t reset = esp_reset_reason();
-    if (reset != ESP_RST_SW && reset != ESP_RST_DEEPSLEEP) s_anchor.magic = 0;
+    // Diagnostics only: shows whether the anchor and counter survived resets we do not trust yet.
+    const uint64_t nowTicks = esp_rtc_get_time_us();
+    ESP_LOGI("rtc", "anchor before reset check: reset=%d magic=%d check=%d anchor_us=%llu now_us=%llu",
+             static_cast<int>(reset), s_anchor.magic == ANCHOR_MAGIC,
+             s_anchor.check == checksum(s_anchor),
+             static_cast<unsigned long long>(s_anchor.ticksUs),
+             static_cast<unsigned long long>(nowTicks));
+    // System resets keep the RTC counter and RTC memory. ESP_RST_WDT may be an RTC watchdog
+    // reset of the RTC domain, so it stays rejected along with power-on, brownout and pin resets.
+    const bool trusted = reset == ESP_RST_SW || reset == ESP_RST_DEEPSLEEP || reset == ESP_RST_PANIC ||
+                         reset == ESP_RST_INT_WDT || reset == ESP_RST_TASK_WDT;
+    if (!trusted) s_anchor.magic = 0;
     time_t utc = 0;
     s_st.timeValid = s_st.ticking && readAnchor(utc);
     s_st.osf = !s_st.timeValid;
@@ -70,8 +81,8 @@ bool begin(i2c_master_bus_handle_t, time_t *outTime)
         s_st.bootTime = utc;
         if (outTime) *outTime = utc;
     }
-    ESP_LOGI("rtc", "internal RTC: %s; VBAT retention requires controlled deep sleep, not abrupt power-off",
-             stateText(s_st.state));
+    ESP_LOGI("rtc", "internal RTC: %s (reset=%d); VBAT retention requires controlled deep sleep, not abrupt power-off",
+             MyRtc::Internal::stateText(s_st.state), static_cast<int>(reset));
     return s_st.timeValid;
 }
 
@@ -130,4 +141,4 @@ const char *stateText(State state)
     }
 }
 
-}  // namespace MyRtc
+}  // namespace MyRtc::Internal

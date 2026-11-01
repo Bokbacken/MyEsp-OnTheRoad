@@ -1,4 +1,7 @@
 #include "my_rtc.h"
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+#include "my_rtc_backends.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -11,7 +14,11 @@
 #include "my_log.h"
 #include "my_rtc_time.h"
 
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+namespace MyRtc::Ds3231 {
+#else
 namespace MyRtc {
+#endif
 
 static const char *TAG = "rtc";
 static constexpr int TIMEOUT_MS = 30;
@@ -139,7 +146,12 @@ bool begin(i2c_master_bus_handle_t bus, time_t *outTime)
         settimeofday(&tv, nullptr);
         if (outTime) *outTime = t1;
     }
-    MyLog::event(TAG, "DS3231: %s (OSF %d, ticking %d, %.2f C%s)", stateText(s_st.state), s_st.osf, s_st.ticking,
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    const char *text = MyRtc::Ds3231::stateText(s_st.state);
+#else
+    const char *text = MyRtc::stateText(s_st.state);
+#endif
+    MyLog::event(TAG, "DS3231: %s (OSF %d, ticking %d, %.2f C%s)", text, s_st.osf, s_st.ticking,
                  (double)s_st.tempC, tempOk ? "" : ", temp out of range");
     return s_st.timeValid;
 }
@@ -208,4 +220,4 @@ const char *stateText(State s)
     }
 }
 
-}  // namespace MyRtc
+}

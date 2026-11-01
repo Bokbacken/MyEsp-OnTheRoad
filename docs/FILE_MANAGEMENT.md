@@ -10,6 +10,9 @@ se [P4: SD- och Wi-Fi-utredningen](P4_SD_WIFI_INVESTIGATION.md).
 - Konflikter kan stoppas, hoppas över eller skrivas över. Hoppa över är standard och en hoppad fil avbryter inte resten av batchen.
 - När en fil hoppas över läses HTTP-kroppen färdigt utan SD-skrivning innan lyckat svar skickas. SD-låset och överföringsleasen hålls inte under denna läsning. Avbruten mottagning ger inte ett lyckat skip-svar; anslutningen stängs om kroppen inte kan läsas färdigt, så fildata inte tolkas som nästa HTTP-anrop.
 - SD-uppladdningar tillåter upp till fyra samtidiga sessioner i webbläsarens batch och på servern. En uppladdning dubbelbuffrar mottagningen i 32 KiB-block och försöker använda en 32 KiB DMA-kapabel skrivcache, med PSRAM som reserv. Skrivningarna till själva SD-kortet är fortsatt serialiserade. Batchuppladdning till intern flash körs en i taget.
+- Progress visar hela batchen: antal klara filer, antal pågående och totalt
+  skickade byte. En fil räknas som klar först när servern har svarat.
+  Skickade byte beskriver webbläsarens överföring, inte bekräftad SD-skrivning.
 - Kataloger kan väljas eller släppas från webbläsaren; deras struktur återskapas upp till tre mappnivåer.
 - SD-kort kan formateras som FAT från filhanteraren. Enheten använder inte exFAT; FAT-formatering kan därför göra större kort användbara. Två separata bekräftelser krävs, och en konfigurerad admin-PIN måste anges. Formatering raderar allt på kortet. Den uttryckliga åtgärden kan också formatera ett kort vars filsystem inte gick att montera; vanlig start och automatisk återmontering formaterar aldrig kortet. Webbläsaren visar status medan formateringen pågår och ett tydligt resultat efteråt.
 

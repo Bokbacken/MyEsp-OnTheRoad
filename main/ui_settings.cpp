@@ -11,6 +11,8 @@
 #include "board_sd.h"
 #include "board_display.h"
 #include "app_config.h"
+#include "time_zones.h"
+#include "my_time.h"
 #include "board_rgb.h"
 #include "board_battery.h"
 #include "board_touch.h"
@@ -269,6 +271,9 @@ static void leave(bool save)
         const AppConfig previous = Config::get();
         Config::get().brightness = s_edit.brightness;
         Config::get().screenOffSeconds = s_edit.screenOffSeconds;
+        Config::get().ecoSleep = s_edit.ecoSleep;
+        Config::get().powerLog = s_edit.powerLog;
+        snprintf(Config::get().tz, sizeof(Config::get().tz), "%s", s_edit.tz);
         Config::get().textSize = s_edit.textSize;
         Config::get().ledBrightness = s_edit.ledBrightness;
         Config::get().ledEnabled = s_edit.ledEnabled;
@@ -297,6 +302,7 @@ static void leave(bool save)
             return;
         }
         Lang::setLang(Config::get().lang);
+        MyTime::setTz(Config::get().tz);
     }
     if (s_timer) {
         lv_timer_delete(s_timer);
@@ -409,6 +415,12 @@ void show()
     lv_obj_add_event_cb(timeout, [](lv_event_t *e) {
         s_edit.screenOffSeconds = SCREEN_OFF_SECONDS[lv_dropdown_get_selected(lv_event_get_target_obj(e))];
     }, LV_EVENT_VALUE_CHANGED, nullptr);
+    switchRow(disp, tr(Str::SCREEN_ECO), s_edit.ecoSleep, [](lv_event_t *e) {
+        s_edit.ecoSleep = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    });
+    switchRow(disp, tr(Str::POWER_HISTORY), s_edit.powerLog, [](lv_event_t *e) {
+        s_edit.powerLog = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    });
     lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
     lv_obj_set_width(screenHelp, LV_PCT(100));
     lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);
@@ -492,6 +504,23 @@ void show()
     lv_obj_set_flex_flow(clk, LV_FLEX_FLOW_COLUMN);
     Theme::label(clk, tr(Str::SET_CLOCK), &my_font_14, Theme::ACCENT);
     UiClock::attachLabel(Theme::label(clk, "", &my_font_18), true);
+    Theme::label(clk, tr(Str::SET_TIME_ZONE), &my_font_14, Theme::MUTED);
+    static char zoneOptions[2048];
+    zoneOptions[0] = 0;
+    size_t used = 0;
+    for (const auto &zone : TimeZones::ZONES)
+        used += snprintf(zoneOptions + used, sizeof(zoneOptions) - used, "%s%s",
+                         used ? "\n" : "", zone.label);
+    const int selectedZone = TimeZones::find(s_edit.tz);
+    if (selectedZone < 0)
+        snprintf(zoneOptions + used, sizeof(zoneOptions) - used, "\n%s", tr(Str::SET_TIME_ZONE_SAVED));
+    lv_obj_t *zone = styledDropdown(clk, zoneOptions,
+                                   selectedZone < 0 ? TimeZones::COUNT : selectedZone);
+    lv_obj_add_event_cb(zone, [](lv_event_t *e) {
+        const unsigned selected = lv_dropdown_get_selected(lv_event_get_target_obj(e));
+        if (selected < TimeZones::COUNT)
+            snprintf(s_edit.tz, sizeof(s_edit.tz), "%s", TimeZones::ZONES[selected].tz);
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_t *clkBtn = Theme::button(clk, trp(LV_SYMBOL_EDIT " ", Str::CLOCK_TITLE), LV_PCT(100), 40, Theme::TEAL);
     lv_obj_add_event_cb(clkBtn, [](lv_event_t *) {
         if (s_timer) {

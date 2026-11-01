@@ -186,8 +186,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   gav 25 HTTP-parserfel, inte SD-skrivfel.
 - [x] v0.23.13: läs färdigt hoppade HTTP-kroppar före svar och dränera
   tidiga async-avslag före socketåteranvändning; stäng vid avbruten kropp.
-- [ ] Hårdvara v0.23.13: kopiera Hit_Trax igen med många befintliga
-  filer och några nya; kontrollera skip-resultat och frånvaro av HTTP 400.
+- [x] Hårdvara v0.23.13: ägaren har flashat och provat Hit_Trax-rättningen
+  och rapporterar att den fungerar klockrent. Leveransen är godkänd och mergad.
+- [x] Ägarrapport 2026-11-01: senaste bygget är installerat på båda enheterna;
+  filkopieringens nya status/presentation upplevs som mer logisk och fungerar
+  bra. Inga hash- eller långtidsresultat rapporterade.
+- [x] Ägarrapport 2026-11-01: ett specifikt Samsung 32PRO-SD-kort ger åter
+  många skrivfel efter en period med fungerande filhantering och bedöms av
+  ägaren som trasigt. Det är okänt om kortet var defekt från början eller
+  skadades under tidigare tester. Kortet är därför en bekräftad
+  hårdvarufelkälla i den historiska felsökningen, men förklarar inte i sig
+  mjukvarufel som redan reproducerats eller åtgärdats.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om
@@ -285,12 +294,110 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   i spel, Karaoke och menyer på båda korten. Första trycket/ett hållet
   väcktryck får inte spela, navigera eller flytta något; prova även ett
   snabbt andra tryck inom 250 ms. Starta OTA med skärmen släckt.
-- [ ] Utred P4:s fysiska powerknapp mot schema innan den får en
-  mjukvarufunktion; anta inte att den är en vanlig GPIO-knapp. S3 ska
-  kunna använda funktionen utan fysisk powerknapp.
+- [x] P4-knappar kontrollerade mot schema: power/Key3 går till U20:s
+  KEY-ingång, inte till P4 GPIO. BOOT/Key2 är GPIO35 och kan läsas under
+  drift, men är inte deep-sleep-wake-kompatibel. Touch pollas utan wake-INT.
+- [x] Välj RTC-/viloväg för P4: separat RTC-GPIO-knapp + kontrollerad
+  VBAT-deep-sleep, light sleep med huvudmatning kvar, eller separat kalender-RTC.
+  Ägaren har monterat DS3231 på P4. v0.23.15 väljer den automatiskt vid
+  I2C-adress 0x68, annars används intern RTC. Ägaren rapporterar
+  2026-11-01 att RTC fungerar perfekt med DS3231. Enskilda testfall
+  (temperatur, RESET och strömavbrott utan NTP) är inte specificerade.
+  DS3231 löser kalender-RTC-behovet; deep sleep är fortsatt en separat
+  möjlig energisparfunktion.
+  Se [hårdvarureferensens RTC-avsnitt](Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md#rtc-retention-known-limits-and-possible-next-steps).
+  Ägartest 2026-11-01 utan Wi-Fi/NTP: omstart via webben behåller betrodd
+  RTC-tid. Fysisk RESET-knapp ger "väntar på NTP/manuell tid" och `?`,
+  vilket stämmer med att koden bara godtar mjukvaruomstart/deep sleep.
+  Uppmätt med v0.23.14: RESET-knappen ger samma power-on-reset som
+  strömavbrott. RTC-räknaren börjar om från 0 och RTC-minnet är skräp.
+  Intern RTC kan alltså inte bevara tiden; kvarvarande vägar är extern RTC
+  eller kontrollerad VBAT-deep-sleep.
+- [x] v0.23.14 hårdvarutestat av ägaren: "last alive" loggas efter omstart
+  via webben på båda korten. RTC-minnet tappas vid power-on (P4
+  RESET/strömavbrott, S3 power-on) och tiden blir osäker (`?`).
+- [ ] Testa P4-tid utan Wi-Fi efter Diagnostik → Testkrasch, både Panic
+  (`reset=4`) och Watchdog (`reset=5`, interrupt-watchdog), samt att core dump lagras.
+- [ ] Utred S3:s spontana panic-omstarter på v0.23.13. Ägarens export
+  visar sju panic-boots, lagrat core dump och korrupt intern FFat
+  (256 av 257 rotposter med ogiltiga namn vid senaste boot).
+  Exporten innehåller ingen kraschstack; samla core dump/seriell panic
+  före slutsats eller reparation. USB-matning är inte fastställd som orsak.
+  Ägaren rapporterar att FFat-problemet återkommer efter upprepade
+  reparationer på S3, medan P4:s interna flash fungerar bra.
+  Den exporterade historiken visar redan 128 rapporterat ogiltiga rotposter
+  på v0.23.2, före nattens panic-omstarter; på v0.23.12 ökar antalet till 256.
+  128 FAT-poster motsvarar 4096 byte (32 byte per diskpost), vilket motiverar
+  granskning av rå katalog-/sektordata men inte bevisar en sektorbugg.
+  Båda targets använder samma FAT/WL-kod och 4096-byte WL-sektorer;
+  partitionstabellerna överlappar inte i källan. Verifiera även S3:s faktiskt
+  flashade partitionstabell innan den utesluts.
+  Serielogg 2026-11-01 verifierar även faktiskt flashad S3-tabell: samma
+  offset/storlek som `partitions.csv`, 16 MB flash, inga överlapp.
+  Spontan v0.23.14-krasch avkodad med exakt matchande ELF
+  (SHA256 börjar 756290538): LoadProhibited på adress 0 i SPI-avbrottet,
+  `spi_bus_lock.c:591` → `spi_bus_lock_bg_exit` → `spi_intr`.
+  Där försöker IDF v6.1 återuppta `lock->acquiring_dev`, som saknas.
+  Avbrottet avbröt ljudmixern; ljudfunktionerna i stacken är inte i sig
+  bevis för ett ljudfel. S3-skärmen använder SPI2 och blandar pollade
+  kommandon med köade DMA-färgöverföringar. Utred bus-lock-race och
+  eventuell minneskorruption; ingen rotorsak är ännu bevisad.
+  Efter denna panic loggas föregående körnings last-alive-tid och
+  DS3231 är OK (OSF 0). Core dump sparas med giltig checksumma.
+  Senare export 2026-11-01 (17:53 lokal tid) visar v0.23.14 boot #31
+  med panic och kvarvarande last-alive-tid. FFat-räknaren är fortfarande
+  256 av 257; ingen ytterligare försämring syns i räknaren. Ingen
+  kraschstack finns i denna export, så samma SPI-fel är inte bekräftat.
+  Ny serielogg 2026-11-01 från v0.23.15 bekräftar två ytterligare
+  LoadProhibited på adress 0 i samma `resume_dev_in_isr` /
+  `bg_exit_core` → `spi_bus_lock_bg_exit` → `spi_intr`.
+  Avkodning med exakt matchande ELF (SHA256 börjar `a199c9825`,
+  CI run 41326171656). Första avbrottet avbröt ljudmixern, det andra
+  CPU:ns idle-task; felet kräver alltså inte att ljudmixern kör just då.
+  Båda visar samma fel-PC `0x40376b11` och samma SPI-stack.
+  Boot #33/#34 behåller last-alive och verifierar core-dump-checksumman.
+  FFat-räknaren ligger kvar på 256 av 257. SPI-felvägen är nu upprepad,
+  men bus-lock-race kontra minneskorruption är fortfarande oavgjort.
+  **Formatera inte FFat innan råpartitionen och läsbara filer har säkrats.**
+  Den manuella reparationsvägen säkerhetskopierar bara `players.bin` och
+  `events.log`, inte alla filer/sparningar, och en formatering raderar övrigt
+  innehåll. Filsystemet monteras redan vid boot; formatering behövs inte för
+  att enheten ska starta. Efter rådump/backup kan ren formatering användas
+  som kontrollerat jämförelsetest med känt fungerande SD-kort. Samsung
+  32PRO-kortets bekräftade skrivfel är ett separat fel och får inte blandas
+  ihop med den interna FFat-utredningen.
+  Hälsokontrollen räknar alla namn med byte utanför ASCII som ogiltiga, även
+  giltiga Unicode-namn; dess 256/257-räknare ensam är därför inte bevis för
+  fysisk flashskada. Rå katalog-/sektordata behövs för att fastställa skada.
+  Trolig mekanism (kodgranskning, ej bevisad med rådump): IDF:s FAT-diskio
+  (`ff_wl_write`) raderar en 4096-byte-sektor och skriver den sedan i två
+  separata anrop. En reset däremellan (panic, strömavbrott, USB-urkoppling)
+  lämnar sektorn som 0xFF = 128 katalogposter med ogiltiga namn, vilket
+  stämmer med stegen 128 → 256. `MyLog` gör fopen/append/fclose per händelse
+  på `/ffat/events.log`, så rotkatalogen skrivs om ofta. S3:s många
+  panic-omstarter ökar risken. Partitionstabellen i källan är korrekt
+  (16 MB exakt, inga överlapp, 4 KB-justerat).
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
+- [ ] Inför femminutershistorik på SD för batterispänning, tidskälla,
+  boot-ID/drifttid, aktiv tid per spel, bakgrundsbelysning/skärmtid,
+  Wi-Fi-status, lagringsöverföringar och ljud/volym. Komplettera med
+  händelser, filrotation och synliga tappade poster. Batterispänning är
+  inte uppmätt ström; faktisk energimätning kräver extra mätutrustning.
+  Intern flash som destination väntar tills S3:s FFat-problem är utrett.
+  v0.23.16 implementerar valbar SD-CSV med rotation och tappade poster,
+  sessions-/skärm-/Wi-Fi-/ljudtid samt SD/FFat-byteantal. Verifiera flera
+  intervall och CSV-nedladdning på båda korten innan punkten stängs.
+  Se [mätfält och begränsningar](POWER_HISTORY.md).
+- [ ] Hårdvarutesta v0.23.16:s valbara viloläge på S3/P4: Wi-Fi och
+  I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
+  inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
+  CPU/touch är fortsatt vakna, inte light sleep.
+- [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
+  sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
+  statusrad/meny samt DHCP/mDNS. v0.23.17 inkluderar historik/viloläge
+  från v0.23.16, vars CI-bygge stoppades av en volatile-kompilatorvarning.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 

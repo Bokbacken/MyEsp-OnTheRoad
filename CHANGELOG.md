@@ -8,6 +8,69 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.17 (unreleased)
+
+- Readable city/UTC timezone dropdowns on-device and in web settings,
+  sharing one catalogue with automatic daylight saving. Existing custom
+  timezone values remain selectable without exposing syntax to users.
+- A compact, sticky common header/navigation on every web page refreshes
+  device name and connection status. Settings saves update the name
+  immediately; other open visible pages refresh within ten seconds.
+- Boot/main-menu display branding uses the configured device name; the
+  main menu refreshes it while open. Existing DHCP/mDNS hostname updates
+  remain connected to the same setting.
+- Web assets are regenerated during CMake configuration so source changes
+  (including upload progress, history and idle controls) reach firmware.
+- Fix chained volatile assignments rejected by the ESP-IDF compiler in
+  the v0.23.16 idle Wi-Fi path; that build did not complete.
+
+## v0.23.16 (unreleased)
+
+- Optional five-minute SD CSV history records battery voltage, boot/time,
+  per-game session time, display/Wi-Fi/audio usage, storage IO and health
+  counters. Bounded rotation and visible dropped rows; no internal-flash fallback.
+- Optional idle screen-off stops Wi-Fi and pauses I2S/mixer/amplifier,
+  preserves settings and resumes on touch. Protected during games,
+  karaoke, transfers and OTA. CPU remains awake; this is not light/deep sleep.
+- Both settings are persisted and exposed on-device, in web settings and
+  diagnostics; disabled by default. Hardware discharge/power-saving
+  measurements remain pending.
+
+## v0.23.15 (unreleased)
+
+- File uploads show stable batch progress (completed/active files and total
+  bytes sent) instead of alternating filenames with a misleading file index.
+- P4 automatically selects a DS3231 responding at 0x68 on the shared I2C
+  bus. If absent, the internal RTC remains the fallback. A detected DS3231
+  with invalid time or failed register reads remains selected and reports
+  its error instead of silently falling back.
+- RTC time, temperature, diagnostics and NTP/manual synchronization use the
+  selected backend. S3 retains its existing DS3231 backend.
+- Host tests cover absence, valid time, oscillator-stop recovery and I2C
+  register errors. The owner reports that RTC works perfectly with the
+  installed DS3231 on P4; individual test scenarios were not specified.
+
+## v0.23.14 (unreleased)
+
+- P4: log the reset reason, the `RTC_NOINIT` anchor's validity, and both the
+  stored and current RTC counters before applying the reset policy.
+- P4: also trust the RTC anchor after panic, interrupt-watchdog and
+  task-watchdog resets. Power-on, brownout, external/pin and other watchdog
+  resets (ESP_RST_WDT) still fall back to NTP, manual time or uncertain time.
+- Both boards: write a checksummed "last alive" time to `RTC_NOINIT` memory
+  each second and log the previous run's value at boot. Without a trusted
+  clock, use the newer of that value and NVS as uncertain time.
+- Save the NVS fallback time every minute instead of every 10 minutes.
+- Diagnostics: a PIN-protected "Testkrasch" section (`POST /api/diag/crash`)
+  triggers a deliberate panic or interrupt-watchdog reset. It tests reset
+  handling, RTC retention and core dumps.
+- The owner reports that P4 web restarts keep RTC time valid. Physical RESET
+  and power removal fall back to uncertain NVS time (`?`). With v0.23.14,
+  owner logs show that P4 RESET and power removal both cause a power-on
+  reset with the RTC counter restarting near 0, so neither can retain internal
+  RTC time. Web restarts on both boards logged the previous run's last-alive
+  time.
+
 ## v0.23.13 (unreleased)
 
 - Consume skipped upload bodies before returning success, without holding

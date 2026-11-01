@@ -4,16 +4,18 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_sntp.h"
 #include "my_log.h"
 #include "my_storage.h"
 #include "my_sys.h"
+#include "my_time_crumb.h"
 
 namespace MyTime {
 
 static const char *TAG = "time";
-static constexpr uint32_t SAVE_EVERY_MS = 10UL * 60 * 1000;
+static constexpr uint32_t SAVE_EVERY_MS = 60UL * 1000;   // NVS wear: about one 4 KB page erase per 2 h
 
 static volatile Source s_source = Source::NONE;
 static uint32_t s_lastSave = 0;
@@ -23,6 +25,10 @@ static volatile bool s_ntpFlag = false;
 static bool s_sntpStarted = false;
 static char s_ns[16] = "time";
 static char s_key[16] = "clk_t";
+// Updated every second; survives panic, watchdog and software resets, not power loss.
+RTC_NOINIT_ATTR static MyTimeCrumb::Crumb s_crumb;
+static MyTimeCrumb::Crumb s_prevCrumb{};
+static time_t s_lastCrumb = 0;
 
 static void saveNvs()
 {
@@ -56,17 +62,25 @@ void begin(const char *ns, const char *key, const char *tz)
     snprintf(s_key, sizeof(s_key), "%s", key);
     setTz(tz);
     s_lastSave = MySys::millis();
+    s_prevCrumb = s_crumb;
+    if (MyTimeCrumb::valid(s_prevCrumb, MIN_EPOCH, MAX_EPOCH))
+        MyLog::event(TAG, "previous run last alive at %lld (%s)", (long long)s_prevCrumb.utc,
+                     MyTimeCrumb::certain(s_prevCrumb) ? "certain" : "uncertain");
+    else
+        s_prevCrumb = {};
     if (time(nullptr) >= MIN_EPOCH) {   // Survived a soft reset (RTC timer keeps running)
         s_source = Source::RESTORED;
         return;
     }
     MyNvs::Handle h(s_ns, true);
-    uint64_t t = h ? h.getU64(s_key, 0) : 0;
-    if ((time_t)t >= MIN_EPOCH && (time_t)t < MAX_EPOCH) {
+    const uint64_t nvs = h ? h.getU64(s_key, 0) : 0;
+    const time_t t = MyTimeCrumb::newestFallback((time_t)nvs, s_prevCrumb, MIN_EPOCH, MAX_EPOCH);
+    if (t) {
         struct timeval tv = {(time_t)t, 0};
         settimeofday(&tv, nullptr);
         s_source = Source::RESTORED;
-        ESP_LOGI(TAG, "restored %llu from NVS (uncertain)", (unsigned long long)t);
+        ESP_LOGI(TAG, "restored %lld from %s (uncertain)", (long long)t,
+                 t == s_prevCrumb.utc ? "RTC memory" : "NVS");
     }
 }
 
@@ -88,6 +102,11 @@ void onNetworkUp()
 
 void loop()
 {
+    const time_t t = time(nullptr);
+    if (valid() && t != s_lastCrumb) {
+        MyTimeCrumb::seal(s_crumb, t, certain());
+        s_lastCrumb = t;
+    }
     if (valid() && MySys::millis() - s_lastSave >= SAVE_EVERY_MS) saveNvs();
 }
 
@@ -151,5 +170,12 @@ bool local(struct tm &out)
 
 uint32_t lastNtpSyncS() { return s_syncs ? (MySys::millis() - s_lastNtpMs) / 1000 : UINT32_MAX; }
 uint32_t ntpSyncs() { return s_syncs; }
+
+time_t previousRunLastAlive(bool *wasCertain)
+{
+    const bool ok = MyTimeCrumb::valid(s_prevCrumb, MIN_EPOCH, MAX_EPOCH);
+    if (wasCertain) *wasCertain = ok && MyTimeCrumb::certain(s_prevCrumb);
+    return ok ? (time_t)s_prevCrumb.utc : 0;
+}
 
 }  // namespace MyTime

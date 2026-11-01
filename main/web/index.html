@@ -162,7 +162,7 @@ async function refresh() {
     const r = await fetch('/api/info', {cache: 'no-store'});
     const i = await r.json();
     $('fw').textContent = i.fw + ' v' + i.version;
-    $('footer').textContent = i.fw + ' v' + i.version + ' · ' + i.chip + ' rev ' + i.chip_rev + ' · ' + i.cpu_mhz + ' MHz';
+    $('footer').textContent = (i.wifi?.hostname || i.fw) + ' v' + i.version + ' · ' + i.chip + ' rev ' + i.chip_rev + ' · ' + i.cpu_mhz + ' MHz';
     $('uptime').textContent = fmtUptime(i.uptime_s);
     $('heap').innerHTML = kb(i.heap_free) + ' <small>av ' + kb(i.heap_size) + '</small>';
     $('heap-bar').style.width = (100 * i.heap_free / i.heap_size).toFixed(0) + '%';

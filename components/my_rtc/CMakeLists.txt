@@ -1,5 +1,5 @@
 if(CONFIG_OTR_HW_PROFILE_P4_43)
-  set(rtc_src "my_rtc_internal.cpp")
+  set(rtc_src "my_rtc.cpp" "my_rtc_internal.cpp" "my_rtc_auto.cpp")
 else()
   set(rtc_src "my_rtc.cpp")
 endif()

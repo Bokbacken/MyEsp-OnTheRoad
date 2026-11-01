@@ -1,5 +1,6 @@
 // board_sd.cpp - see board_sd.h.
 #include "board_sd.h"
+#include "power_io.h"
 
 #include <errno.h>
 #include <string.h>
@@ -78,6 +79,12 @@ esp_err_t guardedTransaction(int slot, sdmmc_command_t *cmd)
 {
     const esp_err_t err = s_transaction(slot, cmd);
     const esp_err_t result = err == ESP_OK ? cmd->error : err;
+    if (result == ESP_OK && cmd->data) {
+        if (cmd->opcode == MMC_READ_BLOCK_SINGLE || cmd->opcode == MMC_READ_BLOCK_MULTIPLE)
+            PowerIo::sdRead(cmd->datalen);
+        else if (cmd->opcode == MMC_WRITE_BLOCK_SINGLE || cmd->opcode == MMC_WRITE_BLOCK_MULTIPLE)
+            PowerIo::sdWrite(cmd->datalen);
+    }
     if (cmd->opcode == MMC_WRITE_BLOCK_MULTIPLE && cmd->data) {
         s_writeError = result;
     } else if (cmd->opcode == SD_APP_SEND_NUM_WR_BLOCKS && cmd->data) {

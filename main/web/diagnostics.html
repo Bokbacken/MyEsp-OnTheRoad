@@ -49,6 +49,9 @@
 <h2>Batteri</h2>
 <div class="card table-wrap"><table id="battery"></table></div>
 
+<h2>Förbrukningshistorik</h2>
+<div class="card table-wrap"><table id="power"></table></div>
+
 <h2>Loggar</h2>
 <div class="card">
   <div class="row" style="margin-top:0;flex-wrap:wrap;gap:.4rem">
@@ -91,6 +94,17 @@
     Pågående SD-loggskrivning avslutas först. Inställningen återställs vid omstart.</p>
 </div>
 
+<h2>Testkrasch</h2>
+<div class="card">
+  <p class="muted">Kraschar enheten avsiktligt för att testa omstart, RTC-tid och core dump.
+  Pågående överföringar och osparat spel går förlorade.</p>
+  <div class="row">
+    <button type="button" class="danger" id="crash-panic">Panic (abort)</button>
+    <button type="button" class="danger" id="crash-wdt">Watchdog</button>
+  </div>
+  <div class="muted" id="crash-state"></div>
+</div>
+
 <h2>Rå JSON</h2>
 <div class="card table-wrap"><pre id="raw" class="muted" style="margin:0;white-space:pre-wrap;font-size:.8rem"></pre></div>
 
@@ -116,6 +130,14 @@ function test(id, ok, sub, warn) {
 async function refresh() {
   try {
     const i = await (await fetch('/api/info', {cache: 'no-store'})).json();
+    rows('power', [
+      ['SD-historik', i.power?.enabled ? (i.power.running ? 'Aktiv · var femte minut' : 'Kunde inte starta') : 'Av'],
+      ['Poster / tappade', (i.power?.written ?? 0) + ' / ' + (i.power?.dropped ?? 0)],
+      ['Fil', esc(i.power?.path || '–')],
+      ['Viloläge', i.power?.eco_sleeping ? 'Aktivt' : 'Av'],
+      ['Wi-Fi / ljud stoppat', (i.power?.wifi_suspended ? 'Ja' : 'Nej') + ' / ' +
+        (i.power?.audio_sleeping ? 'Ja' : 'Nej')]
+    ]);
     const d = i.display, t = i.touch, w = i.wifi;
     const touchAddress = Number.isInteger(t.address) ? '0x' + t.address.toString(16).toUpperCase().padStart(2, '0') : '–';
     $('display-title').textContent = 'Display (' + d.model + ')';
@@ -299,6 +321,22 @@ $('log-sd-toggle').onclick = async () => {
   }
 };
 sdLogRefresh();
+async function testCrash(kind) {
+  if (!confirm('Krascha enheten nu (' + kind + ')? Den startar om direkt.')) return;
+  const pin = window.prompt('Admin-PIN (lämna tomt om ingen PIN är konfigurerad)');
+  if (pin === null) return;
+  try {
+    const response = await fetch('/api/diag/crash?kind=' + kind + '&pin=' + encodeURIComponent(pin),
+      {method: 'POST', cache: 'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Testkrasch nekades');
+    $('crash-state').textContent = 'Kraschar… ladda om sidan efter omstarten.';
+  } catch (e) {
+    $('crash-state').textContent = e.message;
+  }
+}
+$('crash-panic').onclick = () => testCrash('panic');
+$('crash-wdt').onclick = () => testCrash('wdt');
 let logConfig = null, logConfigBusy = false;
 function logConfigStatus(data) {
   if (!['error', 'warning', 'info', 'debug'].includes(data.level) ||

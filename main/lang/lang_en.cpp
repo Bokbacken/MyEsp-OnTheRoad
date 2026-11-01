@@ -13,7 +13,11 @@ extern const Entry LANG_EN[] = {
     {Str::SCREEN_TIMEOUT, "Screen off after inactivity"},
     {Str::SCREEN_TIMEOUT_OPTIONS, "Off\n30 seconds\n1 minute\n2 minutes\n5 minutes\n10 minutes\n30 minutes\n60 minutes"},
     {Str::SCREEN_SLEEP_NOW, "Turn screen off now"},
-    {Str::SCREEN_SLEEP_HELP, "Audio and games continue. Touch to wake, release and wait at least 250 ms before the next touch. OTA keeps the screen on."},
+    {Str::SCREEN_ECO, "Idle mode: Wi-Fi and audio off"},
+    {Str::POWER_HISTORY, "Five-minute SD history"},
+    {Str::SET_TIME_ZONE, "Time zone (automatic daylight saving)"},
+    {Str::SET_TIME_ZONE_SAVED, "Previously saved time zone"},
+    {Str::SCREEN_SLEEP_HELP, "Normally audio and games continue. Idle mode stops Wi-Fi and audio only without games, karaoke or transfers. Touch to wake; release and wait 250 ms. History requires SD and saves every five minutes."},
     {Str::SET_SAVE_FAILED, "Could not save settings. Please try again."},
 
     {Str::BOOT_I2C, "I2C bus"},

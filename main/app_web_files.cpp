@@ -65,7 +65,21 @@ static std::atomic<int> s_activeDownloads{0};
 static std::atomic<bool> s_formatting{false};
 static std::atomic<int> s_formatStatus{0};
 
+bool busy()
+{
+    return s_activeUploads.load() || s_activeDownloads.load() || s_formatting.load();
+}
+
 namespace {
+
+struct InternalDownloadUse {
+    bool active;
+    explicit InternalDownloadUse(bool enabled) : active(enabled)
+    {
+        if (active) s_activeDownloads.fetch_add(1);
+    }
+    ~InternalDownloadUse() { if (active) s_activeDownloads.fetch_sub(1); }
+};
 
 struct SdUse {
     BoardSd::Transfer transfer;
@@ -348,6 +362,7 @@ static esp_err_t handleDownload(httpd_req_t *r)
     esp_err_t res = ESP_OK;
     if (!target(q, t, res)) return res;
     SdUse sdUse(t.sd);
+    InternalDownloadUse internalUse(!t.sd);
     if (t.sd && !sdUse.active) return MyWeb::sendError(r, 503, "SD-kortet är upptaget eller återhämtas");
     FILE *f;
     int openError = 0;

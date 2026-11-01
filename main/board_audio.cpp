@@ -4,6 +4,7 @@
 #include "board_audio.h"
 
 #include <stdio.h>
+#include <atomic>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -67,6 +68,7 @@ i2s_chan_handle_t s_tx = nullptr;
 QueueHandle_t s_queue = nullptr;
 bool s_codec = false, s_running = false, s_ampOn = false;
 volatile bool s_soundOn = true;
+std::atomic<bool> s_sleepRequested{false}, s_sleeping{false};
 volatile int s_sfxGain = 0, s_musicGain = 0;   // Q8
 const char *s_error = "";
 uint32_t s_underruns = 0;
@@ -367,6 +369,33 @@ void mixerTask(void *)
     for (;;) {
         Msg m;
         while (xQueueReceive(s_queue, &m, 0) == pdTRUE) handle(m);
+        if (s_sleepRequested && !s_sleeping) {
+            setAmp(false);
+            const esp_err_t err = i2s_channel_disable(s_tx);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "idle I2S stop failed: %s", esp_err_to_name(err));
+                s_sleepRequested = false;
+            } else {
+                s_sleeping = true;
+                ESP_LOGI(TAG, "idle audio stopped");
+            }
+        }
+        if (s_sleeping) {
+            if (!s_sleepRequested) {
+                const esp_err_t err = i2s_channel_enable(s_tx);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "idle I2S resume failed: %s", esp_err_to_name(err));
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    continue;
+                }
+                s_sleeping = false;
+                ESP_LOGI(TAG, "idle audio resumed");
+            } else {
+                s_mixSeq = s_mixSeq + 1;
+                vTaskDelay(pdMS_TO_TICKS(20));
+                continue;
+            }
+        }
         // Web stream: the browser plays the sound, the speaker is silent (DAC volume 0, amplifier
         // off) so it does not echo; the synth keeps running at its normal level for the stream
         const bool web = s_webStream;
@@ -509,6 +538,8 @@ bool begin(i2c_master_bus_handle_t bus)
 }
 
 bool running() { return s_running; }
+void setSleeping(bool sleeping) { s_sleepRequested = sleeping; }
+bool sleeping() { return s_sleeping; }
 
 void setVolumes(bool soundOn, uint8_t sfxVol, bool musicOn, uint8_t musicVol)
 {

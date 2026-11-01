@@ -38,6 +38,9 @@
 #include "my_log.h"
 #include "my_ota.h"
 #include "my_rtc.h"
+#include "power_history.h"
+#include "time_zones.h"
+#include "ui_screen_power.h"
 #include "my_storage.h"
 #include "my_time.h"
 #include "my_web.h"
@@ -130,6 +133,7 @@ static void diagDisplay(cJSON *o)
     cJSON_AddBoolToObject(o, "buf_psram", ds.bufInPsram);
     cJSON_AddNumberToObject(o, "brightness", Config::get().brightness);
     cJSON_AddBoolToObject(o, "sleeping", Backlight::sleeping());
+    cJSON_AddBoolToObject(o, "eco_sleeping", UiScreenPower::ecoSleeping());
     char ver[16];
     snprintf(ver, sizeof(ver), "%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     cJSON_AddStringToObject(o, "lvgl", ver);
@@ -298,12 +302,24 @@ void registerDiag()
     MyDiag::add("audio", diagAudio);
     MyDiag::add("battery", diagBattery);
     MyDiag::add("boot", diagBoot);
+    MyDiag::add("power", [](cJSON *o) {
+        const auto s = PowerHistory::status();
+        cJSON_AddBoolToObject(o, "enabled", Config::get().powerLog);
+        cJSON_AddBoolToObject(o, "running", s.running);
+        cJSON_AddBoolToObject(o, "eco_sleeping", UiScreenPower::ecoSleeping());
+        cJSON_AddBoolToObject(o, "wifi_suspended", MyWifi::suspended());
+        cJSON_AddBoolToObject(o, "audio_sleeping", Audio::sleeping());
+        cJSON_AddNumberToObject(o, "written", s.written);
+        cJSON_AddNumberToObject(o, "dropped", s.dropped);
+        cJSON_AddStringToObject(o, "path", s.path);
+    });
 }
 
 static esp_err_t handleInfo(httpd_req_t *r)
 {
     cJSON *o = cJSON_CreateObject();
     MyDiag::fill(o);
+    cJSON_AddStringToObject(o, "lang", Config::get().lang);
     uint8_t addrs[16];
     int n = Touch::scanResults(addrs, 16);
     cJSON *i2c = cJSON_AddArrayToObject(o, "i2c");
@@ -315,6 +331,32 @@ static esp_err_t handleInfo(httpd_req_t *r)
     MyWeb::Req q(r);
     if (q.has("tasks")) cJSON_AddItemToObject(o, "task_list", MyDiag::tasks());
     return MyWeb::sendJson(r, 200, o);
+}
+
+// POST /api/diag/crash?kind=panic|wdt: deliberate crash to verify reset handling and core dumps.
+static esp_err_t handleDiagCrash(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    char kind[8] = "";
+    q.get("kind", kind, sizeof(kind));
+    static bool s_wdt;
+    if (!strcmp(kind, "panic")) s_wdt = false;
+    else if (!strcmp(kind, "wdt")) s_wdt = true;
+    else return MyWeb::sendError(r, 400, "kind=panic|wdt");
+    MyLog::event("diag", "test crash requested: %s", kind);
+    MyWeb::sendOk(r);
+    xTaskCreate(
+        [](void *) {
+            vTaskDelay(pdMS_TO_TICKS(500));   // Let the HTTP reply and log line go out first
+            if (s_wdt) {
+                portDISABLE_INTERRUPTS();   // Interrupt watchdog panics with reset reason INT_WDT
+                for (;;) {}
+            }
+            abort();
+        },
+        "testcrash", 3072, nullptr, 1, nullptr);
+    return ESP_OK;
 }
 
 // ----------------------------------------------------------------------------------------
@@ -338,6 +380,15 @@ static cJSON *configJson()
     cJSON_AddStringToObject(o, "tz", c.tz);
     cJSON_AddNumberToObject(o, "brightness", c.brightness);
     cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
+    cJSON_AddBoolToObject(o, "eco_sleep", c.ecoSleep);
+    cJSON_AddBoolToObject(o, "power_log", c.powerLog);
+    cJSON *zones = cJSON_AddArrayToObject(o, "time_zones");
+    for (const auto &zone : TimeZones::ZONES) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "label", zone.label);
+        cJSON_AddStringToObject(item, "tz", zone.tz);
+        cJSON_AddItemToArray(zones, item);
+    }
     cJSON_AddNumberToObject(o, "text_size", c.textSize);
     cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
@@ -387,6 +438,8 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.screenOffSeconds = static_cast<uint16_t>(v);
     }
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
+    if (q.getBool("eco_sleep", b)) next.ecoSleep = b;
+    if (q.getBool("power_log", b)) next.powerLog = b;
     if (HwProfile::active().hasRgbLed && q.getInt("led_brightness", 0, 255, v, bad))
         next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
@@ -1410,6 +1463,7 @@ bool begin()
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
     bool ok = MyWeb::on("/api/info", HTTP_GET, handleInfo);
+    ok &= MyWeb::on("/api/diag/crash", HTTP_POST, handleDiagCrash);
     ok &= MyWeb::on("/api/config", HTTP_GET, handleConfigGet);
     ok &= MyWeb::on("/api/config", HTTP_POST, handleConfigPost);
     ok &= MyWeb::on("/api/wifi", HTTP_POST, handleWifiPost);

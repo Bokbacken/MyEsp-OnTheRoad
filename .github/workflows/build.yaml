@@ -91,9 +91,16 @@ jobs:
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py
           python3 tests/test_screen_power.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_power_interval.cpp -o /tmp/test_power_interval
+          /tmp/test_power_interval
+          python3 tests/test_power_history.py
+          python3 tests/test_power_io.py
           python3 tests/test_text_size_layout.py
           python3 tests/test_host_ota.py
           node tests/test_board_diagnostics_web.js
+          node tests/test_web_shell.js
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_time_zones.cpp -o /tmp/test_time_zones
+          /tmp/test_time_zones
           node tests/test_adventure_editor_web.js
           ADV_SAMPLE_DIR=/tmp/newadv node tests/test_adventure_model.js
           trap 'rm -f tests/.test_kara_lyrics' EXIT
@@ -104,6 +111,8 @@ jobs:
           /tmp/test_karastream
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o /tmp/test_fspath
           /tmp/test_fspath
+          g++ -std=c++17 -Wall -Wextra -Werror -Icomponents/my_time/include tests/test_time_crumb.cpp -o /tmp/test_time_crumb
+          /tmp/test_time_crumb
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload
           /tmp/test_fs_upload
           node tests/test_files_upload_web.js

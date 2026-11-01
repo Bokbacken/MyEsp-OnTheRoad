@@ -39,5 +39,7 @@ bool takeClockChanged();
 bool local(struct tm &out);      // Local broken-down time; false if not valid
 uint32_t lastNtpSyncS();         // Seconds since the last NTP sync (UINT32_MAX = never)
 uint32_t ntpSyncs();             // Successful syncs since boot
+// Last second the previous run was alive (RTC memory; 0 after power loss or if never set).
+time_t previousRunLastAlive(bool *wasCertain = nullptr);
 
 }  // namespace MyTime

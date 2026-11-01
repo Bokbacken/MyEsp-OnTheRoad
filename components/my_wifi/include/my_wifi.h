@@ -83,6 +83,8 @@ void reconnectSaved();
 void cancelConnect();
 void disconnect();                 // Drops the connection, keeps the saved networks
 void setScreenPowerSave(bool enabled);  // Minimum modem sleep while the display is off
+void setSuspended(bool enabled);       // Deferred driver stop/start; preserves saved networks
+bool suspended();
 
 // Saved-network list (all persist through Hooks::saveNets).
 void savedCopy(NetList &out);      // Contains passwords - never send them to the web

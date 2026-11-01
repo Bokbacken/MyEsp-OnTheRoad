@@ -40,6 +40,7 @@
 #include "ui_boot.h"
 #include "ui_ota.h"
 #include "ui_screen_power.h"
+#include "power_history.h"
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -224,7 +225,8 @@ extern "C" void app_main(void)
         }
         bool waiting = false;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
-        waiting = rs.present && rs.ticking && rs.state == MyRtc::State::TIME_INVALID;
+        waiting = !MyRtc::temperatureAvailable() && rs.present && rs.ticking &&
+                  rs.state == MyRtc::State::TIME_INVALID;
 #endif
         UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK :
                     waiting ? UiBoot::State::WAITING : UiBoot::State::FAIL, buf);
@@ -333,6 +335,7 @@ extern "C" void app_main(void)
         UiScreenPower::begin();
     }
 
+    PowerHistory::begin();
     uint32_t lastRtcCheck = MySys::millis();
     uint32_t lastBatteryAlertCheck = lastRtcCheck;
     uint32_t lastBatteryLog = lastRtcCheck;

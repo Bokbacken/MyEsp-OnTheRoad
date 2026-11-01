@@ -39,6 +39,8 @@ static FailReason s_lastFail = FailReason::NONE;
 static bool s_mdnsInit = false, s_mdnsOk = false;
 static bool s_userIdle = false;
 static bool s_screenPowerSave = false;
+static bool s_suspendRequested = false, s_suspended = false, s_resumeAuto = false;
+static uint32_t s_powerRetryAt = 0;
 static bool s_bgAttempt = false;
 static bool s_saveOnSuccess = false;
 static char s_trySsid[33] = "";
@@ -482,6 +484,54 @@ void loop()
     Lock l;
     uint32_t now = millis();
 
+    if (s_suspendRequested && !s_suspended && s_status != Status::ERROR && s_status != Status::OFF &&
+        static_cast<int32_t>(now - s_powerRetryAt) >= 0) {
+        s_resumeAuto = !s_userIdle;
+        const bool retry = s_driverRetry;
+        s_driverRetry = false;
+        const esp_err_t err = esp_wifi_stop();
+        if (err != ESP_OK) {
+            s_driverRetry = retry;
+            ESP_LOGE(TAG, "idle Wi-Fi stop failed: %s", esp_err_to_name(err));
+            s_powerRetryAt = now + 1000;
+        } else {
+            if (s_status == Status::CONNECTED) ++s_disconnects;
+            s_driverRetry = false;
+            s_autoScan = s_autoActive = s_autoTryNext = false;
+            s_saveOnSuccess = false;
+            s_scanState = -1;
+            s_status = Status::OFF;
+            s_suspended = true;
+            s_mdnsOk = false;
+            ESP_LOGI(TAG, "idle Wi-Fi stopped");
+        }
+    }
+    if (s_suspended) {
+        s_gotIp = false;
+        s_lostIp = false;
+        s_discEvent = false;
+        s_scanDoneEvt = false;
+        if (!s_suspendRequested && static_cast<int32_t>(now - s_powerRetryAt) >= 0) {
+            const esp_err_t err = esp_wifi_start();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "idle Wi-Fi resume failed: %s", esp_err_to_name(err));
+                s_status = Status::ERROR;
+                s_powerRetryAt = now + 1000;
+            } else {
+                s_suspended = false;
+                s_status = Status::IDLE;
+                setScreenPowerSave(s_screenPowerSave);
+                ESP_LOGI(TAG, "idle Wi-Fi resumed");
+                if (s_resumeAuto) startAuto(false);
+            }
+        }
+        if (s_status != s_reported) {
+            s_reported = s_status;
+            if (s_hooks.onStatus) s_hooks.onStatus(s_reported);
+        }
+        return;
+    }
+
     if (s_hostnameDirty) {
         s_hostnameDirty = false;
         if (s_netif && s_hooks.hostname) esp_netif_set_hostname(s_netif, s_hooks.hostname());
@@ -639,6 +689,16 @@ void setScreenPowerSave(bool enabled)
     const esp_err_t err = esp_wifi_set_ps(enabled ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
     if (err != ESP_OK) ESP_LOGW(TAG, "screen power-save mode %s failed: %s",
                                 enabled ? "enable" : "disable", esp_err_to_name(err));
+}
+void setSuspended(bool enabled)
+{
+    Lock l;
+    s_suspendRequested = enabled;
+}
+bool suspended()
+{
+    Lock l;
+    return s_suspended;
 }
 bool mdnsOk() { return s_mdnsOk; }
 const char *ipStr() { return connected() ? s_ip : "0.0.0.0"; }
