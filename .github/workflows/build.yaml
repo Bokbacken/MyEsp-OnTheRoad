@@ -1,25 +1,62 @@
 name: Build firmware
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      build_c6:
+        description: Build C6 radio firmware too
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: firmware-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Select required builds
+    runs-on: ubuntu-latest
+    outputs:
+      firmware: ${{ steps.plan.outputs.firmware }}
+      c6: ${{ steps.plan.outputs.c6 }}
+      c6_ref: ${{ steps.plan.outputs.c6_ref }}
+      c6_idf: ${{ steps.plan.outputs.c6_idf }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test build selection
+        run: python3 -m unittest discover -s tests -p test_ci_build_plan.py
+      - name: Select builds
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/ci_build_plan.py
+
   build-host-fw:
     name: build-host-fw-esp32c6
+    needs: changes
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.c6 == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      - name: Require successful build selection
+        env:
+          PLAN_RESULT: ${{ needs.changes.result }}
+        run: test "$PLAN_RESULT" = success
+
       - name: Checkout ESP-Hosted MCU
         uses: actions/checkout@v4
         with:
           repository: espressif/esp-hosted-mcu
-          ref: 78b1c1c43c02b0c4e898cf87f94679278b1ddaff
+          ref: ${{ needs.changes.outputs.c6_ref }}
           path: esp_hosted
           submodules: recursive
           persist-credentials: false
@@ -28,10 +65,10 @@ jobs:
         id: upstream
         run: echo "ref=$(git -C esp_hosted rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Build C6 Host firmware with ESP-IDF v6.1
+      - name: Build C6 Host firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
-          esp_idf_version: v6.1
+          esp_idf_version: ${{ needs.changes.outputs.c6_idf }}
           target: esp32c6
           command: |
             cd esp_hosted/examples/ota/coprocessor_ota/cp
@@ -52,6 +89,8 @@ jobs:
 
   build:
     name: build-${{ matrix.target }}
+    needs: changes
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.firmware == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -66,6 +105,11 @@ jobs:
             label: "-unverified"
 
     steps:
+      - name: Require successful build selection
+        env:
+          PLAN_RESULT: ${{ needs.changes.result }}
+        run: test "$PLAN_RESULT" = success
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
