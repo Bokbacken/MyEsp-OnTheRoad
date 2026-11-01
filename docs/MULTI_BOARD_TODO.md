@@ -288,12 +288,14 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [x] P4-knappar kontrollerade mot schema: power/Key3 går till U20:s
   KEY-ingång, inte till P4 GPIO. BOOT/Key2 är GPIO35 och kan läsas under
   drift, men är inte deep-sleep-wake-kompatibel. Touch pollas utan wake-INT.
-- [ ] Välj RTC-/viloväg för P4: separat RTC-GPIO-knapp + kontrollerad
+- [x] Välj RTC-/viloväg för P4: separat RTC-GPIO-knapp + kontrollerad
   VBAT-deep-sleep, light sleep med huvudmatning kvar, eller separat kalender-RTC.
   Ägaren har monterat DS3231 på P4. v0.23.15 väljer den automatiskt vid
-  I2C-adress 0x68, annars används intern RTC. Verifiera RTC/temperatur i
-  diagnostik, NTP/manuell första inställning och tid efter RESET samt
-  strömavbrott utan ny NTP-synk.
+  I2C-adress 0x68, annars används intern RTC. Ägaren rapporterar
+  2026-11-01 att RTC fungerar perfekt med DS3231. Enskilda testfall
+  (temperatur, RESET och strömavbrott utan NTP) är inte specificerade.
+  DS3231 löser kalender-RTC-behovet; deep sleep är fortsatt en separat
+  möjlig energisparfunktion.
   Se [hårdvarureferensens RTC-avsnitt](Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md#rtc-retention-known-limits-and-possible-next-steps).
   Ägartest 2026-11-01 utan Wi-Fi/NTP: omstart via webben behåller betrodd
   RTC-tid. Fysisk RESET-knapp ger "väntar på NTP/manuell tid" och `?`,
@@ -346,6 +348,12 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
+- [ ] Inför femminutershistorik på SD för batterispänning, tidskälla,
+  boot-ID/drifttid, aktiv tid per spel, bakgrundsbelysning/skärmtid,
+  Wi-Fi-status, lagringsöverföringar och ljud/volym. Komplettera med
+  händelser, filrotation och synliga tappade poster. Batterispänning är
+  inte uppmätt ström; faktisk energimätning kräver extra mätutrustning.
+  Intern flash som destination väntar tills S3:s FFat-problem är utrett.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 

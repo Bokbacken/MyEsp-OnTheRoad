@@ -17,7 +17,8 @@ a published GitHub Release.
 - RTC time, temperature, diagnostics and NTP/manual synchronization use the
   selected backend. S3 retains its existing DS3231 backend.
 - Host tests cover absence, valid time, oscillator-stop recovery and I2C
-  register errors. Owner verification on P4 is pending.
+  register errors. The owner reports that RTC works perfectly with the
+  installed DS3231 on P4; individual test scenarios were not specified.
 
 ## v0.23.14 (unreleased)
 
