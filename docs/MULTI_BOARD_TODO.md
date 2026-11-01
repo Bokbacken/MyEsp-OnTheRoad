@@ -450,7 +450,21 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Lägg till kontrollerad omstart under enhetens lokala Inställningar
   tillsammans med strömspararbetet. Återanvänd webbens omstartsväg och
   skydda pågående skrivningar/OTA; bekräfta innan osparat spel lämnas.
+  v0.23.19 implementerar bekräftelse, gemensam fördröjd omstartsuppgift,
+  överförings-/OTA-spärr och stopp av FFat-händelselogg före omstart.
+  Hårdvarutest av lokal omstart återstår.
+- [ ] P4 v0.23.19: ekoläget skickar ST7701 display-off/sleep-in och
+  sleep-out/display-on vid touch, innan bakgrundsbelysningen återställs.
+  Kontrollera återkommande vila/väckning, första tryckets skydd,
+  rotation/landskap efter väckning och felstatus. CPU/touch och DSI-stream/
+  panelmatning är fortsatt på. Besparingen ska mätas; S3 ligger kvar
+  på v0.23.18 under observation och får ingen ny panelviloväg.
   CPU/touch är fortsatt vakna, inte light sleep.
+  Ägartest v0.23.19: vanlig släckning (utan eko) släckte bara ljuset.
+  v0.23.20 låter P4-panelen sova vid all skärmsläckning. Ägaren
+  rapporterar (2026-11-01) att skärmen nu slocknar helt; loggen visar
+  "panel asleep"/"panel awake" vid upprepad släckning och touchväckning.
+  Effektmätning och lång körning återstår.
 - [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
   sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
   statusrad/meny samt DHCP/mDNS. v0.23.17 inkluderar historik/viloläge

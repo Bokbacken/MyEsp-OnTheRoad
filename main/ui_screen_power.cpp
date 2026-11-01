@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "board_backlight.h"
+#include "board_display.h"
 #include "my_lvgl.h"
 #include "my_ota.h"
 #include "my_sys.h"
@@ -20,6 +21,8 @@ uint32_t s_lastActivity = 0;
 uint32_t s_wakeAt = 0;
 bool s_blockTouch = false;
 std::atomic<bool> s_eco{false};
+bool s_wakePending = false;
+uint32_t s_wakeRetryAt = 0;
 
 bool ecoBlocked()
 {
@@ -29,6 +32,14 @@ bool ecoBlocked()
 
 void wake(uint32_t now)
 {
+    if (Display::panelSleeping() && !Display::setPanelSleeping(false)) {
+        s_wakePending = true;
+        s_wakeRetryAt = now;
+        ESP_LOGW("screen", "panel wake failed; light stays off, retry in one second");
+        return;
+    }
+    s_wakePending = false;
+    now = MySys::millis();
     Backlight::setSleeping(false);
     if (s_eco.exchange(false)) {
         Audio::setSleeping(false);
@@ -45,8 +56,10 @@ void wake(uint32_t now)
 bool filterPointer(bool pressed)
 {
     const uint32_t now = MySys::millis();
+    if (s_wakePending && now - s_wakeRetryAt < 1000) return false;
     if (s_eco && (!Config::get().ecoSleep || ecoBlocked())) {
         wake(now);
+        if (s_wakePending) return false;
     }
     if (pressed) s_lastActivity = now;
     if (Backlight::sleeping()) {
@@ -64,7 +77,12 @@ bool filterPointer(bool pressed)
 void tick(lv_timer_t *)
 {
     const uint32_t now = MySys::millis();
+    if (s_wakePending) {
+        if (now - s_wakeRetryAt >= 1000) wake(now);
+        if (s_wakePending) return;
+    }
     if (s_eco && (!Config::get().ecoSleep || ecoBlocked())) wake(now);
+    if (s_wakePending) return;
     if (MyOta::busy()) {
         if (Backlight::sleeping()) wake(now);
         s_lastActivity = now;
@@ -95,6 +113,10 @@ void begin()
 
 void sleepNow()
 {
+    if (s_wakePending) {
+        ESP_LOGW("screen", "screen-off blocked while panel wake is pending");
+        return;
+    }
     if (MyOta::busy()) {
         ESP_LOGW("screen", "screen-off blocked during OTA");
         return;
@@ -106,6 +128,12 @@ void sleepNow()
             return;
         }
         if (!s_eco.exchange(true)) {
+            Backlight::setSleeping(true);
+            if (Display::panelSleepSupported() && !Display::setPanelSleeping(true)) {
+                ESP_LOGW("screen", "panel sleep failed; cancelling idle request");
+                wake(MySys::millis());
+                return;
+            }
             Audio::setSleeping(true);
             MyWifi::setSuspended(true);
             ESP_LOGI("screen", "idle eco mode requested; CPU and touch remain awake");
@@ -113,6 +141,8 @@ void sleepNow()
     }
     MyWifi::setScreenPowerSave(true);
     Backlight::setSleeping(true);
+    if (Display::panelSleepSupported() && !Display::panelSleeping() && !Display::setPanelSleeping(true))
+        ESP_LOGW("screen", "panel sleep failed; backlight stays off");
     ESP_LOGI("screen", "backlight off; touch wake enabled");
 }
 bool ecoSleeping() { return s_eco.load(); }

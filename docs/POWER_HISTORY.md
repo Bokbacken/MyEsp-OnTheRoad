@@ -70,8 +70,38 @@ ljudmixern/I2S samt stänger förstärkaren. Inställningar, sparade nätverk oc
 musikposition bevaras. Touch väcker och återställer ljud/Wi-Fi; första
 trycket skickas inte till spelet. Släpp och vänta minst 250 ms före nästa tryck.
 
-Detta är **inte light/deep sleep**. CPU, displaypanel, touch, RTC, SD-loggning
-och delar av codec/radiokortets elektronik är fortsatt matade.
+På P4 från v0.23.19 skickar ekoläget även ST7701:s display-off/sleep-in.
+LVGL:s bildöverföringar till panelens framebuffer hoppas över medan panelen
+sover. Vid touch skickas sleep-out, 120 ms väntan och display-on innan ljuset
+tänds; skärmen invalidieras för ny uppritning. Första väcktrycket förbrukas
+som tidigare. Fel loggas; vid misslyckad väckning hålls ljuset släckt och
+väckningen försöks igen högst en gång per sekund. Vid misslyckad insomning
+avbryts ekoläget och panelen försöks återställas.
+Från v0.23.20 sover P4-panelen vid all skärmsläckning (tidsgräns eller
+manuell), även utan viloläge. Misslyckad panelvila vid vanlig släckning
+loggas och ljuset förblir släckt.
+S3 behåller tidigare beteende med enbart bakgrundsbelysning av.
+Diagnostik visar om panelvila stöds och panelens aktuella vilostatus.
+
+Detta är **inte light/deep sleep**. CPU, touch, RTC, SD-loggning
+och delar av codec/radiokortets elektronik är fortsatt matade. P4:s
+panelmatning, DSI/DPI-videoström och PHY-LDO stängs inte av; controller-sleep
+är inte samma sak som att göra displayelektroniken strömlös.
 På P4 stänger det inte av C6-kretsens matning.
 Webben kan inte väcka en stoppad Wi-Fi-radio.
 Fel vid stopp/återstart loggas och faktisk status visas i Diagnostik.
+Den ytterligare besparingen från panelvila är ännu inte mätt på hårdvara.
+
+## Kontrollerad omstart
+
+**Starta om enheten** finns längst ned i den lokala nätverksdelen under
+Inställningar och använder samma fördröjda mjukvaruomstart som webben.
+Bekräftelsen varnar att osparat spel och osparade inställningar förloras;
+den sparar inte automatiskt inställningarnas arbetskopia.
+Omstart nekas medan filöverföring eller OTA pågår. Om en överföring börjar
+under fördröjningen väntar omstartsuppgiften tills den avslutats.
+Misslyckad skapning av omstartsuppgiften visas som fel, inte som lyckad
+omstart. FFat-händelseloggningen stoppas under dess lås före omstart så
+en pågående sådan skrivning får avslutas.
+Detta är inte en garanterad transaktionell avstängning av alla bakgrundsuppgifter;
+det ännu osparade historikintervallet kan fortfarande gå förlorat.

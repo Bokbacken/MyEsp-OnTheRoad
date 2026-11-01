@@ -695,6 +695,15 @@ void fillScreen(uint16_t rgb565)
 
 bool startTask() { return g_ok && MyLvgl::startTask(1, 2, 12 * 1024); }
 
+bool panelSleepSupported() { return false; }
+bool panelSleeping() { return false; }
+bool setPanelSleeping(bool sleeping)
+{
+    if (!sleeping) return true;
+    ESP_LOGW(TAG, "panel sleep is not enabled on S3");
+    return false;
+}
+
 Stats stats()
 {
     MyLvgl::Stats l = MyLvgl::stats();
