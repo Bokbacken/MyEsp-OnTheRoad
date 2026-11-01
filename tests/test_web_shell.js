@@ -81,6 +81,12 @@ async function check(path, existingHeader) {
   sandbox.window.OtrDevice.apply({hostname: 'new-name'});
   assert(brand.textContent.startsWith('new-name'), 'settings save applies name immediately');
   assert.equal(document.title, 'new-name – Inställningar');
+  sandbox.window.OtrDevice.setTitle('Byn');
+  assert.equal(document.title, 'new-name – Byn');
+  footer.textContent = 'road-unit v1 · esp32s3';
+  await refresh();
+  assert.equal(document.title, 'road-unit – Byn', 'status refresh preserves dynamic page title');
+  assert.equal(footer.textContent, 'road-unit v1 · esp32s3', 'status refresh preserves live footer metadata');
   return nav.children.map(c => c.href);
 }
 

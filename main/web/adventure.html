@@ -451,7 +451,7 @@ function render(g) {
   if (g.map) { map = g.map; mapRev = g.map_rev; buildLayer(); }
   else if (g.map_rev !== mapRev) { ver = -1; mapRev = 0; return; }   // Map missing: fetch it with the next poll
   $('world').textContent = '🗺 ' + g.world;
-  document.title = 'OnTheRoad – ' + g.world;
+  if (window.OtrDevice) window.OtrDevice.setTitle(g.world);
   const first = !st;
   const nx = g.player.x, ny = g.player.y;
   if (first || Math.abs(nx - anim.x) + Math.abs(ny - anim.y) > 2) { anim.fx = anim.x = nx; anim.fy = anim.y = ny; anim.t0 = 0; }

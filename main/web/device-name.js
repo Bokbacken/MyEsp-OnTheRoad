@@ -8,7 +8,8 @@
   ];
   const aliases = {'/index.html': '/', '/diagnostics.html': '/diag', '/songs_picker.html': '/karaoke/songs'};
   const current = aliases[location.pathname] || location.pathname.replace(/\.html$/, '') || '/';
-  const subtitle = document.title.split(' – ').slice(1).join(' – ');
+  let subtitle = document.title.split(' – ').slice(1).join(' – ');
+  let deviceName = 'OnTheRoad';
   let header = document.querySelector('header.otr-brand');
   if (!header) {
     header = document.createElement('header');
@@ -61,6 +62,7 @@
   function apply(config) {
     const name = config.hostname || config.wifi?.hostname;
     if (!name) return;
+    deviceName = name;
     if (config.lang) english = config.lang === 'en';
     links.forEach((link, i) => { nav.children[i].textContent = link[english ? 2 : 1]; });
     nav.setAttribute('aria-label', english ? 'Main navigation' : 'Huvudmeny');
@@ -70,10 +72,14 @@
     if (small) brand.appendChild(small);
     document.title = name + (subtitle ? ' – ' + subtitle : '');
     document.querySelectorAll('footer, a[href="/"]').forEach(el => {
-      if (!templates.has(el)) templates.set(el, el.textContent);
-      const original = templates.get(el);
-      if (/MyEsp-OnTheRoad|ONTHEROAD|OnTheRoad/.test(original))
-        el.textContent = original.replace(/MyEsp-OnTheRoad|ONTHEROAD|OnTheRoad/g, name);
+      let cached = templates.get(el);
+      if (!cached || el.textContent !== cached.last)
+        cached = {original: el.textContent, last: el.textContent};
+      if (/MyEsp-OnTheRoad|ONTHEROAD|OnTheRoad/.test(cached.original)) {
+        el.textContent = cached.original.replace(/MyEsp-OnTheRoad|ONTHEROAD|OnTheRoad/g, name);
+        cached.last = el.textContent;
+      }
+      templates.set(el, cached);
     });
     if (config.wifi) {
       const wifi = config.wifi;
@@ -99,7 +105,13 @@
       pending = false;
     }
   }
-  window.OtrDevice = {apply, refresh};
+  window.OtrDevice = {
+    apply, refresh,
+    setTitle(title) {
+      subtitle = title;
+      document.title = deviceName + (title ? ' – ' + title : '');
+    }
+  };
   window.addEventListener('pageshow', refresh);
   document.addEventListener('visibilitychange', refresh);
   setInterval(refresh, 10000);
