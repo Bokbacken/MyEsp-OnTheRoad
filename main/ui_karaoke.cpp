@@ -873,6 +873,7 @@ void tick(lv_timer_t *)
         refreshSteppers();
         msg(tr(Str::KARA_TR_REJECTED));
     }
+    if (Karaoke::takeOverloadStopped()) msg(tr(Str::KARA_OVERLOAD));
     if (Karaoke::fontState() != P.fontState) {
         P.fontState = Karaoke::fontState();
         if (s_waitDlg && P.fontState != Karaoke::FontState::LOADING) {

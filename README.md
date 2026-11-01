@@ -518,6 +518,7 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_yatzy.cpp main/game_yatzy.cpp -o te
 g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./tests/test_core   # net list, scroll wheel, player registry
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 python3 tests/test_board_peripherals.py   # P4 internal RTC, S3/P4 ADC/SD recovery and per-board NVS calibration defaults
+python3 tests/test_kara_overload.py   # karaoke stops on sustained render overload
 python3 tests/test_upload_pipeline.py   # queued writes abort when another SD session requests recovery
 python3 tests/test_sd_log_diagnostics.py   # runtime levels, SD persistence and RAM-only export
 python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting

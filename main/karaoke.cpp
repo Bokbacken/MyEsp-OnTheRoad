@@ -21,6 +21,7 @@
 #include "esp_timer.h"
 #include "kara_web.h"
 #include "kara_lyrics.h"
+#include "kara_overload.h"
 #include "fs_upload.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -75,6 +76,7 @@ bool s_taskOpenBank = false;    // Task job: open the bank first (font change) o
 bool s_trReload = false, s_resumePlay = false;
 int s_prevTr = 0;
 volatile bool s_trRejected = false;
+volatile bool s_overloadStop = false;   // Playback stopped by the overload guard; told to the UI once
 // Diagnostics (logged every 5 s while a song is open)
 esp_timer_handle_t s_diagTimer = nullptr;
 // v0.13.7 song library (own mutex: never held while the mixer needs s_mux)
@@ -303,6 +305,16 @@ void diagCb(void *)
              (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, limit,
              (unsigned)steals,
              s_player.playing() ? "playing" : "paused");
+    if (!KaraOverload::shouldStop(st.avgLoad100, newUnder)) return;
+    {
+        Lock l;
+        if (!s_open || !s_player.playing()) return;
+        s_player.play(false);
+        s_synth.allNotesOff();
+        s_overloadStop = true;
+    }
+    ESP_LOGW(TAG, "overload: stopped (%s, %d voices, avg %u%%, +%u underruns)", s_fontName, limit,
+             (unsigned)(st.avgLoad100 / 100), (unsigned)newUnder);
 }
 
 void startDiag()
@@ -1123,6 +1135,13 @@ bool takeTransposeRejected()
 {
     const bool r = s_trRejected;
     s_trRejected = false;
+    return r;
+}
+
+bool takeOverloadStopped()
+{
+    const bool r = s_overloadStop;
+    s_overloadStop = false;
     return r;
 }
 

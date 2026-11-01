@@ -241,6 +241,24 @@ reducerade lager i stället. P4 behåller för närvarande 22.05 kHz utgång:
 kräva ändrad ES8311-klockning och kräver CPU-/ljudmätning på hårdvara innan
 rekommendation.
 
+### CPU-gräns: för krävande SF2/röstantal
+
+Minnesbudgeten avgör om en bank kan laddas, inte om den hinner renderas.
+Stora banker med många lager/omsamplade zoner och högt röstantal kan kräva
+mer CPU än en mixerblocktid. Ägartest på S3 (v0.23.18, `WeedsGM3.sf2`
+~55 MB, 96 röster): 75–92 samtidiga röster gav renderlast 87–123 % i snitt,
+hackigt ljud, 47 sena block och task-watchdog-varningar för `audio` på CPU 0
+(ingen omstart). Sådana banker stöds inte på S3; välj en mindre SF2 (t.ex.
+TimGM6mb) eller färre röster.
+
+Från v0.23.21 stoppar karaoken uppspelningen när en 5-sekundersperiod har
+genomsnittlig renderlast ≥ 100 % eller minst 5 sena mixerblock
+(`main/kara_overload.h`). Spelaren pausas, toner släpps, loggen skriver
+`overload: stopped (...)` och enhetens karaokevy visar att SF2 eller
+röstantal är för krävande för hårdvaran. Webbspelaren visar ännu inget eget
+meddelande. Kortare toppar än en period och enstaka sena block stoppar inte.
+Gränsen gäller båda korten; P4-tröskeln är inte separat mätt.
+
 ### Webbkaraoke i mono/stereo
 
 Nuvarande tap, ringbuffer, `Sf::Synth::render()` och browserprotokoll är mono.

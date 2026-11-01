@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.21 (unreleased)
+
+- Karaoke overload guard: when a 5 s diagnostics period averages ≥100 %
+  render load or has ≥5 late mixer blocks, playback is paused, notes are
+  released and the device shows that the SF2 or voice count is too
+  demanding for this hardware. Prompted by an owner S3 test with a
+  ~55 MB SF2 at 96 voices (stutter + task-watchdog warnings, no reboot).
+  Documented as unsupported in the karaoke reference. Hardware check pending.
+
 ## v0.23.20 (unreleased)
 
 - P4 panel sleep now runs on every screen-off (timeout or manual), not
