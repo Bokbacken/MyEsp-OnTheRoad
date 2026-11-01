@@ -13,6 +13,23 @@ STUB = r'''
 constexpr int ESP_OK=0, ESP_FAIL=-1;
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
+namespace Display {
+#ifdef CONFIG_OTR_HW_PROFILE_P4_43
+inline bool supported=true;
+#else
+inline bool supported=false;
+#endif
+inline bool asleep=false, failSleep=false, failWake=false;
+inline int sleepCalls=0, wakeCalls=0;
+inline bool panelSleepSupported() { return supported; }
+inline bool panelSleeping() { return asleep; }
+inline bool setPanelSleeping(bool sleep) {
+    if (sleep) { ++sleepCalls; asleep=true; return !failSleep; }
+    ++wakeCalls;
+    if (failWake) return false;
+    asleep=false; return true;
+}
+}
 namespace MySys { inline uint32_t now=0; inline uint32_t millis() { return now; } }
 namespace MyOta { inline bool updating=false; inline bool busy() { return updating; } }
 namespace Karaoke { inline bool songPlaying=false; inline bool playing() { return songPlaying; } }
@@ -184,6 +201,26 @@ int main() {
     Config::get().ecoSleep=false;
     tick(1090040);
     assert(!UiScreenPower::ecoSleeping() && !Backlight::sleeping());
+    if (Display::supported) {
+        assert(Display::sleepCalls==2 && !Display::asleep);
+        Config::get().ecoSleep=true;
+        UiScreenPower::sleepNow();
+        assert(Display::asleep && Backlight::sleeping());
+        Display::failWake=true;
+        assert(!sample(1090050,true));
+        assert(Display::asleep && Backlight::sleeping());
+        const int wakeCalls=Display::wakeCalls;
+        tick(1091049);
+        assert(Display::wakeCalls==wakeCalls);
+        Display::failWake=false;
+        tick(1091050);
+        assert(!Display::asleep && !Backlight::sleeping() && !UiScreenPower::ecoSleeping());
+        Display::failSleep=true;
+        UiScreenPower::sleepNow();
+        assert(!Display::asleep && !Backlight::sleeping() && !UiScreenPower::ecoSleeping());
+    } else {
+        assert(Display::sleepCalls==0 && Display::wakeCalls==0);
+    }
 }
 '''
 
@@ -197,7 +234,7 @@ with tempfile.TemporaryDirectory(prefix="otr-screen-power-") as directory:
     (work / "stubs.h").write_text(STUB)
     for name in ["my_sys.h", "my_ota.h", "my_lvgl.h", "esp_log.h",
                  "driver/gpio.h", "driver/ledc.h", "sdkconfig.h", "adv_live.h",
-                 "board_audio.h", "app_web_files.h"]:
+                 "board_audio.h", "app_web_files.h", "board_display.h"]:
         header = work / name
         header.parent.mkdir(parents=True, exist_ok=True)
         header.write_text('#include "stubs.h"\n')

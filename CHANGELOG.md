@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.19 (unreleased)
+
+- P4 eco idle also sends ST7701 display-off/sleep-in, suppresses LVGL
+  framebuffer updates during panel sleep, and wakes the panel before
+  restoring backlight. Failed transitions are logged and wake retries
+  are rate-limited. CPU/touch stay awake; DSI stream and panel power
+  remain enabled. Hardware power savings and wake behavior are pending.
+- Local Settings adds a confirmed software restart through the shared
+  web restart task. Transfers/OTA block restart; task creation failures
+  are reported. FFat event logging is quiesced before restart.
+- S3 panel behavior is unchanged; it can remain on v0.23.18 during the
+  separate SPI-crash observation. No C6 firmware update is needed.
+
 ## v0.23.18 (unreleased)
 
 - S3 only: backport Espressif's `a16c003` SPI bus-lock TOCTOU fix,

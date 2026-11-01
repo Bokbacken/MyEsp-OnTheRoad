@@ -20,6 +20,9 @@
 #include "board_pins.h"
 #include "karaoke.h"
 #include "my_wifi.h"
+#include "my_web.h"
+#include "my_ota.h"
+#include "app_web_files.h"
 #include "ui_clock.h"
 #include "ui_numpad.h"
 #include "lang.h"
@@ -572,6 +575,31 @@ void show()
         }
         applyHardware();   // Discard unsaved live previews
         UiWifi::showNetworks();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *restart = Theme::button(net, tr(Str::SET_REBOOT), LV_PCT(100), 40, Theme::MUTED);
+    lv_obj_add_event_cb(restart, [](lv_event_t *) {
+        lv_obj_t *box = lv_msgbox_create(nullptr);
+        lv_msgbox_add_text(box, tr(Str::SET_REBOOT_Q));
+        lv_msgbox_add_close_button(box);
+        lv_obj_t *confirm = lv_msgbox_add_footer_button(box, tr(Str::SET_REBOOT));
+        lv_obj_add_event_cb(confirm, [](lv_event_t *e) {
+            auto *dialog = static_cast<lv_obj_t *>(lv_event_get_user_data(e));
+            if (MyOta::busy() || AppWebFiles::busy()) {
+                lv_msgbox_add_text(dialog, tr(Str::SET_REBOOT_BUSY));
+                Theme::msgboxFonts(dialog);
+                return;
+            }
+            if (!MyWeb::rebootSoon()) {
+                lv_msgbox_add_text(dialog, tr(Str::SET_REBOOT_FAILED));
+                Theme::msgboxFonts(dialog);
+                return;
+            }
+            lv_obj_add_state(lv_event_get_target_obj(e), LV_STATE_DISABLED);
+            lv_msgbox_add_text(dialog, tr(Str::OTA_RESTARTING));
+            Theme::msgboxFonts(dialog);
+        }, LV_EVENT_CLICKED, box);
+        Theme::msgboxFonts(box);
     }, LV_EVENT_CLICKED, nullptr);
 
     const int32_t halfW = (sw - 22) / 2;

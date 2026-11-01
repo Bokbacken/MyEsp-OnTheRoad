@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -76,19 +77,39 @@ esp_err_t sendError(httpd_req_t *r, int code, const char *msg)
 
 esp_err_t sendOk(httpd_req_t *r) { return sendJsonStr(r, 200, "{\"ok\":true}"); }
 
-void rebootSoon(uint32_t ms)
+bool rebootSoon(uint32_t ms)
 {
+    static std::atomic<bool> s_pending{false};
     static uint32_t s_delay;
+    if (s_cfg.canReboot && !s_cfg.canReboot()) {
+        ESP_LOGW(TAG, "restart blocked while transfer or OTA is active");
+        return false;
+    }
+    if (s_pending.exchange(true)) return true;
     s_delay = ms;
-    xTaskCreate(
+    const BaseType_t created = xTaskCreate(
         [](void *) {
             vTaskDelay(pdMS_TO_TICKS(s_delay));
+            bool reported = false;
+            while (s_cfg.canReboot && !s_cfg.canReboot()) {
+                if (!reported) {
+                    ESP_LOGW(TAG, "restart waiting for active transfer or OTA");
+                    reported = true;
+                }
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
             if (s_cfg.onReboot) s_cfg.onReboot();
             MyLog::event("sys", "restart requested");
             vTaskDelay(pdMS_TO_TICKS(50));
             esp_restart();
         },
         "reboot", 3072, nullptr, 1, nullptr);
+    if (created != pdPASS) {
+        s_pending = false;
+        ESP_LOGE(TAG, "could not create restart task");
+        return false;
+    }
+    return true;
 }
 
 // ----------------------------------------------------------------------------------------
@@ -305,9 +326,8 @@ static esp_err_t eventsHandler(httpd_req_t *r)
 
 static esp_err_t rebootHandler(httpd_req_t *r)
 {
-    sendOk(r);
-    rebootSoon();
-    return ESP_OK;
+    if (!rebootSoon()) return sendError(r, 409, "Omstart nekad: pågående överföring/OTA eller resursfel");
+    return sendOk(r);
 }
 
 // POST /api/ota: multipart/form-data, file field "fw". Streams the part body into MyOta,
@@ -394,9 +414,11 @@ static esp_err_t otaHandler(httpd_req_t *r)
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "ok", true);
     cJSON_AddNumberToObject(o, "bytes", MyOta::state().written);
-    sendJson(r, 200, o);
-    rebootSoon();
-    return ESP_OK;
+    if (!rebootSoon()) {
+        cJSON_Delete(o);
+        return sendError(r, 500, "Firmware sparad, men omstart kunde inte startas");
+    }
+    return sendJson(r, 200, o);
 }
 
 static esp_err_t notFound(httpd_req_t *r, httpd_err_code_t)

@@ -7,6 +7,7 @@
 // come from the Waveshare BSP esp32_p4_wifi6_touch_lcd_4_3 v1.0.1.
 #include "board_display.h"
 
+#include <atomic>
 #include "board_pins.h"
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
@@ -77,6 +78,7 @@ esp_lcd_dsi_bus_handle_t g_bus = nullptr;
 esp_lcd_panel_io_handle_t g_io = nullptr;
 esp_lcd_panel_handle_t g_panel = nullptr;
 bool g_panelOk = false;
+std::atomic<bool> g_panelSleeping{false};
 bool g_ok = false;
 bool g_rot180 = false;
 bool g_land = false;
@@ -85,6 +87,7 @@ const char *g_fail = "";
 
 void flush(int x1, int y1, int x2, int y2, const uint16_t *px, bool)
 {
+    if (g_panelSleeping) return;
     esp_lcd_panel_draw_bitmap(g_panel, x1, y1, x2 + 1, y2 + 1, px);
 }
 
@@ -233,9 +236,56 @@ bool ok() { return g_ok; }
 bool panelOk() { return g_panelOk; }
 const char *failReason() { return g_fail; }
 
+bool panelSleepSupported() { return true; }
+bool panelSleeping() { return g_panelSleeping; }
+
+bool setPanelSleeping(bool sleeping)
+{
+    if (!g_panelOk) {
+        ESP_LOGE(TAG, "panel power requested before initialization");
+        return false;
+    }
+    if (sleeping == g_panelSleeping) return true;
+    if (sleeping) {
+        esp_err_t err = esp_lcd_panel_io_tx_param(g_io, 0x28, nullptr, 0);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "display-off failed: %s", esp_err_to_name(err));
+            return false;
+        }
+        // Keep the light off and suppress flushes even if sleep-in fails.
+        g_panelSleeping = true;
+        err = esp_lcd_panel_io_tx_param(g_io, 0x10, nullptr, 0);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "sleep-in failed: %s", esp_err_to_name(err));
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(120));
+        ESP_LOGI(TAG, "panel asleep; DSI stream and CPU remain powered");
+        return true;
+    }
+    esp_err_t err = esp_lcd_panel_io_tx_param(g_io, 0x11, nullptr, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "sleep-out failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(120));
+    err = esp_lcd_panel_io_tx_param(g_io, 0x29, nullptr, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "display-on failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    g_panelSleeping = false;
+    if (g_ok) {
+        lv_obj_invalidate(lv_screen_active());
+        lv_obj_invalidate(lv_layer_top());
+    }
+    ESP_LOGI(TAG, "panel awake");
+    return true;
+}
+
 void fillScreen(uint16_t rgb565)
 {
-    if (!g_panel) return;
+    if (!g_panel || g_panelSleeping) return;
     constexpr int ROWS = 40;
     uint16_t *band = (uint16_t *)heap_caps_malloc(LCD_H_RES * ROWS * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!band) band = (uint16_t *)heap_caps_malloc(LCD_H_RES * ROWS * 2, MALLOC_CAP_8BIT);

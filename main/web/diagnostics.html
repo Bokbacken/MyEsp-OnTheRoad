@@ -135,6 +135,8 @@ async function refresh() {
       ['Poster / tappade', (i.power?.written ?? 0) + ' / ' + (i.power?.dropped ?? 0)],
       ['Fil', esc(i.power?.path || '–')],
       ['Viloläge', i.power?.eco_sleeping ? 'Aktivt' : 'Av'],
+      ['Panelvila', i.power?.panel_sleep_supported ?
+        (i.power.panel_sleeping ? 'Aktiv' : 'Av') : 'Stöds inte'],
       ['Wi-Fi / ljud stoppat', (i.power?.wifi_suspended ? 'Ja' : 'Nej') + ' / ' +
         (i.power?.audio_sleeping ? 'Ja' : 'Nej')]
     ]);

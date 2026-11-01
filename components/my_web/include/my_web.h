@@ -26,6 +26,7 @@ struct Config {
     uint32_t stackSize = 8192;
     bool (*adminOk)(const char *pin) = nullptr;   // nullptr = no admin protection
     void (*onReboot)() = nullptr;                 // Called just before esp_restart()
+    bool (*canReboot)() = nullptr;                // Reject requests while storage/OTA is busy.
 };
 
 bool begin(const Config &cfg);
@@ -75,6 +76,6 @@ esp_err_t sendError(httpd_req_t *r, int code, const char *msg);
 esp_err_t sendOk(httpd_req_t *r);
 void setStatus(httpd_req_t *r, int code);
 
-void rebootSoon(uint32_t ms = 1500);
+bool rebootSoon(uint32_t ms = 1500);  // False if busy or task creation fails.
 
 }  // namespace MyWeb

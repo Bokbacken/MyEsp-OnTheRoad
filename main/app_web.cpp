@@ -134,6 +134,8 @@ static void diagDisplay(cJSON *o)
     cJSON_AddNumberToObject(o, "brightness", Config::get().brightness);
     cJSON_AddBoolToObject(o, "sleeping", Backlight::sleeping());
     cJSON_AddBoolToObject(o, "eco_sleeping", UiScreenPower::ecoSleeping());
+    cJSON_AddBoolToObject(o, "panel_sleep_supported", Display::panelSleepSupported());
+    cJSON_AddBoolToObject(o, "panel_sleeping", Display::panelSleeping());
     char ver[16];
     snprintf(ver, sizeof(ver), "%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     cJSON_AddStringToObject(o, "lvgl", ver);
@@ -309,6 +311,8 @@ void registerDiag()
         cJSON_AddBoolToObject(o, "eco_sleeping", UiScreenPower::ecoSleeping());
         cJSON_AddBoolToObject(o, "wifi_suspended", MyWifi::suspended());
         cJSON_AddBoolToObject(o, "audio_sleeping", Audio::sleeping());
+        cJSON_AddBoolToObject(o, "panel_sleep_supported", Display::panelSleepSupported());
+        cJSON_AddBoolToObject(o, "panel_sleeping", Display::panelSleeping());
         cJSON_AddNumberToObject(o, "written", s.written);
         cJSON_AddNumberToObject(o, "dropped", s.dropped);
         cJSON_AddStringToObject(o, "path", s.path);
@@ -1447,17 +1451,20 @@ static esp_err_t handleReset(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    if (MyOta::busy() || AppWebFiles::busy())
+        return MyWeb::sendError(r, 409, tr(Str::SET_REBOOT_BUSY));
     MyLog::event("cfg", "factory reset (web)");
     Config::resetToDefaults();
-    MyWeb::sendOk(r);
-    MyWeb::rebootSoon();
-    return ESP_OK;
+    if (!MyWeb::rebootSoon()) return MyWeb::sendError(r, 500, tr(Str::SET_REBOOT_FAILED));
+    return MyWeb::sendOk(r);
 }
 
 bool begin()
 {
     MyWeb::Config c;
     c.adminOk = Config::adminOk;
+    c.canReboot = [] { return !MyOta::busy() && !AppWebFiles::busy(); };
+    c.onReboot = [] { MyLog::setEventFile(nullptr); };
     c.maxUris = sizeof(WEB_ASSETS) / sizeof(WEB_ASSETS[0]) + 48;  // Static assets plus API/WebSocket routes
     c.maxSockets = 12;   // Room for 4 WebSocket clients next to normal page loads (LWIP: 16)
     if (!MyWeb::begin(c)) return false;
