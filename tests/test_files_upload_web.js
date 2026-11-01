@@ -54,7 +54,7 @@ async function formatStatusFlow(statuses, expectedToast) {
   assert.deepEqual(toasts, [expectedToast]);
 }
 
-async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = []) {
+async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = [], uploadSlots = 4) {
   const elements = new Map();
   const labels = [];
   const element = id => {
@@ -93,7 +93,7 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
     }
   }
   const sandbox = {
-    $, document: {}, XMLHttpRequest, URLSearchParams, root: uploadRoot, path: '/songs',
+    $, document: {}, XMLHttpRequest, URLSearchParams, root: uploadRoot, path: '/songs', uploadSlots,
     join: (dir, name) => dir + '/' + name, qs: obj => new URLSearchParams(obj).toString(),
     size: bytes => bytes + ' B', guarded: fn => fn().catch(err => toasts.push(err.message)),
     toast: msg => toasts.push(msg), load: async () => {},
@@ -159,6 +159,14 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   assert.deepEqual(folder.requests.map(x => new URLSearchParams(x.url.split('?')[1]).get('path')).sort(),
     ['/songs/Project/Disc One/song.mid', '/songs/Project/Disc One/Sub/song.mid', '/songs/Project/Disc Two/song.mid'].sort());
 
+  const lowMemory = await uploadWith('skip', [{ok: true}, {ok: true}, {ok: true}], 3, 'sd', [], 1);
+  assert.equal(lowMemory.maxActive, 1, 'device-suggested slots limit parallel SD uploads');
+
+  const busy = await uploadWith('skip', [{ok: true}, {status: 429, ok: false, error: 'busy'}, {ok: true}], 2, 'sd', [], 2);
+  assert.equal(busy.requests.length, 3, 'a 429 answer retries the same file');
+  assert.equal(busy.requests[1].file.name, busy.requests[2].file.name);
+  assert.deepEqual(busy.toasts, ['2 filer uppladdade']);
+
   const tooDeep = await uploadWith('skip', [{ok: true}], 1, 'sd', ['One/Two/Three/Four/song.mid']);
   assert.equal(tooDeep.requests.length, 0, 'directory uploads beyond three levels are rejected');
   assert.equal(tooDeep.mkdirs.length, 0);
@@ -168,7 +176,8 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
 })().catch(error => { console.error(error); process.exitCode = 1; });
 
 const server = fs.readFileSync('main/app_web_files.cpp', 'utf8');
-assert.match(server, /static constexpr int MAX_UPLOADS = 4;/);
+assert.match(server, /UploadAdmission::admit\(active, heap_caps_get_free_size\(MALLOC_CAP_INTERNAL\)\)/);
+assert.match(fs.readFileSync('main/upload_admission.h', 'utf8'), /constexpr int MAX_UPLOADS = 4;/);
 assert.match(server, /if \(ok && !skipped\) changed\(t\);/);
 assert.match(server, /if \(sdIoFailed\) BoardSd::requestRecovery\(\);/);
 // SD write failure: recover the card before draining the rest of the HTTP body.
