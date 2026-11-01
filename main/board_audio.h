@@ -46,7 +46,9 @@ void setVolumes(bool soundOn, uint8_t sfxVol, bool musicOn, uint8_t musicVol);
 void play(Sound::Sfx s);
 void music(Sound::Music m);          // Sound::Music::NONE stops; same as current = keeps playing
 void stopMusic();
-void invalidateFiles();              // Files under /sdcard/otr changed: reload WAVs on next use
+// Files under /sdcard/otr changed: AudioPaths::SOUNDS reloads clips on next use, MUSIC restarts the
+// background music from its (possibly new) file. Default: both.
+void invalidateFiles(uint8_t what = 3);
 
 // External music source (karaoke synth). While set it replaces the music channel (the game music
 // is paused, not forgotten). The callback runs in the mixer task and adds n mono samples (16-bit

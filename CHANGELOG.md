@@ -16,6 +16,15 @@ a published GitHub Release.
   demanding for this hardware. Prompted by an owner S3 test with a
   ~55 MB SF2 at 96 voices (stutter + task-watchdog warnings, no reboot).
   Documented as unsupported in the karaoke reference. Hardware check pending.
+- Memory-aware SD uploads: extra parallel uploads are admitted only while
+  internal RAM keeps a 40 KiB floor (HTTP 429 otherwise; the browser waits
+  and retries). The file list reports `upload_slots`; the internal DMA
+  write cache is used only when the floor survives. HTTP 429/503 now
+  have correct status lines (503 was sent as 500).
+- File manager mkdir no longer restarts background music; only changes
+  under `/otr/music` restart it and only `/otr/sounds` reloads clips.
+- OTA image/rollback state is read once at boot, so status polling no
+  longer maps otadata (owner S3 log: `mmap otadata failed 0x101`).
 
 ## v0.23.20 (unreleased)
 

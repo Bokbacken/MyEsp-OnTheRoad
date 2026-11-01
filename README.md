@@ -47,7 +47,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   the SD card. Volumes and on/off on the device and in the web settings.
 - **microSD + file browser** – FAT storage over 4-bit SDMMC (1-bit fallback).
   `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
-  folder and directory uploads. Up to four SD uploads run concurrently while
+  folder and directory uploads. Up to four SD uploads run concurrently (fewer when internal RAM is low, e.g. S3) while
   card operations remain serialized, with recovery deferred until transfer files close.
   Existing files are skipped by default; overwrite is explicit. SD formatting
   requires separate confirmations, including for an unmountable card.
@@ -519,6 +519,7 @@ g++ -std=c++17 -Wall -Wextra $INC tests/test_core.cpp -o tests/test_core && ./te
 g++ -std=c++17 -Wall -Wextra -Icomponents/my_rtc/include tests/test_rtc.cpp -o tests/test_rtc && ./tests/test_rtc   # DS3231 date format
 python3 tests/test_board_peripherals.py   # P4 internal RTC, S3/P4 ADC/SD recovery and per-board NVS calibration defaults
 python3 tests/test_kara_overload.py   # karaoke stops on sustained render overload
+python3 tests/test_upload_memory_audio.py   # memory-aware upload slots, audio-folder-only music restart
 python3 tests/test_upload_pipeline.py   # queued writes abort when another SD session requests recovery
 python3 tests/test_sd_log_diagnostics.py   # runtime levels, SD persistence and RAM-only export
 python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting

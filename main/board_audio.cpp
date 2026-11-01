@@ -2,6 +2,7 @@
 // ES8311 register sequence follows Espressif's es8311 driver (esp-bsp, Apache-2.0): slave mode,
 // MCLK from the MCLK pin at 256 fs, 16-bit I2S, DAC + output driver powered, EQ bypassed.
 #include "board_audio.h"
+#include "audio_paths.h"
 
 #include <stdio.h>
 #include <atomic>
@@ -346,7 +347,8 @@ void handle(const Msg &m)
     case CMD_SFX: startSfx((Sound::Sfx)m.arg); break;
     case CMD_MUSIC: startMusic((Sound::Music)m.arg); break;
     case CMD_INVALIDATE: {
-        freeClips();
+        if (m.arg & AudioPaths::SOUNDS) freeClips();
+        if (!(m.arg & AudioPaths::MUSIC)) break;
         Sound::Music cur = s_music;
         s_music = Sound::Music::NONE;
         s_song.stop();
@@ -601,7 +603,10 @@ void play(Sound::Sfx s)
 
 void music(Sound::Music m) { post(CMD_MUSIC, (uint8_t)m); }
 void stopMusic() { music(Sound::Music::NONE); }
-void invalidateFiles() { post(CMD_INVALIDATE, 0); }
+void invalidateFiles(uint8_t what)
+{
+    if (what) post(CMD_INVALIDATE, what);
+}
 
 void releaseClips()
 {

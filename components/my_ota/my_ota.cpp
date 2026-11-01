@@ -167,24 +167,39 @@ uint32_t slotSize()
     return p ? p->size : 0;
 }
 
-bool pendingVerify()
+// The running image state and the last invalid slot only change at boot or through markValid().
+// Reading them maps otadata from flash, which can fail under low internal RAM (seen as
+// "mmap otadata failed 0x101" during parallel uploads on S3), so they are read once at boot by
+// cacheBootState() and status polling uses the cached values.
+static int8_t s_pending = -1, s_rolledBack = -1;   // -1 = not read yet
+
+void cacheBootState()
 {
     esp_ota_img_states_t st;
     const esp_partition_t *p = esp_ota_get_running_partition();
-    return p && esp_ota_get_state_partition(p, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
+    s_pending = p && esp_ota_get_state_partition(p, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
+    s_rolledBack = esp_ota_get_last_invalid_partition() != nullptr;
+}
+
+bool pendingVerify()
+{
+    if (s_pending < 0) cacheBootState();
+    return s_pending > 0;
 }
 
 void markValid()
 {
     if (!pendingVerify()) return;
-    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK)
+    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+        s_pending = 0;
         MyLog::event(TAG, "new firmware marked valid (%s)", runningPartition());
+    }
 }
 
 bool rolledBack()
 {
-    const esp_partition_t *p = esp_ota_get_last_invalid_partition();
-    return p != nullptr;
+    if (s_rolledBack < 0) cacheBootState();
+    return s_rolledBack > 0;
 }
 
 }  // namespace MyOta

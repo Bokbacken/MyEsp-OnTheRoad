@@ -269,6 +269,7 @@ function row(e, i) {
   return tr;
 }
 
+let uploadSlots = 1;   // Parallel SD uploads the device suggests for its free internal RAM
 async function load(keepSel = false) {
   crumbs();
   if (!keepSel) { picked.clear(); lastIdx = -1; }
@@ -286,6 +287,7 @@ async function load(keepSel = false) {
     $('format-btn').disabled = root !== 'sd';
     $('usage').textContent = j.mounted ? size(j.free) + ' ledigt av ' + size(j.total) : (root === 'sd' ? 'inget kort' : 'ej monterad');
     entries = j.entries || [];
+    if (root === 'sd' && j.upload_slots) uploadSlots = j.upload_slots;
     page = j.page || 1; pages = j.pages || 1;
     const list = $('list');
     list.innerHTML = '';
@@ -465,7 +467,11 @@ function uploadOne(f, onProgress, uploadRoot, uploadPath, pin, policy, relativeP
       let j = {};
       try { j = JSON.parse(x.responseText); } catch (e) {}
       if (x.status >= 200 && x.status < 300 && j.ok !== false) resolve(!!j.skipped);
-      else reject(new Error(f.name + ': ' + (j.error || ('HTTP ' + x.status))));
+      else {
+        const err = new Error(f.name + ': ' + (j.error || ('HTTP ' + x.status)));
+        err.busy = x.status === 429;
+        reject(err);
+      }
     };
     x.onerror = () => reject(new Error(f.name + ': överföringen avbröts'));
     x.send(f);
@@ -506,10 +512,23 @@ function upload(files) {
           const item = items[i];
           active++;
           updateProgress();
-          if (await uploadOne(item.file, bytes => {
-            loaded[i] = bytes;
-            updateProgress();
-          }, uploadRoot, uploadPath, pin, policy, item.relativePath)) skipped++;
+          let wasSkipped;
+          for (let attempt = 0; ; attempt++) {
+            try {
+              wasSkipped = await uploadOne(item.file, bytes => {
+                loaded[i] = bytes;
+                updateProgress();
+              }, uploadRoot, uploadPath, pin, policy, item.relativePath);
+              break;
+            } catch (err) {
+              // Device is short of memory for another parallel upload: wait and retry this file
+              if (!err.busy || attempt >= 120) throw err;
+              loaded[i] = 0;
+              updateProgress();
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
+          if (wasSkipped) skipped++;
           loaded[i] = item.file.size;
           done++;
         } catch (err) {
@@ -523,7 +542,7 @@ function upload(files) {
     try {
       for (const folder of [...folders].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b)))
         await sendJson('POST', '/api/files/mkdir', {path: join(uploadPath, folder)});
-      const concurrency = uploadRoot === 'sd' ? 4 : 1;
+      const concurrency = uploadRoot === 'sd' ? Math.max(1, Math.min(4, uploadSlots)) : 1;
       await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker));
       if (failure) {
         if (done) failure.message += ' (' + done + ' andra filer hann bli klara)';
