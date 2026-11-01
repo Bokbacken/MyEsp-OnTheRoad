@@ -358,8 +358,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   Boot #33/#34 behåller last-alive och verifierar core-dump-checksumman.
   FFat-räknaren ligger kvar på 256 av 257. SPI-felvägen är nu upprepad,
   men bus-lock-race kontra minneskorruption är fortfarande oavgjort.
-  Hälsokontrollen avvisar alla icke-ASCII-namn, även giltiga Unicode-namn;
-  dess räknare ensam är inte bevis för fysisk flashskada.
+  **Formatera inte FFat innan råpartitionen och läsbara filer har säkrats.**
+  Den manuella reparationsvägen säkerhetskopierar bara `players.bin` och
+  `events.log`, inte alla filer/sparningar, och en formatering raderar övrigt
+  innehåll. Filsystemet monteras redan vid boot; formatering behövs inte för
+  att enheten ska starta. Efter rådump/backup kan ren formatering användas
+  som kontrollerat jämförelsetest med känt fungerande SD-kort. Samsung
+  32PRO-kortets bekräftade skrivfel är ett separat fel och får inte blandas
+  ihop med den interna FFat-utredningen.
+  Hälsokontrollen räknar alla namn med byte utanför ASCII som ogiltiga, även
+  giltiga Unicode-namn; dess 256/257-räknare ensam är därför inte bevis för
+  fysisk flashskada. Rå katalog-/sektordata behövs för att fastställa skada.
   Trolig mekanism (kodgranskning, ej bevisad med rådump): IDF:s FAT-diskio
   (`ff_wl_write`) raderar en 4096-byte-sektor och skriver den sedan i två
   separata anrop. En reset däremellan (panic, strömavbrott, USB-urkoppling)
