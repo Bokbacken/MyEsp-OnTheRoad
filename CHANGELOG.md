@@ -8,6 +8,18 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.16 (unreleased)
+
+- Optional five-minute SD CSV history records battery voltage, boot/time,
+  per-game session time, display/Wi-Fi/audio usage, storage IO and health
+  counters. Bounded rotation and visible dropped rows; no internal-flash fallback.
+- Optional idle screen-off stops Wi-Fi and pauses I2S/mixer/amplifier,
+  preserves settings and resumes on touch. Protected during games,
+  karaoke, transfers and OTA. CPU remains awake; this is not light/deep sleep.
+- Both settings are persisted and exposed on-device, in web settings and
+  diagnostics; disabled by default. Hardware discharge/power-saving
+  measurements remain pending.
+
 ## v0.23.15 (unreleased)
 
 - File uploads show stable batch progress (completed/active files and total

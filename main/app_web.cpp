@@ -38,6 +38,8 @@
 #include "my_log.h"
 #include "my_ota.h"
 #include "my_rtc.h"
+#include "power_history.h"
+#include "ui_screen_power.h"
 #include "my_storage.h"
 #include "my_time.h"
 #include "my_web.h"
@@ -130,6 +132,7 @@ static void diagDisplay(cJSON *o)
     cJSON_AddBoolToObject(o, "buf_psram", ds.bufInPsram);
     cJSON_AddNumberToObject(o, "brightness", Config::get().brightness);
     cJSON_AddBoolToObject(o, "sleeping", Backlight::sleeping());
+    cJSON_AddBoolToObject(o, "eco_sleeping", UiScreenPower::ecoSleeping());
     char ver[16];
     snprintf(ver, sizeof(ver), "%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     cJSON_AddStringToObject(o, "lvgl", ver);
@@ -298,6 +301,17 @@ void registerDiag()
     MyDiag::add("audio", diagAudio);
     MyDiag::add("battery", diagBattery);
     MyDiag::add("boot", diagBoot);
+    MyDiag::add("power", [](cJSON *o) {
+        const auto s = PowerHistory::status();
+        cJSON_AddBoolToObject(o, "enabled", Config::get().powerLog);
+        cJSON_AddBoolToObject(o, "running", s.running);
+        cJSON_AddBoolToObject(o, "eco_sleeping", UiScreenPower::ecoSleeping());
+        cJSON_AddBoolToObject(o, "wifi_suspended", MyWifi::suspended());
+        cJSON_AddBoolToObject(o, "audio_sleeping", Audio::sleeping());
+        cJSON_AddNumberToObject(o, "written", s.written);
+        cJSON_AddNumberToObject(o, "dropped", s.dropped);
+        cJSON_AddStringToObject(o, "path", s.path);
+    });
 }
 
 static esp_err_t handleInfo(httpd_req_t *r)
@@ -364,6 +378,8 @@ static cJSON *configJson()
     cJSON_AddStringToObject(o, "tz", c.tz);
     cJSON_AddNumberToObject(o, "brightness", c.brightness);
     cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
+    cJSON_AddBoolToObject(o, "eco_sleep", c.ecoSleep);
+    cJSON_AddBoolToObject(o, "power_log", c.powerLog);
     cJSON_AddNumberToObject(o, "text_size", c.textSize);
     cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
@@ -413,6 +429,8 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.screenOffSeconds = static_cast<uint16_t>(v);
     }
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
+    if (q.getBool("eco_sleep", b)) next.ecoSleep = b;
+    if (q.getBool("power_log", b)) next.powerLog = b;
     if (HwProfile::active().hasRgbLed && q.getInt("led_brightness", 0, 255, v, bad))
         next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;

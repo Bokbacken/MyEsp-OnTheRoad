@@ -159,6 +159,9 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
   The DS3231
   keeps UTC and is rewritten after every NTP sync / manual set when it drifts ≥ 1 s. Log lines carry
   uptime and are shown in real time as soon as the clock is certain (also lines from before that point).
+- **Battery history and idle mode** – optional five-minute CSV history on SD,
+  plus idle screen-off with Wi-Fi and audio paused and touch wake.
+  Both are off by default; see [measurement fields and limits](docs/POWER_HISTORY.md).
 - **Live view** – `/game` shows the running game read-only (dice, kept dice, full score sheet, winner,
   "skakar bägaren..." while the cup is shaken),
   polling `/api/game` every 700 ms; handy on a phone or TV next to the device.

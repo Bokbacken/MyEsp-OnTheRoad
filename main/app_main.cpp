@@ -40,6 +40,7 @@
 #include "ui_boot.h"
 #include "ui_ota.h"
 #include "ui_screen_power.h"
+#include "power_history.h"
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
@@ -334,6 +335,7 @@ extern "C" void app_main(void)
         UiScreenPower::begin();
     }
 
+    PowerHistory::begin();
     uint32_t lastRtcCheck = MySys::millis();
     uint32_t lastBatteryAlertCheck = lastRtcCheck;
     uint32_t lastBatteryLog = lastRtcCheck;

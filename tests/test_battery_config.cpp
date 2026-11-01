@@ -31,6 +31,7 @@ int main()
     for (uint8_t voices : KARA_VOICE_OPTIONS) CHECK(Config::validKaraVoices(voices));
     CHECK(!Config::validKaraVoices(16) && !Config::validKaraVoices(193));
     CHECK(defaults.screenOffSeconds == 0);
+    CHECK(!defaults.ecoSleep && !defaults.powerLog);
 
     TestNvs::numbers.clear();
     Config::begin();
@@ -66,6 +67,12 @@ int main()
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 63);
     CHECK(Config::get().screenOffSeconds == 0);
+    CHECK(!Config::get().ecoSleep && !Config::get().powerLog);
+    Config::get().ecoSleep = true;
+    Config::get().powerLog = true;
+    CHECK(Config::save());
+    Config::begin();
+    CHECK(Config::get().ecoSleep && Config::get().powerLog);
     for (uint16_t seconds : SCREEN_OFF_SECONDS) {
         CHECK(Config::validScreenOffSeconds(seconds));
         Config::get().screenOffSeconds = seconds;

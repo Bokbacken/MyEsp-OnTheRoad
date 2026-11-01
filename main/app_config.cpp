@@ -73,6 +73,8 @@ void begin()
             p.getStr("host", g_cfg.hostname, sizeof(g_cfg.hostname));
             g_cfg.brightness = MySys::clamp<uint8_t>(p.getU8("bl", g_cfg.brightness), 5, 100);
             g_cfg.screenOffSeconds = p.getU16("screen_off", 0);
+            g_cfg.ecoSleep = p.getBool("eco_sleep", false);
+            g_cfg.powerLog = p.getBool("power_log", false);
             g_cfg.textSize = p.getU8("text_size", TEXT_SIZE_DEFAULT);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
@@ -139,6 +141,8 @@ bool save()
     ok &= p.setStr("host", g_cfg.hostname);
     ok &= p.setU8("bl", g_cfg.brightness);
     ok &= p.setU16("screen_off", g_cfg.screenOffSeconds);
+    ok &= p.setBool("eco_sleep", g_cfg.ecoSleep);
+    ok &= p.setBool("power_log", g_cfg.powerLog);
     ok &= p.setU8("text_size", g_cfg.textSize);
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);

@@ -354,6 +354,14 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   händelser, filrotation och synliga tappade poster. Batterispänning är
   inte uppmätt ström; faktisk energimätning kräver extra mätutrustning.
   Intern flash som destination väntar tills S3:s FFat-problem är utrett.
+  v0.23.16 implementerar valbar SD-CSV med rotation och tappade poster,
+  sessions-/skärm-/Wi-Fi-/ljudtid samt SD/FFat-byteantal. Verifiera flera
+  intervall och CSV-nedladdning på båda korten innan punkten stängs.
+  Se [mätfält och begränsningar](POWER_HISTORY.md).
+- [ ] Hårdvarutesta v0.23.16:s valbara viloläge på S3/P4: Wi-Fi och
+  I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
+  inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
+  CPU/touch är fortsatt vakna, inte light sleep.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 

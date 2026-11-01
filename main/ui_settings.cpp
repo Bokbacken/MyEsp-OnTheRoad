@@ -269,6 +269,8 @@ static void leave(bool save)
         const AppConfig previous = Config::get();
         Config::get().brightness = s_edit.brightness;
         Config::get().screenOffSeconds = s_edit.screenOffSeconds;
+        Config::get().ecoSleep = s_edit.ecoSleep;
+        Config::get().powerLog = s_edit.powerLog;
         Config::get().textSize = s_edit.textSize;
         Config::get().ledBrightness = s_edit.ledBrightness;
         Config::get().ledEnabled = s_edit.ledEnabled;
@@ -409,6 +411,12 @@ void show()
     lv_obj_add_event_cb(timeout, [](lv_event_t *e) {
         s_edit.screenOffSeconds = SCREEN_OFF_SECONDS[lv_dropdown_get_selected(lv_event_get_target_obj(e))];
     }, LV_EVENT_VALUE_CHANGED, nullptr);
+    switchRow(disp, tr(Str::SCREEN_ECO), s_edit.ecoSleep, [](lv_event_t *e) {
+        s_edit.ecoSleep = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    });
+    switchRow(disp, tr(Str::POWER_HISTORY), s_edit.powerLog, [](lv_event_t *e) {
+        s_edit.powerLog = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    });
     lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
     lv_obj_set_width(screenHelp, LV_PCT(100));
     lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);

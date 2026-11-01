@@ -126,7 +126,11 @@
       <option value="1800">30 minuter</option>
       <option value="3600">60 minuter</option>
     </select>
-    <p class="muted">Ljud och spel fortsätter. Touch väcker utan att aktivera en kontroll; släpp fingret och vänta minst 250 ms före nästa tryck. OTA håller skärmen tänd.</p>
+    <label class="check"><input type="checkbox" id="eco_sleep"> Viloläge: Wi-Fi och ljud av när skärmen släcks</label>
+    <label class="check"><input type="checkbox" id="power_log"> Femminutershistorik på SD</label>
+    <p class="muted">Normalt fortsätter ljud och spel. Viloläge kräver att inga spel, karaoke eller överföringar pågår.
+      Webben blir otillgänglig tills touch väcker; släpp fingret och vänta minst 250 ms före nästa tryck.
+      CPU och touch är fortsatt vakna. CSV-historik finns under /otr/power på SD.</p>
     <label for="rotation">Skärmrotation</label>
     <select id="rotation" name="rotation">
       <option value="0">0° (USB nedåt)</option>
@@ -275,6 +279,8 @@ function fill(c) {
   $('pin-old').disabled = !c.admin_pin_set;
   $('brightness').value = c.brightness; updB();
   $('screen_off_seconds').value = c.screen_off_seconds ?? 0;
+  $('eco_sleep').checked = !!c.eco_sleep;
+  $('power_log').checked = !!c.power_log;
   for (const o of $('text_size').options) o.hidden = o.disabled = Number(o.value) > (c.text_size_max ?? 2);
   $('text_size').value = c.text_size ?? 1;
   if (c.rotation !== undefined) $('rotation').value = c.rotation;
@@ -503,6 +509,8 @@ $('cfg-form').addEventListener('submit', async e => {
   const data = {
     brightness: $('brightness').value,
     screen_off_seconds: $('screen_off_seconds').value,
+    eco_sleep: $('eco_sleep').checked ? '1' : '0',
+    power_log: $('power_log').checked ? '1' : '0',
     text_size: $('text_size').value,
     rotation: $('rotation').value,
     led_brightness: $('led_brightness').value,

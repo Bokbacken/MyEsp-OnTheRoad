@@ -91,6 +91,10 @@ jobs:
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py
           python3 tests/test_screen_power.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_power_interval.cpp -o /tmp/test_power_interval
+          /tmp/test_power_interval
+          python3 tests/test_power_history.py
+          python3 tests/test_power_io.py
           python3 tests/test_text_size_layout.py
           python3 tests/test_host_ota.py
           node tests/test_board_diagnostics_web.js

@@ -121,6 +121,11 @@ struct sdmmc_command_t {
     int timeout_ms;
 };
 constexpr int MMC_STOP_TRANSMISSION=12, MMC_SEND_STATUS=13, MMC_WRITE_BLOCK_MULTIPLE=25, SD_APP_SEND_NUM_WR_BLOCKS=22;
+constexpr int MMC_READ_BLOCK_SINGLE=17, MMC_READ_BLOCK_MULTIPLE=18, MMC_WRITE_BLOCK_SINGLE=24;
+namespace PowerIo {
+inline void sdRead(size_t) {}
+inline void sdWrite(size_t) {}
+}
 constexpr uint32_t MMC_R1_READY_FOR_DATA=1u<<8, MMC_R1_CURRENT_STATE_TRAN=4;
 #define MMC_R1_CURRENT_STATE_STATUS(s) (((s) & 0x1E00) >> 9)
 constexpr int SCF_CMD_AC=1, SCF_RSP_R1B=2, SCF_WAIT_BUSY=4;

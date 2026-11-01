@@ -49,6 +49,9 @@
 <h2>Batteri</h2>
 <div class="card table-wrap"><table id="battery"></table></div>
 
+<h2>Förbrukningshistorik</h2>
+<div class="card table-wrap"><table id="power"></table></div>
+
 <h2>Loggar</h2>
 <div class="card">
   <div class="row" style="margin-top:0;flex-wrap:wrap;gap:.4rem">
@@ -127,6 +130,14 @@ function test(id, ok, sub, warn) {
 async function refresh() {
   try {
     const i = await (await fetch('/api/info', {cache: 'no-store'})).json();
+    rows('power', [
+      ['SD-historik', i.power?.enabled ? (i.power.running ? 'Aktiv · var femte minut' : 'Kunde inte starta') : 'Av'],
+      ['Poster / tappade', (i.power?.written ?? 0) + ' / ' + (i.power?.dropped ?? 0)],
+      ['Fil', esc(i.power?.path || '–')],
+      ['Viloläge', i.power?.eco_sleeping ? 'Aktivt' : 'Av'],
+      ['Wi-Fi / ljud stoppat', (i.power?.wifi_suspended ? 'Ja' : 'Nej') + ' / ' +
+        (i.power?.audio_sleeping ? 'Ja' : 'Nej')]
+    ]);
     const d = i.display, t = i.touch, w = i.wifi;
     const touchAddress = Number.isInteger(t.address) ? '0x' + t.address.toString(16).toUpperCase().padStart(2, '0') : '–';
     $('display-title').textContent = 'Display (' + d.model + ')';
