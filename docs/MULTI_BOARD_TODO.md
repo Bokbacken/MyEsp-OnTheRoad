@@ -460,6 +460,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   panelmatning är fortsatt på. Besparingen ska mätas; S3 ligger kvar
   på v0.23.18 under observation och får ingen ny panelviloväg.
   CPU/touch är fortsatt vakna, inte light sleep.
+  Ägartest v0.23.19: vanlig släckning (utan eko) släckte bara ljuset.
+  v0.23.20 låter P4-panelen sova vid all skärmsläckning; verifiera
+  loggraden "panel asleep" och Panelvila = ja i Diagnostik.
 - [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
   sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
   statusrad/meny samt DHCP/mDNS. v0.23.17 inkluderar historik/viloläge

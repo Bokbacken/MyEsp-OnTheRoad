@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.20 (unreleased)
+
+- P4 panel sleep now runs on every screen-off (timeout or manual), not
+  only in eco idle. Owner log from v0.23.19 showed plain screen-off
+  only turned the backlight off. A failed plain panel sleep is logged
+  and keeps the backlight off; touch wake is unchanged. Hardware check
+  pending. S3 is unchanged.
+
 ## v0.23.19 (unreleased)
 
 - P4 eco idle also sends ST7701 display-off/sleep-in, suppresses LVGL

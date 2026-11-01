@@ -110,8 +110,9 @@ int main() {
     assert(!Backlight::sleeping());
     tick(90000);
     assert(Backlight::sleeping() && duty==0 && Backlight::get()==80);
+    assert(Display::asleep==Display::supported); // Panel sleeps on every screen-off, not only eco.
     assert(!sample(90010,true)); // Wake is invisible to LVGL.
-    assert(!Backlight::sleeping() && duty==normalDuty);
+    assert(!Backlight::sleeping() && duty==normalDuty && !Display::asleep);
     assert(!sample(90259,false)); // 249 ms is insufficient even after release.
     assert(!sample(90260,true)); // New contact in guard stays blocked.
     assert(!sample(90500,true)); // Holding past 250 ms cannot become a press.
@@ -202,7 +203,7 @@ int main() {
     tick(1090040);
     assert(!UiScreenPower::ecoSleeping() && !Backlight::sleeping());
     if (Display::supported) {
-        assert(Display::sleepCalls==2 && !Display::asleep);
+        assert(Display::sleepCalls>2 && !Display::asleep);
         Config::get().ecoSleep=true;
         UiScreenPower::sleepNow();
         assert(Display::asleep && Backlight::sleeping());
@@ -218,6 +219,11 @@ int main() {
         Display::failSleep=true;
         UiScreenPower::sleepNow();
         assert(!Display::asleep && !Backlight::sleeping() && !UiScreenPower::ecoSleeping());
+        Config::get().ecoSleep=false;
+        UiScreenPower::sleepNow(); // Plain screen-off keeps the light off if panel sleep fails.
+        assert(Backlight::sleeping() && !UiScreenPower::ecoSleeping());
+        Display::failSleep=false;
+        assert(!sample(1091100,true) && !Backlight::sleeping() && !Display::asleep);
     } else {
         assert(Display::sleepCalls==0 && Display::wakeCalls==0);
     }

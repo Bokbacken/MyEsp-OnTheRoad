@@ -141,6 +141,8 @@ void sleepNow()
     }
     MyWifi::setScreenPowerSave(true);
     Backlight::setSleeping(true);
+    if (Display::panelSleepSupported() && !Display::panelSleeping() && !Display::setPanelSleeping(true))
+        ESP_LOGW("screen", "panel sleep failed; backlight stays off");
     ESP_LOGI("screen", "backlight off; touch wake enabled");
 }
 bool ecoSleeping() { return s_eco.load(); }

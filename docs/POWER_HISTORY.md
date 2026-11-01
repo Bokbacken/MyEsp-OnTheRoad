@@ -77,6 +77,9 @@ tänds; skärmen invalidieras för ny uppritning. Första väcktrycket förbruka
 som tidigare. Fel loggas; vid misslyckad väckning hålls ljuset släckt och
 väckningen försöks igen högst en gång per sekund. Vid misslyckad insomning
 avbryts ekoläget och panelen försöks återställas.
+Från v0.23.20 sover P4-panelen vid all skärmsläckning (tidsgräns eller
+manuell), även utan viloläge. Misslyckad panelvila vid vanlig släckning
+loggas och ljuset förblir släckt.
 S3 behåller tidigare beteende med enbart bakgrundsbelysning av.
 Diagnostik visar om panelvila stöds och panelens aktuella vilostatus.
 
