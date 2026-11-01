@@ -295,6 +295,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   RTC-tid. Fysisk RESET-knapp ger "väntar på NTP/manuell tid" och `?`,
   vilket stämmer med att koden bara godtar mjukvaruomstart/deep sleep.
   Om RTC-räknaren och ankaret överlever RESET-knappen är inte uppmätt.
+- [ ] Hårdvarutesta v0.23.14 på båda korten: loggraden "previous run last
+  alive" efter omstart via webben och efter RESET, P4-tid efter panic/watchdog
+  (kräver en kontrollerad testkrasch) och att tiden blir osäker efter
+  strömavbrott.
 - [ ] Utred S3:s spontana panic-omstarter på v0.23.13. Ägarens export
   visar sju panic-boots, lagrat core dump och korrupt intern FFat
   (256 av 257 rotposter med ogiltiga namn vid senaste boot).

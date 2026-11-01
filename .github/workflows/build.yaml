@@ -104,6 +104,8 @@ jobs:
           /tmp/test_karastream
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fspath.cpp main/fs_path.cpp -o /tmp/test_fspath
           /tmp/test_fspath
+          g++ -std=c++17 -Wall -Wextra -Werror -Icomponents/my_time/include tests/test_time_crumb.cpp -o /tmp/test_time_crumb
+          /tmp/test_time_crumb
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload
           /tmp/test_fs_upload
           node tests/test_files_upload_web.js

@@ -135,8 +135,9 @@ See [Espressif's VBAT example](https://github.com/espressif/esp-idf/tree/v6.1/ex
 The internal RTC is a counter, not a DS3231-style calendar register bank.
 `MyRtc` reads `esp_rtc_get_time_us()` and combines it with a trusted UTC
 anchor in `RTC_NOINIT_ATTR` memory. NTP or manual time establishes that
-anchor. Current firmware accepts it only after software reset or deep-sleep
-wakeup; other reset reasons invalidate it. Consequently, the current
+anchor. Current firmware accepts it after software reset, deep-sleep wakeup,
+panic, and interrupt- or task-watchdog resets. Other reset reasons
+invalidate it. Consequently, the current
 implementation does not verify calendar retention after main-power loss.
 The system can instead restore an older timestamp from NVS and show `?`:
 a correct date with an incorrect hour does not prove RTC retention.
@@ -155,6 +156,13 @@ IDF v6.1 provides `esp_vbat_get_battery_state()`. It returns normal,
 charging (rechargeable mode only) or low battery against configured
 thresholds. It does not return a battery voltage. We have not found a
 documented ADC path for measuring the RTC cell on this board.
+
+MyTime also stores a checksummed "last alive" UTC second in `RTC_NOINIT`
+memory on both boards and saves the NVS fallback each minute. After a
+reset that keeps RTC memory but not a trusted clock, the newer of the two is
+restored as uncertain time (`?`). Neither survives as RTC memory after
+main-power loss. Either value can provide a lower bound for future
+certificate-time checks, but it is not a trusted current time.
 
 At boot, firmware logs the reset reason before applying the reset policy.
 It also logs whether `RTC_NOINIT` still contains a matching anchor

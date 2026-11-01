@@ -65,7 +65,11 @@ bool begin(i2c_master_bus_handle_t, time_t *outTime)
              s_anchor.check == checksum(s_anchor),
              static_cast<unsigned long long>(s_anchor.ticksUs),
              static_cast<unsigned long long>(nowTicks));
-    if (reset != ESP_RST_SW && reset != ESP_RST_DEEPSLEEP) s_anchor.magic = 0;
+    // System resets keep the RTC counter and RTC memory. ESP_RST_WDT may be an RTC watchdog
+    // reset of the RTC domain, so it stays rejected along with power-on, brownout and pin resets.
+    const bool trusted = reset == ESP_RST_SW || reset == ESP_RST_DEEPSLEEP || reset == ESP_RST_PANIC ||
+                         reset == ESP_RST_INT_WDT || reset == ESP_RST_TASK_WDT;
+    if (!trusted) s_anchor.magic = 0;
     time_t utc = 0;
     s_st.timeValid = s_st.ticking && readAnchor(utc);
     s_st.osf = !s_st.timeValid;

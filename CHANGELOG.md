@@ -12,7 +12,13 @@ a published GitHub Release.
 
 - P4: log the reset reason, the `RTC_NOINIT` anchor's validity, and both the
   stored and current RTC counters before applying the reset policy.
-  Diagnostics only; accepted reset reasons are unchanged.
+- P4: also trust the RTC anchor after panic, interrupt-watchdog and
+  task-watchdog resets. Power-on, brownout, external/pin and other watchdog
+  resets (ESP_RST_WDT) still fall back to NTP, manual time or uncertain time.
+- Both boards: write a checksummed "last alive" time to `RTC_NOINIT` memory
+  each second and log the previous run's value at boot. Without a trusted
+  clock, use the newer of that value and NVS as uncertain time.
+- Save the NVS fallback time every minute instead of every 10 minutes.
 - The owner reports that P4 web restarts keep RTC time valid. Physical RESET
   and power removal fall back to uncertain NVS time (`?`). Physical RESET
   diagnostics still need hardware testing.
