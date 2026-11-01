@@ -291,6 +291,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Välj RTC-/viloväg för P4: separat RTC-GPIO-knapp + kontrollerad
   VBAT-deep-sleep, light sleep med huvudmatning kvar, eller separat kalender-RTC.
   Se [hårdvarureferensens RTC-avsnitt](Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md#rtc-retention-known-limits-and-possible-next-steps).
+  Ägartest 2026-11-01 utan Wi-Fi/NTP: omstart via webben behåller betrodd
+  RTC-tid. Fysisk RESET-knapp ger "väntar på NTP/manuell tid" och `?`,
+  vilket stämmer med att koden bara godtar mjukvaruomstart/deep sleep.
+  Om RTC-räknaren och ankaret överlever RESET-knappen är inte uppmätt.
 - [ ] Utred S3:s spontana panic-omstarter på v0.23.13. Ägarens export
   visar sju panic-boots, lagrat core dump och korrupt intern FFat
   (256 av 257 rotposter med ogiltiga namn vid senaste boot).
