@@ -22,6 +22,8 @@ a published GitHub Release.
   Effects and karaoke are unaffected.
 - OTA image/rollback state is read once at boot, so status polling no
   longer maps otadata (owner S3 log: `mmap otadata failed 0x101`).
+- Owner S3 hardware test (v0.23.22): uploads ran one file at a time and a
+  batch of more than 500 files completed without problems.
 
 ## v0.23.21 (unreleased)
 
