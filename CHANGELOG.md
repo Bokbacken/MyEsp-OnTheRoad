@@ -8,6 +8,22 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.17 (unreleased)
+
+- Readable city/UTC timezone dropdowns on-device and in web settings,
+  sharing one catalogue with automatic daylight saving. Existing custom
+  timezone values remain selectable without exposing syntax to users.
+- A compact, sticky common header/navigation on every web page refreshes
+  device name and connection status. Settings saves update the name
+  immediately; other open visible pages refresh within ten seconds.
+- Boot/main-menu display branding uses the configured device name; the
+  main menu refreshes it while open. Existing DHCP/mDNS hostname updates
+  remain connected to the same setting.
+- Web assets are regenerated during CMake configuration so source changes
+  (including upload progress, history and idle controls) reach firmware.
+- Fix chained volatile assignments rejected by the ESP-IDF compiler in
+  the v0.23.16 idle Wi-Fi path; that build did not complete.
+
 ## v0.23.16 (unreleased)
 
 - Optional five-minute SD CSV history records battery voltage, boot/time,

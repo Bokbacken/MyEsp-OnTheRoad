@@ -98,6 +98,9 @@ jobs:
           python3 tests/test_text_size_layout.py
           python3 tests/test_host_ota.py
           node tests/test_board_diagnostics_web.js
+          node tests/test_web_shell.js
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_time_zones.cpp -o /tmp/test_time_zones
+          /tmp/test_time_zones
           node tests/test_adventure_editor_web.js
           ADV_SAMPLE_DIR=/tmp/newadv node tests/test_adventure_model.js
           trap 'rm -f tests/.test_kara_lyrics' EXIT

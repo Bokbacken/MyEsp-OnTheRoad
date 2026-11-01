@@ -106,7 +106,10 @@ void show()
         }
     }
 
-    lv_obj_t *title = Theme::label(s_screen, "OnTheRoad", &my_font_36);
+    lv_obj_t *title = Theme::label(s_screen, Config::hostname(), &my_font_36);
+    lv_obj_set_width(title, LV_PCT(95));
+    lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, l.titleY);
     lv_obj_t *ver = Theme::label(s_screen, FW_NAME " v" FW_VERSION, &my_font_14, Theme::MUTED);
     lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, l.versionY);

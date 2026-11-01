@@ -15,6 +15,8 @@ extern const Entry LANG_SV[] = {
     {Str::SCREEN_SLEEP_NOW, "Släck skärmen nu"},
     {Str::SCREEN_ECO, "Viloläge: Wi-Fi och ljud av"},
     {Str::POWER_HISTORY, "Femminutershistorik på SD"},
+    {Str::SET_TIME_ZONE, "Tidszon (sommartid automatiskt)"},
+    {Str::SET_TIME_ZONE_SAVED, "Tidigare sparad tidszon"},
     {Str::SCREEN_SLEEP_HELP, "Normalt fortsätter ljud och spel. Viloläge stoppar Wi-Fi och ljud endast utan spel, karaoke eller överföring. Touch väcker; släpp och vänta 250 ms. Historik kräver SD och sparas var femte minut."},
     {Str::SET_SAVE_FAILED, "Inställningarna kunde inte sparas. Försök igen."},
 

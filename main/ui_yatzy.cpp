@@ -171,8 +171,17 @@ void showMenu()
     hookClickSound();
     Audio::music(Sound::Music::DICE);   // Dice music loops in the menus and the dice games
     lv_obj_t *scr = Theme::screen();
-    lv_obj_t *header = Theme::header(scr, "OnTheRoad");
+    lv_obj_t *header = Theme::header(scr, Config::hostname());
     lv_obj_set_width(lv_obj_get_child(header, 0), LV_PCT(40));
+    lv_label_set_long_mode(lv_obj_get_child(header, 0), LV_LABEL_LONG_MODE_DOTS);
+    lv_timer_t *nameTimer = lv_timer_create([](lv_timer_t *timer) {
+        lv_obj_t *label = static_cast<lv_obj_t *>(lv_timer_get_user_data(timer));
+        if (strcmp(lv_label_get_text(label), Config::hostname()) != 0)
+            lv_label_set_text(label, Config::hostname());
+    }, 1000, lv_obj_get_child(header, 0));
+    lv_obj_add_event_cb(header, [](lv_event_t *e) {
+        lv_timer_delete(static_cast<lv_timer_t *>(lv_event_get_user_data(e)));
+    }, LV_EVENT_DELETE, nameTimer);
 
     lv_obj_t *gear = Theme::button(scr, LV_SYMBOL_SETTINGS, 52, 36, Theme::LINE);
     lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -6 - Theme::BATTERY_STATUS_WIDTH - 4, 4);

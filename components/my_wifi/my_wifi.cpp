@@ -507,7 +507,10 @@ void loop()
         }
     }
     if (s_suspended) {
-        s_gotIp = s_lostIp = s_discEvent = s_scanDoneEvt = false;
+        s_gotIp = false;
+        s_lostIp = false;
+        s_discEvent = false;
+        s_scanDoneEvt = false;
         if (!s_suspendRequested && static_cast<int32_t>(now - s_powerRetryAt) >= 0) {
             const esp_err_t err = esp_wifi_start();
             if (err != ESP_OK) {

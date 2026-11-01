@@ -197,9 +197,9 @@
     <label for="hostname">Enhetsnamn (mDNS och värdnamn)</label>
     <input type="text" id="hostname" name="hostname" maxlength="31" pattern="[A-Za-z0-9-]{1,31}" autocapitalize="none">
     <p class="muted">Används som <code>namn.local</code>, DHCP-värdnamn och namn i webbgränssnittet. 1–31 tecken: a–z, 0–9 och bindestreck.</p>
-    <label for="tz">Tidszon (POSIX TZ)</label>
-    <input type="text" id="tz" name="tz" maxlength="47" autocapitalize="none">
-    <p class="muted">Sverige: <code>CET-1CEST,M3.5.0,M10.5.0/3</code></p>
+    <label for="tz">Tidszon</label>
+    <select id="tz" name="tz"></select>
+    <p class="muted">Välj ort eller region. UTC-talet visar normaltid; sommartid växlar automatiskt där den används.</p>
   </fieldset>
   <div class="row">
     <button type="submit" class="primary">Spara inställningar</button>
@@ -273,7 +273,20 @@ function fill(c) {
   cfg = c;
   $('host-link').textContent = c.hostname + '.local';
   $('pass').value = '';
-  $('tz').value = c.tz;
+  $('tz').replaceChildren();
+  for (const zone of c.time_zones || []) {
+    const option = document.createElement('option');
+    option.value = zone.tz;
+    option.textContent = zone.label;
+    $('tz').appendChild(option);
+  }
+  if (c.tz && !(c.time_zones || []).some(zone => zone.tz === c.tz)) {
+    const option = document.createElement('option');
+    option.value = c.tz;
+    option.textContent = 'Tidigare sparad tidszon (behåll)';
+    $('tz').appendChild(option);
+  }
+  $('tz').value = c.tz || 'CET-1CEST,M3.5.0,M10.5.0/3';
   $('battery-full-mv').value = c.battery_full_mv ?? 4200;
   $('pin-state').textContent = c.admin_pin_set ? '(satt)' : '(ingen – öppen åtkomst)';
   $('pin-old').disabled = !c.admin_pin_set;
@@ -425,6 +438,7 @@ $('battery-form').addEventListener('submit', async e => {
   try {
     const j = await post('/api/config', {battery_reference_mv: String(reference)});
     fill(j.config);
+    if (window.OtrDevice) window.OtrDevice.apply(j.config);
     $('battery-reference-mv').value = '';
     await status();
     toast('Batterimätningen kalibrerad');

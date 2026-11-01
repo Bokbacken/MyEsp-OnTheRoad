@@ -335,6 +335,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   eventuell minneskorruption; ingen rotorsak är ännu bevisad.
   Efter denna panic loggas föregående körnings last-alive-tid och
   DS3231 är OK (OSF 0). Core dump sparas med giltig checksumma.
+  Senare export 2026-11-01 (17:53 lokal tid) visar v0.23.14 boot #31
+  med panic och kvarvarande last-alive-tid. FFat-räknaren är fortfarande
+  256 av 257; ingen ytterligare försämring syns i räknaren. Ingen
+  kraschstack finns i denna export, så samma SPI-fel är inte bekräftat.
   Hälsokontrollen avvisar alla icke-ASCII-namn, även giltiga Unicode-namn;
   dess räknare ensam är inte bevis för fysisk flashskada.
   Trolig mekanism (kodgranskning, ej bevisad med rådump): IDF:s FAT-diskio
@@ -362,6 +366,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
   inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
   CPU/touch är fortsatt vakna, inte light sleep.
+- [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
+  sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
+  statusrad/meny samt DHCP/mDNS. v0.23.17 inkluderar historik/viloläge
+  från v0.23.16, vars CI-bygge stoppades av en volatile-kompilatorvarning.
 - [ ] Rivningsfri uppdatering (dubbla ramminnen/vsync) och PPA/DMA2D.
 - [ ] Mätning av FPS och minne på båda korten.
 

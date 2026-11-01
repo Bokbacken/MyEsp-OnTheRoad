@@ -39,6 +39,7 @@
 #include "my_ota.h"
 #include "my_rtc.h"
 #include "power_history.h"
+#include "time_zones.h"
 #include "ui_screen_power.h"
 #include "my_storage.h"
 #include "my_time.h"
@@ -318,6 +319,7 @@ static esp_err_t handleInfo(httpd_req_t *r)
 {
     cJSON *o = cJSON_CreateObject();
     MyDiag::fill(o);
+    cJSON_AddStringToObject(o, "lang", Config::get().lang);
     uint8_t addrs[16];
     int n = Touch::scanResults(addrs, 16);
     cJSON *i2c = cJSON_AddArrayToObject(o, "i2c");
@@ -380,6 +382,13 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
     cJSON_AddBoolToObject(o, "eco_sleep", c.ecoSleep);
     cJSON_AddBoolToObject(o, "power_log", c.powerLog);
+    cJSON *zones = cJSON_AddArrayToObject(o, "time_zones");
+    for (const auto &zone : TimeZones::ZONES) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "label", zone.label);
+        cJSON_AddStringToObject(item, "tz", zone.tz);
+        cJSON_AddItemToArray(zones, item);
+    }
     cJSON_AddNumberToObject(o, "text_size", c.textSize);
     cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);

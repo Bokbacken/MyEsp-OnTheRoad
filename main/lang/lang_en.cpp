@@ -15,6 +15,8 @@ extern const Entry LANG_EN[] = {
     {Str::SCREEN_SLEEP_NOW, "Turn screen off now"},
     {Str::SCREEN_ECO, "Idle mode: Wi-Fi and audio off"},
     {Str::POWER_HISTORY, "Five-minute SD history"},
+    {Str::SET_TIME_ZONE, "Time zone (automatic daylight saving)"},
+    {Str::SET_TIME_ZONE_SAVED, "Previously saved time zone"},
     {Str::SCREEN_SLEEP_HELP, "Normally audio and games continue. Idle mode stops Wi-Fi and audio only without games, karaoke or transfers. Touch to wake; release and wait 250 ms. History requires SD and saves every five minutes."},
     {Str::SET_SAVE_FAILED, "Could not save settings. Please try again."},
 

@@ -147,7 +147,9 @@ async function page(file, data) {
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
-      value: '', style: {}, events: {}, hidden: false, appendChild() {},
+      value: '', style: {}, events: {}, hidden: false,
+      appendChild(child) { this.options.push(child); },
+      replaceChildren() { this.options = []; },
       addEventListener(name, fn) { this.events[name] = fn; },
       options: id === 'text_size' ? ['0', '1', '2', '3'].map(value => ({value})) : [],
     });
@@ -156,6 +158,7 @@ async function page(file, data) {
   let submitted;
   const sandbox = {
     document: {getElementById: element, createElement: () => element(Symbol())},
+    window: {},
     URLSearchParams, console, clearTimeout() {}, setTimeout() {},
     fetch: async (url, options) => {
       assert.equal(url, '/api/config');
@@ -187,32 +190,6 @@ async function page(file, data) {
   assert.equal(submitted.get('power_log'), '1');
   assert.equal(submitted.get('text_size'), '3');
   assert.equal(element('toast').textContent, 'Inställningar sparade');
-
-  const subtitle = {textContent: 'Inställningar'};
-  const brand = {
-    textContent: 'ONTHEROAD',
-    querySelector: () => subtitle,
-    appendChild(child) { assert.equal(child, subtitle); },
-  };
-  const footer = {textContent: 'MyEsp-OnTheRoad'};
-  const home = {textContent: '← OnTheRoad'};
-  const deviceDoc = {
-    title: 'OnTheRoad – Inställningar',
-    querySelector: selector => selector === '.otr-project' ? brand : null,
-    querySelectorAll: selector => selector === 'footer' ? [footer] : [home],
-  };
-  const nameSandbox = {
-    document: deviceDoc,
-    fetch: async () => ({ok: true, json: async () => ({hostname: 'kitchen-console'})}),
-    console,
-  };
-  vm.createContext(nameSandbox);
-  vm.runInContext(fs.readFileSync('main/web/device-name.js', 'utf8'), nameSandbox);
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(brand.textContent, 'kitchen-console');
-  assert.equal(deviceDoc.title, 'kitchen-console – Inställningar');
-  assert.equal(footer.textContent, 'kitchen-console');
-  assert.equal(home.textContent, '← kitchen-console');
 
   for (const file of fs.readdirSync('main/web').filter(name => name.endsWith('.html'))) {
     assert.match(fs.readFileSync(`main/web/${file}`, 'utf8'), /rel="icon"[^>]+href="\/favicon\.svg"/);
