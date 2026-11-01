@@ -339,6 +339,16 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   med panic och kvarvarande last-alive-tid. FFat-räknaren är fortfarande
   256 av 257; ingen ytterligare försämring syns i räknaren. Ingen
   kraschstack finns i denna export, så samma SPI-fel är inte bekräftat.
+  Ny serielogg 2026-11-01 från v0.23.15 bekräftar två ytterligare
+  LoadProhibited på adress 0 i samma `resume_dev_in_isr` /
+  `bg_exit_core` → `spi_bus_lock_bg_exit` → `spi_intr`.
+  Avkodning med exakt matchande ELF (SHA256 börjar `a199c9825`,
+  CI run 41326171656). Första avbrottet avbröt ljudmixern, det andra
+  CPU:ns idle-task; felet kräver alltså inte att ljudmixern kör just då.
+  Båda visar samma fel-PC `0x40376b11` och samma SPI-stack.
+  Boot #33/#34 behåller last-alive och verifierar core-dump-checksumman.
+  FFat-räknaren ligger kvar på 256 av 257. SPI-felvägen är nu upprepad,
+  men bus-lock-race kontra minneskorruption är fortfarande oavgjort.
   Hälsokontrollen avvisar alla icke-ASCII-namn, även giltiga Unicode-namn;
   dess räknare ensam är inte bevis för fysisk flashskada.
   Trolig mekanism (kodgranskning, ej bevisad med rådump): IDF:s FAT-diskio
