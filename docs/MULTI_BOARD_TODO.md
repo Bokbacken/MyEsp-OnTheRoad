@@ -186,8 +186,8 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   gav 25 HTTP-parserfel, inte SD-skrivfel.
 - [x] v0.23.13: läs färdigt hoppade HTTP-kroppar före svar och dränera
   tidiga async-avslag före socketåteranvändning; stäng vid avbruten kropp.
-- [ ] Hårdvara v0.23.13: kopiera Hit_Trax igen med många befintliga
-  filer och några nya; kontrollera skip-resultat och frånvaro av HTTP 400.
+- [x] Hårdvara v0.23.13: ägaren har flashat och provat Hit_Trax-rättningen
+  och rapporterar att den fungerar klockrent. Leveransen är godkänd och mergad.
 - [ ] Undersök P4-loggens `host controller with slot registered` och
   `conflict found for GPIO[42]` vid återmontering. Bekräfta om GPIO42-
   konfliktrapporten är förväntad efter SD-slotens avregistrering eller om
@@ -285,9 +285,17 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   i spel, Karaoke och menyer på båda korten. Första trycket/ett hållet
   väcktryck får inte spela, navigera eller flytta något; prova även ett
   snabbt andra tryck inom 250 ms. Starta OTA med skärmen släckt.
-- [ ] Utred P4:s fysiska powerknapp mot schema innan den får en
-  mjukvarufunktion; anta inte att den är en vanlig GPIO-knapp. S3 ska
-  kunna använda funktionen utan fysisk powerknapp.
+- [x] P4-knappar kontrollerade mot schema: power/Key3 går till U20:s
+  KEY-ingång, inte till P4 GPIO. BOOT/Key2 är GPIO35 och kan läsas under
+  drift, men är inte deep-sleep-wake-kompatibel. Touch pollas utan wake-INT.
+- [ ] Välj RTC-/viloväg för P4: separat RTC-GPIO-knapp + kontrollerad
+  VBAT-deep-sleep, light sleep med huvudmatning kvar, eller separat kalender-RTC.
+  Se [hårdvarureferensens RTC-avsnitt](Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md#rtc-retention-known-limits-and-possible-next-steps).
+- [ ] Utred S3:s spontana panic-omstarter på v0.23.13. Ägarens export
+  visar sju panic-boots, lagrat core dump och korrupt intern FFat
+  (256 av 257 rotposter med ogiltiga namn vid senaste boot).
+  Exporten innehåller ingen kraschstack; samla core dump/seriell panic
+  före slutsats eller reparation. USB-matning är inte fastställd som orsak.
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
