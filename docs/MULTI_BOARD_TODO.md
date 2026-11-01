@@ -443,16 +443,19 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   v0.23.16 implementerar valbar SD-CSV med rotation och tappade poster,
   sessions-/skärm-/Wi-Fi-/ljudtid samt SD/FFat-byteantal. Verifiera flera
   intervall och CSV-nedladdning på båda korten innan punkten stängs.
+  Ägaren rapporterar (2026-11-01) att SD-loggningen är igång och att
+  CSV-filerna ser bra ut; analys av en längre körning återstår.
   Se [mätfält och begränsningar](POWER_HISTORY.md).
 - [ ] Hårdvarutesta v0.23.16:s valbara viloläge på S3/P4: Wi-Fi och
   I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
   inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
-- [ ] Lägg till kontrollerad omstart under enhetens lokala Inställningar
+- [x] Lägg till kontrollerad omstart under enhetens lokala Inställningar
   tillsammans med strömspararbetet. Återanvänd webbens omstartsväg och
   skydda pågående skrivningar/OTA; bekräfta innan osparat spel lämnas.
   v0.23.19 implementerar bekräftelse, gemensam fördröjd omstartsuppgift,
   överförings-/OTA-spärr och stopp av FFat-händelselogg före omstart.
-  Hårdvarutest av lokal omstart återstår.
+  Ägaren bekräftar (2026-11-01) att omstart via enhetens Inställningar
+  fungerar bra.
 - [ ] P4 v0.23.19: ekoläget skickar ST7701 display-off/sleep-in och
   sleep-out/display-on vid touch, innan bakgrundsbelysningen återställs.
   Kontrollera återkommande vila/väckning, första tryckets skydd,

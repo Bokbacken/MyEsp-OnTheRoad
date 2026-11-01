@@ -128,6 +128,9 @@ int tempo();
 void setTranspose(int semis);
 int transpose();
 bool takeTransposeRejected();
+// Playback was stopped because the SoundFont/voice count was too heavy for this hardware
+// (see kara_overload.h); returns true once.
+bool takeOverloadStopped();
 void setMelody(int ch);         // -1..15, saved in the register (overrides the detection)
 int melody();
 bool melodyFromRegister();      // Current melody came from the register (user choice)

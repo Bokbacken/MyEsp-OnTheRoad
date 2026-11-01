@@ -547,6 +547,7 @@ extern const Entry LANG_SV[] = {
     {Str::KARA_ERR_SF2_SF3, "Ljudbanken är komprimerad (SF3) och stöds inte. Använd en okomprimerad .sf2"},
     {Str::KARA_ERR_SONG_BIG, "Låten behöver för många sampel"},
     {Str::KARA_TR_REJECTED, "Tonarten får inte plats i minnet – föregående tonart behålls"},
+    {Str::KARA_OVERLOAD, "Uppspelningen stoppades: ljudbanken (SF2) eller antalet röster är för krävande för den här hårdvaran. Välj en mindre SF2 eller färre röster."},
     {Str::KARA_WEB_ACTIVE, "Webbläsare: %d (högtalaren tyst)"},
     {Str::KARA_SOUND_OFF_Q, "Ljudet är avstängt. Slå på ljudet?"},
     {Str::KARA_YES, "Ja"},

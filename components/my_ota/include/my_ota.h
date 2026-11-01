@@ -41,6 +41,7 @@ const char *runningPartition();
 const char *nextPartition();
 uint32_t slotSize();
 
+void cacheBootState();        // Reads image state/rollback once (boot); later queries use the cache
 bool pendingVerify();         // Running image waits for markValid()
 void markValid();             // Cancels the rollback (logs an event the first time)
 bool rolledBack();            // The previous image was invalid / rolled back at this boot

@@ -36,7 +36,8 @@ namespace Karaoke { inline bool songPlaying=false; inline bool playing() { retur
 namespace GameLive { inline bool gameRunning=false; inline bool running() { return gameRunning; } }
 namespace AdvLive { inline bool adventure=false; inline bool active() { return adventure; } }
 namespace AppWebFiles { inline bool transferring=false; inline bool busy() { return transferring; } }
-namespace Audio { inline bool idle=false; inline void setSleeping(bool enabled) { idle=enabled; } }
+namespace Audio { inline bool idle=false, musicPaused=false; inline void setSleeping(bool enabled) { idle=enabled; }
+inline void setMusicPaused(bool paused) { musicPaused=paused; } }
 namespace MyWifi {
 inline bool powerSave=false, idle=false;
 inline void setScreenPowerSave(bool enabled) { powerSave=enabled; }
@@ -127,14 +128,17 @@ int main() {
     UiScreenPower::sleepNow();
     Backlight::set(55); // Web/settings brightness cannot accidentally wake the screen.
     assert(Backlight::sleeping() && duty==0 && Backlight::get()==55);
+    assert(!Audio::musicPaused);
     MyOta::updating=true;
     tick(120010);
-    assert(!Backlight::sleeping() && duty>0);
+    assert(!Backlight::sleeping() && duty>0 && Audio::musicPaused); // No background music during OTA
     UiScreenPower::sleepNow();
     assert(!Backlight::sleeping());
     tick(999000);
     assert(!Backlight::sleeping()); // OTA never times out the light.
     MyOta::updating=false;
+    tick(999100);
+    assert(!Audio::musicPaused); // Failed/aborted update resumes the music
     assert(!sample(999300,false)); // Finish forced-wake guard.
     Config::get().screenOffSeconds=0;
     tick(1500000);

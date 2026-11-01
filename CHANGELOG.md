@@ -8,6 +8,34 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.22 (unreleased)
+
+- Memory-aware SD uploads: extra parallel uploads are admitted only while
+  internal RAM keeps a 40 KiB floor (HTTP 429 otherwise; the browser waits
+  and retries). The file list reports `upload_slots`; the internal DMA
+  write cache is used only when the floor survives. HTTP 429/503 now
+  have correct status lines (503 was sent as 500).
+- File manager mkdir no longer restarts background music; only changes
+  under `/otr/music` restart it and only `/otr/sounds` reloads clips.
+- Background music pauses while an OTA update runs (owner report on S3)
+  and resumes at the same position if the update fails or is aborted.
+  Effects and karaoke are unaffected. Owner confirmed on S3 (v0.23.22):
+  the music went silent during OTA.
+- OTA image/rollback state is read once at boot, so status polling no
+  longer maps otadata (owner S3 log: `mmap otadata failed 0x101`).
+- Owner S3 hardware test (v0.23.22): uploads ran one file at a time and a
+  batch of more than 500 files completed without problems.
+
+## v0.23.21 (unreleased)
+
+- Karaoke overload guard: when a 5 s diagnostics period averages ≥100 %
+  render load or has ≥5 late mixer blocks, playback is paused, notes are
+  released and the device shows that the SF2 or voice count is too
+  demanding for this hardware. Prompted by an owner S3 test with a
+  ~55 MB SF2 at 96 voices (stutter + task-watchdog warnings, no reboot).
+  Documented as unsupported in the karaoke reference. Owner confirmed on
+  S3 (v0.23.21): the warning appeared when the watchdog triggered.
+
 ## v0.23.20 (unreleased)
 
 - P4 panel sleep now runs on every screen-off (timeout or manual), not
@@ -25,7 +53,8 @@ a published GitHub Release.
   remain enabled. Hardware power savings and wake behavior are pending.
 - Local Settings adds a confirmed software restart through the shared
   web restart task. Transfers/OTA block restart; task creation failures
-  are reported. FFat event logging is quiesced before restart.
+  are reported. FFat event logging is quiesced before restart. Owner
+  confirmed that restart from local Settings works.
 - S3 panel behavior is unchanged; it can remain on v0.23.18 during the
   separate SPI-crash observation. No C6 firmware update is needed.
 

@@ -28,6 +28,7 @@
 
 #include <string>
 
+#include "audio_paths.h"
 #include "board_audio.h"
 #include "board_sd.h"
 #include "esp_heap_caps.h"
@@ -43,6 +44,7 @@
 #include "my_log.h"
 #include "my_storage.h"
 #include "my_web.h"
+#include "upload_admission.h"
 #include "nvs.h"
 #include "web_util.h"
 #include "freertos/FreeRTOS.h"
@@ -59,7 +61,6 @@ static constexpr size_t CHUNK = 32768;
 static constexpr size_t DOWNLOAD_CHUNK = 8192;
 static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
-static constexpr int MAX_UPLOADS = 4;
 static std::atomic<int> s_activeUploads{0};
 static std::atomic<int> s_activeDownloads{0};
 static std::atomic<bool> s_formatting{false};
@@ -206,7 +207,7 @@ void changed(const Target &t)
 {
     if (!t.sd) return;
     BoardSd::refreshUsage();
-    if (!strncmp(t.path, "/sdcard/otr/", 12)) Audio::invalidateFiles();
+    Audio::invalidateFiles(AudioPaths::affected(t.path));
 }
 
 esp_err_t ioError(httpd_req_t *r, int err)
@@ -506,7 +507,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r, UploadBody &body)
     pipeline.file = f;
     pipeline.buffers[0] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     pipeline.buffers[1] = (uint8_t *)heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    char *writeCache = t.sd
+    char *writeCache = t.sd && UploadAdmission::internalCache(heap_caps_get_free_size(MALLOC_CAP_INTERNAL), WRITE_CACHE)
                            ? (char *)heap_caps_malloc(WRITE_CACHE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
                            : nullptr;
     const bool dmaCache = writeCache != nullptr;
@@ -694,9 +695,10 @@ static esp_err_t handleUpload(httpd_req_t *r)
         return handleUploadRequest(r, body);
     }
     if (s_formatting.load()) return MyWeb::sendError(r, 503, "SD-kortet formateras");
-    if (s_activeUploads.fetch_add(1) >= MAX_UPLOADS) {
+    const int active = s_activeUploads.fetch_add(1);
+    if (!UploadAdmission::admit(active, heap_caps_get_free_size(MALLOC_CAP_INTERNAL))) {
         s_activeUploads.fetch_sub(1);
-        return MyWeb::sendError(r, 503, "För många samtidiga uppladdningar");
+        return MyWeb::sendError(r, 429, "För många samtidiga uppladdningar för ledigt minne");
     }
     if (s_formatting.load()) {
         s_activeUploads.fetch_sub(1);
@@ -779,6 +781,7 @@ static esp_err_t handleRename(httpd_req_t *r)
     }
     if (err) return ioError(r, err);
     changed(t);
+    if (t.sd) Audio::invalidateFiles(AudioPaths::affected(dest));
     MyLog::event("files", "renamed %s -> %s", t.path, name);
     return MyWeb::sendOk(r);
 }
@@ -800,7 +803,7 @@ static esp_err_t handleMkdir(httpd_req_t *r)
         else if (mkdir(t.path, 0775) != 0) err = errno ? errno : EIO;
     }
     if (err) return ioError(r, err);
-    changed(t);
+    if (t.sd) BoardSd::refreshUsage();   // An empty folder cannot change audio files
     return MyWeb::sendOk(r);
 }
 
@@ -1110,6 +1113,8 @@ static esp_err_t handleFiles(httpd_req_t *r)
     }
     o += ",\"total\":"; WebUtil::appendNum(o, total);
     o += ",\"free\":"; WebUtil::appendNum(o, freeB);
+    o += ",\"upload_slots\":";
+    WebUtil::appendNum(o, (unsigned)(t->sd ? UploadAdmission::suggestedSlots(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) : 1));
     o += ",\"count\":"; WebUtil::appendNum(o, items.size());
     o += ",\"dirs\":"; WebUtil::appendNum(o, (unsigned)dirs);
     o += ",\"bytes\":"; WebUtil::appendNum(o, bytes);
@@ -1156,7 +1161,7 @@ static esp_err_t handleFilesMkdir(httpd_req_t *r)
     }
     const int err = mkdirs(t);
     if (err) return ioError(r, err);
-    changed(t);
+    if (t.sd) BoardSd::refreshUsage();   // Empty folders cannot change audio files
     MyLog::event("files", "mkdir %s", t.path);
     return MyWeb::sendOk(r);
 }
@@ -1180,6 +1185,7 @@ static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
     cJSON *failed = cJSON_CreateArray();
     int done = 0;
     bool any = false, sd = true;
+    uint8_t audio = AudioPaths::NONE;
     const cJSON *p;
     cJSON_ArrayForEach(p, paths)
     {
@@ -1201,12 +1207,13 @@ static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
         } else {
             done++;
             any = true;
+            if (t->sd) audio |= AudioPaths::affected(t->path);
             MyLog::event("files", "deleted %s", t->path);
         }
     }
     if (any && sd) {
         BoardSd::refreshUsage();
-        Audio::invalidateFiles();
+        Audio::invalidateFiles(audio);
     }
     free(t);
     cJSON_Delete(j);
@@ -1242,6 +1249,7 @@ static esp_err_t handleFilesMove(httpd_req_t *r)
     else {
         cJSON *failed = cJSON_CreateArray();
         int done = 0;
+        uint8_t audio = AudioPaths::NONE;
         const cJSON *p;
         cJSON_ArrayForEach(p, paths)
         {
@@ -1272,12 +1280,13 @@ static esp_err_t handleFilesMove(httpd_req_t *r)
             if (err) addFail(failed, user, err);
             else {
                 done++;
+                if (src->sd) audio |= AudioPaths::affected(src->path) | AudioPaths::affected(to);
                 MyLog::event("files", "moved %s -> %s", src->path, to);
             }
         }
         if (done) {
-            changed(*dest);
-            if (dest->sd) Audio::invalidateFiles();   // The source may have been below /sdcard/otr/
+            if (dest->sd) BoardSd::refreshUsage();
+            Audio::invalidateFiles(audio);   // Sources and targets, not just the destination folder
         }
         res = bulkAnswer(r, done, failed);
     }
