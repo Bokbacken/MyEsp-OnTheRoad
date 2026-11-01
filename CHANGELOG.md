@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.14 (unreleased)
+
+- P4: log the reset reason, the `RTC_NOINIT` anchor's validity, and both the
+  stored and current RTC counters before applying the reset policy.
+  Diagnostics only; accepted reset reasons are unchanged.
+- The owner reports that P4 web restarts keep RTC time valid. Physical RESET
+  and power removal fall back to uncertain NVS time (`?`). Physical RESET
+  diagnostics still need hardware testing.
+
 ## v0.23.13 (unreleased)
 
 - Consume skipped upload bodies before returning success, without holding

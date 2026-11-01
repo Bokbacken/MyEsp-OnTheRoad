@@ -149,6 +149,21 @@ The [forum discussion](https://esp32.com/viewtopic.php?t=46596) reports
 configuration difficulties and inconsistent startup after power loss;
 it is not evidence of a reliable drop-in fix.
 
+Our P4 configuration leaves `CONFIG_ESP_VBAT_INIT_AUTO` disabled, so the
+firmware does not configure VBAT as a backup supply. With VBAT enabled,
+IDF v6.1 provides `esp_vbat_get_battery_state()`. It returns normal,
+charging (rechargeable mode only) or low battery against configured
+thresholds. It does not return a battery voltage. We have not found a
+documented ADC path for measuring the RTC cell on this board.
+
+At boot, firmware logs the reset reason before applying the reset policy.
+It also logs whether `RTC_NOINIT` still contains a matching anchor
+(`magic`, `check`) and compares the stored counter with the current counter.
+A physical RESET test is needed. It must show whether the anchor survives
+and whether the counter continues or restarts. Those results determine
+whether that reset can be trusted. On many ESP chips, a pin reset reports
+the same cause as power-on, so the reset reason alone may not distinguish it.
+
 The official schematic connects Key3 to U20's KEY input (ECJ23001 power
 control), not to a P4 GPIO. BOOT/Key2 connects to GPIO35 and can be read
 while running, but P4 deep-sleep GPIO wakeup supports GPIO0..15, not GPIO35.
