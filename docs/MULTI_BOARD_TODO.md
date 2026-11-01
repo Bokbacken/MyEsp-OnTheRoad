@@ -407,6 +407,11 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   med SHA256-kontroll av både original och resultat. P4/installerat SDK
   lämnas orörda. CI och ägarens längre kraschtest återstår; inte ännu
   hårdvarubevis för att alla S3-krascher försvinner.
+  Ägarrapport 2026-11-01: intern FFat formaterad, återlagda flashloggar
+  raderade och omstart utförd via webben. Ingen efterföljande
+  hälsokontroll eller längre stabilitetsperiod är ännu rapporterad.
+  S3 lämnas på v0.23.18 under observation; nästa strömspararbete fokuserar
+  på P4 utan att kräva att S3 uppdateras.
   **Formatera inte FFat innan råpartitionen och läsbara filer har säkrats.**
   Den manuella reparationsvägen säkerhetskopierar bara `players.bin` och
   `events.log`, inte alla filer/sparningar, och en formatering raderar övrigt
@@ -442,6 +447,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Hårdvarutesta v0.23.16:s valbara viloläge på S3/P4: Wi-Fi och
   I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
   inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
+- [ ] Lägg till kontrollerad omstart under enhetens lokala Inställningar
+  tillsammans med strömspararbetet. Återanvänd webbens omstartsväg och
+  skydda pågående skrivningar/OTA; bekräfta innan osparat spel lämnas.
   CPU/touch är fortsatt vakna, inte light sleep.
 - [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
   sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
