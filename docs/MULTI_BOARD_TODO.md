@@ -15,6 +15,37 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### CI-byggurval
+
+- [x] Byggvillkor i `build.yaml`: dokumentändringar hoppar över firmwarejobb,
+  och en redan grön PR-körning återanvänds för rena dokumentuppdateringar
+  med oförändrad jämförelsebas. Misslyckade/pågående körningar återanvänds inte.
+- [x] C6 byggs vid ändring av `.github/c6-firmware.json` eller manuell begäran;
+  vanliga S3/P4-ändringar behöver inte bygga om samma uppströmsradiofirmware.
+- [x] Ingen extra körning efter merge/push till `main`; direkta pushar kräver
+  manuell **Build firmware** eller ska ersättas med PR-flödet.
+- [ ] GitHub-verifiering: kod-PR bygger S3/P4 men hoppar över C6,
+  dokumentuppdatering efter grön körning hoppar över firmware, manuell C6
+  fungerar och fel i urvalsjobbet blockerar kontrollerna.
+- [x] Första körningen med byggurval är grön för urvalsjobbet och S3/P4/C6
+  (2026-11-01, run 41333525902). C6 byggdes eftersom dess nya
+  konfigurationsfil tillkom. Dokumentuppdateringens skip-beteende provas härnäst.
+
+### USB-lagring efter S3-utredningen
+
+- [ ] Ägaren väljer USB-lagringsläge på båda enheterna, men arbetet ska börja
+  först efter felsökningen av S3:s SPI-krascher och interna FFat. Ändra inte
+  USB-/lagringsdrivrutiner samtidigt som den nuvarande kraschen isoleras.
+- [ ] Exportera SD och intern FFat till datorn med exklusivt filsystemägande:
+  pausa/stäng firmwareåtkomst till utlånade volymer, inklusive loggning och
+  spel, och återmontera säkert när datorns åtkomst avslutas. Samtidig montering
+  i datorn och firmware får inte tillåtas, inte heller bara för läsning.
+- [ ] P4: native USB OTG för lagring, befintlig USB-UART för debugserial med
+  separat kabel. S3: undersök kombinerad MSC + CDC för lagring och debugserial
+  på samma port; nuvarande USB Serial/JTAG måste ersättas på denna USB-väg.
+- [ ] Verifiera särskilt att FFat:s wear-levelling-lager översätts korrekt;
+  den råa flashpartitionen är inte en vanlig FAT-volym att exportera direkt.
+
 ### Mål
 
 `MyEsp-OnTheRoad` ska byggas och fungera på flera kort från samma källkod:

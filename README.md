@@ -268,9 +268,23 @@ This build label does not create a Git release tag.
 
 ### Firmware releases
 
-PRs and pushes to `main` validate S3, P4 and C6 builds and retain firmware/debug
-CI artifacts, including available files after failures. **They never publish a release**,
-including documentation-only pushes. Release preparation is a separate manual operation:
+PRs validate S3/P4 when build inputs change and retain firmware/debug CI artifacts,
+including available files after failures. Documentation-only changes (`*.md`, `docs/`,
+`LICENSE`) skip firmware builds. On an updated PR, a successful preceding run can be
+reused when only documentation changed and the comparison base is unchanged; otherwise
+the complete PR diff is checked. Failed or unfinished builds are not treated as verified.
+The lightweight selection job still runs, and skipped build checks do not block merge.
+Selection failures fail the build checks rather than silently skipping them.
+
+C6 radio firmware builds only when `.github/c6-firmware.json` changes (its pinned
+ESP-Hosted revision and ESP-IDF version), or when manually requested. Changes to the
+S3/P4 Wi-Fi code do not rebuild that separate upstream image.
+
+Merging does not start another build. Direct pushes to `main` are not automatically
+built: use PRs, or **Actions → Build firmware → Run workflow**, select the branch and
+optionally enable **Build C6 radio firmware too**. Manual runs always build S3/P4.
+New PR updates cancel obsolete runs to avoid unnecessary waiting. These workflows
+**never publish a release**. Release preparation is a separate manual operation:
 
 1. Merge and test the intended changes on `main`. Read the current `PROJECT_VER` from
    `CMakeLists.txt`; the workflow never bumps it. Each release needs a unique canonical
