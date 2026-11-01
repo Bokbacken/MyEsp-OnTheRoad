@@ -298,13 +298,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   strömavbrott. RTC-räknaren börjar om från 0 och RTC-minnet är skräp.
   Intern RTC kan alltså inte bevara tiden; kvarvarande vägar är extern RTC
   eller kontrollerad VBAT-deep-sleep.
-- [ ] Hårdvarutesta återstående v0.23.14-fall. Godkänt av ägaren:
-  "last alive" efter omstart via webben på båda korten; RTC-minnet
-  tappas vid power-on (P4 RESET/strömavbrott, S3 power-on). Kvar:
-  P4-tid efter panic/watchdog. Ursprunglig punkt: hårdvarutesta v0.23.14 på båda korten: loggraden "previous run last
-  alive" efter omstart via webben och efter RESET, P4-tid efter panic/watchdog
-  (kräver en kontrollerad testkrasch) och att tiden blir osäker efter
-  strömavbrott.
+- [x] v0.23.14 hårdvarutestat av ägaren: "last alive" loggas efter omstart
+  via webben på båda korten. RTC-minnet tappas vid power-on (P4
+  RESET/strömavbrott, S3 power-on) och tiden blir osäker (`?`).
+- [ ] Testa P4-tid efter panic/watchdog (kräver en kontrollerad testkrasch).
 - [ ] Utred S3:s spontana panic-omstarter på v0.23.13. Ägarens export
   visar sju panic-boots, lagrat core dump och korrupt intern FFat
   (256 av 257 rotposter med ogiltiga namn vid senaste boot).
