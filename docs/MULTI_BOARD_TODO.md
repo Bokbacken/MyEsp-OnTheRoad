@@ -461,8 +461,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   på v0.23.18 under observation och får ingen ny panelviloväg.
   CPU/touch är fortsatt vakna, inte light sleep.
   Ägartest v0.23.19: vanlig släckning (utan eko) släckte bara ljuset.
-  v0.23.20 låter P4-panelen sova vid all skärmsläckning; verifiera
-  loggraden "panel asleep" och Panelvila = ja i Diagnostik.
+  v0.23.20 låter P4-panelen sova vid all skärmsläckning. Ägaren
+  rapporterar (2026-11-01) att skärmen nu slocknar helt; loggen visar
+  "panel asleep"/"panel awake" vid upprepad släckning och touchväckning.
+  Effektmätning och lång körning återstår.
 - [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
   sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
   statusrad/meny samt DHCP/mDNS. v0.23.17 inkluderar historik/viloläge
