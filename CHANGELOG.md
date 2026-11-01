@@ -19,7 +19,8 @@ a published GitHub Release.
   under `/otr/music` restart it and only `/otr/sounds` reloads clips.
 - Background music pauses while an OTA update runs (owner report on S3)
   and resumes at the same position if the update fails or is aborted.
-  Effects and karaoke are unaffected.
+  Effects and karaoke are unaffected. Owner confirmed on S3 (v0.23.22):
+  the music went silent during OTA.
 - OTA image/rollback state is read once at boot, so status polling no
   longer maps otadata (owner S3 log: `mmap otadata failed 0x101`).
 - Owner S3 hardware test (v0.23.22): uploads ran one file at a time and a
@@ -52,7 +53,8 @@ a published GitHub Release.
   remain enabled. Hardware power savings and wake behavior are pending.
 - Local Settings adds a confirmed software restart through the shared
   web restart task. Transfers/OTA block restart; task creation failures
-  are reported. FFat event logging is quiesced before restart.
+  are reported. FFat event logging is quiesced before restart. Owner
+  confirmed that restart from local Settings works.
 - S3 panel behavior is unchanged; it can remain on v0.23.18 during the
   separate SPI-crash observation. No C6 firmware update is needed.
 
