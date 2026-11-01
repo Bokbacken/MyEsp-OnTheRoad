@@ -23,6 +23,9 @@ a published GitHub Release.
   have correct status lines (503 was sent as 500).
 - File manager mkdir no longer restarts background music; only changes
   under `/otr/music` restart it and only `/otr/sounds` reloads clips.
+- Background music pauses while an OTA update runs (owner report on S3)
+  and resumes at the same position if the update fails or is aborted.
+  Effects and karaoke are unaffected.
 - OTA image/rollback state is read once at boot, so status polling no
   longer maps otadata (owner S3 log: `mmap otadata failed 0x101`).
 

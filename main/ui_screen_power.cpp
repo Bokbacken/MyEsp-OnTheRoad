@@ -77,6 +77,7 @@ bool filterPointer(bool pressed)
 void tick(lv_timer_t *)
 {
     const uint32_t now = MySys::millis();
+    Audio::setMusicPaused(MyOta::busy());   // No background music while firmware is written
     if (s_wakePending) {
         if (now - s_wakeRetryAt >= 1000) wake(now);
         if (s_wakePending) return;

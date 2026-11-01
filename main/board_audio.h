@@ -39,6 +39,9 @@ bool begin(i2c_master_bus_handle_t bus);
 bool running();
 void setSleeping(bool sleeping); // Mixer-owned I2S stop/resume; settings and music position retained
 bool sleeping();
+// Pauses background music (position kept, no SD reads) while e.g. an OTA update runs; effects and
+// karaoke are unaffected.
+void setMusicPaused(bool paused);
 
 // Volumes 0..100. soundOn = master switch (also switches the amplifier).
 void setVolumes(bool soundOn, uint8_t sfxVol, bool musicOn, uint8_t musicVol);

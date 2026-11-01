@@ -70,6 +70,7 @@ QueueHandle_t s_queue = nullptr;
 bool s_codec = false, s_running = false, s_ampOn = false;
 volatile bool s_soundOn = true;
 std::atomic<bool> s_sleepRequested{false}, s_sleeping{false};
+std::atomic<bool> s_musicPaused{false};
 volatile int s_sfxGain = 0, s_musicGain = 0;   // Q8
 const char *s_error = "";
 uint32_t s_underruns = 0;
@@ -421,7 +422,7 @@ void mixerTask(void *)
             s_extCnt++;
             if (pct100 > s_extMax100) s_extMax100 = pct100;
             portEXIT_CRITICAL(&s_statMux);
-        } else if (s_music != Sound::Music::NONE) {
+        } else if (s_music != Sound::Music::NONE && !s_musicPaused) {
             if (s_musicFile) renderStream(mg);
             else s_song.render(s_acc, BLOCK, mg);
         }
@@ -542,6 +543,10 @@ bool begin(i2c_master_bus_handle_t bus)
 bool running() { return s_running; }
 void setSleeping(bool sleeping) { s_sleepRequested = sleeping; }
 bool sleeping() { return s_sleeping; }
+void setMusicPaused(bool paused)
+{
+    if (s_musicPaused.exchange(paused) != paused) ESP_LOGI(TAG, "background music %s", paused ? "paused" : "resumed");
+}
 
 void setVolumes(bool soundOn, uint8_t sfxVol, bool musicOn, uint8_t musicVol)
 {
