@@ -1,4 +1,4 @@
-#include "my_rtc.h"
+#include "my_rtc_backends.h"
 
 #include <sys/time.h>
 
@@ -9,7 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-namespace MyRtc {
+namespace MyRtc::Internal {
 namespace {
 
 constexpr time_t MIN_T = 1704067200;
@@ -82,7 +82,7 @@ bool begin(i2c_master_bus_handle_t, time_t *outTime)
         if (outTime) *outTime = utc;
     }
     ESP_LOGI("rtc", "internal RTC: %s (reset=%d); VBAT retention requires controlled deep sleep, not abrupt power-off",
-             stateText(s_st.state), static_cast<int>(reset));
+             MyRtc::Internal::stateText(s_st.state), static_cast<int>(reset));
     return s_st.timeValid;
 }
 
@@ -141,4 +141,4 @@ const char *stateText(State state)
     }
 }
 
-}  // namespace MyRtc
+}  // namespace MyRtc::Internal

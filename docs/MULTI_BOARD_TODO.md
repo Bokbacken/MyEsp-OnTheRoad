@@ -290,6 +290,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   drift, men är inte deep-sleep-wake-kompatibel. Touch pollas utan wake-INT.
 - [ ] Välj RTC-/viloväg för P4: separat RTC-GPIO-knapp + kontrollerad
   VBAT-deep-sleep, light sleep med huvudmatning kvar, eller separat kalender-RTC.
+  Ägaren har monterat DS3231 på P4. v0.23.15 väljer den automatiskt vid
+  I2C-adress 0x68, annars används intern RTC. Verifiera RTC/temperatur i
+  diagnostik, NTP/manuell första inställning och tid efter RESET samt
+  strömavbrott utan ny NTP-synk.
   Se [hårdvarureferensens RTC-avsnitt](Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md#rtc-retention-known-limits-and-possible-next-steps).
   Ägartest 2026-11-01 utan Wi-Fi/NTP: omstart via webben behåller betrodd
   RTC-tid. Fysisk RESET-knapp ger "väntar på NTP/manuell tid" och `?`,

@@ -154,7 +154,9 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
 - **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone
   (default Swedish CET/CEST), manual setting on the device (Inställningar → Klocka) or from the browser.
   The last time is kept in NVS across reboots and shown as uncertain (orange "?") until NTP or a manual set.
-  With the optional **DS3231 RTC** the clock is set from the RTC at boot (source "RTC", certain); the RTC
+  With the optional **DS3231 RTC** the clock is set from the RTC at boot (source "RTC", certain).
+  P4 automatically prefers a DS3231 at 0x68 on its shared I2C bus; without one it uses its internal RTC.
+  The DS3231
   keeps UTC and is rewritten after every NTP sync / manual set when it drifts ≥ 1 s. Log lines carry
   uptime and are shown in real time as soon as the clock is certain (also lines from before that point).
 - **Live view** – `/game` shows the running game read-only (dice, kept dice, full score sheet, winner,

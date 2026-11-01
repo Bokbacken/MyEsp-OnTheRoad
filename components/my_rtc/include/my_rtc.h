@@ -1,4 +1,4 @@
-// my_rtc.h - board-selected RTC: DS3231 on S3, internal RTC timer on P4.
+// my_rtc.h - DS3231 on S3; auto-detected DS3231 or internal RTC timer on P4.
 //
 // The DS3231 keeps UTC (24 h mode). Its begin() probes 0x68 and runs a function test:
 //   - answers on the bus and the registers read back
@@ -9,7 +9,8 @@
 //   - temperature register in -40..+85 degC
 // write() sets the time at the next second boundary and clears OSF.
 //
-// P4 uses the internal RTC counter with a trusted UTC anchor in retained RTC memory.
+// P4 prefers a DS3231 detected at 0x68 on the shared I2C bus. If absent, it uses
+// the internal RTC counter with a trusted UTC anchor in retained RTC memory.
 // NTP/manual clock updates establish the anchor; software resets and deep sleep can retain it.
 // An abrupt loss of main power is NOT treated as a valid battery-backed calendar.
 #pragma once
@@ -46,7 +47,7 @@ struct Status {
     int32_t lastDriftS;    // RTC - system time at the last sync check
 };
 
-// bus: an i2c_master bus already created by the board (unused by the P4 internal RTC).
+// bus: an i2c_master bus already created by the board.
 // Returns true when the RTC holds a valid time (outTime set, UTC).
 bool begin(i2c_master_bus_handle_t bus, time_t *outTime = nullptr);
 

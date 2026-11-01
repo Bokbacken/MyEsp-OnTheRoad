@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.15 (unreleased)
+
+- P4 automatically selects a DS3231 responding at 0x68 on the shared I2C
+  bus. If absent, the internal RTC remains the fallback. A detected DS3231
+  with invalid time or failed register reads remains selected and reports
+  its error instead of silently falling back.
+- RTC time, temperature, diagnostics and NTP/manual synchronization use the
+  selected backend. S3 retains its existing DS3231 backend.
+- Host tests cover absence, valid time, oscillator-stop recovery and I2C
+  register errors. Owner verification on P4 is pending.
+
 ## v0.23.14 (unreleased)
 
 - P4: log the reset reason, the `RTC_NOINIT` anchor's validity, and both the

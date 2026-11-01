@@ -224,7 +224,8 @@ extern "C" void app_main(void)
         }
         bool waiting = false;
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
-        waiting = rs.present && rs.ticking && rs.state == MyRtc::State::TIME_INVALID;
+        waiting = !MyRtc::temperatureAvailable() && rs.present && rs.ticking &&
+                  rs.state == MyRtc::State::TIME_INVALID;
 #endif
         UiBoot::set(UiBoot::Item::RTC, rtcOk ? UiBoot::State::OK :
                     waiting ? UiBoot::State::WAITING : UiBoot::State::FAIL, buf);

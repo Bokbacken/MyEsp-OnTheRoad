@@ -132,6 +132,18 @@ See [Espressif's VBAT example](https://github.com/espressif/esp-idf/tree/v6.1/ex
 
 #### RTC retention: known limits and possible next steps
 
+P4 automatically probes the shared touch I2C bus for a DS3231 at `0x68`.
+If it responds, all RTC functions use the DS3231 backend: UTC calendar
+time, OSF/ticking checks, temperature and synchronization from NTP/manual
+time. If it does not respond, the internal RTC backend remains available.
+A detected DS3231 with invalid time or failed register access reports the
+problem rather than silently using the internal RTC. A new module may
+need NTP or manual time once before its battery-backed time is trusted.
+Use 3.3 V-compatible I2C levels and a cell/charging circuit appropriate to
+the module; the P4 RTC BAT connector does not power the external module.
+
+The following retention limits apply to the internal fallback, not DS3231:
+
 The internal RTC is a counter, not a DS3231-style calendar register bank.
 `MyRtc` reads `esp_rtc_get_time_us()` and combines it with a trusted UTC
 anchor in `RTC_NOINIT_ATTR` memory. NTP or manual time establishes that
@@ -186,7 +198,7 @@ while running, but P4 deep-sleep GPIO wakeup supports GPIO0..15, not GPIO35.
 GT911 touch is polled with no connected wake interrupt in our pinmap.
 Do not implement deep sleep promising wake by BOOT or touch on this wiring.
 
-Possible paths, none implemented or hardware-verified here:
+Possible paths:
 
 - A touchscreen command for controlled deep sleep, paired with a separate
   button on a verified free RTC GPIO. Check pin conflicts, pull resistors,
@@ -195,9 +207,9 @@ Possible paths, none implemented or hardware-verified here:
 - Light sleep with BOOT wakeup while the main supply remains available.
   GPIO35 wakeup support and peripheral shutdown/resume still need testing;
   this is not the documented VBAT deep-sleep backup sequence.
-- An external battery-backed calendar RTC, such as DS3231. The S3 backend
-  already supports DS3231 at I2C address 0x68, but P4 requires explicit
-  backend selection, wiring/bus checks and validation. Use a module with
+- An external battery-backed calendar RTC, such as DS3231. Automatic P4
+  selection at I2C address 0x68 is implemented; hardware validation is
+  pending. Use a module with
   3.3 V-compatible I2C levels and a backup-cell/charging circuit appropriate
   to the cell; do not assume every DS3231 module has safe charging behavior.
 - Investigate power-loss detection and controlled entry to VBAT sleep only

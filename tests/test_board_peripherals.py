@@ -204,12 +204,84 @@ inline int f_getfree(const char *, DWORD *n, FATFS **fs) {
 }
 '''
 
+RTC_AUTO = r'''
+#include "my_rtc_time.h"
+using i2c_master_dev_handle_t = void *;
+constexpr int I2C_ADDR_BIT_LEN_7 = 0;
+struct i2c_device_config_t {
+    int dev_addr_length;
+    int device_address;
+    int scl_speed_hz;
+};
+bool externalPresent = false, registerError = false, stopped = false;
+int writes = 0;
+inline int i2c_master_probe(void *, int addr, int) {
+    assert(addr == 0x68);
+    return externalPresent ? ESP_OK : ESP_FAIL;
+}
+inline int i2c_master_bus_add_device(void *, const i2c_device_config_t *, void **dev) {
+    *dev = reinterpret_cast<void *>(2); return ESP_OK;
+}
+inline int i2c_master_transmit_receive(void *, const uint8_t *reg, size_t, uint8_t *buf, size_t n, int) {
+    if (registerError) return ESP_FAIL;
+    memset(buf, 0, n);
+    if (*reg == 0) MyRtcTime::encode(1793500000 + ticks / 1000000, buf);
+    if (*reg == 0x0f) buf[0] = stopped ? 0x80 : 0;
+    if (*reg == 0x11) buf[0] = 25;
+    return ESP_OK;
+}
+inline int i2c_master_transmit(void *, const uint8_t *, size_t, int) { ++writes; return ESP_OK; }
+namespace MyLog { inline void event(const char *, const char *, ...) {} }
+#define settimeofday setSystemTime
+#include "components/my_rtc/my_rtc.cpp"
+#include "components/my_rtc/my_rtc_internal.cpp"
+#include "components/my_rtc/my_rtc_auto.cpp"
+#undef settimeofday
+int main() {
+    time_t out = 0;
+    void *bus = reinterpret_cast<void *>(1);
+    assert(!MyRtc::begin(bus, &out));
+    assert(!strcmp(MyRtc::chipName(), "ESP32-P4 RTC"));
+    assert(!MyRtc::temperatureAvailable());
+    assert(MyRtc::write(1793500000));
+    assert(MyRtc::read(out));
+
+    externalPresent = true;
+    assert(MyRtc::begin(bus, &out));
+    assert(!strcmp(MyRtc::chipName(), "DS3231"));
+    assert(MyRtc::status().timeValid && MyRtc::temperatureAvailable());
+    float temp = 0;
+    assert(MyRtc::readTemp(temp) && temp == 25);
+    assert(MyRtc::read(out));
+    assert(MyRtc::write(0) && writes > 0);
+
+    stopped = true;
+    assert(!MyRtc::begin(bus, &out));
+    assert(MyRtc::status().state == MyRtc::State::TIME_INVALID);
+    assert(!strcmp(MyRtc::chipName(), "DS3231"));
+    assert(!MyRtc::read(out));
+    assert(MyRtc::syncFromSystem(true));
+    assert(MyRtc::status().timeValid);
+
+    registerError = true;
+    assert(!MyRtc::begin(bus, &out));
+    assert(MyRtc::status().state == MyRtc::State::BUS_ERROR);
+    assert(!strcmp(MyRtc::chipName(), "DS3231"));
+}
+'''
+
 RTC = r'''
 #define settimeofday setSystemTime
 #include "components/my_rtc/my_rtc_internal.cpp"
 #undef settimeofday
 int main() {
     using namespace MyRtc;
+    using MyRtc::Internal::begin;
+    using MyRtc::Internal::status;
+    using MyRtc::Internal::read;
+    using MyRtc::Internal::write;
+    using MyRtc::Internal::temperatureAvailable;
+    using MyRtc::Internal::chipName;
     time_t out=0;
     assert(!begin(nullptr, &out));
     assert(status().present && status().ticking && !status().timeValid);
@@ -458,7 +530,7 @@ def main():
         work = pathlib.Path(directory)
         (work / "test_idf.h").write_text(COMMON)
         headers = [
-            "sdkconfig.h", "driver/i2c_master.h", "esp_attr.h", "esp_log.h",
+            "sdkconfig.h", "driver/i2c_master.h", "esp_attr.h", "esp_log.h", "my_log.h",
             "esp_rtc_time.h", "esp_system.h", "freertos/FreeRTOS.h", "freertos/task.h",
             "freertos/portmacro.h", "freertos/semphr.h", "esp_adc/adc_cali.h",
             "esp_adc/adc_cali_scheme.h", "esp_adc/adc_oneshot.h", "driver/gpio.h",
@@ -469,7 +541,7 @@ def main():
             path = work / header
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "test_idf.h"\n')
-        for name, code, targets in [("rtc", RTC, ["p4"]), ("adc", ADC, ["s3", "p4"]), ("sd", SD, ["s3", "p4", "p4-50"])]:
+        for name, code, targets in [("rtc", RTC, ["p4"]), ("rtc-auto", RTC_AUTO, ["p4"]), ("adc", ADC, ["s3", "p4"]), ("sd", SD, ["s3", "p4", "p4-50"])]:
             source = work / f"{name}.cpp"
             source.write_text(code)
             for target in targets:
