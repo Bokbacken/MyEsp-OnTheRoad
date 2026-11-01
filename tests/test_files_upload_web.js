@@ -56,8 +56,16 @@ async function formatStatusFlow(statuses, expectedToast) {
 
 async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = []) {
   const elements = new Map();
+  const labels = [];
   const element = id => {
-    if (!elements.has(id)) elements.set(id, {value: '', hidden: false, textContent: ''});
+    if (!elements.has(id)) {
+      const entry = {value: '', hidden: false, textContent: ''};
+      if (id === 'prog-text') Object.defineProperty(entry, 'textContent', {
+        set(value) { labels.push(value); },
+        get() { return labels.at(-1) || ''; }
+      });
+      elements.set(id, entry);
+    }
     return elements.get(id);
   };
   element('conflict-policy').value = policy;
@@ -106,7 +114,7 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
     webkitRelativePath: relativePaths[i] || ''
   }));
   await vm.runInContext('upload(files)', Object.assign(sandbox, {files}));
-  return {requests, mkdirs, toasts, maxActive, progress: element('prog').value};
+  return {requests, mkdirs, toasts, maxActive, labels, progress: element('prog').value};
 }
 
 (async () => {
@@ -119,6 +127,10 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   assert.equal(result.requests.length, 6, 'batch continues after a skipped conflict');
   assert.equal(result.maxActive, 4, 'SD file uploads allow up to four simultaneous sessions');
   assert.equal(result.progress, 100, 'aggregate progress completes');
+  assert(result.labels.includes('0/6 klara · 4 pågående · 0 B av 75 B skickat'));
+  assert(result.labels.includes('6/6 klara · 0 pågående · 75 B av 75 B skickat'));
+  assert(result.labels.filter(Boolean).every(label => !label.includes('.mid')),
+    'batch status does not flicker between individual filenames');
   assert.match(result.requests[0].url, /skip=1/);
   assert.doesNotMatch(result.requests[0].url, /overwrite=1/);
   assert.deepEqual(result.toasts, ['5 filer uppladdade, 1 hoppades över']);

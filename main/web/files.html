@@ -487,7 +487,14 @@ function upload(files) {
     const policy = $('conflict-policy').value;
     const loaded = Array(items.length).fill(0);
     const total = items.reduce((sum, item) => sum + item.file.size, 0);
-    let next = 0, done = 0, skipped = 0, failure = null;
+    let next = 0, done = 0, active = 0, skipped = 0, failure = null;
+    const updateProgress = () => {
+      const sent = loaded.reduce((sum, value) => sum + value, 0);
+      $('prog').value = total ? Math.round(sent * 100 / total) : 0;
+      $('prog-text').textContent = done + '/' + items.length + ' klara · ' +
+        active + ' pågående · ' + size(sent) + ' av ' + size(total) + ' skickat';
+    };
+    updateProgress();
     const folders = new Set();
     for (const item of items)
       for (let i = 1; i < item.parts.length; i++) folders.add(item.parts.slice(0, i).join('/'));
@@ -497,16 +504,19 @@ function upload(files) {
         if (i >= files.length) return;
         try {
           const item = items[i];
+          active++;
+          updateProgress();
           if (await uploadOne(item.file, bytes => {
             loaded[i] = bytes;
-            const sent = loaded.reduce((sum, value) => sum + value, 0);
-            $('prog').value = total ? Math.round(sent * 100 / total) : 0;
-            $('prog-text').textContent = (done + 1) + '/' + items.length + ': ' +
-              item.relativePath + ' · ' + size(bytes) + ' av ' + size(item.file.size);
+            updateProgress();
           }, uploadRoot, uploadPath, pin, policy, item.relativePath)) skipped++;
+          loaded[i] = item.file.size;
           done++;
         } catch (err) {
           failure = err;
+        } finally {
+          active--;
+          updateProgress();
         }
       }
     };

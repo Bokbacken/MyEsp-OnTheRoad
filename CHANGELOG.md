@@ -10,6 +10,8 @@ a published GitHub Release.
 
 ## v0.23.15 (unreleased)
 
+- File uploads show stable batch progress (completed/active files and total
+  bytes sent) instead of alternating filenames with a misleading file index.
 - P4 automatically selects a DS3231 responding at 0x68 on the shared I2C
   bus. If absent, the internal RTC remains the fallback. A detected DS3231
   with invalid time or failed register reads remains selected and reports
