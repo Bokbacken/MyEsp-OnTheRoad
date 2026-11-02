@@ -171,6 +171,8 @@ int main() {
         assert(UiSudoku::s_game.value(replacement)==0);
         UiSudoku::s_digit=8;
         UiSudoku::s_notes=true;
+        if (!(UiSudoku::s_game.notes(empty)&128)) UiSudoku::chooseCell(empty);
+        assert(UiSudoku::s_game.notes(empty)==128);
         UiSudoku::s_tick=MySys::now;
         MySys::now+=750;
         event(5); assert(!UiSudoku::running());
