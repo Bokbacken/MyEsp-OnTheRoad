@@ -52,6 +52,9 @@ inline uint32_t esp_random() { static uint32_t value=0; return value++; }
 #include "my_fonts.h"
 #include "lang.h"
 #include "my_sys.h"
+#include "app_config.h"
+static AppConfig testConfig{};
+namespace Config { AppConfig &get() { return testConfig; } }
 #include "ui_sudoku.cpp"
 namespace Backlight { bool sleeping() { return false; } }
 namespace UiYatzy { void showMenu() {} }
@@ -100,6 +103,7 @@ static bool solveBoard(uint8_t board[81]) {
 }
 int main() {
     lv_init();
+    Config::get().sudokuDeadZone=4;
     auto *display=lv_display_create(320,480);
     static uint16_t pixels[800*30];
     lv_display_set_color_format(display,LV_COLOR_FORMAT_RGB565);
@@ -130,14 +134,19 @@ int main() {
         UiSudoku::s_erase=false;
         UiSudoku::chooseCell(fixedCell);
         assert(UiSudoku::s_game.value(fixedCell)==givenValue && !UiSudoku::s_replaceDialog);
-        assert(UiSudoku::cellAtPoint(4,4,432)==0);
-        assert(UiSudoku::cellAtPoint(43,43,432)==0);
-        assert(UiSudoku::cellAtPoint(3,24,432)==-1);
-        assert(UiSudoku::cellAtPoint(44,24,432)==-1);
-        assert(UiSudoku::cellAtPoint(24,3,432)==-1);
-        assert(UiSudoku::cellAtPoint(24,44,432)==-1);
-        assert(UiSudoku::cellAtPoint(52,24,432)==1);
-        assert(UiSudoku::cellAtPoint(432,24,432)==-1);
+        assert(UiSudoku::cellAtPoint(4,4,432,4)==0);
+        assert(UiSudoku::cellAtPoint(43,43,432,4)==0);
+        assert(UiSudoku::cellAtPoint(3,24,432,4)==-1);
+        assert(UiSudoku::cellAtPoint(44,24,432,4)==-1);
+        assert(UiSudoku::cellAtPoint(24,3,432,4)==-1);
+        assert(UiSudoku::cellAtPoint(24,44,432,4)==-1);
+        assert(UiSudoku::cellAtPoint(52,24,432,4)==1);
+        assert(UiSudoku::cellAtPoint(432,24,432,4)==-1);
+        assert(UiSudoku::cellAtPoint(0,0,432,0)==0);
+        assert(UiSudoku::cellAtPoint(7,24,432,8)==-1);
+        assert(UiSudoku::cellAtPoint(8,24,432,8)==0);
+        assert(UiSudoku::cellAtPoint(39,24,432,8)==0);
+        assert(UiSudoku::cellAtPoint(40,24,432,8)==-1);
         inside(UiSudoku::s_board,size.x,size.y);
         inside(UiSudoku::s_info,size.x,size.y);
         inside(UiSudoku::s_help,size.x,size.y);
@@ -293,15 +302,25 @@ int main() {
         for(int frame=0;frame<240;++frame) {
             lv_tick_inc(10); MySys::now+=10; lv_timer_handler();
         }
+        assert(UiSudoku::s_cheer && !UiSudoku::s_winPrompt);
+        for(int frame=0;frame<150;++frame) {
+            lv_tick_inc(10); MySys::now+=10; lv_timer_handler();
+        }
         assert(UiSudoku::s_winPrompt);
         auto *winBox=lv_obj_get_child(UiSudoku::s_winPrompt,0);
         assert(lv_obj_get_child_count(winBox)==3);
+        auto *backButton=lv_obj_get_child(winBox,1);
+        auto *nextButton=lv_obj_get_child(winBox,2);
+        lv_area_t backArea, nextArea;
+        lv_obj_get_coords(backButton,&backArea);
+        lv_obj_get_coords(nextButton,&nextArea);
+        assert(backArea.x1 < nextArea.x1);
         for(auto *digit : UiSudoku::s_digits) assert(lv_obj_has_state(digit,LV_STATE_DISABLED));
         assert(UiSudoku::s_next[0]==1);
         UiSudoku::refresh(); assert(UiSudoku::s_next[0]==1);
         const bool testBack = size.x==320 && size.y==480 && language==0 &&
                               textSize==MyFonts::TextSize::NORMAL;
-        lv_obj_send_event(lv_obj_get_child(winBox,testBack ? 2 : 1),LV_EVENT_CLICKED,nullptr);
+        lv_obj_send_event(lv_obj_get_child(winBox,testBack ? 1 : 2),LV_EVENT_CLICKED,nullptr);
         settle();
         if(testBack) {
             assert(!UiSudoku::s_board && !UiSudoku::running());

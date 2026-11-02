@@ -3,6 +3,7 @@
 #include <atomic>
 #include <stdio.h>
 #include "board_backlight.h"
+#include "app_config.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "lang.h"
@@ -50,6 +51,9 @@ Str difficultyLabel(unsigned difficulty)
     return names[difficulty < 4 ? difficulty : 0];
 }
 
+constexpr const char *SUDOKU_SYMBOL_UNDO = "\xef\x83\xa2";
+constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\xab\xb9";
+
 void startNew(unsigned difficulty);
 void showWinPrompt();
 
@@ -93,7 +97,7 @@ void showCheer()
     lv_anim_set_var(&animation, s_cheer);
     lv_anim_set_exec_cb(&animation, cheerAnimation);
     lv_anim_set_values(&animation, 0, 44);
-    lv_anim_set_duration(&animation, 2200);
+    lv_anim_set_duration(&animation, 3700);
     lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&animation, cheerDone);
     lv_anim_start(&animation);
@@ -136,15 +140,15 @@ void showWinPrompt()
     auto *message = Theme::label(box, tr(Str::SUDOKU_NEXT_PROMPT), &my_font_14);
     lv_obj_set_width(message, LV_PCT(100));
     lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    auto *back = Theme::button(box, tr(Str::BTN_BACK), 110, 40, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_add_event_cb(back, backToPuzzleList, LV_EVENT_CLICKED, nullptr);
     auto *next = Theme::button(box, tr(Str::SUDOKU_NEXT), 126, 40, Theme::ACCENT);
-    lv_obj_align(next, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_add_event_cb(next, nextPuzzle, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(uintptr_t(s_game.difficulty())));
     if (s_next[static_cast<unsigned>(s_game.difficulty())] >= Sudoku::BLOCK_SIZE)
         lv_obj_add_state(next, LV_STATE_DISABLED);
-    auto *back = Theme::button(box, tr(Str::BTN_BACK), 110, 40, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_add_event_cb(back, backToPuzzleList, LV_EVENT_CLICKED, nullptr);
 }
 
 void save()
@@ -426,12 +430,11 @@ void chooseCell(unsigned index)
     refresh();
 }
 
-int cellAtPoint(int x, int y, int size)
+int cellAtPoint(int x, int y, int size, int deadZone)
 {
     const int cell = size / 9;
     if (cell <= 8 || x < 0 || y < 0 || x >= cell * 9 || y >= cell * 9) return -1;
     const int column = x / cell, row = y / cell;
-    constexpr int deadZone = 4;
     if (x % cell < deadZone || x % cell >= cell - deadZone ||
         y % cell < deadZone || y % cell >= cell - deadZone) return -1;
     return row * 9 + column;
@@ -445,7 +448,8 @@ void boardClick(lv_event_t *event)
     lv_indev_get_point(input, &p);
     lv_area_t a;
     lv_obj_get_coords(lv_event_get_current_target_obj(event), &a);
-    const int index = cellAtPoint(p.x - a.x1, p.y - a.y1, lv_obj_get_width(s_board));
+    const int index = cellAtPoint(p.x - a.x1, p.y - a.y1, lv_obj_get_width(s_board),
+                                  Config::get().sudokuDeadZone);
     if (index >= 0) chooseCell(static_cast<unsigned>(index));
 }
 
@@ -528,7 +532,8 @@ void play()
     lv_obj_set_style_text_font(lv_obj_get_child(back, 0), &my_font_14, 0);
     lv_obj_set_pos(back, w - margin - 64, infoY);
     lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
-    const char *tools[] = {LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_OK, LV_SYMBOL_EDIT, LV_SYMBOL_CLOSE, LV_SYMBOL_PAUSE};
+    const char *tools[] = {SUDOKU_SYMBOL_UNDO, SUDOKU_SYMBOL_REDO, LV_SYMBOL_OK,
+                           LV_SYMBOL_EDIT, LV_SYMBOL_CLOSE, LV_SYMBOL_PAUSE};
     for (unsigned row = 0; row < 3; ++row) {
         for (unsigned col = 0; col < 5; ++col) {
             const bool digit = col >= 1 && col <= 3;

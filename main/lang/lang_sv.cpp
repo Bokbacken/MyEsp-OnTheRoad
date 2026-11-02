@@ -541,6 +541,8 @@ extern const Entry LANG_SV[] = {
     {Str::SET_JOY_DIAG, "Diagonalt läge"},
     {Str::SET_JOY_DIAG_DOM, "Dominant axel (standard)"},
     {Str::SET_JOY_DIAG_ALT, "Växla axlar (trappsteg)"},
+    {Str::SET_SUDOKU_DEAD_ZONE, "Dödzon per rutkant"},
+    {Str::SET_SUDOKU_DEAD_ZONE_HELP, "Det röda fältet ignorerar tryck; mitten är klickbar."},
     {Str::SET_MS_PER_STEP, "%d ms/steg"},
     {Str::SET_SD_INFO, "SD-kort: %s, %u-bit, %u MB, %u MB ledigt"},
     {Str::SET_SD_NONE, "SD-kort: saknas"},

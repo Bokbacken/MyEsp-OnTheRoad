@@ -14,15 +14,17 @@ a published GitHub Release.
   notes, undo/redo, erase, pause, elapsed time and saved progress. Checking
   marks entered digits that differ from the solution with red crosses and
   ignores notes; rule conflicts are crossed immediately. Fixed clues ignore
-  taps, and board cells have a 4 px inactive border to reduce mis-taps.
+  taps, and the per-cell inactive border is adjustable from 0 to 8 px
+  (default 4) in Sudoku's Game settings, with a red live illustration.
   The model separately detects row, column and box conflicts.
   Completed keypad digits gray
   out, replacing an entered digit requires confirmation, pause includes the
   pending elapsed interval, and a failed save keeps the game open for retry.
   Tapping the selected digit in a filled cell toggles it off; a randomized
-  animated cheer appears when the puzzle is solved, followed by next/back
-  choices. Notes matching a newly placed digit are removed from peer cells;
-  larger puzzle status appears above the board.
+  animated cheer appears for 3.7 seconds when the puzzle is solved, followed by
+  Back/Next choices in that order. Undo/redo use curved arrows. Notes matching a
+  newly placed digit are removed from peer cells; larger puzzle status appears
+  above the board.
 - Bundle 100 offline puzzles each for Easy, Medium, Hard and Extreme from
   the public-domain Sudoku Exchange bank. Additional blocks can be imported
   during firmware preparation; automatic next-block delivery is not yet

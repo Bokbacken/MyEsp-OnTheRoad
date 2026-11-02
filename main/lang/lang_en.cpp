@@ -541,6 +541,8 @@ extern const Entry LANG_EN[] = {
     {Str::SET_JOY_DIAG, "Diagonal stick"},
     {Str::SET_JOY_DIAG_DOM, "Dominant axis (default)"},
     {Str::SET_JOY_DIAG_ALT, "Alternate axes (staircase)"},
+    {Str::SET_SUDOKU_DEAD_ZONE, "Dead zone per cell edge"},
+    {Str::SET_SUDOKU_DEAD_ZONE_HELP, "Red areas ignore taps; the center is active."},
     {Str::SET_MS_PER_STEP, "%d ms/step"},
     {Str::SET_SD_INFO, "SD card: %s, %u-bit, %u MB, %u MB free"},
     {Str::SET_SD_NONE, "SD card: not found"},

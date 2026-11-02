@@ -33,16 +33,33 @@ int main()
     CHECK(defaults.screenOffSeconds == 0);
     CHECK(!defaults.ecoSleep && !defaults.powerLog);
     CHECK(defaults.menuAnimations);
+    CHECK(defaults.sudokuDeadZone == SUDOKU_DEAD_ZONE_DEFAULT);
 
     TestNvs::numbers.clear();
     Config::begin();
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 70);
+    CHECK(Config::get().sudokuDeadZone == SUDOKU_DEAD_ZONE_DEFAULT);
+
+    for (uint8_t deadZone = SUDOKU_DEAD_ZONE_MIN; deadZone <= SUDOKU_DEAD_ZONE_MAX; ++deadZone) {
+        Config::get().sudokuDeadZone = deadZone;
+        CHECK(Config::save());
+        CHECK(TestNvs::numbers["sud_dz"] == deadZone);
+        Config::begin();
+        CHECK(Config::get().sudokuDeadZone == deadZone);
+    }
+    TestNvs::numbers["sud_dz"] = 255;
+    Config::begin();
+    CHECK(Config::get().sudokuDeadZone == SUDOKU_DEAD_ZONE_MAX);
+    Config::get().sudokuDeadZone = 255;
+    CHECK(Config::save());
+    CHECK(Config::get().sudokuDeadZone == SUDOKU_DEAD_ZONE_MAX);
 
     // Migrate the former implicit 32-voice default, then preserve an explicit 32 choice.
     TestNvs::numbers["schema"] = 1;
     TestNvs::numbers["kara_voices"] = 32;
+    TestNvs::numbers.erase("kara_vver");
     Config::begin();
     CHECK(Config::get().karaVoices == 96);
     CHECK(TestNvs::numbers["kara_voices"] == 96 && TestNvs::numbers["kara_vver"] == 1);

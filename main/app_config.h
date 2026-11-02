@@ -66,12 +66,14 @@ struct AppConfig {
     uint16_t batteryScalePermille;
     // Approximate battery-full point for the generic LiPo percentage curve (mV).
     uint16_t batteryFullMv;
+    uint8_t sudokuDeadZone;    // Inactive edge width in pixels (0..8, default 4)
 };
 
 // Joystick limits shared by the UI and the web API.
 constexpr uint16_t JOY_MS_MIN = 60, JOY_MS_MAX = 600, JOY_HOLD_MIN = 100, JOY_HOLD_MAX = 600;
 constexpr uint16_t SCREEN_OFF_SECONDS[] = {0, 30, 60, 120, 300, 600, 1800, 3600};
 constexpr uint8_t TEXT_SIZE_COUNT = 4, TEXT_SIZE_DEFAULT = 1;
+constexpr uint8_t SUDOKU_DEAD_ZONE_MIN = 0, SUDOKU_DEAD_ZONE_MAX = 8, SUDOKU_DEAD_ZONE_DEFAULT = 4;
 
 namespace Config {
 // Loads settings from NVS, falling back to defaults (MyNvs::initFlash() must have run).

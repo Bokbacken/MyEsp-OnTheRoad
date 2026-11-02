@@ -41,11 +41,13 @@ static AppConfig s_edit;            // Working copy, committed on "Spara"
 static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo, *s_batteryInfo;
 static lv_obj_t *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
 static lv_obj_t *s_slowSl, *s_fastSl;
+static lv_obj_t *s_sudokuDeadZoneVal = nullptr, *s_deadZoneActive = nullptr;
 static lv_timer_t *s_timer = nullptr;
 static lv_obj_t *s_adminCards[5];
 static lv_obj_t *s_adminPad = nullptr;
 static lv_obj_t *s_soundSwitch = nullptr, *s_ecoSwitch = nullptr;
-static lv_obj_t *s_gameCard = nullptr, *s_joyCard = nullptr, *s_userDisplay = nullptr, *s_soundCard = nullptr;
+static lv_obj_t *s_gameCard = nullptr, *s_joyCard = nullptr, *s_sudokuCard = nullptr;
+static lv_obj_t *s_userDisplay = nullptr, *s_soundCard = nullptr;
 
 static void showPage(Page page);
 
@@ -343,6 +345,20 @@ static void onHold(lv_event_t *e)
     lv_label_set_text_fmt(s_holdVal, "%d ms", s_edit.joyHoldMs);
 }
 
+static void updateDeadZonePreview()
+{
+    const int zone = s_edit.sudokuDeadZone;
+    lv_obj_set_size(s_deadZoneActive, 48 - 2 * zone, 48 - 2 * zone);
+    lv_obj_set_pos(s_deadZoneActive, zone, zone);
+}
+
+static void onSudokuDeadZone(lv_event_t *e)
+{
+    s_edit.sudokuDeadZone = (uint8_t)lv_slider_get_value(lv_event_get_target_obj(e));
+    lv_label_set_text_fmt(s_sudokuDeadZoneVal, "%d px", s_edit.sudokuDeadZone);
+    if (s_deadZoneActive) updateDeadZonePreview();
+}
+
 static void leave(bool save)
 {
     if (save) {
@@ -367,6 +383,7 @@ static void leave(bool save)
         Config::get().musicOn = s_edit.musicOn;
         Config::get().musicVol = s_edit.musicVol;
         Config::get().batteryScalePermille = s_edit.batteryScalePermille;
+        Config::get().sudokuDeadZone = s_edit.sudokuDeadZone;
         Config::get().joyZones = s_edit.joyZones;
         Config::get().joySlowMs = s_edit.joySlowMs;
         Config::get().joyFastMs = s_edit.joyFastMs;
@@ -482,7 +499,8 @@ static void showPage(Page page)
     Theme::setStatusShareAvailable(false);
     s_edit = Config::get();
     memset(s_adminCards, 0, sizeof(s_adminCards));
-    s_gameCard = s_joyCard = s_userDisplay = s_soundCard = nullptr;
+    s_gameCard = s_joyCard = s_sudokuCard = s_userDisplay = s_soundCard = nullptr;
+    s_sudokuDeadZoneVal = s_deadZoneActive = nullptr;
     s_adminPad = nullptr;
     s_soundSwitch = s_ecoSwitch = nullptr;
     lv_obj_t *scr = Theme::screen();
@@ -657,6 +675,37 @@ static void showPage(Page page)
         s_edit.joyDiag = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
+    lv_obj_t *sudoku = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_sudokuCard = sudoku;
+    lv_obj_set_flex_flow(sudoku, LV_FLEX_FLOW_COLUMN);
+    Theme::label(sudoku, tr(Str::SUDOKU_TITLE), &my_font_14, Theme::ACCENT);
+    sliderRow(sudoku, tr(Str::SET_SUDOKU_DEAD_ZONE), SUDOKU_DEAD_ZONE_MIN,
+              SUDOKU_DEAD_ZONE_MAX, s_edit.sudokuDeadZone, &s_sudokuDeadZoneVal, onSudokuDeadZone);
+    lv_obj_t *deadZoneHelp = Theme::label(sudoku, tr(Str::SET_SUDOKU_DEAD_ZONE_HELP), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(deadZoneHelp, LV_PCT(100));
+    lv_label_set_long_mode(deadZoneHelp, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_t *preview = lv_obj_create(sudoku);
+    lv_obj_remove_style_all(preview);
+    lv_obj_set_size(preview, LV_PCT(100), 56);
+    lv_obj_set_scrollable(preview, false);
+    lv_obj_t *cell = lv_obj_create(preview);
+    lv_obj_remove_style_all(cell);
+    lv_obj_set_size(cell, 48, 48);
+    lv_obj_set_pos(cell, 4, 4);
+    lv_obj_set_style_bg_color(cell, Theme::c(Theme::RED), 0);
+    lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+    lv_obj_t *active = lv_obj_create(cell);
+    lv_obj_remove_style_all(active);
+    s_deadZoneActive = active;
+    lv_obj_set_style_bg_color(active, Theme::c(Theme::TEXT), 0);
+    lv_obj_set_style_bg_opa(active, LV_OPA_COVER, 0);
+    lv_obj_t *digit = lv_label_create(active);
+    lv_label_set_text(digit, "8");
+    lv_obj_set_style_text_font(digit, &my_font_24, 0);
+    lv_obj_set_style_text_color(digit, Theme::c(Theme::BG), 0);
+    lv_obj_center(digit);
+    updateDeadZonePreview();
+
     lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     s_adminCards[2] = clk;
     lv_obj_set_flex_flow(clk, LV_FLEX_FLOW_COLUMN);
@@ -770,6 +819,7 @@ static void showPage(Page page)
     if (page != Page::GAME) {
         lv_obj_add_flag(s_gameCard, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_joyCard, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_sudokuCard, LV_OBJ_FLAG_HIDDEN);
     }
 
     const int32_t halfW = (sw - 22) / 2;

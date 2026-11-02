@@ -10,19 +10,20 @@ The left tools are undo, redo and check; the right tools are pencil, erase
 and pause. Rule conflicts in the same row, column or 3×3 box get red crosses
 immediately, including both cells in a conflicting pair. Check also marks
 entered digits that do not match the solution and ignores notes. Taps on fixed
-clues do nothing. Board taps need to land at least four pixels inside each
-cell edge, leaving a smaller, centered active area to reduce accidental input.
+clues do nothing. In **Settings → Game → Sudoku**, choose a 0–8 px inactive
+border on every cell edge (default 4 px); the red illustration previews the
+centered active area and updates with the setting.
 A keypad digit is grayed out when all nine copies are on the board.
 Tapping a cell with the currently selected digit toggles that entry off;
 replacing it with a different digit asks for confirmation. Solving the puzzle
-shows a randomly selected, animated encouragement over the board. Pause hides
-the board and stops the elapsed timer, including time since the last timer
-tick. If saving fails when leaving, the game stays open so the warning remains
-visible and the save can be retried.
+shows a randomly selected, animated encouragement over the board for 3.7
+seconds, followed by a prompt with Back on the left and Next on the right.
+Pause hides the board and stops the elapsed timer, including time since the
+last timer tick. If saving fails when leaving, the game stays open so the
+warning remains visible and the save can be retried.
 When placing a digit, matching notes are removed from its row, column and
-3×3 box. After the floating completion cheer, choose the next puzzle or return
-to the Sudoku difficulty list. Puzzle number, difficulty and elapsed time are
-shown in a larger status line above the board.
+3×3 box. Puzzle number, difficulty and elapsed time are shown in a larger status
+line above the board. Undo and redo use curved back/forward arrows.
 
 The current puzzle, notes, elapsed time and completed count per difficulty
 are saved in NVS every 30 seconds, when pausing, leaving or finishing. Power
