@@ -8,6 +8,21 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.23 (unreleased)
+
+- On-device Settings now groups game options, Players, user controls, and
+  Administration; the configured admin PIN gates administrative settings.
+  User screen-timeout and eco controls remain separate from technical power
+  actions.
+- Home, dice-game, and adventure pickers use compact image-left cards with
+  bounded descriptions. Adventure cards display optional `@about cover` /
+  `cover.image` PNGs; missing or invalid declared images use the fallback icon
+  and log a warning.
+- Settings-toggle, Adventure UI, and source-level menu checks pass.
+  LVGL-dependent layout builds cannot configure here because
+  `managed_components/lvgl__lvgl` is absent. ESP32-S3/P4 hardware verification
+  remains pending.
+
 ## v0.23.22 (unreleased)
 
 - Review fixes keep Wi-Fi/multiplayer screens from navigating away before

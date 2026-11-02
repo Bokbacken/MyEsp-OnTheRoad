@@ -48,6 +48,7 @@ static GameType s_gameType = GameType::YATZY;
 static PigVariant s_pigVariant = PigVariant::ONE_DIE;
 static bool s_midi = false;   // Midi-Yatzy: standard Yatzy with saved rolls
 static bool s_resultsProtocol = false;
+static bool s_playerCenterReturn = false;
 static PigGame s_pig;
 static FarkleGame s_farkle;
 static SccGame s_scc;
@@ -219,6 +220,7 @@ void showPlayerCenter()
                                          tr(Str::MENU_SETTINGS_PLAYERS_DESC), nullptr,
                                          LV_SYMBOL_LIST, Theme::TEAL);
     lv_obj_add_event_cb(profiles, [](lv_event_t *) {
+        s_playerCenterReturn = true;
         s_gameType = GameType::YATZY;
         const uint8_t variant = Config::get().defaultVariant;
         s_variant = variant == 1 || variant == 3 ? YatzyVariant::MAXI : YatzyVariant::STANDARD;
@@ -652,7 +654,14 @@ static void showPlayers()
     lv_obj_t *footer = selectionButtonRow(body);
     lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 0, UiMetrics::buttonH(), Theme::MUTED);
     lv_obj_set_flex_grow(back, 1);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { showVariants(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) {
+        if (s_playerCenterReturn) {
+            s_playerCenterReturn = false;
+            showPlayerCenter();
+        } else {
+            showVariants();
+        }
+    }, LV_EVENT_CLICKED, nullptr);
 
     s_startBtn = Theme::button(footer, trp("", Str::PL_START, " " LV_SYMBOL_RIGHT), 0, UiMetrics::buttonH(), Theme::ACCENT, true);
     lv_obj_set_flex_grow(s_startBtn, 1);
@@ -689,6 +698,7 @@ static void fillRoster(G &g)
 static void startNewGame()
 {
     if (s_nameCount <= 0) return;
+    s_playerCenterReturn = false;
     switch (s_gameType) {
     case GameType::PIG:
         s_pig.reset(s_pigVariant);

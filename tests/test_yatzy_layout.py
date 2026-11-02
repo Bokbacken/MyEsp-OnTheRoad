@@ -19,6 +19,10 @@ assert "lv_obj_set_flex_grow" not in menu_card
 home_menu = source[source.index("void showMenu()"):source.index("void showPlayerCenter()")]
 assert home_menu.count("Theme::menuCard") == 2 and "menuListCard(" in home_menu
 assert "lv_obj_set_flex_grow" not in home_menu
+player_center_start = source.index("\nvoid showPlayerCenter()\n{")
+player_center = source[player_center_start:source.index("\nstatic void showDiceGames()\n{", player_center_start)]
+assert "MENU_SETTINGS_PLAYERS_DESC" in player_center
+assert "if (s_playerCenterReturn)" in source
 dice_menu = source[source.index("static void showDiceGames()"):source.index("// Selection screens keep")]
 assert "menuListCard(" in dice_menu
 

@@ -124,6 +124,11 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 ## IV. Legend och authoring-underlag inför editorn
 
+- [x] Visa statiska äventyrsomslag från `@about cover` / `cover.image` på
+  menyernas äventyrskort; begränsa till 32×32 PNG ≤16 KiB, standardikon och
+  tydlig varning vid saknad/ogiltig angiven bild. Se
+  [authoringreferensen](AUTHORING_ADVENTURES.md#3-about--det-sd-menyn-visar).
+- [ ] Hårdvaruverifiera omslag, fallback och varning på ESP32-S3 och ESP32-P4.
 - [x] Slutför legendstöd där editorns palett behöver det (palett och legendhjälp i kartvyn).
 - [x] Synka feature-gap-listan, authoring och Quickguide med det nya
   storystödet och Motoräventyrets levererade syntax.
@@ -194,3 +199,4 @@ Mät och begränsa minnesbehovet; allokera inte obegränsat många kartor.
 | 2026-10-31 | Editor: enhetssprites, egna resursbilder och guidade noder | Bildläge använder exporterade enhetssprites och äventyrsmapparnas giltiga resurs-PNG; avsnittsformuläret skapar grundläggande `@node`-dialog. Riktade Node-tester och inbäddade asset-kontroller; fysisk S3/P4-verifiering kvar. |
 | 2026-11-01 | Editor: nya filer, kartstorlek, 128×128 | Maxkarta höjd från 80×80 till 128×128 (World ≈181 KB, Planner ≈640 KB i PSRAM, live-JSON 96 KiB), menyknappen utan "(test)". Node- och värdtester samt CI; minnesbeteende och editorn på S3/P4 är inte hårdvaruprovade. |
 | 2026-10-31 | Ägaren har testat grafiska editorn på P4 | Efter USB-återställning rapporterar ägaren att kartvyn ser bra ut och fungerar. Detta verifierar inte S3 eller maxkartans minnesbelastning. Nya koordinatlager återstår att hårdvarutesta. |
+| 2026-11-02 | Statiska `@about`-omslag i äventyrsmenyn | `cover`/`cover.image` visas som PNG på äventyrskort; saknad/ogiltig angiven bild får standardikon och loggvarning. Värdtestets produktionskodkontroller passerar; LVGL-layoutbygget och fysisk S3/P4-verifiering återstår. |

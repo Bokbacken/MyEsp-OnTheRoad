@@ -14,6 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(tempfile.mkdtemp(prefix="adv-setup-"))
 WORK.mkdir(parents=True, exist_ok=True)
 source = (ROOT / "main/ui_adventure.cpp").read_text()
+theme = (ROOT / "components/my_ui/include/my_theme.h").read_text()
 
 # Extract the real row builders so the test exercises the exact firmware button-building code.
 addrow = source.split("static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)\n{", 1)[1]
@@ -27,6 +28,7 @@ loader = source[source.index("static void loadCatalogCovers()"):source.index("//
 assert "16385" in loader and "size <= 16384" in loader
 assert "Adv::decodeResourcePng" in loader and "ESP_LOGW" in loader
 assert "AdvUi::rowWidth()" in playerrow, "addPlayerRow must use the responsive row width"
+assert "lv_obj_update_layout(parent)" in theme and "lv_obj_get_width(card)" in theme
 
 code = r'''
 #include <cassert>

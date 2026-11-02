@@ -235,6 +235,8 @@ inline lv_obj_t *menuCard(lv_obj_t *parent, int32_t width, const char *title, co
     lv_obj_t *card = lv_button_create(parent);
     lv_obj_remove_style_all(card);
     lv_obj_set_size(card, width, height);
+    lv_obj_update_layout(parent);
+    const int32_t cardWidth = lv_obj_get_width(card);
     lv_obj_set_style_radius(card, 14, 0);
     lv_obj_set_style_bg_color(card, c(PANEL), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
@@ -264,7 +266,7 @@ inline lv_obj_t *menuCard(lv_obj_t *parent, int32_t width, const char *title, co
     }
 
     const int32_t textX = 2 * pad + icon;
-    const int32_t textWidth = LV_MAX(1, width - textX - pad);
+    const int32_t textWidth = LV_MAX(1, cardWidth - textX - pad);
     lv_obj_t *heading = label(card, title, &my_font_24);
     lv_obj_set_width(heading, textWidth);
     lv_obj_set_height(heading, titleHeight);
