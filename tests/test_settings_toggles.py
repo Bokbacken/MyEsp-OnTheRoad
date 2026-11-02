@@ -10,6 +10,10 @@ web = (ROOT / "main/app_web.cpp").read_text()
 web_settings = (ROOT / "main/web/settings.html").read_text()
 assert "MENU_SETTINGS_GAME" in source and "MENU_SETTINGS_PLAYERS" in source
 assert "MENU_SETTINGS_USER" in source and "MENU_SETTINGS_ADMIN" in source
+settings_home_start = source.index("\nvoid show()\n{")
+settings_home = source[settings_home_start:source.index("\nstatic void showPage(Page page)\n{", settings_home_start)]
+assert "Theme::button(header, LV_SYMBOL_LEFT" in settings_home
+assert "UiYatzy::showMenu()" in settings_home
 assert "if (page != Page::USER)" in source and "if (page != Page::GAME)" in source
 assert "showPage(Page::ADMIN)" in source and "UiNumpad::MAX_PIN_LENGTH" in source
 assert source.index("SCREEN_TIMEOUT"), "user screen timeout control must remain available"

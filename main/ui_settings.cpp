@@ -439,7 +439,13 @@ void show()
 {
     Theme::setStatusShareAvailable(false);
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, tr(Str::SET_TITLE), false);
+    lv_obj_t *header = Theme::header(scr, tr(Str::SET_TITLE), false);
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) {
+        prepareForMenuNavigation();
+        UiYatzy::showMenu();
+    }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
