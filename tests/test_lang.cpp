@@ -5,6 +5,7 @@
 #include <string.h>
 #include <string>
 #include "lang.h"
+#include "lang_game.h"
 
 static int s_pass = 0, s_fail = 0;
 #define CHECK(c, ...)                                   \
@@ -133,6 +134,12 @@ int main() {
     CHECK(!Lang::setLang("xx"), "unknown code returns false");
     CHECK(strcmp(Lang::currentLang(), "sv") == 0, "unknown -> sv");
     CHECK(strcmp(tr(Str::BTN_SAVE), Lang::lookup(0, Str::BTN_SAVE)) == 0, "tr sv");
+    CHECK(strcmp(trVariant(YatzyVariant::STANDARD, YatzyMode::ORDERED, true),
+                 tr(Str::VAR_MIDI_ORDER)) == 0, "ordered Midi name sv");
+    Lang::setLang("en");
+    CHECK(strcmp(trVariant(YatzyVariant::STANDARD, YatzyMode::ORDERED, true),
+                 tr(Str::VAR_MIDI_ORDER)) == 0, "ordered Midi name en");
+    Lang::setLang("sv");
     CHECK(!Lang::setLang(nullptr), "null code returns false");
     CHECK(Lang::valid("sv") && Lang::valid("en") && !Lang::valid("") && !Lang::valid(nullptr), "valid()");
 

@@ -14,11 +14,13 @@ namespace UiNumpad {
 struct Pad {
     DoneCb cb;
     void *user;
-    char pin[PLAYER_PIN_CAP];
+    char pin[MAX_PIN_LENGTH + 1];
     lv_obj_t *root;
-    lv_obj_t *cells[PLAYER_PIN_LEN];
+    lv_obj_t *cells[MAX_PIN_LENGTH];
     lv_obj_t *hint;
     lv_obj_t *ok;
+    uint8_t minLength;
+    uint8_t maxLength;
     bool closing;
 };
 
@@ -28,19 +30,20 @@ static const char *const KEYS[] = {"1", "2", "3", "\n", "4", "5", "6", "\n", "7"
 static void refresh(Pad *p)
 {
     const size_t n = strlen(p->pin);
-    for (int i = 0; i < PLAYER_PIN_LEN; i++) {
+    for (int i = 0; i < p->maxLength; i++) {
         lv_obj_t *cell = p->cells[i];
         lv_label_set_text(lv_obj_get_child(cell, 0), (size_t)i < n ? "\xE2\x80\xA2" : "");   // U+2022 bullet
         lv_obj_set_style_border_color(cell, Theme::c((size_t)i == n ? Theme::ACCENT : Theme::LINE), 0);
     }
-    if (n == PLAYER_PIN_LEN) lv_obj_remove_state(p->ok, LV_STATE_DISABLED);
+    if (n >= p->minLength && n <= p->maxLength) lv_obj_remove_state(p->ok, LV_STATE_DISABLED);
     else lv_obj_add_state(p->ok, LV_STATE_DISABLED);
 }
 
 static void finish(Pad *p, bool ok)
 {
-    if (p->closing || (ok && strlen(p->pin) != PLAYER_PIN_LEN)) return;
-    char pin[PLAYER_PIN_CAP];
+    const size_t n = strlen(p->pin);
+    if (p->closing || (ok && (n < p->minLength || n > p->maxLength))) return;
+    char pin[MAX_PIN_LENGTH + 1];
     memcpy(pin, ok ? p->pin : "", ok ? sizeof(pin) : 1);
     if (!p->cb || p->cb(pin, ok, p->user)) close(p->root);
 }
@@ -54,7 +57,7 @@ static void keyEvent(lv_event_t *e)
     size_t n = strlen(p->pin);
     if (strcmp(t, LV_SYMBOL_BACKSPACE) == 0) {
         if (n) p->pin[n - 1] = 0;
-    } else if (t[0] >= '0' && t[0] <= '9' && n < PLAYER_PIN_LEN) {
+    } else if (t[0] >= '0' && t[0] <= '9' && n < p->maxLength) {
         p->pin[n] = t[0];
         p->pin[n + 1] = 0;
     }
@@ -64,10 +67,19 @@ static void keyEvent(lv_event_t *e)
 
 lv_obj_t *open(const char *title, const char *info, DoneCb cb, void *user, const char *cancelText)
 {
+    return open(title, info, cb, user, cancelText, PLAYER_PIN_LEN, PLAYER_PIN_LEN);
+}
+
+lv_obj_t *open(const char *title, const char *info, DoneCb cb, void *user, const char *cancelText,
+               uint8_t minLength, uint8_t maxLength)
+{
+    if (!minLength || minLength > maxLength || maxLength > MAX_PIN_LENGTH) return nullptr;
     Pad *p = (Pad *)calloc(1, sizeof(Pad));
     if (!p) return nullptr;
     p->cb = cb;
     p->user = user;
+    p->minLength = minLength;
+    p->maxLength = maxLength;
 
     lv_obj_t *root = lv_obj_create(lv_layer_top());
     p->root = root;
@@ -82,7 +94,8 @@ lv_obj_t *open(const char *title, const char *info, DoneCb cb, void *user, const
 
     const int32_t gap = 2 * UiMetrics::marginSmall();
     const int32_t width = LV_MIN(UiMetrics::screenW() - 2 * UiMetrics::marginNormal(), UiMetrics::buttonWMax());
-    const int32_t cellW = UiMetrics::buttonWMin();
+    const int32_t pinLength = p->maxLength;
+    const int32_t cellW = LV_MIN(UiMetrics::buttonWMin(), (width - (pinLength - 1) * gap) / pinLength);
     const int32_t cellH = LV_MIN(UiMetrics::buttonH() + UiMetrics::marginLarge(), UiMetrics::screenH() / 8);
     const int32_t buttonH = LV_MIN(UiMetrics::buttonH() + gap, UiMetrics::screenH() / 9);
     const int32_t buttonY = UiMetrics::screenH() - gap - buttonH;
@@ -108,11 +121,11 @@ lv_obj_t *open(const char *title, const char *info, DoneCb cb, void *user, const
     }
     cellY = LV_MAX(cellY, 2 * LV_MIN(UiMetrics::buttonH(), UiMetrics::screenH() / 11));
 
-    for (int k = 0; k < PLAYER_PIN_LEN; k++) {
+    for (int k = 0; k < p->maxLength; k++) {
         lv_obj_t *cell = lv_obj_create(root);
         lv_obj_remove_style_all(cell);
         lv_obj_set_size(cell, cellW, cellH);
-        lv_obj_set_pos(cell, (UiMetrics::screenW() - PLAYER_PIN_LEN * cellW - (PLAYER_PIN_LEN - 1) * gap) / 2 +
+        lv_obj_set_pos(cell, (UiMetrics::screenW() - pinLength * cellW - (pinLength - 1) * gap) / 2 +
                             k * (cellW + gap), cellY);
         lv_obj_set_style_radius(cell, 10, 0);
         lv_obj_set_style_bg_color(cell, Theme::c(Theme::PANEL), 0);

@@ -27,10 +27,13 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 
 ## Features
 
-- **Dice games** – Yatzy, Maxi-Yatzy, Pig, Farkle and Ship-Captain-Crew.
+- **Dice games** – Yatzy, Maxi-Yatzy, Midi-Yatzy, Pig, Farkle and
+  Ship-Captain-Crew. Static illustrations distinguish each game and dice
+  variant; Yatzy, Maxi and Midi can be set to play in order.
 - **Tile adventures** – SD-loaded `.adv` campaigns, internal maps and portals,
   puzzles, story-driven terrain/object changes, resources, NPC dialogue,
-  checkpoints and saved progress. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
+  checkpoints, saved progress, menu artwork, and optional 32×32 PNG
+  cover images on adventure cards. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
   and the [authoring reference](docs/AUTHORING_ADVENTURES.md) for examples,
   supported mechanics and limits.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device
@@ -45,6 +48,13 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 - **Sound** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
   channels, built-in chiptune synth (square/triangle/noise, ADSR, MML tunes). Any sound can be replaced by a WAV on
   the SD card. Volumes and on/off on the device and in the web settings.
+- **On-device Settings** – the hamburger menu groups game options, Players,
+  user settings, and Administration. The admin PIN, when configured, protects
+  administrative controls; screen timeout and eco mode remain user settings.
+- **Animated home icons** – a rotating die, walking village character and
+  moving musical notes. Enabled by default; switch off in Administration or
+  web settings to keep static artwork. Animation updates stop when the screen
+  is off or another page is open.
 - **microSD + file browser** – FAT storage over 4-bit SDMMC (1-bit fallback).
   `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
   folder and directory uploads. Up to four SD uploads run concurrently (fewer when internal RAM is low, e.g. S3) while
@@ -133,11 +143,12 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
   background (every 15 s–5 min depending on RSSI) and moves to another AP of the same SSID when it is
   ≥ 8 dB stronger (≥ 5 dB below −75 dBm, 30 s cooldown, never at ≥ −55 dBm, skipped during OTA);
   policy in `roam_policy.h` (host-tested). 802.11k/v/r are not used (yet). LED: pulsing blue while
-  connecting, green = connected, red = failed. mDNS `ontheroad.local`. The main menu (Wi-Fi icon) and
-  settings screen open the network list; the games work without Wi-Fi.
+  connecting, green = connected, red = failed. mDNS `ontheroad.local`. The
+  Administration submenu opens the network list; games work without Wi-Fi.
 - **Languages** – all on-device text and API error messages come from string tables
   (`main/lang/`: `enum class Str`, `tr()`, `lang_sv.cpp`, `lang_en.cpp`; missing entries fall back to
-  Swedish). Choose the language on the device (Inställningar → Språk), on the web settings page or via
+  Swedish). Choose the language on the device (Inställningar →
+  Administration), on the web settings page or via
   `/api/config` (`lang`; NVS key `lang`, default `sv`). The `/play` and `/game` pages follow the device
   language; the other web pages are still Swedish. Adding a language is described in `main/lang/lang.h`.
 - **Web play** – in the player setup each registered player can be marked as
@@ -153,8 +164,8 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
   (`rotation`); implemented with MADCTL MX|MY and mirrored touch coordinates.
 - **Clock** – NTP (pool.ntp.org, time.google.com, time.cloudflare.com) when online, POSIX time zone
   (default Swedish CET/CEST), selected through a readable city/UTC dropdown
-  with automatic daylight saving on-device or in web settings.
-  Manual time setting is available on the device (Inställningar → Klocka) or from the browser.
+  with automatic daylight saving on-device (Administration) or in web settings.
+  Manual time setting is available on the device (Administration) or from the browser.
   The last time is kept in NVS across reboots and shown as uncertain (orange "?") until NTP or a manual set.
   With the optional **DS3231 RTC** the clock is set from the RTC at boot (source "RTC", certain).
   P4 automatically prefers a DS3231 at 0x68 on its shared I2C bus; without one it uses its internal RTC.
@@ -181,7 +192,7 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
 - **OTA firmware update** – web page `/update` streams `MyEsp_OnTheRoad.bin` into the inactive app slot
   (app0/app1) with progress on the web page and on the display; the running firmware stays if anything fails.
 - **Admin PIN** – optional 4–8 digit PIN (Inställningar on the web) protecting OTA, factory reset,
-  player removal and PIN changes.
+  player removal and PIN changes. When set, the on-device Administration submenu also requires it.
 - **Web UI** – dark card-based theme: dashboard, players, settings (display, LED, game, saved networks,
   clock, time zone, admin PIN), diagnostics and update. Pages are gzip-embedded in flash
   (`main/web_assets.h`), no filesystem upload needed.
@@ -525,8 +536,10 @@ python3 tests/test_sd_log_diagnostics.py   # runtime levels, SD persistence and 
 python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting
 python3 tests/test_ota_stream.py   # incremental erase, progress and failed validation leave the boot slot unchanged
 python3 tests/test_screen_power.py   # S3/P4 idle/manual off, wake-only touch + 250 ms, OTA and brightness restoration
+python3 tests/test_settings_toggles.py   # status-bar sound/power toggles stay in sync with open Settings
 python3 tests/test_text_size_layout.py   # boot/Wi-Fi layouts on 320x480 and 480x800 for every text size; font role switching
 node tests/test_board_diagnostics_web.js   # S3/P4 overview, RTC waiting and separate SD/FFat status
+node tests/test_settings_wifi_web.js && node tests/test_web_shell.js   # PIN-gated saved networks and shared navigation shell
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine
@@ -572,6 +585,7 @@ Manual UI regression checklist (run on 320×480 and a larger portrait/landscape 
 - [ ] Dialogs: guest web-seat info and game-menu quit/continue stay on-screen; buttons work and long text scrolls.
 - [ ] Web overlay: waiting/connected text is readable, local game input stays blocked, and the local-takeover button works when disconnected.
 - [ ] Numpad: open from new-player and web-seat flows; enter four digits, backspace, retry after error, confirm and cancel; check centering and touch targets.
+- [ ] Admin/settings: enter 4–8 digits on the local admin keypad, toggle sound/power from the status bar while Settings is open, and retry saved-network loading after cancelling or mistyping the web PIN.
 - [ ] Picker: empty/full/filtered lists, long names, scroll to last row, select/change player, clear search and return without overlaps.
 
 Game-screen layout (UI step 5, firmware 0.19.1) derives header, felt/nest, suggestions, controls,

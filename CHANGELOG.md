@@ -8,8 +8,43 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.24 (unreleased)
+
+- Home-screen artwork animates a rolling die, village walker and musical
+  notes at five frames per second, using built-in frames rather than GIF
+  decoding or SD reads. Administration can disable animations (also available
+  through the PIN-protected web setting); the choice persists across restarts.
+- Animation updates stop while the screen is off or the home screen is
+  inactive; disabling restores the original static icons. Menu structure is
+  unchanged. S3/P4 hardware appearance and power measurements remain pending.
+
+## v0.23.23 (unreleased)
+
+- On-device Settings now groups game options, Players, user controls, and
+  Administration; the configured admin PIN gates administrative settings.
+  User screen-timeout and eco controls remain separate from technical power
+  actions.
+- Home, dice-game, and adventure pickers use compact image-left cards with
+  bounded descriptions. Adventure cards display optional `@about cover` /
+  `cover.image` PNGs; missing or invalid declared images use the fallback icon
+  and log a warning.
+- Static illustrations distinguish the home game families and dice-game
+  variants. Settings can choose Yatzy, Maxi, or Midi in-order variants; existing
+  saved variant selections retain their meanings.
+- Settings-toggle, Adventure UI, and source-level menu checks pass.
+  LVGL-dependent layout builds cannot configure here because
+  `managed_components/lvgl__lvgl` is absent. ESP32-S3/P4 hardware verification
+  remains pending.
+
 ## v0.23.22 (unreleased)
 
+- Review fixes keep Wi-Fi/multiplayer screens from navigating away before
+  their cleanup, synchronize Settings toggles with status-bar changes, accept
+  4–8 digit admin PINs locally, add authenticated saved-network loading, and
+  prevent the shared web navigation from overflowing beside desktop scrollbars.
+- Settings-toggle and web-shell host checks pass; the production keypad/layout
+  host test could not run here because `managed_components/lvgl__lvgl` is absent.
+  S3/P4 hardware checks remain pending.
 - Memory-aware SD uploads: extra parallel uploads are admitted only while
   internal RAM keeps a 40 KiB floor (HTTP 429 otherwise; the browser waits
   and retries). The file list reports `upload_slots`; the internal DMA

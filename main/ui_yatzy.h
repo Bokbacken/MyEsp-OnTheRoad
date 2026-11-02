@@ -35,4 +35,5 @@ struct CupVisual {
 const void *faceSprite(int32_t size, int face);
 CupVisual createCupVisual(lv_obj_t *parent, int32_t diameter);
 void showMenu();
+void showPlayerCenter();
 }

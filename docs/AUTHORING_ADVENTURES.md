@@ -181,11 +181,15 @@ cover: cover.png         # valfritt: 32x32 PNG i äventyrsmappen
 | `title.sv` / `title.en` | rubrik i menyn (språk efter enhetens inställning) | 79 byte per språk |
 | `desc.sv` / `desc.en`   | beskrivning under rubriken | 199 byte per språk |
 | `author`                | upphovsperson | 63 byte |
-| `cover`                 | filnamn på omslagsbild i äventyrsmappen (valfritt) | 39 byte |
+| `cover` / `cover.image` | filnamn på omslagsbild i äventyrsmappen (valfritt) | 39 byte |
 
 Saknas den engelska varianten faller menyn tillbaka på den svenska.
 Laddaren trunkerar längre värden till dessa buffertstorlekar; den ger inte
 parsefel. Gränserna gäller byte, inte antal UTF-8-tecken.
+Ett omslag visas till vänster på äventyrskortet. Lägg PNG-filen i äventyrets
+rotmapp (bredvid `.adv`-filerna); den ska vara exakt 32×32 pixlar och högst
+16 KiB. Fältet kan heta `cover` eller `cover.image`. Saknad eller ogiltig
+angiven bild ersätts av standardikonen och ger en varning i enhetsloggen.
 
 ---
 
@@ -1246,10 +1250,10 @@ cachas i PSRAM och skalas till 16/32 px. Firmware behöver
 `CONFIG_LV_USE_LODEPNG=y` (ingår nu i `sdkconfig.defaults`; uppdatera en
 befintlig `sdkconfig` via menuconfig eller generera om den enligt projektets
 bygginstruktion). Webblivevyn använder samma fil via befintlig SD-filendpoint.
-Generell ersättning av standardobjektens sprites i spelet och visning av
-`cover` är **inte** implementerade av denna leverans; `cover` läses som
-metadata. Editorn förhandsvisar däremot de exporterade standardbilderna i
-kartvyn.
+Generell ersättning av standardobjektens sprites i spelet är inte
+implementerad. Äventyrsmenyn visar däremot det statiska `cover`-omslaget
+enligt `@about`; saknad eller ogiltig bild ger en standardikon och loggvarning.
+Editorn förhandsvisar de exporterade standardbilderna i kartvyn.
 
 ```
 /otr/adventure/stenhuggaren/

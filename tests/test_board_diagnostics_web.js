@@ -167,18 +167,21 @@ async function page(file, data) {
     },
   };
   vm.createContext(sandbox);
-  const settings = fs.readFileSync('main/web/settings.html', 'utf8')
-    .match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1]
-    .replace(/load\(\);\s*loadNets\(\);\s*status\(\);\s*setInterval\(status, 4000\);/, '');
+  const settingsSource = fs.readFileSync('main/web/settings.html', 'utf8')
+    .match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
+  const settings = settingsSource.replace(
+    /load\(\);\s*(?:loadNets\(\);\s*)?status\(\);\s*setInterval\(status, 4000\);/, '');
+  assert.notEqual(settings, settingsSource, 'Remove page startup before exercising settings in isolation');
   vm.runInContext(settings, sandbox);
   vm.runInContext("fill({hostname:'otr',has_rgb_led:true,has_host_radio:false})", sandbox);
   assert.equal(element('led-controls').hidden, false);
   assert.equal(element('screen_off_seconds').value, 0);
   assert.equal(element('eco_sleep').checked, false);
   assert.equal(element('power_log').checked, false);
+  assert.equal(element('menu_animations').checked, true);
   assert.equal(element('text_size').value, 1);
   assert(element('text_size').options[3].disabled, 'S3 firmware without text_size_max hides extra large');
-  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120,eco_sleep:true,power_log:true,text_size:3,text_size_max:3,has_rgb_led:false,has_host_radio:true})", sandbox);
+  vm.runInContext("fill({hostname:'otr',screen_off_seconds:120,eco_sleep:true,power_log:true,menu_animations:false,text_size:3,text_size_max:3,has_rgb_led:false,has_host_radio:true})", sandbox);
   assert.equal(element('screen_off_seconds').value, 120);
   assert.equal(element('text_size').value, 3);
   assert(!element('text_size').options[3].disabled, 'P4 offers extra large');
@@ -188,6 +191,7 @@ async function page(file, data) {
   assert.equal(submitted.get('screen_off_seconds'), '120');
   assert.equal(submitted.get('eco_sleep'), '1');
   assert.equal(submitted.get('power_log'), '1');
+  assert.equal(submitted.get('menu_animations'), '0');
   assert.equal(submitted.get('text_size'), '3');
   assert.equal(element('toast').textContent, 'Inställningar sparade');
 

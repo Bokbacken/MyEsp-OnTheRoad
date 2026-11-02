@@ -386,6 +386,7 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
     cJSON_AddBoolToObject(o, "eco_sleep", c.ecoSleep);
     cJSON_AddBoolToObject(o, "power_log", c.powerLog);
+    cJSON_AddBoolToObject(o, "menu_animations", c.menuAnimations);
     cJSON *zones = cJSON_AddArrayToObject(o, "time_zones");
     for (const auto &zone : TimeZones::ZONES) {
         cJSON *item = cJSON_CreateObject();
@@ -400,6 +401,7 @@ static cJSON *configJson()
     cJSON_AddBoolToObject(o, "has_rgb_led", HwProfile::active().hasRgbLed);
     cJSON_AddBoolToObject(o, "has_host_radio", HwProfile::active().hasHostRadio);
     cJSON_AddNumberToObject(o, "default_variant", c.defaultVariant);
+    cJSON_AddBoolToObject(o, "result_protocol_first", c.resultProtocolFirst);
     cJSON_AddNumberToObject(o, "roll_anim_ms", c.rollAnimMs);
     cJSON_AddBoolToObject(o, "maxi_saved_rolls", c.maxiSavedRolls);
     cJSON_AddNumberToObject(o, "throw_mode", c.throwMode);
@@ -444,9 +446,11 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
     if (q.getBool("eco_sleep", b)) next.ecoSleep = b;
     if (q.getBool("power_log", b)) next.powerLog = b;
+    if (q.getBool("menu_animations", b)) next.menuAnimations = b;
     if (HwProfile::active().hasRgbLed && q.getInt("led_brightness", 0, 255, v, bad))
         next.ledBrightness = (uint8_t)v;
-    if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
+    if (q.getInt("default_variant", 0, 5, v, bad)) next.defaultVariant = (uint8_t)v;
+    if (q.getInt("result_protocol_first", 0, 1, v, bad)) next.resultProtocolFirst = v != 0;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;
     if (q.getInt("throw_mode", 0, 1, v, bad)) next.throwMode = (uint8_t)v;
     if (q.getInt("rotation", 0, 180, v, bad)) {
@@ -514,6 +518,15 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         }
     }
     const bool pinChanged = strcmp(next.adminPin, Config::get().adminPin) != 0;
+    const AppConfig &current = Config::get();
+    const bool adminChange = next.powerLog != current.powerLog ||
+                             next.menuAnimations != current.menuAnimations ||
+                             next.batteryScalePermille != current.batteryScalePermille ||
+                             next.batteryFullMv != current.batteryFullMv ||
+                             strcmp(next.hostname, current.hostname) != 0 ||
+                             strcmp(next.tz, current.tz) != 0 ||
+                             strcmp(next.lang, current.lang) != 0;
+    if (adminChange && !q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
     Config::sanitize(next);
     Config::get() = next;
     if (!Config::save()) return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_NVS));
@@ -537,6 +550,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
 static esp_err_t handleWifiPost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
     char ssid[40], pass[72] = "";
     if (!getTrim(q, "ssid", ssid, sizeof(ssid)) || !ssid[0]) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_SSID_MISSING));
     if (strlen(ssid) > 32) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_SSID_LONG));
@@ -560,6 +574,7 @@ static esp_err_t handleWifiPost(httpd_req_t *r)
 static esp_err_t handleScan(httpd_req_t *r)
 {
     MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
     int st = MyWifi::scanStatus();
     if (q.has("start") || st == -1) {
         MyWifi::startScan();
@@ -605,12 +620,18 @@ static esp_err_t sendNets(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
-static esp_err_t handleNetsGet(httpd_req_t *r) { return sendNets(r); }
+static esp_err_t handleNetsGet(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    return sendNets(r);
+}
 
 // action=add (ssid, pass) | remove (ssid) | move (ssid, delta) | forget_all
 static esp_err_t handleNetsPost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
     char act[16];
     if (!q.get("action", act, sizeof(act))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_ACTION_MISSING));
     if (strcmp(act, "forget_all") == 0) {
@@ -646,6 +667,7 @@ static esp_err_t handleNetsPost(httpd_req_t *r)
 static esp_err_t handleTimePost(httpd_req_t *r)
 {
     MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
     char buf[24];
     if (!q.get("epoch", buf, sizeof(buf))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_EPOCH));
     if (!MyTime::setManual((time_t)atoll(buf))) return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_TIME));

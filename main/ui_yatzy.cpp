@@ -29,6 +29,8 @@
 #include "ui_numpad.h"
 #include "ui_settings.h"
 #include "my_theme.h"
+#include "menu_art.h"
+#include "board_backlight.h"
 #include "ui_metrics.h"
 #include "ui_wifi.h"
 #include "lang_game.h"
@@ -47,6 +49,8 @@ static int s_nameCount = 0;
 static GameType s_gameType = GameType::YATZY;
 static PigVariant s_pigVariant = PigVariant::ONE_DIE;
 static bool s_midi = false;   // Midi-Yatzy: standard Yatzy with saved rolls
+static bool s_resultsProtocol = false;
+static bool s_playerCenterReturn = false;
 static PigGame s_pig;
 static FarkleGame s_farkle;
 static SccGame s_scc;
@@ -56,7 +60,8 @@ static int rnd(int lo, int hi) { return lo + (int)(esp_random() % (uint32_t)(hi 
 
 static void showPlayers();
 static void showGame();
-static void showResults();
+static void showResults(bool usePreferred = true);
+static void showMiniResults();
 static void startNewGame();
 static void showMini();   // Pig / Farkle / SCC game screen
 
@@ -70,17 +75,19 @@ struct VariantChoice {
     bool midi;   // Standard Yatzy with saved rolls
     Str sub;
     uint32_t color;
+    MenuArt::Icon art;
 };
 
-static const VariantChoice CHOICES[5] = {
-    {YatzyVariant::STANDARD, YatzyMode::NORMAL, false, Str::MENU_SUB_YATZY, Theme::ACCENT},
-    {YatzyVariant::STANDARD, YatzyMode::ORDERED, false, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT},
-    {YatzyVariant::STANDARD, YatzyMode::NORMAL, true, Str::MENU_SUB_MIDI, Theme::GOLD},
-    {YatzyVariant::MAXI, YatzyMode::NORMAL, false, Str::MENU_SUB_MAXI, Theme::TEAL},
-    {YatzyVariant::MAXI, YatzyMode::ORDERED, false, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL},
+static const VariantChoice CHOICES[6] = {
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, false, Str::MENU_SUB_YATZY, Theme::ACCENT, MenuArt::Icon::YATZY},
+    {YatzyVariant::STANDARD, YatzyMode::ORDERED, false, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT, MenuArt::Icon::YATZY},
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, true, Str::MENU_SUB_MIDI, Theme::GOLD, MenuArt::Icon::MIDI},
+    {YatzyVariant::STANDARD, YatzyMode::ORDERED, true, Str::MENU_SUB_MIDI_ORDER, Theme::GOLD, MenuArt::Icon::MIDI},
+    {YatzyVariant::MAXI, YatzyMode::NORMAL, false, Str::MENU_SUB_MAXI, Theme::TEAL, MenuArt::Icon::MAXI},
+    {YatzyVariant::MAXI, YatzyMode::ORDERED, false, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL, MenuArt::Icon::MAXI},
 };
-// Config::defaultVariant (0 Yatzy, 1 Maxi, 2 Yatzy i ordning, 3 Maxi i ordning) -> CHOICES index
-static const int DEFAULT_TO_CHOICE[4] = {0, 3, 1, 4};
+// Config::defaultVariant (0 Yatzy, 1 Maxi, 2 Yatzy ordered, 3 Maxi ordered, 4 Midi, 5 Midi ordered) -> CHOICES index
+static const int DEFAULT_TO_CHOICE[6] = {0, 4, 1, 5, 2, 3};
 
 struct GameChoice {
     GameType type;
@@ -105,52 +112,31 @@ static const char *gameTitle()
     }
 }
 
-// Casino-style menu card: accent stripe, title, subtitle, optional check mark.
-// w may be LV_PCT(..) (flex list) or pixels.
+// Shared compact menu card with static variant artwork.
 static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *title, const char *sub,
-                            uint32_t color, bool selected)
+                            uint32_t color, bool selected, MenuArt::Icon art,
+                            bool twoLineSubtitle = false)
 {
-    lv_obj_t *b = lv_button_create(parent);
-    lv_obj_remove_style_all(b);
-    lv_obj_set_size(b, w, h);
-    lv_obj_set_style_radius(b, 14, 0);
-    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
-    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(b, selected ? 2 : 1, 0);
-    lv_obj_set_style_border_color(b, Theme::c(selected ? Theme::ACCENT : Theme::LINE), 0);
-    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
-    lv_obj_t *stripe = lv_obj_create(b);
-    lv_obj_remove_style_all(stripe);
-    lv_obj_set_size(stripe, 6, h - 24);
-    lv_obj_align(stripe, LV_ALIGN_LEFT_MID, 10, 0);
-    lv_obj_set_style_radius(stripe, 3, 0);
-    lv_obj_set_style_bg_color(stripe, Theme::c(color), 0);
-    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
-    lv_obj_set_clickable(stripe, false);
-    const bool small = h < 76;
-    lv_obj_t *t = Theme::label(b, title, small ? &my_font_18 : &my_font_24);
-    lv_obj_set_pos(t, 28, small ? 9 : 12);
-    lv_obj_t *s = Theme::label(b, sub, &my_font_14, Theme::MUTED);
-    lv_label_set_long_mode(s, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s, LV_COORD_IS_PCT(w) ? LV_PCT(87) : 262);
-    lv_obj_set_pos(s, 28, small ? 36 : 48);
-    if (selected) {
-        lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
-        lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, small ? 8 : 12);
-    }
-    return b;
+    (void)h;
+    (void)twoLineSubtitle;
+    return Theme::menuCard(parent, w, title, sub, MenuArt::image(art),
+                           LV_SYMBOL_IMAGE, color, selected);
 }
 
-// Flex-list card: full width of the list, height shared equally (grows, never below the minimum).
-static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color, bool selected)
+// Full-width menu card sized from its active font roles, never from free list space.
+static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color,
+                              bool selected, MenuArt::Icon art)
 {
-    lv_obj_t *b = menuCardIn(list, LV_PCT(100), UiMetrics::cardMinH(), title, sub, color, selected);
-    lv_obj_set_flex_grow(b, 1);
-    lv_obj_set_style_min_height(b, UiMetrics::cardMinH(), 0);
-    return b;
+    return Theme::menuCard(list, LV_PCT(100), title, sub, MenuArt::image(art),
+                           LV_SYMBOL_IMAGE, color, selected);
 }
 
 static void showVariants();
+static void showDiceGames();
+static lv_obj_t *selectionColumn(lv_obj_t *parent, int32_t height);
+static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail = nullptr);
+static lv_obj_t *selectionBody(lv_obj_t *scr, int32_t top);
+static lv_obj_t *selectionButtonRow(lv_obj_t *parent);
 
 // UI click sound for every LVGL button (incl. message box buttons), hooked once on the indev.
 static void hookClickSound()
@@ -167,6 +153,7 @@ static void hookClickSound()
 
 void showMenu()
 {
+    Theme::setStatusShareAvailable(false);
     UiSettings::applyTextSize();   // Picks up a text size saved on the device or from the web
     hookClickSound();
     Audio::music(Sound::Music::DICE);   // Dice music loops in the menus and the dice games
@@ -183,13 +170,6 @@ void showMenu()
         lv_timer_delete(static_cast<lv_timer_t *>(lv_event_get_user_data(e)));
     }, LV_EVENT_DELETE, nameTimer);
 
-    lv_obj_t *gear = Theme::button(scr, LV_SYMBOL_SETTINGS, 52, 36, Theme::LINE);
-    lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -6 - Theme::BATTERY_STATUS_WIDTH - 4, 4);
-    lv_obj_add_event_cb(gear, [](lv_event_t *) { UiSettings::show(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *wifi = Theme::button(scr, LV_SYMBOL_WIFI, 52, 36, Theme::LINE);
-    lv_obj_align(wifi, LV_ALIGN_TOP_RIGHT, -64 - Theme::BATTERY_STATUS_WIDTH - 4, 4);
-    lv_obj_add_event_cb(wifi, [](lv_event_t *) { UiWifi::showNetworks(); }, LV_EVENT_CLICKED, nullptr);
-
     const int32_t mN = UiMetrics::marginNormal();
     lv_obj_t *hint = Theme::label(scr, tr(Str::MENU_CHOOSE_GAME), &my_font_14, Theme::MUTED);
     lv_obj_set_pos(hint, 14, 52);
@@ -197,8 +177,7 @@ void showMenu()
     lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
     UiClock::attachLabel(clk, true);
 
-    // Menu list: vertical flex column filling the space between header and footer.
-    // Four dice games + the adventure engine test world (v0.7.0) + karaoke (v0.13.0)
+    // Keep the landing page focused on the three game families available today.
     const int32_t top = UiMetrics::headerH();
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
@@ -206,28 +185,116 @@ void showMenu()
     lv_obj_set_size(list, UiMetrics::screenW() - 2 * mN, UiMetrics::screenH() - top - UiMetrics::footerH());
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-    for (int i = 0; i < 4; i++) {
-        lv_obj_t *b = menuListCard(list, tr(GAMES[i].name), tr(GAMES[i].sub), GAMES[i].color,
-                                   GAMES[i].type == s_gameType);
-        lv_obj_add_event_cb(b, [](lv_event_t *e) {
-            s_gameType = GAMES[(int)(intptr_t)lv_event_get_user_data(e)].type;
-            showVariants();
-        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-    }
-    lv_obj_t *adv = menuListCard(list, tr(Str::GAME_NAME_ADV), tr(Str::MENU_SUB_GAME_ADV), Theme::GREEN, false);
+    lv_obj_t *dice = menuListCard(list, tr(Str::MENU_DICE_GAMES), tr(Str::MENU_SUB_GAME_YATZY),
+                                  Theme::ACCENT, false, MenuArt::Icon::DICE);
+    lv_obj_add_event_cb(dice, [](lv_event_t *) { showDiceGames(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *adv = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_ADVENTURES), tr(Str::MENU_SUB_GAME_ADV),
+                                    MenuArt::image(MenuArt::Icon::ADVENTURE), LV_SYMBOL_IMAGE, Theme::GREEN);
     lv_obj_add_event_cb(adv, [](lv_event_t *) { UiAdventure::show(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *kara = menuListCard(list, tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE), Theme::GOLD, false);
+    lv_obj_t *kara = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE),
+                                     MenuArt::image(MenuArt::Icon::KARAOKE), LV_SYMBOL_AUDIO, Theme::GOLD);
     lv_obj_add_event_cb(kara, [](lv_event_t *) {
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *multi = menuListCard(list, tr(Str::MULTI_TITLE), tr(Str::MULTI_HINT), Theme::TEAL, false);
-    lv_obj_add_event_cb(multi, [](lv_event_t *) { UiMultiplayer::show(); }, LV_EVENT_CLICKED, nullptr);
-
+    if (!MenuArt::animateHome(scr,
+            lv_obj_get_child(lv_obj_get_child(dice, 0), 0),
+            lv_obj_get_child(lv_obj_get_child(adv, 0), 0),
+            lv_obj_get_child(lv_obj_get_child(kara, 0), 0),
+            [] { return Config::get().menuAnimations && !Backlight::sleeping(); }))
+        ESP_LOGE("menu", "could not allocate home animation timer");
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);
+    Theme::loadScreen(scr);
+}
+
+void showPlayerCenter()
+{
+    Theme::setStatusShareAvailable(false);
+    lv_obj_t *scr = Theme::screen();
+    lv_obj_t *header = Theme::header(scr, tr(Str::MENU_SETTINGS_PLAYERS), false);
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { UiSettings::show(); }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *body = selectionColumn(scr, 0);
+    lv_obj_set_pos(body, UiMetrics::marginNormal(), UiMetrics::headerH());
+    lv_obj_set_size(body, UiMetrics::screenW() - 2 * UiMetrics::marginNormal(),
+                    UiMetrics::screenH() - UiMetrics::headerH() - UiMetrics::footerH());
+    lv_obj_set_style_pad_row(body, UiMetrics::cardSpacing(), 0);
+    lv_obj_t *profiles = Theme::menuCard(body, LV_PCT(100), tr(Str::PL_TITLE),
+                                         tr(Str::MENU_SETTINGS_PLAYERS_DESC), nullptr,
+                                         LV_SYMBOL_LIST, Theme::TEAL);
+    lv_obj_add_event_cb(profiles, [](lv_event_t *) {
+        s_playerCenterReturn = true;
+        s_gameType = GameType::YATZY;
+        const uint8_t variant = Config::get().defaultVariant;
+        s_variant = variant == 1 || variant == 3 ? YatzyVariant::MAXI : YatzyVariant::STANDARD;
+        s_mode = variant == 2 || variant == 3 || variant == 5 ? YatzyMode::ORDERED : YatzyMode::NORMAL;
+        s_midi = variant >= 4;
+        showPlayers();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *results = Theme::menuCard(body, LV_PCT(100), tr(Str::RES_TITLE),
+                                        tr(Str::RES_PROTOCOL_VIEW), nullptr,
+                                        LV_SYMBOL_LIST, Theme::GOLD);
+    lv_obj_add_event_cb(results, [](lv_event_t *) {
+        if (s_gameType == GameType::YATZY && s_game.finished()) showResults(false);
+        else if (s_gameType == GameType::PIG && s_pig.finished()) showMiniResults();
+        else if (s_gameType == GameType::FARKLE && s_farkle.finished()) showMiniResults();
+        else if (s_gameType == GameType::SCC && s_scc.finished()) showMiniResults();
+        else {
+            lv_obj_t *box = lv_msgbox_create(nullptr);
+            lv_msgbox_add_text(box, tr(Str::MENU_NO_RESULTS));
+            lv_msgbox_add_close_button(box);
+            Theme::msgboxFonts(box);
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+    Theme::loadScreen(scr);
+}
+
+static void showDiceGames()
+{
+    Theme::setStatusShareAvailable(true);
+    lv_obj_t *scr = Theme::screen();
+    selectionHeader(scr, tr(Str::MENU_DICE_GAMES));
+    lv_obj_t *body = selectionBody(scr, UiMetrics::headerH());
+    lv_obj_t *list = selectionColumn(body, 0);
+    lv_obj_set_flex_grow(list, 1);
+    lv_obj_set_scrollable(list, true);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scroll_elastic(list, false);
+    lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
+
+    struct DiceMenuItem {
+        Str title, subtitle;
+        uint32_t color;
+        GameType type;
+        MenuArt::Icon art;
+    };
+    static const DiceMenuItem items[] = {
+        {Str::VAR_YATZY, Str::MENU_SUB_GAME_YATZY, Theme::ACCENT, GameType::YATZY, MenuArt::Icon::YATZY},
+        {Str::GAME_NAME_PIG, Str::MENU_SUB_GAME_PIG, 0xF08A24, GameType::PIG, MenuArt::Icon::PIG},
+        {Str::GAME_NAME_FARKLE, Str::MENU_SUB_GAME_FARKLE, 0xA06CF0, GameType::FARKLE, MenuArt::Icon::FARKLE},
+        {Str::GAME_NAME_SCC, Str::MENU_SUB_GAME_SCC, Theme::BLUE, GameType::SCC, MenuArt::Icon::SHIP_CAPTAIN_CREW},
+    };
+    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
+        lv_obj_t *button = menuListCard(list, tr(items[i].title), tr(items[i].subtitle),
+                                        items[i].color, false, items[i].art);
+        lv_obj_add_event_cb(button, [](lv_event_t *e) {
+            const size_t selected = (size_t)(intptr_t)lv_event_get_user_data(e);
+            s_gameType = items[selected].type;
+            showVariants();
+        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    }
+
+    lv_obj_t *row = selectionButtonRow(body);
+    lv_obj_t *back = Theme::button(row, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK),
+                                   LV_PCT(100), UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(scr);
 }
 
@@ -243,18 +310,20 @@ static lv_obj_t *selectionColumn(lv_obj_t *parent, int32_t height)
     return box;
 }
 
-static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail = nullptr)
+static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)
 {
     lv_obj_t *header = Theme::header(scr, title);
     lv_obj_set_height(header, UiMetrics::titleH());
-    lv_obj_set_style_pad_hor(header, UiMetrics::marginNormal(), 0);
-    lv_obj_set_style_pad_right(header, Theme::BATTERY_STATUS_WIDTH + UiMetrics::marginSmall(), 0);
+    const int32_t statusReserved = Theme::statusShareAvailable() ? Theme::STATUS_BAR_SHARE_RESERVED_WIDTH
+                                                                 : Theme::STATUS_BAR_RESERVED_WIDTH;
+    lv_obj_set_style_pad_right(header, statusReserved + UiMetrics::marginNormal(), 0);
     lv_obj_set_style_pad_column(header, UiMetrics::marginSmall(), 0);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_t *label = lv_obj_get_child(header, 0);
     lv_obj_set_width(label, 0);
     lv_obj_set_height(label, lv_font_get_line_height(&my_font_24));
+    lv_obj_set_style_margin_left(label, UiMetrics::marginNormal(), 0);
     lv_obj_set_flex_grow(label, 1);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     if (detail) {
@@ -284,6 +353,7 @@ static lv_obj_t *selectionButtonRow(lv_obj_t *parent)
 
 static void showVariants()
 {
+    Theme::setStatusShareAvailable(false);
     lv_obj_t *scr = Theme::screen();
     int gi = 0;
     while (gi < 3 && GAMES[gi].type != s_gameType) gi++;
@@ -303,10 +373,11 @@ static void showVariants()
     switch (s_gameType) {
     case GameType::YATZY: {
         int def = Config::get().defaultVariant;
-        def = (def >= 0 && def < 4) ? DEFAULT_TO_CHOICE[def] : 0;
-        for (int i = 0; i < 5; i++) {
+        def = (def >= 0 && def < 6) ? DEFAULT_TO_CHOICE[def] : 0;
+        for (int i = 0; i < 6; i++) {
             const VariantChoice &c = CHOICES[i];
-            lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, trVariant(c.v, c.m, c.midi), tr(c.sub), c.color, i == def);
+            lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, trVariant(c.v, c.m, c.midi), tr(c.sub),
+                                     c.color, i == def, c.art);
             lv_obj_add_event_cb(b, [](lv_event_t *e) {
                 const VariantChoice &v = CHOICES[(int)(intptr_t)lv_event_get_user_data(e)];
                 s_variant = v.v;
@@ -320,7 +391,8 @@ static void showVariants()
     case GameType::PIG:
         for (int i = 0; i < 2; i++) {
             lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(i ? Str::VAR_PIG_2 : Str::VAR_PIG_1),
-                                   tr(i ? Str::MENU_SUB_PIG_2 : Str::MENU_SUB_PIG_1), GAMES[1].color, false);
+                                   tr(i ? Str::MENU_SUB_PIG_2 : Str::MENU_SUB_PIG_1), GAMES[1].color, false,
+                                   i ? MenuArt::Icon::PIG_TWO : MenuArt::Icon::PIG);
             lv_obj_add_event_cb(b, [](lv_event_t *e) {
                 s_pigVariant = lv_event_get_user_data(e) ? PigVariant::TWO_DICE : PigVariant::ONE_DIE;
                 showPlayers();
@@ -328,12 +400,14 @@ static void showVariants()
         }
         break;
     case GameType::FARKLE: {
-        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_FARKLE), tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false);
+        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_FARKLE),
+                                 tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false, MenuArt::Icon::FARKLE);
         lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
         break;
     }
     case GameType::SCC: {
-        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_SCC_3), tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false);
+        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_SCC_3),
+                                 tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false, MenuArt::Icon::SHIP_CAPTAIN_CREW);
         lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
         break;
     }
@@ -341,7 +415,7 @@ static void showVariants()
 
     lv_obj_t *footer = selectionButtonRow(body);
     lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), LV_PCT(47), UiMetrics::buttonH(), Theme::MUTED);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { showDiceGames(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(scr);
 }
 
@@ -545,6 +619,7 @@ static void rebuildPlayerList()
 
 static void showPlayers()
 {
+    Theme::setStatusShareAvailable(false);
     s_pickFilter[0] = 0;
     refreshSeatNames();
     if (s_nameCount == 0 && Players::count() == 0) {   // Empty registry: two guests to get going
@@ -575,7 +650,14 @@ static void showPlayers()
     lv_obj_t *footer = selectionButtonRow(body);
     lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), 0, UiMetrics::buttonH(), Theme::MUTED);
     lv_obj_set_flex_grow(back, 1);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { showVariants(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) {
+        if (s_playerCenterReturn) {
+            s_playerCenterReturn = false;
+            showPlayerCenter();
+        } else {
+            showVariants();
+        }
+    }, LV_EVENT_CLICKED, nullptr);
 
     s_startBtn = Theme::button(footer, trp("", Str::PL_START, " " LV_SYMBOL_RIGHT), 0, UiMetrics::buttonH(), Theme::ACCENT, true);
     lv_obj_set_flex_grow(s_startBtn, 1);
@@ -612,6 +694,7 @@ static void fillRoster(G &g)
 static void startNewGame()
 {
     if (s_nameCount <= 0) return;
+    s_playerCenterReturn = false;
     switch (s_gameType) {
     case GameType::PIG:
         s_pig.reset(s_pigVariant);
@@ -2482,7 +2565,7 @@ static void showGame()
     lv_obj_t *scr = Theme::screen();
 
     // Header: player, round, menu
-    lv_obj_t *h = Theme::header(scr, "");
+    lv_obj_t *h = Theme::header(scr, "", false);
     lv_obj_set_height(h, s_layout.titleH);
     lv_obj_delete(lv_obj_get_child(h, 0));
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
@@ -2665,11 +2748,73 @@ static ResultLayout resultLayout()
                         UiMetrics::titleH(), UiMetrics::marginNormal());
 }
 
-static void showResults()
+static void protocolCell(lv_obj_t *parent, const char *text, int32_t x, int32_t y, int32_t width,
+                         uint32_t color, lv_text_align_t align)
 {
-    Audio::play(Sound::Sfx::WIN);
+    lv_obj_t *label = Theme::label(parent, text, &my_font_14, color);
+    lv_obj_set_size(label, width, 24);
+    lv_obj_set_pos(label, x, y);
+    lv_obj_set_style_text_align(label, align, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+}
+
+static void showProtocol(lv_obj_t *card)
+{
+    int categoryCount = 0;
+    const YatzyCategory *categories = Yatzy::categories(s_game.variant(), categoryCount);
+    const int32_t labelW = 112;
+    const int32_t scoreW = 68;
+    const int32_t rowH = 28;
+    lv_obj_set_scrollable(card, true);
+    lv_obj_set_scroll_dir(card, LV_DIR_ALL);
+    lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scroll_chain(card, false);
+
+    protocolCell(card, s_game.variant() == YatzyVariant::MAXI ? "Maxi" : "Yatzy",
+                 0, 0, labelW, Theme::ACCENT, LV_TEXT_ALIGN_LEFT);
+    for (int p = 0; p < s_game.playerCount(); ++p)
+        protocolCell(card, s_game.player(p).name, labelW + p * scoreW, 0, scoreW,
+                     Theme::TEAL, LV_TEXT_ALIGN_CENTER);
+
+    for (int i = 0; i < categoryCount; ++i) {
+        const int32_t y = (i + 1) * rowH;
+        const YatzyCategory category = categories[i];
+        protocolCell(card, trCategory(category, s_game.variant()), 0, y, labelW,
+                     Theme::TEXT, LV_TEXT_ALIGN_LEFT);
+        for (int p = 0; p < s_game.playerCount(); ++p) {
+            const int16_t score = s_game.player(p).scores[(int)category];
+            char value[8];
+            if (score == YATZY_EMPTY) snprintf(value, sizeof(value), "–");
+            else snprintf(value, sizeof(value), "%d", score);
+            protocolCell(card, value, labelW + p * scoreW, y, scoreW,
+                         score == YATZY_EMPTY ? Theme::MUTED : Theme::TEXT, LV_TEXT_ALIGN_CENTER);
+        }
+    }
+
+    const int32_t sumY = (categoryCount + 1) * rowH;
+    const int32_t bonusY = (categoryCount + 2) * rowH;
+    const int32_t totalY = (categoryCount + 3) * rowH;
+    protocolCell(card, tr(Str::GAME_SUM), 0, sumY, labelW, Theme::TEAL, LV_TEXT_ALIGN_LEFT);
+    protocolCell(card, tr(Str::GAME_BONUS), 0, bonusY, labelW, Theme::TEAL, LV_TEXT_ALIGN_LEFT);
+    protocolCell(card, tr(Str::GAME_TOTAL), 0, totalY, labelW, Theme::GOLD, LV_TEXT_ALIGN_LEFT);
+    for (int p = 0; p < s_game.playerCount(); ++p) {
+        char sum[12], bonus[12], total[12];
+        snprintf(sum, sizeof(sum), "%d", s_game.upperSum(p));
+        snprintf(bonus, sizeof(bonus), "%d", s_game.bonus(p));
+        snprintf(total, sizeof(total), "%d", s_game.total(p));
+        const int32_t x = labelW + p * scoreW;
+        protocolCell(card, sum, x, sumY, scoreW, Theme::TEXT, LV_TEXT_ALIGN_CENTER);
+        protocolCell(card, bonus, x, bonusY, scoreW, Theme::TEXT, LV_TEXT_ALIGN_CENTER);
+        protocolCell(card, total, x, totalY, scoreW, Theme::GOLD, LV_TEXT_ALIGN_CENTER);
+    }
+}
+
+static void showResults(bool usePreferred)
+{
+    if (usePreferred) s_resultsProtocol = Config::get().resultProtocolFirst;
+    if (usePreferred) Audio::play(Sound::Sfx::WIN);
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, tr(Str::RES_TITLE));
+    Theme::header(scr, tr(Str::RES_TITLE), false);
     const ResultLayout layout = resultLayout();
     lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode(), s_game.savedRollsRule()), &my_font_14, Theme::TEAL);
     lv_obj_set_width(var, layout.variantW);
@@ -2677,39 +2822,62 @@ static void showResults()
                  -12 * layout.scale / 100 - Theme::BATTERY_STATUS_WIDTH - UiMetrics::marginSmall(),
                  14 * layout.scale / 100);
 
+    lv_obj_t *view = Theme::button(scr,
+                                  tr(s_resultsProtocol ? Str::RES_RANKING_VIEW : Str::RES_PROTOCOL_VIEW),
+                                  layout.w - 2 * layout.cardX, 32, Theme::TEAL);
+    lv_obj_set_pos(view, layout.cardX, layout.cardY);
+    lv_obj_add_event_cb(view, [](lv_event_t *) {
+        s_resultsProtocol = !s_resultsProtocol;
+        showResults(false);
+    }, LV_EVENT_CLICKED, nullptr);
+
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
     int n = s_game.ranking(order, places);
-    lv_obj_t *card = Theme::card(scr, layout.cardW, layout.cardH);
-    lv_obj_set_pos(card, layout.cardX, layout.cardY);
+    const int32_t contentY = layout.cardY + 38;
+    const int32_t contentH = LV_MAX(0, layout.cardH - 38);
+    lv_obj_t *card = Theme::card(scr, layout.cardW, contentH);
+    lv_obj_set_pos(card, layout.cardX, contentY);
     lv_obj_set_scrollable(card, true);
     lv_obj_set_scroll_dir(card, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_scroll_chain(card, false);
-    static const uint32_t MEDAL[3] = {Theme::GOLD, 0xC9D3DE, 0xD08A4A};
-    for (int i = 0; i < n; i++) {
-        const YatzyPlayer &p = s_game.player(order[i]);
-        int32_t y = i * layout.rowH;
-        lv_obj_t *badge = lv_obj_create(card);
-        lv_obj_remove_style_all(badge);
-        lv_obj_set_size(badge, layout.badgeSize, layout.badgeSize);
-        lv_obj_set_pos(badge, 0, y);
-        lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(badge, Theme::c(places[i] <= 3 ? MEDAL[places[i] - 1] : Theme::PANEL_RAISED), 0);
-        lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
-        char num[6];
-        snprintf(num, sizeof(num), "%d", places[i]);
-        lv_obj_t *nl = Theme::label(badge, num, &my_font_18, places[i] <= 3 ? Theme::BG : Theme::TEXT);
-        lv_obj_center(nl);
-        lv_obj_t *name = Theme::label(card, p.name, &my_font_18, places[i] == 1 ? Theme::GOLD : Theme::TEXT);
-        lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
-        lv_obj_set_width(name, layout.nameW);
-        lv_obj_set_pos(name, layout.nameX, y + 5 * layout.scale / 100);
-        char pts[12];
-        snprintf(pts, sizeof(pts), "%d", s_game.total(order[i]));
-        lv_obj_t *pl = Theme::label(card, pts, &my_font_24);
-        lv_obj_set_width(pl, layout.scoreW);
-        lv_obj_set_style_text_align(pl, LV_TEXT_ALIGN_RIGHT, 0);
-        lv_obj_align(pl, LV_ALIGN_TOP_RIGHT, 0, y + 2);
+    lv_obj_add_event_cb(card, [](lv_event_t *e) {
+        lv_indev_t *indev = lv_indev_active();
+        if (!indev) return;
+        const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
+        if (direction != LV_DIR_LEFT && direction != LV_DIR_RIGHT) return;
+        s_resultsProtocol = !s_resultsProtocol;
+        showResults(false);
+    }, LV_EVENT_GESTURE, nullptr);
+    if (s_resultsProtocol) {
+        showProtocol(card);
+    } else {
+        static const uint32_t MEDAL[3] = {Theme::GOLD, 0xC9D3DE, 0xD08A4A};
+        for (int i = 0; i < n; i++) {
+            const YatzyPlayer &p = s_game.player(order[i]);
+            int32_t y = i * layout.rowH;
+            lv_obj_t *badge = lv_obj_create(card);
+            lv_obj_remove_style_all(badge);
+            lv_obj_set_size(badge, layout.badgeSize, layout.badgeSize);
+            lv_obj_set_pos(badge, 0, y);
+            lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(badge, Theme::c(places[i] <= 3 ? MEDAL[places[i] - 1] : Theme::PANEL_RAISED), 0);
+            lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
+            char num[6];
+            snprintf(num, sizeof(num), "%d", places[i]);
+            lv_obj_t *nl = Theme::label(badge, num, &my_font_18, places[i] <= 3 ? Theme::BG : Theme::TEXT);
+            lv_obj_center(nl);
+            lv_obj_t *name = Theme::label(card, p.name, &my_font_18, places[i] == 1 ? Theme::GOLD : Theme::TEXT);
+            lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
+            lv_obj_set_width(name, layout.nameW);
+            lv_obj_set_pos(name, layout.nameX, y + 5 * layout.scale / 100);
+            char pts[12];
+            snprintf(pts, sizeof(pts), "%d", s_game.total(order[i]));
+            lv_obj_t *pl = Theme::label(card, pts, &my_font_24);
+            lv_obj_set_width(pl, layout.scoreW);
+            lv_obj_set_style_text_align(pl, LV_TEXT_ALIGN_RIGHT, 0);
+            lv_obj_align(pl, LV_ALIGN_TOP_RIGHT, 0, y + 2);
+        }
     }
 
     lv_obj_t *again = Theme::button(scr, trp(LV_SYMBOL_REFRESH " ", Str::RES_AGAIN),
@@ -3315,7 +3483,7 @@ static void showMini()
     if (!s_faces) ESP_LOGE("games", "die sprites: out of PSRAM");
 
     lv_obj_t *scr = Theme::screen();
-    lv_obj_t *h = Theme::header(scr, "");
+    lv_obj_t *h = Theme::header(scr, "", false);
     lv_obj_delete(lv_obj_get_child(h, 0));
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
@@ -3469,7 +3637,7 @@ static void showMiniResults()
 {
     s_mRollBtn = nullptr;   // miniRefresh() is a no-op from here on
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, tr(Str::RES_TITLE));
+    Theme::header(scr, tr(Str::RES_TITLE), false);
     const ResultLayout layout = resultLayout();
     lv_obj_t *var = Theme::label(scr, gameTitle(), &my_font_14, Theme::TEAL);
     lv_label_set_long_mode(var, LV_LABEL_LONG_MODE_DOTS);

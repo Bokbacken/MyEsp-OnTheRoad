@@ -12,6 +12,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(tempfile.mkdtemp(prefix="yatzy-layout-"))
 WORK.mkdir(parents=True, exist_ok=True)
 source = (ROOT / "main/ui_yatzy.cpp").read_text()
+menu_card = source[source.index("static lv_obj_t *menuCardIn("):source.index("static void showVariants();")]
+assert "Theme::menuCard" in menu_card
+assert "MenuArt::image(art)" in menu_card
+assert "lv_obj_set_flex_grow" not in menu_card
+home_menu = source[source.index("void showMenu()"):source.index("void showPlayerCenter()")]
+assert home_menu.count("Theme::menuCard") == 2 and "menuListCard(" in home_menu
+assert "lv_obj_set_flex_grow" not in home_menu
+player_center_start = source.index("\nvoid showPlayerCenter()\n{")
+player_center = source[player_center_start:source.index("\nstatic void showDiceGames()\n{", player_center_start)]
+assert "MENU_SETTINGS_PLAYERS_DESC" in player_center
+assert "if (s_playerCenterReturn)" in source
+dice_menu = source[source.index("static void showDiceGames()"):source.index("// Selection screens keep")]
+assert "menuListCard(" in dice_menu
+assert "MenuArt::Icon::DICE" in home_menu
+assert "MenuArt::Icon::KARAOKE" in home_menu
+assert "CHOICES[6]" in source and "MenuArt::Icon::MIDI" in source
+assert "MenuArt::Icon::SHIP_CAPTAIN_CREW" in dice_menu
 
 
 def section(start, end):
@@ -29,6 +46,7 @@ code = r'''
 #include <unistd.h>
 #include "lvgl.h"
 #include "my_theme.h"
+#include "menu_art.h"
 #include "ui_metrics.h"
 #include "hw_profile.h"
 #include "app_config.h"
@@ -61,12 +79,16 @@ static YatzyVariant s_variant = YatzyVariant::STANDARD;
 static YatzyMode s_mode = YatzyMode::NORMAL;
 static char s_names[YATZY_MAX_PLAYERS][YATZY_NAME_CAP];
 static int s_nameCount;
+static YatzyGame s_game;
 static GameType s_gameType = GameType::YATZY;
 static PigVariant s_pigVariant = PigVariant::ONE_DIE;
 static bool s_midi;
 static int starts, menus;
+static bool s_playerCenterReturn;
 static void showPlayers();
 static void showMenu() { ++menus; }
+static void showDiceGames() { ++menus; }
+static void showPlayerCenter() { ++menus; }
 static void startNewGame() { ++starts; }
 @CHOICES@
 @LAYOUTS@
@@ -163,6 +185,7 @@ static void checkResponsiveLayouts(lv_display_t *display) {
             assert(results.nameW > 0 && results.scoreW > 0 && results.variantW > 0);
 
             auto *card = lv_obj_create(lv_screen_active());
+            lv_obj_remove_style_all(card);
             lv_obj_set_pos(card, results.cardX, results.cardY);
             lv_obj_set_size(card, results.cardW, results.cardH);
             lv_obj_set_scrollable(card, true);
@@ -237,11 +260,24 @@ static void inside(lv_obj_t *obj, lv_obj_t *parent) {
 static void noOverlap(lv_obj_t *box, bool horizontal, bool contained = true) {
     for (unsigned i = 0; i < lv_obj_get_child_count(box); ++i) {
         auto *o = child(box, i);
+        if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) continue;
         if (contained) inside(o, box);
-        if (i) {
-            auto *prev = child(box, i - 1);
-            assert(horizontal ? lv_obj_get_x(prev) + lv_obj_get_width(prev) <= lv_obj_get_x(o)
-                              : lv_obj_get_y(prev) + lv_obj_get_height(prev) <= lv_obj_get_y(o));
+        for (unsigned j = 0; j < i; ++j) {
+            auto *prev = child(box, j);
+            if (lv_obj_has_flag(prev, LV_OBJ_FLAG_HIDDEN)) continue;
+            const bool separated = horizontal
+                ? lv_obj_get_x(prev) + lv_obj_get_width(prev) <= lv_obj_get_x(o) ||
+                  lv_obj_get_x(o) + lv_obj_get_width(o) <= lv_obj_get_x(prev)
+                : lv_obj_get_y(prev) + lv_obj_get_height(prev) <= lv_obj_get_y(o) ||
+                  lv_obj_get_y(o) + lv_obj_get_height(o) <= lv_obj_get_y(prev);
+            if (!separated)
+                fprintf(stderr, "overlap %u/%u in %dx%d: %d,%d %dx%d vs %d,%d %dx%d\n", j, i,
+                        int(lv_obj_get_width(box)), int(lv_obj_get_height(box)),
+                        int(lv_obj_get_x(prev)), int(lv_obj_get_y(prev)),
+                        int(lv_obj_get_width(prev)), int(lv_obj_get_height(prev)),
+                        int(lv_obj_get_x(o)), int(lv_obj_get_y(o)),
+                        int(lv_obj_get_width(o)), int(lv_obj_get_height(o)));
+            assert(separated);
         }
     }
 }
@@ -333,7 +369,11 @@ static void checkModals() {
     assert(lv_obj_has_flag(s_webPanel, LV_OBJ_FLAG_HIDDEN));
     lv_obj_delete(s_webBlock); lv_obj_delete(s_webPanel);
 
-    struct Result { int calls = 0; bool ok = false, accept = false; char pin[PLAYER_PIN_CAP] = {}; } result;
+    struct Result {
+        int calls = 0;
+        bool ok = false, accept = false;
+        char pin[UiNumpad::MAX_PIN_LENGTH + 1] = {};
+    } result;
     auto done = [](const char *pin, bool ok, void *u) {
         auto *r = (Result *)u; ++r->calls; r->ok = ok;
         snprintf(r->pin, sizeof(r->pin), "%s", pin);
@@ -364,6 +404,7 @@ static void checkModals() {
         int calls = result.calls;
         click(ok); assert(result.calls == calls);
         for (int id : {0, 1, 2, 3, 4}) key(matrix, id);
+        key(matrix, 5); // Player PINs remain exactly four digits.
         click(ok); assert(result.ok && strcmp(result.pin, "1234") == 0);
         key(matrix, 9); assert(lv_obj_has_state(ok, LV_STATE_DISABLED)); // Backspace.
         key(matrix, 10); click(ok); assert(strcmp(result.pin, "1230") == 0);
@@ -382,6 +423,35 @@ static void checkModals() {
     for (int id : {0, 1, 2, 3}) key(child(pad, -3), id);
     click(child(pad, -1));
     assert(result.ok && strcmp(result.pin, "1234") == 0);
+    assert(lv_obj_get_child_count(lv_layer_top()) == 0);
+
+    auto *adminPad = UiNumpad::open(tr(Str::SET_ADMIN), nullptr, done, &result, nullptr,
+                                    UiNumpad::MIN_PIN_LENGTH, UiNumpad::MAX_PIN_LENGTH);
+    settle();
+    for (int i = 0; i < UiNumpad::MAX_PIN_LENGTH; ++i) {
+        auto *cell = child(adminPad, i + 1);
+        assert(lv_obj_get_x(cell) >= 0);
+        assert(lv_obj_get_x(cell) + lv_obj_get_width(cell) <= UiMetrics::screenW());
+    }
+    auto *adminMatrix = child(adminPad, -3);
+    auto *adminOk = child(adminPad, -1);
+    assert(lv_obj_has_state(adminOk, LV_STATE_DISABLED));
+    for (int id : {0, 1, 2}) key(adminMatrix, id);
+    assert(lv_obj_has_state(adminOk, LV_STATE_DISABLED));
+    key(adminMatrix, 3);
+    assert(!lv_obj_has_state(adminOk, LV_STATE_DISABLED));
+    result.accept = true;
+    click(adminOk);
+    assert(result.ok && strcmp(result.pin, "1234") == 0);
+
+    adminPad = UiNumpad::open(tr(Str::SET_ADMIN), nullptr, done, &result, nullptr,
+                              UiNumpad::MIN_PIN_LENGTH, UiNumpad::MAX_PIN_LENGTH);
+    settle();
+    adminMatrix = child(adminPad, -3);
+    adminOk = child(adminPad, -1);
+    for (int id : {0, 1, 2, 3, 4, 5, 6, 7, 8}) key(adminMatrix, id);
+    click(adminOk);
+    assert(result.ok && strcmp(result.pin, "12345678") == 0);
     assert(lv_obj_get_child_count(lv_layer_top()) == 0);
 }
 // Run the real game-screen construction, phase animations, table and action refresh.
@@ -537,6 +607,69 @@ static void check() {
     printf("game layout/interactions OK: %dx%d\n", int(UiMetrics::screenW()), int(UiMetrics::screenH()));
 }
 }
+static bool menuAnimationOn = true, menuScreenSleeping = false;
+static void checkHomeAnimations() {
+    const unsigned baseline = [] {
+        unsigned count = 0;
+        for (auto *timer = lv_timer_get_next(nullptr); timer; timer = lv_timer_get_next(timer)) ++count;
+        return count;
+    }();
+    auto *previous = lv_screen_active();
+    for (int cycle = 0; cycle < 4; ++cycle) {
+        auto *screen = Theme::screen();
+        lv_obj_t *pictures[3];
+        for (int i = 0; i < 3; ++i) {
+            const auto icon = static_cast<MenuArt::Icon>(i);
+            pictures[i] = lv_image_create(screen);
+            lv_image_set_src(pictures[i], MenuArt::image(icon));
+            const auto *first = MenuArt::animationFrame(icon, 0);
+            for (int frame = 0; frame < MenuArt::ANIMATION_FRAMES; ++frame) {
+                const auto *current = MenuArt::animationFrame(icon, frame);
+                const auto *next = MenuArt::animationFrame(icon, frame + 1);
+                assert(current->header.w == 32 && current->header.h == 32);
+                assert(current->data_size == 32 * 32 * 4);
+                assert(memcmp(current->data, next->data, current->data_size) != 0);
+            }
+            assert(MenuArt::animationFrame(icon, MenuArt::ANIMATION_FRAMES) == first);
+        }
+        assert(MenuArt::animateHome(screen, pictures[0], pictures[1], pictures[2],
+            [] { return menuAnimationOn && !menuScreenSleeping; }));
+        lv_screen_load(screen);
+        menuAnimationOn = true;
+        settle();
+        for (int i = 0; i < 3; ++i)
+            assert(lv_image_get_src(pictures[i]) == MenuArt::animationFrame(static_cast<MenuArt::Icon>(i), 0));
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::animationFrame(MenuArt::Icon::DICE, 1));
+        menuScreenSleeping = true;
+        settle();
+        for (int i = 0; i < 3; ++i)
+            assert(lv_image_get_src(pictures[i]) == MenuArt::image(static_cast<MenuArt::Icon>(i)));
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::image(MenuArt::Icon::DICE));
+        menuScreenSleeping = false;
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::animationFrame(MenuArt::Icon::DICE, 0));
+        menuAnimationOn = false;
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::image(MenuArt::Icon::DICE));
+        menuAnimationOn = true;
+        settle();
+        const auto *lastFrame = lv_image_get_src(pictures[0]);
+        lv_screen_load(previous);
+        settle();
+        assert(lv_image_get_src(pictures[0]) == lastFrame);
+        lv_screen_load(screen);
+        settle();
+        assert(lv_image_get_src(pictures[0]) != lastFrame);
+        lv_screen_load(previous);
+        lv_obj_delete(screen);
+        unsigned timers = 0;
+        for (auto *timer = lv_timer_get_next(nullptr); timer; timer = lv_timer_get_next(timer)) ++timers;
+        assert(timers == baseline);
+    }
+    puts("home artwork: frames, toggle, sleep/wake, screen navigation and timer cleanup passed");
+}
 int main() {
     lv_init();
     auto *display = lv_display_create(320, 480);
@@ -544,6 +677,7 @@ int main() {
     static uint8_t pixels[800 * 20 * 2];
     lv_display_set_buffers(display, pixels, nullptr, sizeof(pixels), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, [](lv_display_t *d, const lv_area_t *, uint8_t *) { lv_display_flush_ready(d); });
+    checkHomeAnimations();
     checkResponsiveLayouts(display);
     char dir[] = "/tmp/yatzy-players-XXXXXX"; storageBase = mkdtemp(dir);
     assert(Players::begin());
@@ -568,9 +702,9 @@ int main() {
                 noOverlap(list, false, false); noOverlap(child(box, 1), true);
                 if (size.x == 320 && size.y == 480) {
                     assert(lv_obj_get_y(box) == 74 && lv_obj_get_y(child(box, 1)) + lv_obj_get_y(box) == 432);
-                    assert(lv_obj_get_scroll_bottom(list) <= 0);
+                    assert((lv_obj_get_scroll_bottom(list) > 0) == (game == GameType::YATZY));
                 }
-                unsigned count = game == GameType::YATZY ? 5 : game == GameType::PIG ? 2 : 1;
+                unsigned count = game == GameType::YATZY ? 6 : game == GameType::PIG ? 2 : 1;
                 assert(lv_obj_get_child_count(list) == count);
                 for (unsigned i = 0; i < count; ++i) {
                     lv_obj_scroll_to_view(child(list, i), LV_ANIM_OFF); settle();
@@ -590,7 +724,7 @@ int main() {
                 }
                 showPlayers(); settle(); auto *box = body();
                 auto *header = lv_obj_get_child(lv_screen_active(), 0);
-                assert(lv_obj_get_child_count(header) == 2); // Title and battery only; no variant subtitle.
+                assert(lv_obj_get_child_count(header) == 6); // Title, battery, and status controls.
                 lv_area_t titleArea, batteryArea;
                 lv_obj_get_coords(lv_obj_get_child(header, 0), &titleArea);
                 lv_obj_get_coords(lv_obj_get_child(header, 1), &batteryArea);
@@ -655,11 +789,14 @@ int main() {
 '''
 code = code.replace("@CHOICES@", section("struct VariantChoice {", "static void showVariants();"))
 code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ========================================================================================\n// Players"))
+code = code.replace(
+    "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)\n{",
+    "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail = nullptr)\n{")
 code = code.replace("@PLAYERS@", section("static uint16_t s_pids", "static void startYatzy()"))
 code = code.replace("@PICKER@", section("static PlayerDb *s_pickDb", "// ========================================================================================\n// Game screen"))
 code = code.replace("@OVERLAY_STATE@", section("static lv_obj_t *s_webBlock", "static void updateWebOverlay()\n{"))
 code = code.replace("@RESPONSIVE_LAYOUTS@", section("static constexpr uint32_t M_ROLL_MS", "static lv_obj_t *s_mDie"))
-code = code.replace("@RESPONSIVE_RESULTS@", section("struct ResultLayout {", "static void showResults()\n{"))
+code = code.replace("@RESPONSIVE_RESULTS@", section("struct ResultLayout {", "static void showResults(bool usePreferred)\n{"))
 code = code.replace("@MODALS@", section("static void onMenu(lv_event_t *)\n{", "// --- Web play") +
                     section("static void updateWebOverlay()\n{", "static void webWriteTimer") +
                     section("static void buildWebOverlay(lv_obj_t *scr)\n{", "static void showGame()\n{"))
@@ -689,7 +826,7 @@ add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/ui_numpad.cpp" "{ROOT}/main/hw_profile.cpp"
  "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
-  "{ROOT}/main/app_players.cpp"
+  "{ROOT}/components/my_ui/menu_art.cpp" "{ROOT}/main/app_players.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"
  "{ROOT}/main/game_yatzy.cpp" "{ROOT}/main/dice_cup.cpp")
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/tests/player_stubs"

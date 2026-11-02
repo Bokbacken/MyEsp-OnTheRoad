@@ -615,7 +615,7 @@ void showList()
     if (s_listTimer) lv_timer_delete(s_listTimer);
     s_listTimer = nullptr;
     lv_obj_t *scr = s_listScr = Theme::screen();
-    lv_obj_t *header = Theme::header(scr, tr(Str::MENU_KARAOKE));
+    lv_obj_t *header = Theme::header(scr, tr(Str::MENU_KARAOKE), false);
     lv_obj_set_height(header, l.headerH);
     singleLine(lv_obj_get_child(header, 0),
                l.w - l.buttonH - Theme::BATTERY_STATUS_WIDTH - 3 * l.inset - l.gap);
@@ -1277,7 +1277,7 @@ void showPlayer()
     P.lastSec = 0xFFFFFFFF;
     P.fontState = (Karaoke::FontState)0xFF;   // Forces the first font label update
     lv_obj_t *scr = P.scr = Theme::screen();
-    lv_obj_t *hdr = Theme::header(scr, "");
+    lv_obj_t *hdr = Theme::header(scr, "", false);
     lv_obj_set_height(hdr, l.headerH);
     lv_obj_t *title = lv_obj_get_child(hdr, 0);
     lv_label_set_text(title, f.title.c_str());

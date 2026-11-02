@@ -3,9 +3,14 @@
 // covers whatever screen is open. LVGL task only.
 #pragma once
 
+#include <stdint.h>
+
 #include "lvgl.h"
 
 namespace UiNumpad {
+
+constexpr uint8_t MIN_PIN_LENGTH = 4;
+constexpr uint8_t MAX_PIN_LENGTH = 8;
 
 // ok=false: cancelled (pin is ""). Return true to close the pad, false to keep it open (e.g.
 // after setHint() with an error). The pad is deleted after the callback returns true.
@@ -14,6 +19,8 @@ using DoneCb = bool (*)(const char *pin, bool ok, void *user);
 // title: first line (font 24), info: smaller text below (may be nullptr). cancelText: label of
 // the cancel button (nullptr = "Avbryt"/"Cancel").
 lv_obj_t *open(const char *title, const char *info, DoneCb cb, void *user, const char *cancelText = nullptr);
+lv_obj_t *open(const char *title, const char *info, DoneCb cb, void *user, const char *cancelText,
+               uint8_t minLength, uint8_t maxLength);
 void setHint(lv_obj_t *pad, const char *text, bool error = true);
 void close(lv_obj_t *pad);
 
