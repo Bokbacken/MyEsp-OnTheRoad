@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.0 (unreleased)
+
+- Native Sudoku under Pastimes, with digit-first entry, positional pencil
+  notes, undo/redo, erase, pause, elapsed time and saved progress. Checking
+  marks incorrect entered digits with red crosses, not notes.
+- Bundle 100 offline puzzles each for Easy, Medium, Hard and Extreme from
+  the public-domain Sudoku Exchange bank. Additional blocks can be imported
+  during firmware preparation; automatic next-block delivery is not yet
+  implemented.
+- Add an animated mini-Sudoku home icon, controlled by the existing menu
+  animation setting. Yatzy multiplayer behaviour is unchanged.
+- Physical S3/P4 touch-layout verification remains pending.
+
 ## v0.23.24 (unreleased)
 
 - Home-screen artwork animates a rolling die, village walker and musical

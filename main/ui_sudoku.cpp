@@ -1,0 +1,437 @@
+#include "ui_sudoku.h"
+
+#include <atomic>
+#include <stdio.h>
+#include "board_backlight.h"
+#include "esp_log.h"
+#include "lang.h"
+#include "my_storage.h"
+#include "my_sys.h"
+#include "my_theme.h"
+#include "sudoku_game.h"
+#include "ui_metrics.h"
+#include "ui_yatzy.h"
+
+LV_FONT_DECLARE(my_font_raw_12);
+LV_FONT_DECLARE(my_font_raw_24);
+LV_FONT_DECLARE(my_font_raw_32);
+
+namespace UiSudoku {
+namespace {
+Sudoku::Game s_game;
+std::atomic<bool> s_running{false};
+bool s_ready = false, s_paused = false, s_notes = false, s_erase = false, s_checked = false;
+bool s_dirty = false, s_completedSaved = false;
+bool s_saveFailed = false;
+uint8_t s_digit = 1;
+uint32_t s_elapsed = 0, s_tick = 0, s_savedAt = 0;
+uint16_t s_next[4]{};
+lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
+lv_obj_t *s_gameScreen = nullptr;
+lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
+
+struct Save {
+    uint32_t version = 1;
+    uint32_t elapsed = 0;
+    uint16_t next[4]{};
+    uint16_t notes[81]{};
+    uint16_t puzzle = 0;
+    uint8_t difficulty = 0, values[81]{};
+    uint8_t reserved = 0;
+};
+
+Str difficultyLabel(unsigned difficulty)
+{
+    const Str names[] = {Str::SUDOKU_EASY, Str::SUDOKU_MEDIUM, Str::SUDOKU_HARD, Str::SUDOKU_EXTREME};
+    return names[difficulty < 4 ? difficulty : 0];
+}
+
+void save()
+{
+    if (!s_ready || !s_dirty) return;
+    Save data{};
+    data.elapsed = s_elapsed;
+    data.puzzle = s_game.puzzleIndex();
+    data.difficulty = static_cast<uint8_t>(s_game.difficulty());
+    for (unsigned i = 0; i < 4; ++i) data.next[i] = s_next[i];
+    for (unsigned i = 0; i < 81; ++i) {
+        data.values[i] = s_game.value(i);
+        data.notes[i] = s_game.notes(i);
+    }
+    MyNvs::Handle h("sudoku", false);
+    if (!h || !h.setBlob("game", &data, sizeof(data)) || !h.commit()) {
+        ESP_LOGE("sudoku", "cannot save game");
+        s_saveFailed = true;
+        if (s_help) lv_label_set_text(s_help, tr(Str::SUDOKU_SAVE_FAILED));
+        return;
+    }
+    s_saveFailed = false;
+    s_dirty = false;
+}
+
+void restore()
+{
+    MyNvs::Handle h("sudoku", true);
+    if (!h || h.blobSize("game") == 0) return;
+    Save data{};
+    if (h.blobSize("game") != sizeof(data) || !h.getBlob("game", &data, sizeof(data)) ||
+        data.version != 1 || data.difficulty >= 4 || data.puzzle >= Sudoku::BLOCK_SIZE) {
+        ESP_LOGE("sudoku", "invalid saved game");
+        return;
+    }
+    for (unsigned i = 0; i < 4; ++i) {
+        if (data.next[i] > Sudoku::BLOCK_SIZE) {
+            ESP_LOGE("sudoku", "invalid saved progress");
+            return;
+        }
+    }
+    for (unsigned i = 0; i < 81; ++i) {
+        if (data.values[i] > 9 || data.notes[i] > 0x1ff || (data.values[i] && data.notes[i])) {
+            ESP_LOGE("sudoku", "invalid saved cell");
+            return;
+        }
+    }
+    Sudoku::Game restored;
+    if (!restored.start(static_cast<Sudoku::Difficulty>(data.difficulty), data.puzzle)) {
+        ESP_LOGE("sudoku", "cannot restore puzzle");
+        return;
+    }
+    for (unsigned i = 0; i < 81; ++i) {
+        if (restored.fixed(i)) {
+            if (data.values[i] != restored.value(i) || data.notes[i]) {
+                ESP_LOGE("sudoku", "saved puzzle does not match bundled givens");
+                return;
+            }
+            continue;
+        }
+        if (data.values[i]) restored.put(i, data.values[i], false);
+        else for (unsigned digit = 1; digit <= 9; ++digit)
+            if (data.notes[i] & (1u << (digit - 1))) restored.put(i, digit, true);
+    }
+    s_game = restored;
+    for (unsigned i = 0; i < 4; ++i) s_next[i] = data.next[i];
+    s_elapsed = data.elapsed;
+    s_game.clearHistory();
+    s_completedSaved = s_game.complete();
+    s_ready = true;
+}
+
+void fill(lv_layer_t *layer, int x, int y, int w, int h, uint32_t color)
+{
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = Theme::c(color);
+    d.bg_opa = LV_OPA_COVER;
+    lv_area_t a{x, y, x + w - 1, y + h - 1};
+    lv_draw_rect(layer, &d, &a);
+}
+
+// Compact, fixed-position candidate digits stay legible even in a 32-pixel cell.
+void note(lv_layer_t *layer, int x, int y, unsigned digit, int scale, uint32_t color)
+{
+    constexpr uint16_t glyphs[] = {
+        0, 0x2492, 0x73e7, 0x73cf, 0x5bc9, 0x79cf, 0x79ef, 0x7249, 0x7bef, 0x7bcf
+    };
+    for (int row = 0; row < 5; ++row)
+        for (int col = 0; col < 3; ++col)
+            if (glyphs[digit] & (1u << (14 - row * 3 - col)))
+                fill(layer, x + col * scale, y + row * scale, scale, scale, color);
+}
+
+void draw(lv_event_t *event)
+{
+    lv_obj_t *board = lv_event_get_current_target_obj(event);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    lv_area_t area;
+    lv_obj_get_coords(board, &area);
+    const int size = lv_obj_get_width(board), cell = size / 9;
+    fill(layer, area.x1, area.y1, size, size, 0x243044);
+    if (s_paused) return;
+    for (unsigned i = 0; i < 81; ++i) {
+        const int row = i / 9, col = i % 9;
+        const int x = area.x1 + col * cell, y = area.y1 + row * cell;
+        const uint8_t value = s_game.value(i);
+        const bool highlight = value && value == s_digit;
+        const uint32_t bg = highlight ? 0xFFCE55 : ((row / 3 + col / 3) % 2 ? 0xE2E7EE : 0xFAFAF5);
+        fill(layer, x + 1, y + 1, cell - 1, cell - 1, bg);
+        if (value) {
+            char text[2] = {static_cast<char>('0' + value), 0};
+            lv_draw_label_dsc_t d;
+            lv_draw_label_dsc_init(&d);
+            d.text = text;
+            d.text_local = true;
+            d.font = cell >= 42 ? &my_font_raw_32 : &my_font_raw_24;
+            d.color = Theme::c(s_game.fixed(i) ? 0x172339 : 0x1468A0);
+            d.align = LV_TEXT_ALIGN_CENTER;
+            lv_area_t a{x, y + (cell - d.font->line_height) / 2, x + cell - 1, y + cell - 1};
+            lv_draw_label(layer, &d, &a);
+            if (s_checked && s_game.incorrect(i)) {
+                for (int k = 3; k < cell - 3; ++k) {
+                    fill(layer, x + k, y + k, 2, 2, Theme::RED);
+                    fill(layer, x + cell - k - 2, y + k, 2, 2, Theme::RED);
+                }
+            }
+        } else {
+            for (unsigned digit = 1; digit <= 9; ++digit) {
+                if (!(s_game.notes(i) & (1u << (digit - 1)))) continue;
+                const int scale = cell >= 42 ? 2 : 1;
+                const int nx = x + (digit - 1) % 3 * cell / 3;
+                const int ny = y + (digit - 1) / 3 * cell / 3;
+                if (digit == s_digit) fill(layer, nx + 1, ny + 1, cell / 3 - 1, cell / 3 - 1, 0xFFCE55);
+                note(layer, nx + (cell / 3 - 3 * scale) / 2,
+                     ny + (cell / 3 - 5 * scale) / 2, digit, scale, 0x243044);
+            }
+        }
+    }
+    for (int i = 0; i <= 9; i += 3) {
+        const int p = i == 9 ? size - 3 : i * cell;
+        fill(layer, area.x1 + p, area.y1, 3, size, 0x243044);
+        fill(layer, area.x1, area.y1 + p, size, 3, 0x243044);
+    }
+}
+
+void refresh()
+{
+    for (unsigned i = 0; i < 9; ++i) {
+        lv_obj_set_style_bg_color(s_digits[i], Theme::c(i + 1 == s_digit ? Theme::GOLD : Theme::PANEL_RAISED), 0);
+        lv_obj_set_style_text_color(s_digits[i], Theme::c(i + 1 == s_digit ? Theme::BG : Theme::TEXT), 0);
+    }
+    lv_obj_set_style_bg_color(s_noteButton, Theme::c(s_notes ? Theme::ACCENT : Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_bg_color(s_eraseButton, Theme::c(s_erase ? Theme::RED : Theme::PANEL_RAISED), 0);
+    lv_label_set_text(lv_obj_get_child(s_pauseButton, 0), s_paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
+    const bool complete = s_game.complete();
+    s_running = !s_paused && !complete;
+    if (complete && !s_completedSaved) {
+        s_completedSaved = true;
+        const unsigned difficulty = static_cast<unsigned>(s_game.difficulty());
+        if (s_next[difficulty] <= s_game.puzzleIndex()) s_next[difficulty] = s_game.puzzleIndex() + 1;
+        s_dirty = true;
+        save();
+    }
+    char text[96];
+    snprintf(text, sizeof(text), "%s #%u   %02lu:%02lu%s",
+             tr(difficultyLabel(static_cast<unsigned>(s_game.difficulty()))), s_game.puzzleIndex() + 1,
+             (unsigned long)(s_elapsed / 60000), (unsigned long)(s_elapsed / 1000 % 60),
+             complete ? " *" : "");
+    lv_label_set_text(s_info, text);
+    lv_label_set_text(s_help, tr(s_saveFailed ? Str::SUDOKU_SAVE_FAILED :
+                               complete ? Str::SUDOKU_COMPLETE :
+                               s_paused ? Str::SUDOKU_PAUSED :
+                               s_erase ? Str::SUDOKU_ERASE :
+                               s_notes ? Str::SUDOKU_NOTES : Str::SUDOKU_HINT));
+    lv_obj_invalidate(s_board);
+}
+
+void play();
+
+void chooseCell(unsigned index)
+{
+    if (s_paused || s_game.complete()) return;
+    const bool changed = s_erase ? s_game.erase(index) : s_game.put(index, s_digit, s_notes);
+    if (changed) {
+        s_dirty = true;
+        s_checked = false;
+    }
+    refresh();
+}
+
+void boardClick(lv_event_t *event)
+{
+    lv_indev_t *input = lv_indev_active();
+    if (!input) return;
+    lv_point_t p;
+    lv_indev_get_point(input, &p);
+    lv_area_t a;
+    lv_obj_get_coords(lv_event_get_current_target_obj(event), &a);
+    const int cell = lv_obj_get_width(s_board) / 9;
+    const int col = (p.x - a.x1) / cell, row = (p.y - a.y1) / cell;
+    if (p.x >= a.x1 && p.y >= a.y1 && col < 9 && row < 9) chooseCell(row * 9 + col);
+}
+
+void tool(lv_event_t *event)
+{
+    const auto action = static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    if (action == 5) {
+        s_paused = !s_paused;
+        s_tick = MySys::millis();
+        s_dirty = true;
+        save();
+    } else if (!s_paused && !s_game.complete()) {
+        if (action == 0) { if (s_game.undo()) s_dirty = true; s_checked = false; }
+        if (action == 1) { if (s_game.redo()) s_dirty = true; s_checked = false; }
+        if (action == 2) s_checked = true;
+        if (action == 3) { s_notes = !s_notes; s_erase = false; }
+        if (action == 4) s_erase = !s_erase;
+    }
+    refresh();
+}
+
+void digitClick(lv_event_t *event)
+{
+    s_digit = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    s_erase = false;
+    refresh();
+}
+
+void tick(lv_timer_t *timer)
+{
+    auto *screen = static_cast<lv_obj_t *>(lv_timer_get_user_data(timer));
+    if (lv_screen_active() != screen) return;
+    const uint32_t now = MySys::millis();
+    if (!s_paused && !s_game.complete() && !Backlight::sleeping()) {
+        s_elapsed += now - s_tick;
+        s_dirty = true;
+    }
+    s_tick = now;
+    if (now - s_savedAt >= 30000) { s_savedAt = now; save(); }
+    refresh();
+}
+
+void play()
+{
+    Theme::setStatusShareAvailable(false);
+    lv_obj_t *screen = Theme::screen();
+    s_gameScreen = screen;
+    Theme::header(screen, tr(Str::SUDOKU_TITLE));
+    const int w = UiMetrics::screenW(), h = UiMetrics::screenH();
+    const int top = UiMetrics::titleH() + 6, margin = 8, gap = 4;
+    const bool landscape = w > h;
+    int side = landscape ? h - top - 8 : w - 2 * margin;
+    if (!landscape && side > h - top - 174) side = h - top - 174;
+    side = side / 9 * 9;
+    const int controlsX = landscape ? margin + side + 10 : margin;
+    const int controlsY = landscape ? top : top + side + 4;
+    const int controlsW = landscape ? w - controlsX - margin : w - 2 * margin;
+    const int buttonW = (controlsW - 4 * gap) / 5;
+    const int infoH = 22;
+    const int buttonH = landscape ? (h - controlsY - 92) / 3 : (h - controlsY - 56) / 3;
+
+    s_board = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_board);
+    lv_obj_set_pos(s_board, landscape ? margin : (w - side) / 2, top);
+    lv_obj_set_size(s_board, side, side);
+    lv_obj_add_flag(s_board, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_board, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_board, draw, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_add_event_cb(s_board, boardClick, LV_EVENT_CLICKED, nullptr);
+    s_info = Theme::label(screen, "", &my_font_raw_12);
+    lv_obj_set_pos(s_info, controlsX, controlsY);
+    lv_obj_set_width(s_info, controlsW - 66);
+    lv_obj_set_style_text_font(s_info, &my_font_raw_12, 0);
+    lv_obj_t *back = Theme::button(screen, tr(Str::BTN_BACK), 62, infoH, Theme::MUTED);
+    lv_obj_set_style_text_font(lv_obj_get_child(back, 0), &my_font_raw_12, 0);
+    lv_obj_set_pos(back, controlsX + controlsW - 62, controlsY);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { save(); show(); }, LV_EVENT_CLICKED, nullptr);
+    const char *tools[] = {LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_OK, LV_SYMBOL_EDIT, LV_SYMBOL_CLOSE, LV_SYMBOL_PAUSE};
+    for (unsigned row = 0; row < 3; ++row) {
+        for (unsigned col = 0; col < 5; ++col) {
+            const bool digit = col >= 1 && col <= 3;
+            const unsigned id = digit ? row * 3 + col : row + (col == 4 ? 3 : 0);
+            char label[2] = {static_cast<char>('0' + id), 0};
+            auto *b = Theme::button(screen, digit ? label : tools[id], buttonW, buttonH, Theme::LINE);
+            lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_raw_24, 0);
+            lv_obj_set_pos(b, controlsX + col * (buttonW + gap), controlsY + infoH + 3 + row * (buttonH + gap));
+            lv_obj_add_event_cb(b, digit ? digitClick : tool, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(id)));
+            if (digit) s_digits[id - 1] = b;
+            else if (id == 3) s_noteButton = b;
+            else if (id == 4) s_eraseButton = b;
+            else if (id == 5) s_pauseButton = b;
+        }
+    }
+    s_help = Theme::label(screen, "", &my_font_raw_12, Theme::MUTED);
+    lv_obj_set_pos(s_help, controlsX, controlsY + infoH + 3 + 3 * (buttonH + gap));
+    lv_obj_set_width(s_help, controlsW);
+    lv_label_set_long_mode(s_help, LV_LABEL_LONG_MODE_WRAP);
+    s_tick = s_savedAt = MySys::millis();
+    s_paused = false;
+    auto *timer = lv_timer_create(tick, 1000, screen);
+    lv_obj_add_event_cb(screen, [](lv_event_t *event) {
+        if (lv_event_get_target(event) != lv_event_get_current_target(event)) return;
+        auto *timer = static_cast<lv_timer_t *>(lv_event_get_user_data(event));
+        if (lv_event_get_code(event) == LV_EVENT_SCREEN_UNLOAD_START) {
+            if (lv_event_get_current_target_obj(event) == s_gameScreen) {
+                s_running = false;
+                save();
+                s_board = s_help = s_gameScreen = nullptr;
+            }
+            lv_timer_pause(timer);
+        } else if (lv_event_get_code(event) == LV_EVENT_DELETE) lv_timer_delete(timer);
+    }, LV_EVENT_ALL, timer);
+    refresh();
+    Theme::loadScreen(screen);
+}
+
+void startNew(unsigned difficulty)
+{
+    if (s_next[difficulty] >= Sudoku::BLOCK_SIZE) return;
+    if (!s_game.start(static_cast<Sudoku::Difficulty>(difficulty), s_next[difficulty])) {
+        ESP_LOGE("sudoku", "cannot start puzzle");
+        return;
+    }
+    s_ready = s_dirty = true;
+    s_completedSaved = s_checked = s_notes = s_erase = false;
+    s_digit = 1;
+    s_elapsed = 0;
+    save();
+    play();
+}
+
+void start(lv_event_t *event)
+{
+    const unsigned difficulty = static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    if (!s_ready || s_game.complete()) { startNew(difficulty); return; }
+    if (static_cast<unsigned>(s_game.difficulty()) == difficulty &&
+        s_game.puzzleIndex() == s_next[difficulty]) { play(); return; }
+    auto *shade = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(shade, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(shade, LV_OPA_80, 0);
+    auto *box = Theme::card(shade, UiMetrics::screenW() - 40, 190);
+    lv_obj_center(box);
+    auto *message = Theme::label(box, tr(Str::SUDOKU_REPLACE), &my_font_14);
+    lv_obj_set_width(message, LV_PCT(100));
+    auto *cancel = Theme::button(box, tr(Str::BTN_CANCEL), 110, 40, Theme::MUTED);
+    lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_add_event_cb(cancel, [](lv_event_t *e) {
+        lv_obj_delete(static_cast<lv_obj_t *>(lv_event_get_user_data(e)));
+    }, LV_EVENT_CLICKED, shade);
+    auto *ok = Theme::button(box, tr(Str::SUDOKU_NEW), 110, 40, Theme::ACCENT);
+    lv_obj_align(ok, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_add_event_cb(ok, [](lv_event_t *e) {
+        startNew(static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(e))));
+    }, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(difficulty)));
+}
+}  // namespace
+
+bool running() { return s_running.load(); }
+
+void show()
+{
+    static bool restored = false;
+    if (!restored) { restored = true; restore(); }
+    Theme::setStatusShareAvailable(false);
+    auto *screen = Theme::screen();
+    Theme::header(screen, tr(Str::SUDOKU_TITLE));
+    auto *list = lv_obj_create(screen);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, 8, UiMetrics::headerH());
+    lv_obj_set_size(list, UiMetrics::screenW() - 16, UiMetrics::screenH() - UiMetrics::headerH() - 48);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
+    if (s_ready && !s_game.complete()) {
+        auto *resume = Theme::button(list, tr(Str::SUDOKU_RESUME), LV_PCT(100), UiMetrics::buttonH(), Theme::GREEN);
+        lv_obj_add_event_cb(resume, [](lv_event_t *) { play(); }, LV_EVENT_CLICKED, nullptr);
+    }
+    for (unsigned i = 0; i < 4; ++i) {
+        char description[64];
+        snprintf(description, sizeof(description), tr(Str::SUDOKU_PROGRESS), s_next[i], Sudoku::BLOCK_SIZE);
+        auto *b = Theme::menuCard(list, LV_PCT(100), tr(difficultyLabel(i)), description,
+                                 nullptr, LV_SYMBOL_LIST, Theme::GOLD);
+        if (s_next[i] >= Sudoku::BLOCK_SIZE) lv_obj_add_state(b, LV_STATE_DISABLED);
+        lv_obj_add_event_cb(b, start, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(i)));
+    }
+    auto *back = Theme::button(screen, tr(Str::BTN_BACK), 100, 34, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { UiYatzy::showMenu(); }, LV_EVENT_CLICKED, nullptr);
+    Theme::loadScreen(screen);
+}
+}  // namespace UiSudoku

@@ -15,6 +15,21 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Sudoku, v0.24.0
+
+- [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
+  siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
+- [x] Animerad mini-Sudoku på startsidan under Tidsfördriv; samma på/av-val
+  som övriga menyikoner. Yatzy-synkroniseringen är inte ändrad.
+- [x] Värdtester kontrollerar alla 400 pussels unika lösning samt riktig
+  LVGL-layout/interaktion, sparning och återställning i svenska/engelska,
+  flera textstorlekar och S3/P4:s stående/liggande upplösningar.
+- [ ] Verifiera firmwarebyggen för S3 och P4 i PR:ens Actions-körning.
+- [ ] Prova touch, läsbarhet, röda felkryss, paus och återställning efter
+  omstart på båda fysiska korten.
+- [ ] Automatisk leverans av nästa 100-pusselblock. Första versionen har
+  bara ett inbyggt block; importverktyget kan förbereda nästa inför ombygge.
+
 ### CI-byggurval
 
 - [x] Byggvillkor i `build.yaml`: dokumentändringar hoppar över firmwarejobb,

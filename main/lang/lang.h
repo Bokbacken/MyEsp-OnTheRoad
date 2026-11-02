@@ -26,6 +26,23 @@
 
 // clang-format off
 #define LANG_STR_IDS(X) \
+    X(SUDOKU_TITLE) \
+    X(SUDOKU_SUBTITLE) \
+    X(SUDOKU_EASY) \
+    X(SUDOKU_MEDIUM) \
+    X(SUDOKU_HARD) \
+    X(SUDOKU_EXTREME) \
+    X(SUDOKU_HINT) \
+    X(SUDOKU_NOTES) \
+    X(SUDOKU_ERASE) \
+    X(SUDOKU_PAUSED) \
+    X(SUDOKU_COMPLETE) \
+    X(SUDOKU_RESUME) \
+    X(SUDOKU_PROGRESS) \
+    X(SUDOKU_SAVE_FAILED) \
+    X(SUDOKU_REPLACE) \
+    X(SUDOKU_NEW) \
+    X(MENU_PASTIMES) \
     X(BTN_CANCEL) \
     X(BTN_SAVE) \
     X(BTN_BACK) \

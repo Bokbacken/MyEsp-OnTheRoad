@@ -5,6 +5,23 @@
 namespace Lang {
 
 extern const Entry LANG_SV[] = {
+    {Str::SUDOKU_TITLE, "Sudoku"},
+    {Str::SUDOKU_SUBTITLE, "Siffror, anteckningar och en stunds tankearbete"},
+    {Str::SUDOKU_EASY, "Lätt"},
+    {Str::SUDOKU_MEDIUM, "Medel"},
+    {Str::SUDOKU_HARD, "Svår"},
+    {Str::SUDOKU_EXTREME, "Extreme"},
+    {Str::SUDOKU_HINT, "Välj siffra, tryck sedan i en ruta"},
+    {Str::SUDOKU_NOTES, "Penna: tryck för att växla en anteckning"},
+    {Str::SUDOKU_ERASE, "Radera: tryck i en ruta"},
+    {Str::SUDOKU_PAUSED, "Pausat - tryck på spela för att fortsätta"},
+    {Str::SUDOKU_COMPLETE, "Löst! Tillbaka för nästa pussel"},
+    {Str::SUDOKU_RESUME, "Fortsätt sparat pussel"},
+    {Str::SUDOKU_PROGRESS, "%u av %u lösta"},
+    {Str::SUDOKU_SAVE_FAILED, "Kunde inte spara pusslet"},
+    {Str::SUDOKU_REPLACE, "Ersätta ditt pågående pussel? Det sparade pusslet skrivs över."},
+    {Str::SUDOKU_NEW, "Nytt pussel"},
+    {Str::MENU_PASTIMES, "Tidsfördriv"},
     {Str::BTN_CANCEL, "Avbryt"},
     {Str::BTN_SAVE, "Spara"},
     {Str::BTN_BACK, "Tillbaka"},

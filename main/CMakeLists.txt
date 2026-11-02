@@ -12,7 +12,8 @@ if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
 endif()
 
 idf_component_register(
-  SRCS "app_main.cpp" "app_config.cpp" "app_players.cpp" "app_web.cpp" "fat_time.cpp"
+  SRCS "ui_sudoku.cpp" "sudoku_game.cpp"
+       "app_main.cpp" "app_config.cpp" "app_players.cpp" "app_web.cpp" "fat_time.cpp"
        "board_backlight.cpp" "board_rgb.cpp" "power_history.cpp" "power_io.cpp" ${board_srcs}
        "board_audio.cpp" "board_battery.cpp" "board_sd.cpp" "app_web_files.cpp" "app_web_adventure_editor.cpp" "audio_synth.cpp" "sound_bank.cpp" "fs_path.cpp" "fs_upload.cpp"
        "dice_cup.cpp" "game_live.cpp" "adv_live.cpp" "adv_session.cpp" "adv_loader.cpp" "adv_validator.cpp" "adv_catalog.cpp" "adv_sd_session.cpp" "adv_resource_art.cpp" "game_yatzy.cpp" "game_pig.cpp" "game_farkle.cpp" "game_scc.cpp"

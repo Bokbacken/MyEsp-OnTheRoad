@@ -1,6 +1,6 @@
 # MyEsp-OnTheRoad
 
-A portable touch-screen console for dice games, tile-based adventures and
+A portable touch-screen console for dice games, Sudoku, tile-based adventures and
 SoundFont-powered Karaoke. It runs on the **Heemol ESP32-S3 3.5"** and
 **Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3** boards, using **ESP-IDF 6.1**
 and **LVGL 9.6**.
@@ -22,6 +22,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 | [P4 SD/Wi-Fi investigation](docs/P4_SD_WIFI_INVESTIGATION.md) | Failure timeline, shared-controller clock findings and testing on other P4 boards |
 | [Karaoke and SoundFonts](docs/MUSIC_KARAOKE_PLAN.md) | Audio architecture and memory/quality tradeoffs |
 | [Multiplayer design](docs/MULTIPLAYER_DESIGN.md) | Host-authoritative Yatzy and joining devices |
+| [Sudoku](docs/SUDOKU.md) | Controls, saved progress, puzzle source and block import |
 | [Adventure work plan](docs/ADVENTURE_TODO.md) | Adventure/editor delivery status and remaining tests |
 | [Multi-board work plan](docs/MULTI_BOARD_TODO.md) | Board support, unresolved issues and hardware checks |
 
@@ -30,6 +31,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 - **Dice games** – Yatzy, Maxi-Yatzy, Midi-Yatzy, Pig, Farkle and
   Ship-Captain-Crew. Static illustrations distinguish each game and dice
   variant; Yatzy, Maxi and Midi can be set to play in order.
+- **Sudoku** – digit-first touch controls, pencil notes, undo/redo, checking,
+  pause and saved progress. The Pastimes menu includes 100 offline puzzles
+  each for Easy, Medium, Hard and Extreme.
 - **Tile adventures** – SD-loaded `.adv` campaigns, internal maps and portals,
   puzzles, story-driven terrain/object changes, resources, NPC dialogue,
   checkpoints, saved progress, menu artwork, and optional 32×32 PNG
@@ -52,7 +56,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   user settings, and Administration. The admin PIN, when configured, protects
   administrative controls; screen timeout and eco mode remain user settings.
 - **Animated home icons** – a rotating die, walking village character and
-  moving musical notes. Enabled by default; switch off in Administration or
+  moving musical notes, plus a mini-Sudoku filling with notes and digits.
+  Enabled by default; switch off in Administration or
   web settings to keep static artwork. Animation updates stop when the screen
   is off or another page is open.
 - **microSD + file browser** – FAT storage over 4-bit SDMMC (1-bit fallback).

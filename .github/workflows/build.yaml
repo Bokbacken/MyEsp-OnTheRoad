@@ -138,6 +138,8 @@ jobs:
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py
           python3 tests/test_screen_power.py
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Imain tests/test_sudoku.cpp main/sudoku_game.cpp -o /tmp/test_sudoku
+          /tmp/test_sudoku
           python3 tests/test_panel_sleep.py
           python3 tests/test_reboot.py
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_power_interval.cpp -o /tmp/test_power_interval
@@ -189,6 +191,12 @@ jobs:
             grep -qx 'CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y' sdkconfig
             idf.py build
             idf.py merge-bin -o merged.bin
+
+      - name: Test Sudoku and menu layouts (host LVGL)
+        if: matrix.target == 'esp32s3'
+        run: |
+          python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
+          python3 tests/test_yatzy_layout.py /tmp/menu-layout
 
       - name: Upload build artifacts
         if: always()

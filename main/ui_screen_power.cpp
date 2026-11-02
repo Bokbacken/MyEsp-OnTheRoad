@@ -13,6 +13,7 @@
 #include "esp_log.h"
 #include "board_audio.h"
 #include "adv_live.h"
+#include "ui_sudoku.h"
 #include "app_web_files.h"
 #include <atomic>
 
@@ -27,7 +28,7 @@ uint32_t s_wakeRetryAt = 0;
 bool ecoBlocked()
 {
     return MyOta::busy() || AppWebFiles::busy() || GameLive::running() ||
-           AdvLive::active() || Karaoke::playing();
+           AdvLive::active() || UiSudoku::running() || Karaoke::playing();
 }
 
 void wake(uint32_t now)
@@ -96,7 +97,7 @@ void tick(lv_timer_t *)
         return;
     }
     if (!Backlight::sleeping() &&
-        ScreenPowerPolicy::shouldSleep(seconds, now - s_lastActivity, false, GameLive::running()))
+        ScreenPowerPolicy::shouldSleep(seconds, now - s_lastActivity, false, GameLive::running() || UiSudoku::running()))
         UiScreenPower::sleepNow();
 }
 }  // namespace

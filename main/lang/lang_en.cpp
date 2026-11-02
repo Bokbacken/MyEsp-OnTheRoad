@@ -5,6 +5,23 @@
 namespace Lang {
 
 extern const Entry LANG_EN[] = {
+    {Str::SUDOKU_TITLE, "Sudoku"},
+    {Str::SUDOKU_SUBTITLE, "Numbers, pencil marks and a little thinking"},
+    {Str::SUDOKU_EASY, "Easy"},
+    {Str::SUDOKU_MEDIUM, "Medium"},
+    {Str::SUDOKU_HARD, "Hard"},
+    {Str::SUDOKU_EXTREME, "Extreme"},
+    {Str::SUDOKU_HINT, "Choose a digit, then tap a cell"},
+    {Str::SUDOKU_NOTES, "Pencil: tap to toggle a candidate"},
+    {Str::SUDOKU_ERASE, "Erase: tap a cell"},
+    {Str::SUDOKU_PAUSED, "Paused - press play to continue"},
+    {Str::SUDOKU_COMPLETE, "Solved! Go back for the next puzzle"},
+    {Str::SUDOKU_RESUME, "Resume saved puzzle"},
+    {Str::SUDOKU_PROGRESS, "%u of %u solved"},
+    {Str::SUDOKU_SAVE_FAILED, "Could not save puzzle"},
+    {Str::SUDOKU_REPLACE, "Replace your current puzzle? The saved puzzle will be overwritten."},
+    {Str::SUDOKU_NEW, "New puzzle"},
+    {Str::MENU_PASTIMES, "Pastimes"},
     {Str::BTN_CANCEL, "Cancel"},
     {Str::BTN_SAVE, "Save"},
     {Str::BTN_BACK, "Back"},
