@@ -44,6 +44,7 @@
 #include "ui_settings.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
+#include "ui_multiplayer.h"
 #include "my_theme.h"
 #include "karaoke.h"
 
@@ -102,6 +103,49 @@ static Theme::BatteryIndicator batteryIndicator()
     return {voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent), percent};
 }
 
+static Theme::StatusInfo statusInfo()
+{
+    const MyWifi::Info wifi = MyWifi::info();
+    return {Config::get().soundOn, wifi.status != MyWifi::Status::OFF, wifi.connected,
+            (uint8_t)(wifi.connected ? MyWifi::signalBars(wifi.rssi) : 0)};
+}
+
+static void showStatusMessage(const char *text)
+{
+    lv_obj_t *box = lv_msgbox_create(nullptr);
+    lv_msgbox_add_text(box, text);
+    lv_msgbox_add_close_button(box);
+    Theme::msgboxFonts(box);
+}
+
+static void statusOpenMenu()
+{
+    UiSettings::prepareForMenuNavigation();
+    UiSettings::show();
+}
+static void statusToggleSound()
+{
+    if (!UiSettings::toggleSound()) showStatusMessage(tr(Str::SET_SAVE_FAILED));
+}
+static void statusOpenSoundSettings()
+{
+    UiSettings::prepareForMenuNavigation();
+    UiSettings::show();
+}
+static void statusOpenShare()
+{
+    Theme::setStatusShareAvailable(false);
+    UiMultiplayer::show();
+}
+static void statusTogglePowerSaving()
+{
+    if (!UiSettings::togglePowerSaving()) {
+        showStatusMessage(tr(Str::SET_SAVE_FAILED));
+        return;
+    }
+    showStatusMessage(tr(Config::get().ecoSleep ? Str::STATUS_POWER_ON : Str::STATUS_POWER_OFF));
+}
+
 static void checkLowBatteryAlert(uint32_t now)
 {
     static uint32_t lastBeep = 0;
@@ -122,6 +166,9 @@ extern "C" void app_main(void)
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
     Theme::setBatteryIndicatorReader(batteryIndicator);
+    Theme::setStatusInfoReader(statusInfo);
+    Theme::setStatusActions({statusOpenMenu, statusToggleSound, statusOpenSoundSettings,
+                             statusTogglePowerSaving, statusOpenShare});
     BoardBattery::begin();
     const AppConfig &cfg = Config::get();
     Lang::setLang(cfg.lang);

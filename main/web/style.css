@@ -42,7 +42,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border-radius: var(--otr-radius);
   background: #14253b;
 }
-.otr-chrome { position: sticky; top: 0; z-index: 20; background: var(--otr-navy); padding: .3rem 0; }
+.otr-chrome {
+  position: sticky; top: 0; z-index: 20;
+  width: 100vw; margin-left: calc(50% - 50vw);
+  padding: .3rem clamp(.7rem, 3vw, 2rem);
+  background: var(--otr-navy);
+}
+.otr-chrome .otr-brand, .otr-chrome nav.otr-nav { max-width: 1080px; margin-inline: auto; }
 .otr-chrome .otr-wifi:not(.otr-device-status) { display: none; }
 .otr-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
 .otr-logo {

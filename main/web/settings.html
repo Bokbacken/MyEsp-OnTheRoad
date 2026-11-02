@@ -183,6 +183,11 @@
       <option value="2">Yatzy i ordning</option>
       <option value="3">Maxi-Yatzy i ordning</option>
     </select>
+    <label for="result_protocol_first">Yatzy: visa först efter avslutad match</label>
+    <select id="result_protocol_first" name="result_protocol_first">
+      <option value="0">Resultatlista</option>
+      <option value="1">Protokoll</option>
+    </select>
     <label for="roll_anim_ms">Kastanimation: <b id="anim-val">–</b> ms</label>
     <input type="range" id="roll_anim_ms" name="roll_anim_ms" min="300" max="2000" step="50">
     <label class="check"><input type="checkbox" id="maxi_saved_rolls" name="maxi_saved_rolls"> Maxi-Yatzy: spara oanvända kast</label>
@@ -236,6 +241,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let cfg = {};
+let adminPin = '';
 function toast(msg, ok = true) {
   const t = $('toast');
   t.textContent = msg;
@@ -247,8 +253,42 @@ async function post(url, data) {
   const r = await fetch(url, {method: 'POST', body: new URLSearchParams(data)});
   let j = {};
   try { j = await r.json(); } catch (e) {}
-  if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+  if (!r.ok || j.ok === false) {
+    const error = new Error(j.error || ('HTTP ' + r.status));
+    error.status = r.status;
+    throw error;
+  }
   return j;
+}
+function requireAdminPin() {
+  if (!cfg.admin_pin_set) return '';
+  if (!adminPin) {
+    const entered = prompt('Admin-PIN krävs:');
+    if (entered === null) throw new Error('Åtgärden avbröts');
+    adminPin = entered;
+  }
+  return adminPin;
+}
+function adminUrl(url) {
+  const pin = requireAdminPin();
+  return pin ? url + (url.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin) : url;
+}
+async function fetchAdmin(url, options) {
+  const response = await fetch(adminUrl(url), options);
+  if (response.status === 403) {
+    adminPin = '';
+    throw new Error('Felaktig admin-PIN');
+  }
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  return response;
+}
+async function postAdmin(url, data) {
+  const pin = requireAdminPin();
+  try { return await post(url, pin ? {...data, pin} : data); }
+  catch (error) {
+    if (error.status === 403) adminPin = '';
+    throw error;
+  }
 }
 function bindRange(id, out) {
   const el = $(id);
@@ -301,6 +341,7 @@ function fill(c) {
   $('led_enabled').checked = c.led_enabled;
   $('led-controls').hidden = !c.has_rgb_led;
   $('default_variant').value = c.default_variant;
+  $('result_protocol_first').value = c.result_protocol_first ? '1' : '0';
   $('roll_anim_ms').value = c.roll_anim_ms; updA();
   $('maxi_saved_rolls').checked = c.maxi_saved_rolls;
   if (c.throw_mode !== undefined) $('throw_mode').value = c.throw_mode;
@@ -321,7 +362,10 @@ function fill(c) {
 }
 async function load() {
   try {
-    fill(await (await fetch('/api/config', {cache: 'no-store'})).json());
+    const config = await (await fetch('/api/config', {cache: 'no-store'})).json();
+    fill(config);
+    if (config.admin_pin_set) $('saved').innerHTML = '<li class="muted">Admin-PIN krävs för sparade nätverk</li>';
+    else loadNets();
   } catch (e) { toast('Kunde inte läsa inställningar', false); }
 }
 function bars(n) { return '▮'.repeat(n) + '▯'.repeat(5 - n); }
@@ -369,7 +413,7 @@ $('wifi-form').addEventListener('submit', async e => {
   const data = {ssid, pass};
   if (!pass && saved.some(n => n.ssid === ssid && n.secure)) data.keep_pass = '1';
   try {
-    await post('/api/wifi', data);
+    await postAdmin('/api/wifi', data);
     toast('Ansluter till ' + ssid + ' (upp till 15 s)…');
     for (let i = 0; i < 10; i++) {           // Poll the result; may lose contact on a network change
       await new Promise(r => setTimeout(r, 2000));
@@ -383,7 +427,7 @@ $('wifi-form').addEventListener('submit', async e => {
 
 $('forget-btn').addEventListener('click', async () => {
   if (!confirm('Glömma ALLA sparade nätverk? Enheten kopplas från och sidan tappar kontakten.')) return;
-  try { await post('/api/nets', {action: 'forget_all'}); toast('Alla nätverk borttagna'); loadNets(); }
+  try { await postAdmin('/api/nets', {action: 'forget_all'}); toast('Alla nätverk borttagna'); loadNets(); }
   catch (err) { toast(err.message, false); }
 });
 
@@ -411,11 +455,11 @@ function renderNets(j) {
   });
 }
 async function loadNets() {
-  try { renderNets(await (await fetch('/api/nets', {cache: 'no-store'})).json()); }
-  catch (e) { $('saved').innerHTML = '<li class="bad">Kunde inte läsa listan</li>'; }
+  try { renderNets(await (await fetchAdmin('/api/nets', {cache: 'no-store'})).json()); }
+  catch (e) { if (e.message !== 'Åtgärden avbröts') $('saved').innerHTML = '<li class="bad">Kunde inte läsa listan</li>'; }
 }
 async function netAct(data) {
-  try { renderNets(await post('/api/nets', data)); } catch (err) { toast(err.message, false); }
+  try { renderNets(await postAdmin('/api/nets', data)); } catch (err) { toast(err.message, false); }
 }
 $('save-only-btn').addEventListener('click', async () => {
   const ssid = $('ssid').value.trim(), pass = $('pass').value;
@@ -426,7 +470,7 @@ $('save-only-btn').addEventListener('click', async () => {
 });
 
 $('time-btn').addEventListener('click', async () => {
-  try { await post('/api/time', {epoch: Math.floor(Date.now() / 1000)}); toast('Tiden satt'); status(); }
+  try { await postAdmin('/api/time', {epoch: Math.floor(Date.now() / 1000)}); toast('Tiden satt'); status(); }
   catch (err) { toast(err.message, false); }
 });
 
@@ -436,7 +480,7 @@ $('battery-form').addEventListener('submit', async e => {
   if (!Number.isInteger(reference) || reference < 2500 || reference > 4500)
     return toast('Ange en batterispänning mellan 2500 och 4500 mV', false);
   try {
-    const j = await post('/api/config', {battery_reference_mv: String(reference)});
+    const j = await postAdmin('/api/config', {battery_reference_mv: String(reference)});
     fill(j.config);
     if (window.OtrDevice) window.OtrDevice.apply(j.config);
     $('battery-reference-mv').value = '';
@@ -446,7 +490,7 @@ $('battery-form').addEventListener('submit', async e => {
 });
 $('battery-reset').addEventListener('click', async () => {
   try {
-    const j = await post('/api/config', {battery_scale_permille: '0', battery_full_mv: '4200'});
+    const j = await postAdmin('/api/config', {battery_scale_permille: '0', battery_full_mv: '4200'});
     fill(j.config);
     await status();
     toast('Batterikalibrering återställd');
@@ -458,7 +502,7 @@ $('battery-full-form').addEventListener('submit', async e => {
   if (!Number.isInteger(fullMv) || fullMv < 3900 || fullMv > 4300)
     return toast('Fullpunkten måste vara 3900–4300 mV', false);
   try {
-    const j = await post('/api/config', {battery_full_mv: String(fullMv)});
+    const j = await postAdmin('/api/config', {battery_full_mv: String(fullMv)});
     fill(j.config);
     await status();
     toast('Fullpunkt sparad; procenten är fortfarande ungefärlig');
@@ -472,6 +516,7 @@ $('admin-form').addEventListener('submit', async e => {
   if (!nw && !confirm('Ta bort admin-PIN? Då kan alla i nätverket uppdatera firmware.')) return;
   try {
     const j = await post('/api/config', {pin: $('pin-old').value, admin_pin_new: nw});
+    adminPin = nw;
     fill(j.config);
     $('pin-old').value = ''; $('pin-new').value = '';
     toast(nw ? 'PIN bytt' : 'PIN borttagen');
@@ -483,10 +528,10 @@ async function scan() {
   btn.disabled = true;
   list.innerHTML = '<li class="muted">Söker…</li>';
   try {
-    let j = await (await fetch('/api/scan?start=1')).json();
+    let j = await (await fetchAdmin('/api/scan?start=1')).json();
     for (let i = 0; i < 20 && j.scanning; i++) {
       await new Promise(r => setTimeout(r, 700));
-      j = await (await fetch('/api/scan')).json();
+      j = await (await fetchAdmin('/api/scan')).json();
     }
     const nets = j.networks;               // De-duplicated and sorted by the device
     list.innerHTML = '';
@@ -530,6 +575,7 @@ $('cfg-form').addEventListener('submit', async e => {
     led_brightness: $('led_brightness').value,
     led_enabled: $('led_enabled').checked ? '1' : '0',
     default_variant: $('default_variant').value,
+    result_protocol_first: $('result_protocol_first').value,
     roll_anim_ms: $('roll_anim_ms').value,
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
     throw_mode: $('throw_mode').value,
@@ -546,11 +592,17 @@ $('cfg-form').addEventListener('submit', async e => {
     hostname: host,
     tz: $('tz').value.trim()
   };
+  const adminChanged = $('power_log').checked !== !!cfg.power_log ||
+    data.lang !== cfg.lang || data.hostname !== cfg.hostname || data.tz !== cfg.tz;
   try {
+    if (cfg.admin_pin_set && adminChanged) data.pin = requireAdminPin();
     const j = await post('/api/config', data);
     fill(j.config);
     toast('Inställningar sparade');
-  } catch (err) { toast(err.message, false); }
+  } catch (err) {
+    if (err.status === 403) adminPin = '';
+    toast(err.message, false);
+  }
 });
 
 $('reboot-btn').addEventListener('click', async () => {
@@ -565,7 +617,6 @@ $('reset-btn').addEventListener('click', async () => {
 });
 
 load();
-loadNets();
 status();
 setInterval(status, 4000);
 </script>

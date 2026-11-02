@@ -33,6 +33,7 @@ void defaults(AppConfig &c)
     c.ledBrightness = 40;
     c.ledEnabled = true;
     c.defaultVariant = 0;
+    c.resultProtocolFirst = false;
     c.rollAnimMs = 800;
     c.maxiSavedRolls = true;
     c.throwMode = 0;
@@ -79,6 +80,7 @@ void begin()
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
             g_cfg.defaultVariant = p.getU8("variant", 0) % 4;
+            g_cfg.resultProtocolFirst = p.getBool("result_protocol", false);
             g_cfg.rollAnimMs = MySys::clamp<uint16_t>(p.getU16("roll_ms", g_cfg.rollAnimMs), 300, 2000);
             g_cfg.maxiSavedRolls = p.getBool("maxi_save", true);
             g_cfg.throwMode = p.getU8("throw_mode", 0) > 1 ? 0 : p.getU8("throw_mode", 0);
@@ -147,6 +149,7 @@ bool save()
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);
     ok &= p.setU8("variant", g_cfg.defaultVariant);
+    ok &= p.setBool("result_protocol", g_cfg.resultProtocolFirst);
     ok &= p.setU16("roll_ms", g_cfg.rollAnimMs);
     ok &= p.setBool("maxi_save", g_cfg.maxiSavedRolls);
     ok &= p.setU8("throw_mode", g_cfg.throwMode);

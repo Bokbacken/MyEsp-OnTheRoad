@@ -26,6 +26,7 @@ struct AppConfig {
     uint8_t ledBrightness;   // RGB LED 0..255
     bool ledEnabled;
     uint8_t defaultVariant;  // 0 Yatzy, 1 Maxi, 2 Yatzy in order, 3 Maxi in order
+    bool resultProtocolFirst; // Show the Yatzy score protocol before the ranking
     uint16_t rollAnimMs;     // Dice roll animation length, 300..2000 ms
     bool maxiSavedRolls;     // Maxi-Yatzy: unused rolls are saved for later turns
     uint8_t throwMode;       // 0 = dice cup gesture (default), 1 = [Kasta] button

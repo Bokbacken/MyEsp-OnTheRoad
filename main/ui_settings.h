@@ -6,6 +6,9 @@
 
 namespace UiSettings {
 void show();                 // Must run in the LVGL task or with Display::lock() held
+bool toggleSound();          // Persists the status-bar mute toggle, keeping an open editor in sync
+bool togglePowerSaving();    // Persists the battery long-press toggle, keeping an open editor in sync
+void prepareForMenuNavigation(); // Stops settings timers and reverts unsaved live previews
 void applyHardware();        // Applies brightness / LED settings from Config (any task)
 // Switches the font roles to Config::get().textSize (clamped to the panel). Screens built
 // afterwards use the new sizes; UiYatzy::showMenu() calls this before building the menu.

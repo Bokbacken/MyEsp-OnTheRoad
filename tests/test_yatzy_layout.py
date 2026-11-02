@@ -61,6 +61,7 @@ static YatzyVariant s_variant = YatzyVariant::STANDARD;
 static YatzyMode s_mode = YatzyMode::NORMAL;
 static char s_names[YATZY_MAX_PLAYERS][YATZY_NAME_CAP];
 static int s_nameCount;
+static YatzyGame s_game;
 static GameType s_gameType = GameType::YATZY;
 static PigVariant s_pigVariant = PigVariant::ONE_DIE;
 static bool s_midi;
@@ -163,6 +164,7 @@ static void checkResponsiveLayouts(lv_display_t *display) {
             assert(results.nameW > 0 && results.scoreW > 0 && results.variantW > 0);
 
             auto *card = lv_obj_create(lv_screen_active());
+            lv_obj_remove_style_all(card);
             lv_obj_set_pos(card, results.cardX, results.cardY);
             lv_obj_set_size(card, results.cardW, results.cardH);
             lv_obj_set_scrollable(card, true);
@@ -237,11 +239,24 @@ static void inside(lv_obj_t *obj, lv_obj_t *parent) {
 static void noOverlap(lv_obj_t *box, bool horizontal, bool contained = true) {
     for (unsigned i = 0; i < lv_obj_get_child_count(box); ++i) {
         auto *o = child(box, i);
+        if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) continue;
         if (contained) inside(o, box);
-        if (i) {
-            auto *prev = child(box, i - 1);
-            assert(horizontal ? lv_obj_get_x(prev) + lv_obj_get_width(prev) <= lv_obj_get_x(o)
-                              : lv_obj_get_y(prev) + lv_obj_get_height(prev) <= lv_obj_get_y(o));
+        for (unsigned j = 0; j < i; ++j) {
+            auto *prev = child(box, j);
+            if (lv_obj_has_flag(prev, LV_OBJ_FLAG_HIDDEN)) continue;
+            const bool separated = horizontal
+                ? lv_obj_get_x(prev) + lv_obj_get_width(prev) <= lv_obj_get_x(o) ||
+                  lv_obj_get_x(o) + lv_obj_get_width(o) <= lv_obj_get_x(prev)
+                : lv_obj_get_y(prev) + lv_obj_get_height(prev) <= lv_obj_get_y(o) ||
+                  lv_obj_get_y(o) + lv_obj_get_height(o) <= lv_obj_get_y(prev);
+            if (!separated)
+                fprintf(stderr, "overlap %u/%u in %dx%d: %d,%d %dx%d vs %d,%d %dx%d\n", j, i,
+                        int(lv_obj_get_width(box)), int(lv_obj_get_height(box)),
+                        int(lv_obj_get_x(prev)), int(lv_obj_get_y(prev)),
+                        int(lv_obj_get_width(prev)), int(lv_obj_get_height(prev)),
+                        int(lv_obj_get_x(o)), int(lv_obj_get_y(o)),
+                        int(lv_obj_get_width(o)), int(lv_obj_get_height(o)));
+            assert(separated);
         }
     }
 }
@@ -590,7 +605,7 @@ int main() {
                 }
                 showPlayers(); settle(); auto *box = body();
                 auto *header = lv_obj_get_child(lv_screen_active(), 0);
-                assert(lv_obj_get_child_count(header) == 2); // Title and battery only; no variant subtitle.
+                assert(lv_obj_get_child_count(header) == 6); // Title, battery, and status controls.
                 lv_area_t titleArea, batteryArea;
                 lv_obj_get_coords(lv_obj_get_child(header, 0), &titleArea);
                 lv_obj_get_coords(lv_obj_get_child(header, 1), &batteryArea);
@@ -655,11 +670,14 @@ int main() {
 '''
 code = code.replace("@CHOICES@", section("struct VariantChoice {", "static void showVariants();"))
 code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ========================================================================================\n// Players"))
+code = code.replace(
+    "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)\n{",
+    "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail = nullptr)\n{")
 code = code.replace("@PLAYERS@", section("static uint16_t s_pids", "static void startYatzy()"))
 code = code.replace("@PICKER@", section("static PlayerDb *s_pickDb", "// ========================================================================================\n// Game screen"))
 code = code.replace("@OVERLAY_STATE@", section("static lv_obj_t *s_webBlock", "static void updateWebOverlay()\n{"))
 code = code.replace("@RESPONSIVE_LAYOUTS@", section("static constexpr uint32_t M_ROLL_MS", "static lv_obj_t *s_mDie"))
-code = code.replace("@RESPONSIVE_RESULTS@", section("struct ResultLayout {", "static void showResults()\n{"))
+code = code.replace("@RESPONSIVE_RESULTS@", section("struct ResultLayout {", "static void showResults(bool usePreferred)\n{"))
 code = code.replace("@MODALS@", section("static void onMenu(lv_event_t *)\n{", "// --- Web play") +
                     section("static void updateWebOverlay()\n{", "static void webWriteTimer") +
                     section("static void buildWebOverlay(lv_obj_t *scr)\n{", "static void showGame()\n{"))

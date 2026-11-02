@@ -40,6 +40,29 @@ static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo, *
 static lv_obj_t *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
 static lv_obj_t *s_slowSl, *s_fastSl;
 static lv_timer_t *s_timer = nullptr;
+static lv_obj_t *s_adminCards[5];
+static lv_obj_t *s_adminPad = nullptr;
+
+static void unlockAdminCards()
+{
+    for (lv_obj_t *card : s_adminCards)
+        if (card && lv_obj_is_valid(card)) lv_obj_clear_flag(card, LV_OBJ_FLAG_HIDDEN);
+}
+
+static bool adminPinDone(const char *pin, bool ok, void *)
+{
+    if (!ok) {
+        s_adminPad = nullptr;
+        return true;
+    }
+    if (!Config::adminOk(pin)) {
+        UiNumpad::setHint(s_adminPad, tr(Str::PERR_BAD_PIN), true);
+        return false;
+    }
+    s_adminPad = nullptr;
+    unlockAdminCards();
+    return true;
+}
 
 // Display (MADCTL) and touch mirroring together. Also called from the web server task, hence
 // the (recursive) LVGL lock.
@@ -74,6 +97,41 @@ void applyHardware()
     applyRotation(c.rotation == 180);
     Audio::setVolumes(c.soundOn, c.sfxVol, c.musicOn, c.musicVol);
     Karaoke::setVolume(c.karaVolume);
+}
+
+bool toggleSound()
+{
+    AppConfig &config = Config::get();
+    const bool previous = config.soundOn;
+    config.soundOn = !previous;
+    if (!Config::save()) {
+        config.soundOn = previous;
+        return false;
+    }
+    if (s_timer) s_edit.soundOn = config.soundOn;
+    Audio::setVolumes(config.soundOn, config.sfxVol, config.musicOn, config.musicVol);
+    return true;
+}
+
+bool togglePowerSaving()
+{
+    AppConfig &config = Config::get();
+    const bool previous = config.ecoSleep;
+    config.ecoSleep = !previous;
+    if (!Config::save()) {
+        config.ecoSleep = previous;
+        return false;
+    }
+    if (s_timer) s_edit.ecoSleep = config.ecoSleep;
+    return true;
+}
+
+void prepareForMenuNavigation()
+{
+    if (!s_timer) return;
+    lv_timer_delete(s_timer);
+    s_timer = nullptr;
+    applyHardware();
 }
 
 static void previewSound() { Audio::setVolumes(s_edit.soundOn, s_edit.sfxVol, s_edit.musicOn, s_edit.musicVol); }
@@ -282,6 +340,7 @@ static void leave(bool save)
         Config::get().ledEnabled = s_edit.ledEnabled;
         Config::get().rollAnimMs = s_edit.rollAnimMs;
         Config::get().defaultVariant = s_edit.defaultVariant;
+        Config::get().resultProtocolFirst = s_edit.resultProtocolFirst;
         Config::get().maxiSavedRolls = s_edit.maxiSavedRolls;
         Config::get().throwMode = s_edit.throwMode;
         Config::get().rotation = s_edit.rotation;
@@ -361,7 +420,10 @@ static lv_obj_t *switchRow(lv_obj_t *parent, const char *title, bool on, lv_even
 
 void show()
 {
+    Theme::setStatusShareAvailable(false);
     s_edit = Config::get();
+    memset(s_adminCards, 0, sizeof(s_adminCards));
+    s_adminPad = nullptr;
     lv_obj_t *scr = Theme::screen();
     Theme::header(scr, tr(Str::SET_TITLE));
 
@@ -375,8 +437,22 @@ void show()
     lv_obj_set_style_pad_row(body, 8, 0);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
 
+    const bool pinSet = Config::get().adminPin[0] != '\0';
+    lv_obj_t *adminGate = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_t *adminButton = Theme::button(adminGate, tr(Str::SET_ADMIN), LV_PCT(100), 44, Theme::TEAL);
+    lv_obj_add_event_cb(adminButton, [](lv_event_t *) {
+        if (!Config::get().adminPin[0]) {
+            unlockAdminCards();
+            return;
+        }
+        s_adminPad = UiNumpad::open(tr(Str::SET_ADMIN), tr(Str::SET_ADMIN_PIN_INFO),
+                                    adminPinDone, nullptr, tr(Str::BTN_CANCEL));
+    }, LV_EVENT_CLICKED, nullptr);
+    if (!pinSet) lv_obj_add_flag(adminGate, LV_OBJ_FLAG_HIDDEN);
+
     // Language first, so a user who cannot read the current language finds it immediately.
     lv_obj_t *lang = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_adminCards[0] = lang;
     lv_obj_set_flex_flow(lang, LV_FLEX_FLOW_COLUMN);
     Theme::label(lang, trp(LV_SYMBOL_LIST "  ", Str::SET_LANGUAGE), &my_font_14, Theme::ACCENT);
     static char langOpts[Lang::MAX_LANGS * 24];
@@ -421,9 +497,6 @@ void show()
     switchRow(disp, tr(Str::SCREEN_ECO), s_edit.ecoSleep, [](lv_event_t *e) {
         s_edit.ecoSleep = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });
-    switchRow(disp, tr(Str::POWER_HISTORY), s_edit.powerLog, [](lv_event_t *e) {
-        s_edit.powerLog = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
-    });
     lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
     lv_obj_set_width(screenHelp, LV_PCT(100));
     lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);
@@ -445,6 +518,14 @@ void show()
         s_edit.rotation = lv_dropdown_get_selected(lv_event_get_target_obj(e)) ? 180 : 0;
         applyRotation(s_edit.rotation == 180);
     }, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t *powerAdmin = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_adminCards[1] = powerAdmin;
+    lv_obj_set_flex_flow(powerAdmin, LV_FLEX_FLOW_COLUMN);
+    Theme::label(powerAdmin, tr(Str::SET_ADMIN), &my_font_14, Theme::ACCENT);
+    switchRow(powerAdmin, tr(Str::POWER_HISTORY), s_edit.powerLog, [](lv_event_t *e) {
+        s_edit.powerLog = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    });
 
     // Sound: previewed live (volumes + a sample effect when a slider is released)
     lv_obj_t *snd = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
@@ -475,6 +556,14 @@ void show()
     lv_obj_add_event_cb(dd, [](lv_event_t *e) {
         s_edit.defaultVariant = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
+    Theme::label(game, tr(Str::SET_RESULT_VIEW), &my_font_14, Theme::MUTED);
+    static char resultViewOpts[64];
+    snprintf(resultViewOpts, sizeof(resultViewOpts), "%s\n%s",
+             tr(Str::RES_RANKING_VIEW), tr(Str::RES_PROTOCOL_VIEW));
+    lv_obj_t *resultView = styledDropdown(game, resultViewOpts, s_edit.resultProtocolFirst ? 1 : 0);
+    lv_obj_add_event_cb(resultView, [](lv_event_t *e) {
+        s_edit.resultProtocolFirst = lv_dropdown_get_selected(lv_event_get_target_obj(e)) == 1;
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
     switchRow(game, tr(Str::SET_MAXI_SAVED), s_edit.maxiSavedRolls, [](lv_event_t *e) {
         s_edit.maxiSavedRolls = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });
@@ -504,6 +593,7 @@ void show()
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_adminCards[2] = clk;
     lv_obj_set_flex_flow(clk, LV_FLEX_FLOW_COLUMN);
     Theme::label(clk, tr(Str::SET_CLOCK), &my_font_14, Theme::ACCENT);
     UiClock::attachLabel(Theme::label(clk, "", &my_font_18), true);
@@ -535,6 +625,7 @@ void show()
     }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *battery = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_adminCards[3] = battery;
     lv_obj_set_flex_flow(battery, LV_FLEX_FLOW_COLUMN);
     Theme::label(battery, tr(Str::SET_BATTERY), &my_font_14, Theme::ACCENT);
     lv_obj_t *help = Theme::label(battery, tr(Str::BATTERY_HELP), &my_font_14, Theme::MUTED);
@@ -552,6 +643,7 @@ void show()
     lv_obj_add_event_cb(reset, [](lv_event_t *) { resetBatteryCalibration(); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *net = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_adminCards[4] = net;
     lv_obj_set_flex_flow(net, LV_FLEX_FLOW_COLUMN);
     Theme::label(net, tr(Str::SET_NETWORK), &my_font_14, Theme::ACCENT);
     s_netInfo = Theme::label(net, "", &my_font_14);
@@ -601,6 +693,11 @@ void show()
         }, LV_EVENT_CLICKED, box);
         Theme::msgboxFonts(box);
     }, LV_EVENT_CLICKED, nullptr);
+
+    if (pinSet) {
+        for (lv_obj_t *card : s_adminCards)
+            if (card) lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+    }
 
     const int32_t halfW = (sw - 22) / 2;
     lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), halfW - 3, 44, Theme::MUTED);

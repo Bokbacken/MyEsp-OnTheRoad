@@ -3452,7 +3452,7 @@ static void buildPlayerPick()
     lv_obj_t *scr = Theme::screen();
     s_activeScr = scr;
     lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
-    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_PLAYER));
+    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_PLAYER), false);
     lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
@@ -3484,7 +3484,7 @@ static void buildWorldPick()
     lv_obj_t *scr = Theme::screen();
     s_activeScr = scr;
     lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
-    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_WORLD));
+    lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_WORLD), false);
     lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
