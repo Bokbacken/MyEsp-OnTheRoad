@@ -21,6 +21,9 @@ addrow = addrow.split("    return b;", 1)[0]
 playerrow = source.split("static void addPlayerRow(const char *name, uint16_t id)\n{", 1)[1]
 playerrow = playerrow.split("\n}\n\nstatic void fillPlayerList", 1)[0]
 assert "AdvUi::rowWidth()" in addrow, "addWorldRow must use the responsive row width"
+assert "UiMetrics::cardMinH() + 32" in addrow, "adventure cards must have a bounded design height"
+assert "LV_LABEL_LONG_MODE_DOTS" in addrow, "adventure titles must stay on one line"
+assert "2 * my_font_14.line_height" in addrow, "adventure descriptions must be limited to two lines"
 assert "AdvUi::rowWidth()" in playerrow, "addPlayerRow must use the responsive row width"
 
 code = r'''
@@ -113,7 +116,7 @@ int main() {
                 lv_obj_t *b = rows[i];
                 const int w = int(lv_obj_get_width(b)), h = int(lv_obj_get_height(b));
                 assert(w == (size.x == 320 ? 296 : 444));
-                assert(h >= (size.x == 320 ? 62 : 93));
+                assert(h == (size.x == 320 ? 92 : 122));
                 if (i) assert(lv_obj_get_y(rows[i - 1]) + lv_obj_get_height(rows[i - 1]) <= lv_obj_get_y(b));
                 assert(lv_obj_get_child_count(b) >= 2);
                 auto *nm = lv_obj_get_child(b, 0);
@@ -121,6 +124,7 @@ int main() {
                 assert(labelTextWidth(nm) <= lv_obj_get_width(nm));
                 assert(int(lv_obj_get_width(nm)) <= w);
                 assert(int(lv_obj_get_width(desc)) <= w);
+                assert(int(lv_obj_get_height(desc)) <= 2 * my_font_14.line_height);
                 lv_area_t buttonArea; lv_obj_get_coords(b, &buttonArea);
                 inside(nm, buttonArea);
                 if (lv_obj_get_height(desc)) inside(desc, buttonArea);

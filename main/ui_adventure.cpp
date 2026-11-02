@@ -3419,29 +3419,37 @@ static void worldChosen(lv_event_t *e)
     buildPlayerPick();
 }
 
-// One wide stacked adventure button: bold name on top, wrapped description below.
+// One bounded adventure card: title on top and at most two description lines below.
 static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)
 {
     const int width = AdvUi::rowWidth();
-    const int rowHeight = AdvUi::scale(62);
+    const int rowHeight = UiMetrics::cardMinH() + 32;
     lv_obj_t *b = Theme::button(list, name, width, rowHeight, Theme::LINE);
+    lv_obj_set_style_radius(b, 14, 0);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, Theme::c(Theme::LINE), 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
     lv_obj_t *nm = lv_obj_get_child(b, 0);
-    lv_obj_set_style_text_color(nm, Theme::c(Theme::GOLD), 0);
-    lv_obj_set_width(nm, width - 2 * AdvUi::scale(10));
-    lv_label_set_long_mode(nm, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_font(nm, &my_font_24, 0);
+    lv_obj_set_width(nm, width - 2 * AdvUi::scale(12) - AdvUi::scale(18));
+    lv_label_set_long_mode(nm, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_t *d = Theme::label(b, desc, &my_font_14, Theme::MUTED);
     lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(d, width - 2 * AdvUi::scale(12));
+    lv_obj_set_width(d, width - 2 * AdvUi::scale(12) - AdvUi::scale(18));
     const bool hasDescription = desc && desc[0];
     if (!hasDescription) lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_update_layout(b);
-    const int nameHeight = lv_obj_get_height(nm);
-    const int descriptionHeight = hasDescription ? lv_obj_get_height(d) : 0;
-    const int requiredHeight = AdvUi::scale(14) + nameHeight + descriptionHeight +
-                              (hasDescription ? AdvUi::scale(4) : 0);
-    if (requiredHeight > rowHeight) lv_obj_set_height(b, requiredHeight);
-    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, AdvUi::scale(10), AdvUi::scale(7));
-    lv_obj_align(d, LV_ALIGN_BOTTOM_LEFT, AdvUi::scale(10), -AdvUi::scale(7));
+    lv_obj_set_height(d, hasDescription ? 2 * my_font_14.line_height : 0);
+    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, AdvUi::scale(28), AdvUi::scale(9));
+    lv_obj_align(d, LV_ALIGN_BOTTOM_LEFT, AdvUi::scale(28), -AdvUi::scale(7));
+    lv_obj_t *stripe = lv_obj_create(b);
+    lv_obj_remove_style_all(stripe);
+    lv_obj_set_size(stripe, AdvUi::scale(6), rowHeight - AdvUi::scale(24));
+    lv_obj_align(stripe, LV_ALIGN_LEFT_MID, AdvUi::scale(10), 0);
+    lv_obj_set_style_radius(stripe, AdvUi::scale(3), 0);
+    lv_obj_set_style_bg_color(stripe, Theme::c(Theme::GREEN), 0);
+    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(stripe, false);
     lv_obj_add_event_cb(b, worldChosen, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     return b;
 }

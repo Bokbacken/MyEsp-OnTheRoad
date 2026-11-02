@@ -106,10 +106,10 @@ static const char *gameTitle()
     }
 }
 
-// Casino-style menu card: accent stripe, title, subtitle, optional check mark.
+// Casino-style menu card: accent stripe, title, two-line subtitle, optional check mark.
 // w may be LV_PCT(..) (flex list) or pixels.
 static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *title, const char *sub,
-                            uint32_t color, bool selected)
+                            uint32_t color, bool selected, bool twoLineSubtitle = false)
 {
     lv_obj_t *b = lv_button_create(parent);
     lv_obj_remove_style_all(b);
@@ -131,9 +131,14 @@ static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *
     const bool small = h < 76;
     lv_obj_t *t = Theme::label(b, title, small ? &my_font_18 : &my_font_24);
     lv_obj_set_pos(t, 28, small ? 9 : 12);
+    if (twoLineSubtitle) {
+        lv_obj_set_width(t, LV_PCT(84));
+        lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
+    }
     lv_obj_t *s = Theme::label(b, sub, &my_font_14, Theme::MUTED);
-    lv_label_set_long_mode(s, LV_LABEL_LONG_MODE_DOTS);
+    lv_label_set_long_mode(s, twoLineSubtitle ? LV_LABEL_LONG_MODE_WRAP : LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(s, LV_COORD_IS_PCT(w) ? LV_PCT(87) : 262);
+    if (twoLineSubtitle) lv_obj_set_height(s, 2 * my_font_14.line_height);
     lv_obj_set_pos(s, 28, small ? 36 : 48);
     if (selected) {
         lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
@@ -142,12 +147,16 @@ static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *
     return b;
 }
 
-// Flex-list card: full width of the list, height shared equally (grows, never below the minimum).
-static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color, bool selected)
+// Full-width menu card; the landing page uses a bounded height and two subtitle lines.
+static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color,
+                              bool selected, bool bounded = false)
 {
-    lv_obj_t *b = menuCardIn(list, LV_PCT(100), UiMetrics::cardMinH(), title, sub, color, selected);
-    lv_obj_set_flex_grow(b, 1);
-    lv_obj_set_style_min_height(b, UiMetrics::cardMinH(), 0);
+    const int32_t height = bounded ? UiMetrics::cardMinH() + 32 : UiMetrics::cardMinH();
+    lv_obj_t *b = menuCardIn(list, LV_PCT(100), height, title, sub, color, selected, bounded);
+    if (!bounded) {
+        lv_obj_set_flex_grow(b, 1);
+        lv_obj_set_style_min_height(b, UiMetrics::cardMinH(), 0);
+    }
     return b;
 }
 
@@ -205,13 +214,17 @@ void showMenu()
     lv_obj_set_size(list, UiMetrics::screenW() - 2 * mN, UiMetrics::screenH() - top - UiMetrics::footerH());
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-    lv_obj_t *dice = menuListCard(list, tr(Str::MENU_DICE_GAMES), tr(Str::MENU_SUB_GAME_YATZY), Theme::ACCENT, false);
+    lv_obj_t *dice = menuListCard(list, tr(Str::MENU_DICE_GAMES), tr(Str::MENU_SUB_GAME_YATZY),
+                                  Theme::ACCENT, false, true);
     lv_obj_add_event_cb(dice, [](lv_event_t *) { showDiceGames(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *adv = menuListCard(list, tr(Str::MENU_ADVENTURES), tr(Str::MENU_SUB_GAME_ADV), Theme::GREEN, false);
+    lv_obj_t *adv = menuListCard(list, tr(Str::MENU_ADVENTURES), tr(Str::MENU_SUB_GAME_ADV),
+                                 Theme::GREEN, false, true);
     lv_obj_add_event_cb(adv, [](lv_event_t *) { UiAdventure::show(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *kara = menuListCard(list, tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE), Theme::GOLD, false);
+    lv_obj_t *kara = menuListCard(list, tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE),
+                                  Theme::GOLD, false, true);
     lv_obj_add_event_cb(kara, [](lv_event_t *) {
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
