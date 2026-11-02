@@ -19,6 +19,7 @@ extern const Entry LANG_EN[] = {
     {Str::SET_REBOOT_BUSY, "Restart blocked during file transfer or OTA."},
     {Str::SET_REBOOT_FAILED, "Could not start restart. See the diagnostic log."},
     {Str::POWER_HISTORY, "Five-minute SD history"},
+    {Str::SET_MENU_ANIMATIONS, "Animated home-screen icons"},
     {Str::SET_TIME_ZONE, "Time zone (automatic daylight saving)"},
     {Str::SET_TIME_ZONE_SAVED, "Previously saved time zone"},
     {Str::SCREEN_SLEEP_HELP, "Normally audio and games continue. Idle mode stops Wi-Fi and audio only without games, karaoke or transfers. Touch to wake; release and wait 250 ms. History requires SD and saves every five minutes."},

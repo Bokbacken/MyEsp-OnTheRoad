@@ -386,6 +386,7 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "screen_off_seconds", c.screenOffSeconds);
     cJSON_AddBoolToObject(o, "eco_sleep", c.ecoSleep);
     cJSON_AddBoolToObject(o, "power_log", c.powerLog);
+    cJSON_AddBoolToObject(o, "menu_animations", c.menuAnimations);
     cJSON *zones = cJSON_AddArrayToObject(o, "time_zones");
     for (const auto &zone : TimeZones::ZONES) {
         cJSON *item = cJSON_CreateObject();
@@ -445,6 +446,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
     if (q.getBool("eco_sleep", b)) next.ecoSleep = b;
     if (q.getBool("power_log", b)) next.powerLog = b;
+    if (q.getBool("menu_animations", b)) next.menuAnimations = b;
     if (HwProfile::active().hasRgbLed && q.getInt("led_brightness", 0, 255, v, bad))
         next.ledBrightness = (uint8_t)v;
     if (q.getInt("default_variant", 0, 5, v, bad)) next.defaultVariant = (uint8_t)v;
@@ -518,6 +520,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     const bool pinChanged = strcmp(next.adminPin, Config::get().adminPin) != 0;
     const AppConfig &current = Config::get();
     const bool adminChange = next.powerLog != current.powerLog ||
+                             next.menuAnimations != current.menuAnimations ||
                              next.batteryScalePermille != current.batteryScalePermille ||
                              next.batteryFullMv != current.batteryFullMv ||
                              strcmp(next.hostname, current.hostname) != 0 ||

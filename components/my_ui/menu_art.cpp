@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <new>
 
 namespace MenuArt {
 namespace {
@@ -79,7 +80,7 @@ constexpr void drawNotes(Pixels &out)
     rect(out, 24, 5, 6, 2, RED);
 }
 
-constexpr void drawAdventure(Pixels &out)
+constexpr void drawAdventure(Pixels &out, bool withCharacter = true)
 {
     rect(out, 1, 24, 30, 2, GREEN);
     rect(out, 4, 14, 11, 10, DIE);
@@ -93,10 +94,12 @@ constexpr void drawAdventure(Pixels &out)
     for (int row = 0; row < 5; ++row)
         for (int col = 0; col <= row; ++col)
             pixel(out, 23 - row + col * 2, 9 + row, GOLD);
-    circle(out, 17, 17, 2, GOLD);
-    rect(out, 16, 19, 3, 5, PURPLE);
-    rect(out, 15, 22, 2, 3, INK);
-    rect(out, 18, 22, 2, 3, INK);
+    if (withCharacter) {
+        circle(out, 17, 17, 2, GOLD);
+        rect(out, 16, 19, 3, 5, PURPLE);
+        rect(out, 15, 22, 2, 3, INK);
+        rect(out, 18, 22, 2, 3, INK);
+    }
 }
 
 constexpr Pixels render(Icon icon)
@@ -164,7 +167,123 @@ constexpr std::array<Pixels, ICON_COUNT> PIXELS = {
     render(Icon::SHIP_CAPTAIN_CREW)
 };
 
+constexpr Pixels renderFrame(Icon icon, int frame)
+{
+    Pixels out{};
+    if (icon == Icon::DICE) {
+        Pixels source{};
+        die(source, 7, 7, 18, frame % 6 + 1, GOLD);
+        constexpr int cosines[] = {1024, 724, 0, -724, -1024, -724, 0, 724};
+        constexpr int sines[] = {0, 724, 1024, 724, 0, -724, -1024, -724};
+        for (int y = 0; y < SIDE; ++y)
+            for (int x = 0; x < SIDE; ++x) {
+                const int dx = 2 * x - 31, dy = 2 * y - 31;
+                const int sx = (dx * cosines[frame] + dy * sines[frame] + 31 * 1024) / 2048;
+                const int sy = (-dx * sines[frame] + dy * cosines[frame] + 31 * 1024) / 2048;
+                if (sx >= 0 && sx < SIDE && sy >= 0 && sy < SIDE)
+                    pixel(out, x, y, source[sy * SIDE + sx]);
+            }
+    } else if (icon == Icon::ADVENTURE) {
+        drawAdventure(out, false);
+        // Walk in front of the village; keep the houses stationary.
+        const int x = 4 + (frame < 4 ? frame : 7 - frame) * 7;
+        circle(out, x, 23, 2, GOLD);
+        rect(out, x - 1, 25, 3, 4, PURPLE);
+        rect(out, x - 2, 29, 2, frame % 2 ? 1 : 3, INK);
+        rect(out, x + 1, 29, 2, frame % 2 ? 3 : 1, INK);
+    } else if (icon == Icon::KARAOKE) {
+        Pixels source{};
+        drawNotes(source);
+        constexpr int bounce[] = {0, -1, -2, -1, 0, 1, 2, 1};
+        for (int y = 0; y < SIDE; ++y)
+            for (int x = 0; x < SIDE; ++x)
+                if (source[y * SIDE + x])
+                    pixel(out, x, y + bounce[(frame + x / 11 * 2) % ANIMATION_FRAMES],
+                          source[y * SIDE + x]);
+    }
+    return out;
+}
+
+constexpr auto makeFrames(Icon icon)
+{
+    std::array<Pixels, ANIMATION_FRAMES> frames{};
+    for (int i = 0; i < ANIMATION_FRAMES; ++i) frames[i] = renderFrame(icon, i);
+    return frames;
+}
+
+constexpr std::array<std::array<Pixels, ANIMATION_FRAMES>, 3> FRAMES = {
+    makeFrames(Icon::DICE), makeFrames(Icon::ADVENTURE), makeFrames(Icon::KARAOKE)
+};
+
+struct HomeAnimation {
+    lv_obj_t *screen;
+    lv_obj_t *pictures[3];
+    AnimationEnabled enabled;
+    uint8_t frame = 0;
+    bool moving = false;
+};
+
+void homeTick(lv_timer_t *timer)
+{
+    auto *state = static_cast<HomeAnimation *>(lv_timer_get_user_data(timer));
+    if (lv_screen_active() != state->screen) return;
+    const bool moving = state->enabled();
+    if (!moving && !state->moving) return;
+    state->moving = moving;
+    for (int i = 0; i < 3; ++i) {
+        const Icon icon = static_cast<Icon>(i);
+        lv_image_set_src(state->pictures[i], moving ? animationFrame(icon, state->frame) : image(icon));
+    }
+    if (moving) state->frame = (state->frame + 1) % ANIMATION_FRAMES;
+    else state->frame = 0;
+}
+
 }  // namespace
+
+const lv_image_dsc_t *animationFrame(Icon icon, uint8_t frame)
+{
+    const auto index = static_cast<std::size_t>(icon);
+    if (index >= FRAMES.size()) return image(icon);
+    static const auto descriptors = [] {
+        std::array<std::array<lv_image_dsc_t, ANIMATION_FRAMES>, 3> result{};
+        for (std::size_t i = 0; i < result.size(); ++i)
+            for (int f = 0; f < ANIMATION_FRAMES; ++f) {
+                auto &d = result[i][f];
+                d.header.magic = LV_IMAGE_HEADER_MAGIC;
+                d.header.cf = LV_COLOR_FORMAT_ARGB8888;
+                d.header.w = SIDE;
+                d.header.h = SIDE;
+                d.header.stride = SIDE * sizeof(uint32_t);
+                d.data = reinterpret_cast<const uint8_t *>(FRAMES[i][f].data());
+                d.data_size = sizeof(Pixels);
+            }
+        return result;
+    }();
+    return &descriptors[index][frame % ANIMATION_FRAMES];
+}
+
+bool animateHome(lv_obj_t *screen, lv_obj_t *dice, lv_obj_t *adventure, lv_obj_t *karaoke,
+                 AnimationEnabled enabled)
+{
+    auto *state = new (std::nothrow) HomeAnimation{screen, {dice, adventure, karaoke}, enabled};
+    if (!state) return false;
+    lv_timer_t *timer = lv_timer_create(homeTick, 200, state);
+    if (!timer) {
+        delete state;
+        return false;
+    }
+    lv_obj_add_event_cb(screen, [](lv_event_t *event) {
+        if (lv_event_get_target(event) != lv_event_get_current_target(event)) return;
+        auto *timer = static_cast<lv_timer_t *>(lv_event_get_user_data(event));
+        if (lv_event_get_code(event) == LV_EVENT_SCREEN_UNLOAD_START) lv_timer_pause(timer);
+        else if (lv_event_get_code(event) == LV_EVENT_SCREEN_LOADED) lv_timer_resume(timer);
+        else if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+            delete static_cast<HomeAnimation *>(lv_timer_get_user_data(timer));
+            lv_timer_delete(timer);
+        }
+    }, LV_EVENT_ALL, timer);
+    return true;
+}
 
 const lv_image_dsc_t *image(Icon icon)
 {

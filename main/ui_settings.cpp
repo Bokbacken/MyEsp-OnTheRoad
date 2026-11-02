@@ -351,6 +351,7 @@ static void leave(bool save)
         Config::get().screenOffSeconds = s_edit.screenOffSeconds;
         Config::get().ecoSleep = s_edit.ecoSleep;
         Config::get().powerLog = s_edit.powerLog;
+        Config::get().menuAnimations = s_edit.menuAnimations;
         snprintf(Config::get().tz, sizeof(Config::get().tz), "%s", s_edit.tz);
         Config::get().textSize = s_edit.textSize;
         Config::get().ledBrightness = s_edit.ledBrightness;
@@ -578,6 +579,9 @@ static void showPage(Page page)
     s_adminCards[1] = powerAdmin;
     lv_obj_set_flex_flow(powerAdmin, LV_FLEX_FLOW_COLUMN);
     Theme::label(powerAdmin, tr(Str::SET_ADMIN), &my_font_14, Theme::ACCENT);
+    switchRow(powerAdmin, tr(Str::SET_MENU_ANIMATIONS), s_edit.menuAnimations, [](lv_event_t *e) {
+        s_edit.menuAnimations = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    });
     switchRow(powerAdmin, tr(Str::POWER_HISTORY), s_edit.powerLog, [](lv_event_t *e) {
         s_edit.powerLog = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });

@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.23.24 (unreleased)
+
+- Home-screen artwork animates a rolling die, village walker and musical
+  notes at five frames per second, using built-in frames rather than GIF
+  decoding or SD reads. Administration can disable animations (also available
+  through the PIN-protected web setting); the choice persists across restarts.
+- Animation updates stop while the screen is off or the home screen is
+  inactive; disabling restores the original static icons. Menu structure is
+  unchanged. S3/P4 hardware appearance and power measurements remain pending.
+
 ## v0.23.23 (unreleased)
 
 - On-device Settings now groups game options, Players, user controls, and

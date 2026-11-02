@@ -19,6 +19,7 @@ extern const Entry LANG_SV[] = {
     {Str::SET_REBOOT_BUSY, "Omstart nekad under filöverföring eller OTA."},
     {Str::SET_REBOOT_FAILED, "Omstart kunde inte startas. Se diagnostikloggen."},
     {Str::POWER_HISTORY, "Femminutershistorik på SD"},
+    {Str::SET_MENU_ANIMATIONS, "Rörliga bilder på startsidan"},
     {Str::SET_TIME_ZONE, "Tidszon (sommartid automatiskt)"},
     {Str::SET_TIME_ZONE_SAVED, "Tidigare sparad tidszon"},
     {Str::SCREEN_SLEEP_HELP, "Normalt fortsätter ljud och spel. Viloläge stoppar Wi-Fi och ljud endast utan spel, karaoke eller överföring. Touch väcker; släpp och vänta 250 ms. Historik kräver SD och sparas var femte minut."},

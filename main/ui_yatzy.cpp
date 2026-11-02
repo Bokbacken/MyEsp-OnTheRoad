@@ -30,6 +30,7 @@
 #include "ui_settings.h"
 #include "my_theme.h"
 #include "menu_art.h"
+#include "board_backlight.h"
 #include "ui_metrics.h"
 #include "ui_wifi.h"
 #include "lang_game.h"
@@ -199,6 +200,12 @@ void showMenu()
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
+    if (!MenuArt::animateHome(scr,
+            lv_obj_get_child(lv_obj_get_child(dice, 0), 0),
+            lv_obj_get_child(lv_obj_get_child(adv, 0), 0),
+            lv_obj_get_child(lv_obj_get_child(kara, 0), 0),
+            [] { return Config::get().menuAnimations && !Backlight::sleeping(); }))
+        ESP_LOGE("menu", "could not allocate home animation timer");
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);
     Theme::loadScreen(scr);

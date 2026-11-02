@@ -32,7 +32,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   variant; Yatzy, Maxi and Midi can be set to play in order.
 - **Tile adventures** – SD-loaded `.adv` campaigns, internal maps and portals,
   puzzles, story-driven terrain/object changes, resources, NPC dialogue,
-  checkpoints, saved progress, static menu artwork, and optional 32×32 PNG
+  checkpoints, saved progress, menu artwork, and optional 32×32 PNG
   cover images on adventure cards. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
   and the [authoring reference](docs/AUTHORING_ADVENTURES.md) for examples,
   supported mechanics and limits.
@@ -51,6 +51,10 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 - **On-device Settings** – the hamburger menu groups game options, Players,
   user settings, and Administration. The admin PIN, when configured, protects
   administrative controls; screen timeout and eco mode remain user settings.
+- **Animated home icons** – a rotating die, walking village character and
+  moving musical notes. Enabled by default; switch off in Administration or
+  web settings to keep static artwork. Animation updates stop when the screen
+  is off or another page is open.
 - **microSD + file browser** – FAT storage over 4-bit SDMMC (1-bit fallback).
   `/files.html`: browse the whole card (or the internal flash), download, streamed upload, delete, rename, new
   folder and directory uploads. Up to four SD uploads run concurrently (fewer when internal RAM is low, e.g. S3) while

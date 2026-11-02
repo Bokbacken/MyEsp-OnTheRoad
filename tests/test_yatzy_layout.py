@@ -84,11 +84,13 @@ static GameType s_gameType = GameType::YATZY;
 static PigVariant s_pigVariant = PigVariant::ONE_DIE;
 static bool s_midi;
 static int starts, menus;
+static bool s_playerCenterReturn;
 static void showPlayers();
 static void showMenu() { ++menus; }
+static void showDiceGames() { ++menus; }
+static void showPlayerCenter() { ++menus; }
 static void startNewGame() { ++starts; }
 @CHOICES@
-@CARD_HELPERS@
 @LAYOUTS@
 @PLAYERS@
 @PICKER@
@@ -436,7 +438,7 @@ static void checkModals() {
     assert(lv_obj_has_state(adminOk, LV_STATE_DISABLED));
     for (int id : {0, 1, 2}) key(adminMatrix, id);
     assert(lv_obj_has_state(adminOk, LV_STATE_DISABLED));
-    key(adminMatrix, 4);
+    key(adminMatrix, 3);
     assert(!lv_obj_has_state(adminOk, LV_STATE_DISABLED));
     result.accept = true;
     click(adminOk);
@@ -447,7 +449,7 @@ static void checkModals() {
     settle();
     adminMatrix = child(adminPad, -3);
     adminOk = child(adminPad, -1);
-    for (int id : {0, 1, 2, 4, 5, 6, 8, 9, 10}) key(adminMatrix, id);
+    for (int id : {0, 1, 2, 3, 4, 5, 6, 7, 8}) key(adminMatrix, id);
     click(adminOk);
     assert(result.ok && strcmp(result.pin, "12345678") == 0);
     assert(lv_obj_get_child_count(lv_layer_top()) == 0);
@@ -605,6 +607,69 @@ static void check() {
     printf("game layout/interactions OK: %dx%d\n", int(UiMetrics::screenW()), int(UiMetrics::screenH()));
 }
 }
+static bool menuAnimationOn = true, menuScreenSleeping = false;
+static void checkHomeAnimations() {
+    const unsigned baseline = [] {
+        unsigned count = 0;
+        for (auto *timer = lv_timer_get_next(nullptr); timer; timer = lv_timer_get_next(timer)) ++count;
+        return count;
+    }();
+    auto *previous = lv_screen_active();
+    for (int cycle = 0; cycle < 4; ++cycle) {
+        auto *screen = Theme::screen();
+        lv_obj_t *pictures[3];
+        for (int i = 0; i < 3; ++i) {
+            const auto icon = static_cast<MenuArt::Icon>(i);
+            pictures[i] = lv_image_create(screen);
+            lv_image_set_src(pictures[i], MenuArt::image(icon));
+            const auto *first = MenuArt::animationFrame(icon, 0);
+            for (int frame = 0; frame < MenuArt::ANIMATION_FRAMES; ++frame) {
+                const auto *current = MenuArt::animationFrame(icon, frame);
+                const auto *next = MenuArt::animationFrame(icon, frame + 1);
+                assert(current->header.w == 32 && current->header.h == 32);
+                assert(current->data_size == 32 * 32 * 4);
+                assert(memcmp(current->data, next->data, current->data_size) != 0);
+            }
+            assert(MenuArt::animationFrame(icon, MenuArt::ANIMATION_FRAMES) == first);
+        }
+        assert(MenuArt::animateHome(screen, pictures[0], pictures[1], pictures[2],
+            [] { return menuAnimationOn && !menuScreenSleeping; }));
+        lv_screen_load(screen);
+        menuAnimationOn = true;
+        settle();
+        for (int i = 0; i < 3; ++i)
+            assert(lv_image_get_src(pictures[i]) == MenuArt::animationFrame(static_cast<MenuArt::Icon>(i), 0));
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::animationFrame(MenuArt::Icon::DICE, 1));
+        menuScreenSleeping = true;
+        settle();
+        for (int i = 0; i < 3; ++i)
+            assert(lv_image_get_src(pictures[i]) == MenuArt::image(static_cast<MenuArt::Icon>(i)));
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::image(MenuArt::Icon::DICE));
+        menuScreenSleeping = false;
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::animationFrame(MenuArt::Icon::DICE, 0));
+        menuAnimationOn = false;
+        settle();
+        assert(lv_image_get_src(pictures[0]) == MenuArt::image(MenuArt::Icon::DICE));
+        menuAnimationOn = true;
+        settle();
+        const auto *lastFrame = lv_image_get_src(pictures[0]);
+        lv_screen_load(previous);
+        settle();
+        assert(lv_image_get_src(pictures[0]) == lastFrame);
+        lv_screen_load(screen);
+        settle();
+        assert(lv_image_get_src(pictures[0]) != lastFrame);
+        lv_screen_load(previous);
+        lv_obj_delete(screen);
+        unsigned timers = 0;
+        for (auto *timer = lv_timer_get_next(nullptr); timer; timer = lv_timer_get_next(timer)) ++timers;
+        assert(timers == baseline);
+    }
+    puts("home artwork: frames, toggle, sleep/wake, screen navigation and timer cleanup passed");
+}
 int main() {
     lv_init();
     auto *display = lv_display_create(320, 480);
@@ -612,6 +677,7 @@ int main() {
     static uint8_t pixels[800 * 20 * 2];
     lv_display_set_buffers(display, pixels, nullptr, sizeof(pixels), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, [](lv_display_t *d, const lv_area_t *, uint8_t *) { lv_display_flush_ready(d); });
+    checkHomeAnimations();
     checkResponsiveLayouts(display);
     char dir[] = "/tmp/yatzy-players-XXXXXX"; storageBase = mkdtemp(dir);
     assert(Players::begin());
@@ -636,7 +702,7 @@ int main() {
                 noOverlap(list, false, false); noOverlap(child(box, 1), true);
                 if (size.x == 320 && size.y == 480) {
                     assert(lv_obj_get_y(box) == 74 && lv_obj_get_y(child(box, 1)) + lv_obj_get_y(box) == 432);
-                    assert(lv_obj_get_scroll_bottom(list) <= 0);
+                    assert((lv_obj_get_scroll_bottom(list) > 0) == (game == GameType::YATZY));
                 }
                 unsigned count = game == GameType::YATZY ? 6 : game == GameType::PIG ? 2 : 1;
                 assert(lv_obj_get_child_count(list) == count);
@@ -722,7 +788,6 @@ int main() {
 }
 '''
 code = code.replace("@CHOICES@", section("struct VariantChoice {", "static void showVariants();"))
-code = code.replace("@CARD_HELPERS@", section("static lv_obj_t *menuCardIn(", "static void showVariants();"))
 code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ========================================================================================\n// Players"))
 code = code.replace(
     "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)\n{",

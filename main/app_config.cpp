@@ -34,6 +34,7 @@ void defaults(AppConfig &c)
     c.ledEnabled = true;
     c.defaultVariant = 0;
     c.resultProtocolFirst = false;
+    c.menuAnimations = true;
     c.rollAnimMs = 800;
     c.maxiSavedRolls = true;
     c.throwMode = 0;
@@ -76,6 +77,7 @@ void begin()
             g_cfg.screenOffSeconds = p.getU16("screen_off", 0);
             g_cfg.ecoSleep = p.getBool("eco_sleep", false);
             g_cfg.powerLog = p.getBool("power_log", false);
+            g_cfg.menuAnimations = p.getBool("menu_anim", true);
             g_cfg.textSize = p.getU8("text_size", TEXT_SIZE_DEFAULT);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
@@ -146,6 +148,7 @@ bool save()
     ok &= p.setU16("screen_off", g_cfg.screenOffSeconds);
     ok &= p.setBool("eco_sleep", g_cfg.ecoSleep);
     ok &= p.setBool("power_log", g_cfg.powerLog);
+    ok &= p.setBool("menu_anim", g_cfg.menuAnimations);
     ok &= p.setU8("text_size", g_cfg.textSize);
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);

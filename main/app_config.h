@@ -22,6 +22,7 @@ struct AppConfig {
     uint16_t screenOffSeconds; // 0 = disabled; otherwise one of SCREEN_OFF_SECONDS
     bool ecoSleep;           // Stop Wi-Fi and audio during idle screen-off; touch restores them
     bool powerLog;           // Five-minute usage/battery CSV on SD
+    bool menuAnimations;     // Animated artwork on the home screen
     uint8_t textSize;        // 0 small, 1 normal (default), 2 large, 3 extra large (MyFonts::TextSize)
     uint8_t ledBrightness;   // RGB LED 0..255
     bool ledEnabled;
