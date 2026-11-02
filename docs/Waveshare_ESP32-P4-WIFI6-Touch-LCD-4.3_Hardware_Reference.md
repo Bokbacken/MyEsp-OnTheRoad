@@ -470,6 +470,65 @@ Practical reading (ESP-IDF):
 
 Verify battery polarity against the PCB marking before connecting — do not rely on connector shape alone. The ESP32-P4 is a markedly more power-hungry SoC than the ESP32-S3, especially with the MIPI display, camera, and C6 radio active; budget power and battery capacity accordingly.
 
+### First P4 battery baseline (2026-11-02)
+
+The owner's simplified interpretation of the first voltage curve is:
+
+- Discharge is approximately linear over the working range of about
+  **4150 down to 3400 mV**.
+- Charging from a computer USB port is approximately linear from about
+  **3500 to above 4150 mV**.
+- Below about **3400 mV**, little usable runtime appears to remain.
+
+These are working observations for this P4, battery and workload, not a
+general LiPo capacity model. The recorded discharge starts around 4040 mV,
+so it does not establish linear discharge from 4150 mV. Do not extrapolate
+the trend to zero volts or derive current, capacity or runtime directly
+from voltage. ADC values use the default 3000-permille divider scale,
+without an independent multimeter calibration.
+
+The [Excel-ready baseline CSV](measurements/batterikurva-2026-11-01-02.csv)
+combines 188 unique five-minute records from the overnight discharge and
+subsequent charging. It includes local Swedish time, UTC, interval
+minimum/average/maximum millivolts and boot number:
+
+| Observation | Swedish local time, 2026-11-02 | Voltage |
+|---|---|---|
+| First overnight interval ends | 00:51:15 | 4039 mV average |
+| Last interval of uninterrupted boot 62 ends | 08:31:24 | 3547 mV average |
+| Continued discharge, boot 70 | 10:49:32 | 2824 mV average, 2676 mV minimum |
+| First interval of boot 78, followed by rising voltage | 11:03:58 | 2831 mV average, 2628 mV minimum |
+| Last CSV interval ends | 17:12:40 | 4155 mV minimum/average/maximum |
+
+Boot 62 covers 93 intervals (7 h 45 min of recorded activity); its first
+and last interval endpoints are 7 h 40 min 9 s apart. The screen was on
+0.79% of the time, Wi-Fi connected 99.82%, amplifier enabled 100%, and
+eco mode and games inactive. The later log continues the discharge:
+3547 mV is not the final low-voltage endpoint. Rapid power-on resets at
+10:50-10:59 are consistent with low-supply instability, but the log does
+not prove brownout rather than cable/power interruption. Earlier resets
+may include the owner's serial-cable handling.
+
+The low-point and 4155 mV observations are 6 h 8 min 42 s apart. USB
+connection time and charge current are not logged, and there are reboots
+and gaps, so this is not a measured full-charge duration.
+
+**Requested future P4 behavior, not implemented:** below **3400 mV**,
+stop normal operation and shut down every subsystem that can safely be
+disabled, rather than continuing into repeated low-voltage restarts.
+The eventual implementation must distinguish sustained valid low
+readings from transients, finish essential writes safely and verify the
+remaining powered domains and wake/recovery behavior on hardware.
+No GPIO-controlled whole-board power-off path has been established;
+the physical POWER-button circuit must not be assumed software-controllable.
+An inactive/low-power state is not the same as disconnecting the battery.
+
+Keep this run as the initial comparison baseline when adding further
+power saving; repeat with comparable battery, voltage range, firmware,
+temperature and workload. S3 measurements and any S3 shutdown threshold
+remain separate and pending; do not copy this P4 threshold to S3 without
+its own data.
+
 ---
 
 ## 12. Recommended software options
