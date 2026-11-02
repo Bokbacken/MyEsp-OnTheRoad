@@ -92,6 +92,151 @@ Webben kan inte väcka en stoppad Wi-Fi-radio.
 Fel vid stopp/återstart loggas och faktisk status visas i Diagnostik.
 Den ytterligare besparingen från panelvila är ännu inte mätt på hårdvara.
 
+## P4: fortsatt strömsparutredning 2026-11-02
+
+Detta är en utredning, inte nya firmwarefunktioner. Ägaren rapporterar mycket
+svagt kvarvarande skärmljus efter panelvila. Tidigare bekräftad display-off
+betyder därför inte att bakljuset är helt avstängt.
+
+### Nattkörningen på v0.23.22
+
+Ägarens `otr_0.log` är en textlogg, inte femminutershistorikens CSV.
+Batteriet har enligt ägaren deklarerad kapacitet **2000 mAh**; faktisk
+kapacitet, startladdning och extern matning mäts inte av firmware.
+Råloggen ska inte checkas in.
+
+| Urval ur loggen | Observation |
+|---|---|
+| Samma körning, boot 62, 00:51:14–08:31:15 | 4038 → 3543 mV, fall 495 mV på cirka 7 h 40 min |
+| Oavbrutet rapporterad skärmvila 00:56:01–08:06:13 | Cirka 7 h 10 min utan loggad touchväckning |
+| Batteriprover inom denna skärmvila, 00:56:14–08:01:15 | 4026 → 3588 mV, fall 438 mV på cirka 7 h 5 min |
+| Sista provet i filen, efter ytterligare uppstarter | 3513 mV vid 08:54:00 |
+
+Wi-Fi är fortsatt anslutet under natten, med flera av appen initierade
+roamingbyten. Boot 62 har tolv sådana byten; fem ligger mellan 00:56 och
+08:06. Mottagningsfel från HTTP-sockets sammanfaller med flera byten.
+Det motiverar att även mäta skanning/roaming vid vila, inte att stänga av
+återanslutning eller låsa enheten till en försvunnen accesspunkt.
+Ingen `idle Wi-Fi stopped`/ekolägesaktivering syns.
+
+Loggen visar ingen panic/watchdog under nattintervallet. Vid cirka 08:33
+finns flera nya uppstarter med `reset: poweron`; orsaken framgår inte.
+`core dump stored` i en bootrad är inte bevis för en ny nattlig krasch.
+Spänningskurvan och 2000 mAh räcker inte för att beräkna mA, förbrukad
+kapacitetsandel eller återstående timmar. CSV behövs för att jämföra
+spel-/ljud-/lagringsaktivitet; verklig effekt kräver strömmätning.
+
+### Panel och separat bakljusdriver
+
+ST7701-vägen använder redan standardkommandona display-off `0x28` och
+sleep-in `0x10`, samt sleep-out `0x11` och display-on `0x29` vid väckning.
+Samma kommandon finns i Espressifs ST7701-MIPI-driver. Panelens analoga
+spännings-/gammaregister ska inte ändras på chans för att släcka LED-ljus.
+
+Waveshares schema har en **separat AP3032KTR-G1 (U9)** för bakljuset:
+
+| Signal | Anslutning enligt schemat | Nuvarande firmware |
+|---|---|---|
+| `LCD_BL_PWM` | GPIO26 via R43, ljusstyrkereglering | Inverterad LEDC-PWM; 0 % vid vila |
+| `BL_EN` | GPIO33 via R32 till U9 EN, pinne 4 | Inte definierad eller styrd |
+| LCD reset | GPIO27 | Används vid panelinitiering |
+
+Även Waveshares BSP:s `backlight_off()` sätter bara PWM till noll;
+det är inte samma sak som att använda AP3032:s EN-ingång.
+**Nästa avgränsade ändring bör vara att styra BL_EN lågt vid släckning**,
+behålla noll ljusstyrka medan panelen väcks och återaktivera bakljuset sist.
+GPIO33 är inte samma signal som den aktivt låga PWM-styrningen.
+Schemat ger en stark kandidat till restljuset, inte ett hårdvarubevis för
+orsaken. Prova fullständigt mörker, upprepad väckning och sparad ljusstyrka;
+om ljus kvarstår behövs kontroll av EN-nivån och LED-matningen på kortet.
+ST7701-kommandon kan inte ersätta den separata bakljusavstängningen.
+
+### Wi-Fi med bibehållen webbåtkomst
+
+| Läge | Egenskap och begränsning |
+|---|---|
+| `WIFI_PS_NONE` | Nuvarande vaket-läge; lägst mottagningslatens |
+| `WIFI_PS_MIN_MODEM` | Redan begärt vid vanlig skärmsläckning på S3/P4; anslutningen behålls och radion vaknar vid AP:ns DTIM |
+| `WIFI_PS_MAX_MODEM` | Vaknar enligt stationens `listen_interval`; kan ge längre vila, men mer latens och förlorad broadcast/multicast |
+| C6 iTWT, 802.11ax | Förhandlade väckfönster; kräver HE-anslutning och AP som faktiskt accepterar iTWT |
+| Wi-Fi stoppat | Befintligt separat ekoläge; webben är inte nåbar och kan inte väcka enheten |
+
+MIN_MODEM kräver inte Wi-Fi 6. MAX_MODEM kräver att `listen_interval`
+annonseras före anslutningen, inte bara ett byte med `esp_wifi_set_ps()`.
+Exempelvis 3/5/10 beaconintervall är rimliga jämförelsepunkter, inte
+garanterade millisekunder eller ett beslutat standardval. Testa direkt-IP,
+ARP/DHCP, mDNS, WebSocket, roaming och filöverföring; sänk sparnivån under
+latenskänslig trafik. Långa intervall får inte göra webben opålitlig.
+
+ESP-Hosted 3.0.10 har iTWT-RPC:er för setup/teardown och status/event.
+Även projektets låsta C6-källrevision
+`78b1c1c43c02b0c4e898cf87f94679278b1ddaff` innehåller iTWT-utökningen,
+som är på som standard för HE-kretsar. Nattloggen visar att värdens
+iTWT-utökning initieras, **inte** att ett TWT-avtal har slutits.
+Appen förhandlar ännu inget avtal. Visa förhandlat läge och faktiskt
+godkänt avtal; enbart AP:ns `phy_11ax` räcker inte som TWT-bevis.
+Vid avslag/timeout ska skälet synas och MIN_MODEM behållas som uttrycklig
+reservnivå. AP-stödet i ägarens nät är inte fastställt.
+OFDMA/BSS-coloring är inte ersättningar för ett förhandlat viloschema.
+
+### P4:s klocknivåer och DSI:s lås
+
+Kortet är verifierat som P4 revision 3.2 med 40 MHz kristall.
+IDF v6.1:s revisionsspecifika klockkod stöder **400, 200 och 100 MHz**
+från CPLL samt **40 MHz** från kristallen. Lägre kristalldelade nivåer
+finns i lågnivåkoden men rekommenderas inte som första appnivå.
+Äldre P4-revisioners 360/180/90 MHz ska inte användas som denna boards meny.
+
+Frekvenssänkning via `CONFIG_PM_ENABLE` och `esp_pm_configure()` är möjlig
+utan light sleep. Men IDF v6.1:s DPI-driver tar ett **CPU_FREQ_MAX-lås
+(`dsi_dpi`) under panelobjektets livstid**, och DSI-bussen tar
+**NO_LIGHT_SLEEP (`dsi_phy`)**. Våra ST7701-sleep-kommandon frigör inget av
+dessa objekt. Att bara aktivera DFS lämnar därför CPU:n låst till vald
+maxfrekvens medan DPI-objektet finns kvar.
+
+Rekommenderad ordning: stoppa/frigör DPI säkert vid panelvila via stödd
+drivrutinslivscykel, och återskapa framebuffer/stream före väckning.
+IDF:s DPI-driver exponerar ingen vanlig display-off/sleep-callback som
+pausar dess DMA och släpper låset. Frigör inte drivrutinens privata PM-lås
+och forcera inte en låg klocka medan videoströmmen är aktiv.
+Om även DSI-buss/PHY/LDO stoppas måste DBI-kommandovägen återskapas före
+sleep-out. Panelens och touchens matning får inte kopplas bort på chans.
+
+Prova därefter DFS med 400 MHz max och först 100 MHz min; utvärdera
+40 MHz som ytterligare tomgångsnivå. Detta är min/max-gränser, inte löfte om
+att drivrutiner/schemaläggare tillåter varje nivå hela tiden.
+Spel, karaoke, OTA och filöverföring ska behålla nödvändig prestanda.
+Redovisa verklig CPU-frekvens och PM-lås, inte bara önskad inställning.
+Automatisk light sleep är ett senare steg: DSI:s lås, SDIO-väckning från
+C6, I2S, loggning och den pollade touchen måste hanteras först.
+Att endast C6 är uppkopplad räcker inte för webbåtkomst; HTTP-servern kör
+på P4. Hosted-exemplet med sovande värd/network split kräver en separat
+arkitektur och väcksignal, inte bara en inställningsändring.
+
+### Källor för utredningen
+
+Waveshares [schema, display/backlight på sida 1][p4-power-schema] och
+[BSP:s bakljusstyrning][p4-power-bsp] skiljer PWM från EN.
+Espressifs [ST7701-MIPI-driver][p4-power-st7701] visar panelkommandona.
+Klocknivåerna kommer från [IDF v6.1:s P4-klockkod][p4-power-clock],
+inte den generiska PM-tabellens äldre 360 MHz-uppgift.
+Se även [DPI-driverns lås/livscykel][p4-power-dpi],
+[DSI-bussens lås][p4-power-dsi], [modem-sleep-dokumentationen][p4-power-wifi],
+[iTWT-exemplet][p4-power-itwt] och [Hosted iTWT-API][p4-power-hosted].
+Externa dokumentations-/databladsvärdar kunde inte DNS-upplösas vid
+utredningen; ingen elektrisk AP3032-läckström eller ny registersekvens
+påstås verifierad från ett hämtat datablad.
+
+[p4-power-schema]: https://github.com/waveshareteam/ESP32-P4-WIFI6-Touch-LCD-4.3/blob/main/schematic/ESP32-P4-WIFI6-Touch-LCD-4.3-schematic.pdf
+[p4-power-bsp]: https://github.com/waveshareteam/ESP32-P4-WIFI6-Touch-LCD-4.3/blob/main/firmware/brookesia/components/esp32_p4_wifi6_touch_lcd_4_3/esp32_p4_wifi6_touch_lcd_4_3.c
+[p4-power-st7701]: https://github.com/espressif/esp-iot-solution/blob/master/components/display/lcd/esp_lcd_st7701/esp_lcd_st7701_mipi.c
+[p4-power-clock]: https://github.com/espressif/esp-idf/blob/v6.1/components/esp_hw_support/port/esp32p4/rtc_clk.c
+[p4-power-dpi]: https://github.com/espressif/esp-idf/blob/v6.1/components/esp_lcd/dsi/esp_lcd_panel_dpi.c
+[p4-power-dsi]: https://github.com/espressif/esp-idf/blob/v6.1/components/esp_lcd/dsi/esp_lcd_mipi_dsi_bus.c
+[p4-power-wifi]: https://github.com/espressif/esp-idf/blob/v6.1/docs/en/api-guides/wifi-driver/wifi-performance-and-power-save.rst
+[p4-power-itwt]: https://github.com/espressif/esp-idf/blob/v6.1/examples/wifi/itwt/README.md
+[p4-power-hosted]: https://github.com/espressif/esp-hosted-mcu/blob/v3.0.10/host/features/eh_host_feat_wifi_ext_itwt/include/eh_host_wifi_itwt.h
+
 ## Kontrollerad omstart
 
 **Starta om enheten** finns längst ned i den lokala nätverksdelen under
