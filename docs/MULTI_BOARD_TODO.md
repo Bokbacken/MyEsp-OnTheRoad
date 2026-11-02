@@ -15,12 +15,14 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
-### Sudoku, v0.24.0
+### Sudoku, OTA-filval och bootbatteri, v0.24.0
 
 - [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
   siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
 - [x] Animerad mini-Sudoku på startsidan under Tidsfördriv; samma på/av-val
   som övriga menyikoner. Yatzy-synkroniseringen är inte ändrad.
+- [x] Större filval för app-/C6-OTA och första giltiga batterispänningen
+  loggas direkt efter boot, därefter som tidigare var femte minut.
 - [x] Värdtester kontrollerar alla 400 pussels unika lösning samt riktig
   LVGL-layout/interaktion, sparning och återställning i svenska/engelska,
   flera textstorlekar och S3/P4:s stående/liggande upplösningar.

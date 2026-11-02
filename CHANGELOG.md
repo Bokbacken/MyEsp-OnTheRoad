@@ -19,6 +19,10 @@ a published GitHub Release.
   implemented.
 - Add an animated mini-Sudoku home icon, controlled by the existing menu
   animation setting. Yatzy multiplayer behaviour is unchanged.
+- Make the app/C6 OTA file pickers larger, with a highlighted drop area and
+  larger native file-selection button.
+- Log the first valid battery-voltage reading after boot immediately, then
+  retain the five-minute cadence. SD power-history intervals are unchanged.
 - Physical S3/P4 touch-layout verification remains pending.
 
 ## v0.23.24 (unreleased)
