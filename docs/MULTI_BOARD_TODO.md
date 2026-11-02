@@ -20,7 +20,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
   siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
   Färdiga siffror gråas ut, sifferbyten bekräftas och sparfel hindrar utgång;
-  paustiden räknas upp till själva pausen.
+  paustiden räknas upp till själva pausen. Kontroll markerar regelbrott i rad,
+  kolumn och ruta, inte enbart siffror som avviker från lösningen.
 - [x] Animerad mini-Sudoku på startsidan under Tidsfördriv; samma på/av-val
   som övriga menyikoner. Yatzy-synkroniseringen är inte ändrad.
 - [x] Större filval för app-/C6-OTA och första giltiga batterispänningen

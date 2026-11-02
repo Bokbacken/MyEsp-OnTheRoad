@@ -17,7 +17,7 @@ static int checks = 0;
     } while (0)
 
 static unsigned solutionCount(char board[81], unsigned rows[9], unsigned columns[9],
-                              unsigned boxes[9])
+                              unsigned boxes[9], char solved[81] = nullptr)
 {
     unsigned bestCell = 81;
     unsigned bestOptions = 0;
@@ -38,7 +38,10 @@ static unsigned solutionCount(char board[81], unsigned rows[9], unsigned columns
             if (count == 1) break;
         }
     }
-    if (bestCell == 81) return 1;
+    if (bestCell == 81) {
+        if (solved) std::memcpy(solved, board, 81);
+        return 1;
+    }
 
     const unsigned row = bestCell / 9;
     const unsigned column = bestCell % 9;
@@ -52,7 +55,7 @@ static unsigned solutionCount(char board[81], unsigned rows[9], unsigned columns
         rows[row] |= bit;
         columns[column] |= bit;
         boxes[box] |= bit;
-        count += solutionCount(board, rows, columns, boxes);
+        count += solutionCount(board, rows, columns, boxes, solved);
         rows[row] ^= bit;
         columns[column] ^= bit;
         boxes[box] ^= bit;
@@ -82,6 +85,30 @@ static bool hasUniqueSolution(const char *puzzle)
     }
     return solutionCount(board, rows, columns, boxes) == 1;
 }
+
+static bool solvePuzzle(const char *puzzle, char solved[81])
+{
+    char board[81];
+    std::memcpy(board, puzzle, sizeof(board));
+    unsigned rows[9] = {};
+    unsigned columns[9] = {};
+    unsigned boxes[9] = {};
+    for (unsigned cell = 0; cell < 81; ++cell) {
+        if (board[cell] == '0') continue;
+        const unsigned digit = static_cast<unsigned>(board[cell] - '0');
+        const unsigned bit = 1U << digit;
+        const unsigned row = cell / 9;
+        const unsigned column = cell % 9;
+        const unsigned box = row / 3 * 3 + column / 3;
+        if ((rows[row] | columns[column] | boxes[box]) & bit) return false;
+        rows[row] |= bit;
+        columns[column] |= bit;
+        boxes[box] |= bit;
+    }
+    return solutionCount(board, rows, columns, boxes, solved) == 1;
+}
+
+static bool canPlaceWithoutConflict(const Sudoku::Game &game, unsigned cell, uint8_t digit);
 
 static void testBundledPuzzleUniquenessAndLoading()
 {
@@ -170,34 +197,95 @@ static void testCorrectnessAndCompletion()
 {
     Sudoku::Game game;
     CHECK(game.start(Sudoku::Difficulty::MEDIUM, 0));
+    char solution[81];
+    CHECK(solvePuzzle(game.givens(), solution));
     unsigned empty = 0;
     while (game.givens()[empty] != '0') ++empty;
-    bool sawWrong = false;
+    bool sawLegalWrong = false;
     for (uint8_t digit = 1; digit <= 9; ++digit) {
+        if (digit == static_cast<uint8_t>(solution[empty] - '0') ||
+            !canPlaceWithoutConflict(game, empty, digit)) continue;
         CHECK(game.put(empty, digit, false));
-        if (game.incorrect(empty)) {
-            sawWrong = true;
-            break;
-        }
+        CHECK(!game.incorrect(empty));
+        CHECK(game.erase(empty));
+        sawLegalWrong = true;
+        break;
     }
-    CHECK(sawWrong);
+    CHECK(sawLegalWrong);
     CHECK(!game.complete());
-    CHECK(game.erase(empty));
-    CHECK(!game.incorrect(empty));
     for (unsigned cell = 0; cell < 81; ++cell) {
         if (game.fixed(cell)) continue;
-        bool placed = false;
-        for (uint8_t digit = 1; digit <= 9; ++digit) {
-            CHECK(game.put(cell, digit, false));
-            if (!game.incorrect(cell)) {
-                placed = true;
-                break;
-            }
-        }
-        CHECK(placed);
+        CHECK(game.put(cell, static_cast<uint8_t>(solution[cell] - '0'), false));
+        CHECK(!game.incorrect(cell));
     }
     CHECK(game.complete());
     CHECK(!game.incorrect(empty));
+}
+
+static bool canPlaceWithoutConflict(const Sudoku::Game &game, unsigned cell, uint8_t digit)
+{
+    const unsigned row = cell / 9;
+    const unsigned column = cell % 9;
+    const unsigned box = row / 3 * 3 + column / 3;
+    for (unsigned peer = 0; peer < Sudoku::CELL_COUNT; ++peer) {
+        if (peer == cell || game.value(peer) != digit) continue;
+        const unsigned peerRow = peer / 9;
+        const unsigned peerColumn = peer % 9;
+        if (peerRow == row || peerColumn == column ||
+            peerRow / 3 * 3 + peerColumn / 3 == box) return false;
+    }
+    return true;
+}
+
+static bool findConflictPair(const Sudoku::Game &game, unsigned unit, unsigned &first,
+                             unsigned &second, uint8_t &digit)
+{
+    for (unsigned a = 0; a < Sudoku::CELL_COUNT; ++a) {
+        if (game.fixed(a)) continue;
+        for (unsigned b = a + 1; b < Sudoku::CELL_COUNT; ++b) {
+            if (game.fixed(b)) continue;
+            const unsigned rowA = a / 9, columnA = a % 9;
+            const unsigned rowB = b / 9, columnB = b % 9;
+            const bool sharesUnit =
+                unit == 0 ? rowA == rowB && columnA / 3 != columnB / 3 :
+                unit == 1 ? columnA == columnB && rowA / 3 != rowB / 3 :
+                            rowA / 3 == rowB / 3 && columnA / 3 == columnB / 3 &&
+                                rowA != rowB && columnA != columnB;
+            if (!sharesUnit) continue;
+            for (uint8_t candidate = 1; candidate <= 9; ++candidate) {
+                if (!canPlaceWithoutConflict(game, a, candidate) ||
+                    !canPlaceWithoutConflict(game, b, candidate)) continue;
+                first = a;
+                second = b;
+                digit = candidate;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void testRuleBasedIncorrect()
+{
+    Sudoku::Game game;
+    CHECK(game.start(Sudoku::Difficulty::EASY, 0));
+    CHECK(game.put(0, 2, false));
+    CHECK(!game.incorrect(0));
+    CHECK(game.erase(0));
+
+    for (unsigned unit = 0; unit < 3; ++unit) {
+        CHECK(game.start(Sudoku::Difficulty::EASY, 0));
+        unsigned first = 0, second = 0;
+        uint8_t digit = 0;
+        CHECK(findConflictPair(game, unit, first, second, digit));
+        if (!digit) continue;
+        CHECK(game.put(first, digit, false));
+        CHECK(!game.incorrect(first));
+        CHECK(game.put(second, digit, false));
+        CHECK(game.incorrect(first) && game.incorrect(second));
+        CHECK(game.undo());
+        CHECK(!game.incorrect(first) && !game.incorrect(second));
+    }
 }
 
 static void testUndoRedoAndBranching()
@@ -265,6 +353,7 @@ int main()
     testInputAndFixedCells();
     testNotesEntryAndErase();
     testCorrectnessAndCompletion();
+    testRuleBasedIncorrect();
     testUndoRedoAndBranching();
     testHistoryCapacityAndImmutability();
     std::printf("%d checks, %d failures (Game: %u bytes)\n", checks, failures,

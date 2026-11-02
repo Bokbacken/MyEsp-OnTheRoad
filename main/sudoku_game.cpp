@@ -248,8 +248,18 @@ uint16_t Game::notes(unsigned cell) const
 
 bool Game::incorrect(unsigned cell) const
 {
-    return started_ && cell < CELL_COUNT && values_[cell] != 0 &&
-           values_[cell] != solution_[cell];
+    if (!started_ || cell >= CELL_COUNT || !values_[cell]) return false;
+    const unsigned row = cell / 9;
+    const unsigned column = cell % 9;
+    const unsigned box = row / 3 * 3 + column / 3;
+    for (unsigned peer = 0; peer < CELL_COUNT; ++peer) {
+        if (peer == cell || values_[peer] != values_[cell]) continue;
+        const unsigned peerRow = peer / 9;
+        const unsigned peerColumn = peer % 9;
+        if (peerRow == row || peerColumn == column ||
+            peerRow / 3 * 3 + peerColumn / 3 == box) return true;
+    }
+    return false;
 }
 
 bool Game::complete() const
