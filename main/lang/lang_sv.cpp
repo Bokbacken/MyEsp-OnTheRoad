@@ -199,6 +199,7 @@ extern const Entry LANG_SV[] = {
     {Str::MENU_SUB_MAXI, "6 tärningar • 20 rutor • bonus 100"},
     {Str::MENU_SUB_YATZY_ORDER, "Rutorna fylls uppifrån och ned"},
     {Str::MENU_SUB_MAXI_ORDER, "6 tärningar, uppifrån och ned"},
+    {Str::MENU_SUB_MIDI_ORDER, "5 tärningar, sparade kast, uppifrån och ned"},
 
     {Str::PL_GUEST_TAG, "gäst"},
     {Str::PL_ADD_AT_LEAST_ONE, "Lägg till minst en spelare"},

@@ -199,6 +199,7 @@ extern const Entry LANG_EN[] = {
     {Str::MENU_SUB_MAXI, "6 dice • 20 boxes • bonus 100"},
     {Str::MENU_SUB_YATZY_ORDER, "Boxes are filled top to bottom"},
     {Str::MENU_SUB_MAXI_ORDER, "6 dice, top to bottom"},
+    {Str::MENU_SUB_MIDI_ORDER, "5 dice, saved rolls, top to bottom"},
 
     {Str::PL_GUEST_TAG, "guest"},
     {Str::PL_ADD_AT_LEAST_ONE, "Add at least one player"},
