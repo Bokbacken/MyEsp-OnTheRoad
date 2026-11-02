@@ -104,6 +104,11 @@ static bool solveBoard(uint8_t board[81]) {
 int main() {
     lv_init();
     Config::get().sudokuDeadZone=4;
+    lv_font_glyph_dsc_t undoGlyph{}, redoGlyph{};
+    assert(lv_font_get_glyph_dsc(&my_font_raw_24, &undoGlyph, 0xF0E2, 0));
+    assert(lv_font_get_glyph_dsc(&my_font_raw_24, &redoGlyph, 0xF2F9, 0));
+    assert(undoGlyph.box_w && undoGlyph.box_h && redoGlyph.box_w && redoGlyph.box_h);
+    assert(strcmp(UiSudoku::SUDOKU_SYMBOL_REDO, "\xef\x8b\xb9") == 0);
     auto *display=lv_display_create(320,480);
     static uint16_t pixels[800*30];
     lv_display_set_color_format(display,LV_COLOR_FORMAT_RGB565);

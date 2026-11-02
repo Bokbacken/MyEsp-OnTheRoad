@@ -52,7 +52,7 @@ Str difficultyLabel(unsigned difficulty)
 }
 
 constexpr const char *SUDOKU_SYMBOL_UNDO = "\xef\x83\xa2";
-constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\xab\xb9";
+constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 
 void startNew(unsigned difficulty);
 void showWinPrompt();
