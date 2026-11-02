@@ -261,7 +261,7 @@ void draw(lv_event_t *event)
             d.align = LV_TEXT_ALIGN_CENTER;
             lv_area_t a{x, y + (cell - d.font->line_height) / 2, x + cell - 1, y + cell - 1};
             lv_draw_label(layer, &d, &a);
-            if (s_checked && s_game.incorrect(i)) {
+            if (s_checked && !s_game.matchesSolution(i)) {
                 for (int k = 3; k < cell - 3; ++k) {
                     fill(layer, x + k, y + k, 2, 2, Theme::RED);
                     fill(layer, x + cell - k - 2, y + k, 2, 2, Theme::RED);

@@ -262,6 +262,12 @@ bool Game::incorrect(unsigned cell) const
     return false;
 }
 
+bool Game::matchesSolution(unsigned cell) const
+{
+    return started_ && cell < CELL_COUNT && values_[cell] &&
+           values_[cell] == solution_[cell];
+}
+
 bool Game::complete() const
 {
     if (!started_) return false;

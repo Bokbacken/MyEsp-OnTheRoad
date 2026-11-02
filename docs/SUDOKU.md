@@ -7,9 +7,9 @@ Easy, Medium, Hard or Extreme. Select a digit in the 3×3 keypad, then touch a
 board cell. The selected button and matching board digits are highlighted.
 The pencil toggles positional notes; matching notes are highlighted too.
 The left tools are undo, redo and check; the right tools are pencil, erase
-and pause. Check overlays red crosses on incorrect entered digits and ignores
-notes. It marks duplicates in the same row, column or 3×3 box, including both
-cells in a conflicting pair; it does not compare entries with the solution.
+and pause. Check overlays red crosses on entered digits that do not match the
+solution and ignores notes. The model separately detects duplicates in the
+same row, column or 3×3 box, including both cells in a conflicting pair.
 A keypad digit is grayed out when all nine copies are on the board.
 Tapping a cell with the currently selected digit toggles that entry off;
 replacing it with a different digit asks for confirmation. Solving the puzzle
@@ -44,8 +44,9 @@ Extreme uses the source bank's `diabolical.txt` category.
 
 The model supports fixed givens, digit placement, per-cell candidate notes,
 erase, undo/redo, detecting duplicate placed digits in rows, columns and boxes,
-and a completion predicate based on the stored solution. Rule checking does not
-compare an individual entry to the solution. Notes are a nine-bit mask: bit
+and a completion predicate based on the stored solution. `incorrect()` detects
+duplicate entries by Sudoku rules; `matchesSolution()` compares a placed digit
+with the stored solution. Notes are a nine-bit mask: bit
 `digit - 1` represents that candidate (digits 1–9 map to bits 0–8). The model
 does not implement pause state or UI selection; the caller can pause and resume
 by retaining the `Game` instance. A `Game` has no dynamic allocations and

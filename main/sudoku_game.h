@@ -21,6 +21,7 @@ public:
     uint8_t value(unsigned cell) const;
     uint16_t notes(unsigned cell) const;
     bool incorrect(unsigned cell) const;
+    bool matchesSolution(unsigned cell) const;
     bool complete() const;
     unsigned puzzleIndex() const;
     Difficulty difficulty() const;

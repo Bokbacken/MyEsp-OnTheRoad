@@ -232,14 +232,20 @@ int main() {
         assert(UiSudoku::s_game.value(target)==8);
         for(unsigned peer:peers) assert(!(UiSudoku::s_game.notes(peer)&128));
         assert(UiSudoku::s_game.notes(empty)&128);
-        for(unsigned digit=1;digit<=9;++digit) {
-            UiSudoku::s_game.put(empty,digit,false);
-            if(UiSudoku::s_game.incorrect(empty)) break;
-        }
-        event(2); assert(UiSudoku::s_checked && UiSudoku::s_game.incorrect(empty));
         uint8_t solution[81];
         for(unsigned cell=0;cell<81;++cell) solution[cell]=UiSudoku::s_game.givens()[cell]-'0';
         assert(solveBoard(solution));
+        uint8_t wrong=0;
+        for(unsigned digit=1;digit<=9;++digit) {
+            if(digit==solution[empty]) continue;
+            assert(UiSudoku::s_game.put(empty,digit,false));
+            if(!UiSudoku::s_game.incorrect(empty)) { wrong=digit; break; }
+            assert(UiSudoku::s_game.erase(empty));
+        }
+        assert(wrong);
+        event(2);
+        assert(UiSudoku::s_checked && !UiSudoku::s_game.incorrect(empty));
+        assert(!UiSudoku::s_game.matchesSolution(empty));
         for(unsigned cell=0;cell<81;++cell)
             if(!UiSudoku::s_game.fixed(cell)) UiSudoku::s_game.put(cell,solution[cell],false);
         UiSudoku::refresh();

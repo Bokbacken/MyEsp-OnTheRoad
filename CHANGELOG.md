@@ -12,8 +12,9 @@ a published GitHub Release.
 
 - Native Sudoku under Pastimes, with digit-first entry, positional pencil
   notes, undo/redo, erase, pause, elapsed time and saved progress. Checking
-  marks row, column and box conflicts with red crosses on entered digits, not
-  notes, and does not check against the solution. Completed keypad digits gray
+  marks entered digits that differ from the solution with red crosses and
+  ignores notes; the model separately detects row, column and box conflicts.
+  Completed keypad digits gray
   out, replacing an entered digit requires confirmation, pause includes the
   pending elapsed interval, and a failed save keeps the game open for retry.
   Tapping the selected digit in a filled cell toggles it off; a randomized

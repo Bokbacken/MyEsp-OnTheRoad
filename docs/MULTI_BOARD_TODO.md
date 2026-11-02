@@ -20,8 +20,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
   siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
   Färdiga siffror gråas ut, sifferbyten bekräftas och sparfel hindrar utgång;
-  paustiden räknas upp till själva pausen. Kontroll markerar regelbrott i rad,
-  kolumn och ruta, inte enbart siffror som avviker från lösningen. Tryck på
+  paustiden räknas upp till själva pausen. Kontroll markerar siffror som
+  avviker från lösningen, medan motorn separat upptäcker regelbrott i rad,
+  kolumn och ruta. Tryck på
   samma valda siffra växlar den i rutan; konfliktanteckningar tas bort,
   statusraden ligger ovanför brädet och lösning följs av val för nästa eller
   tillbaka. Slumpad uppmuntran visas före valet.

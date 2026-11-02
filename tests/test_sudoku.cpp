@@ -199,14 +199,17 @@ static void testCorrectnessAndCompletion()
     CHECK(game.start(Sudoku::Difficulty::MEDIUM, 0));
     char solution[81];
     CHECK(solvePuzzle(game.givens(), solution));
+    CHECK(!game.matchesSolution(81));
     unsigned empty = 0;
     while (game.givens()[empty] != '0') ++empty;
+    CHECK(!game.matchesSolution(empty));
     bool sawLegalWrong = false;
     for (uint8_t digit = 1; digit <= 9; ++digit) {
         if (digit == static_cast<uint8_t>(solution[empty] - '0') ||
             !canPlaceWithoutConflict(game, empty, digit)) continue;
         CHECK(game.put(empty, digit, false));
         CHECK(!game.incorrect(empty));
+        CHECK(!game.matchesSolution(empty));
         CHECK(game.erase(empty));
         sawLegalWrong = true;
         break;
@@ -217,6 +220,7 @@ static void testCorrectnessAndCompletion()
         if (game.fixed(cell)) continue;
         CHECK(game.put(cell, static_cast<uint8_t>(solution[cell] - '0'), false));
         CHECK(!game.incorrect(cell));
+        CHECK(game.matchesSolution(cell));
     }
     CHECK(game.complete());
     CHECK(!game.incorrect(empty));
