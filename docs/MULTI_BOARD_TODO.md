@@ -26,7 +26,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Värdtester kontrollerar alla 400 pussels unika lösning samt riktig
   LVGL-layout/interaktion, sparning och återställning i svenska/engelska,
   flera textstorlekar och S3/P4:s stående/liggande upplösningar.
-- [ ] Verifiera firmwarebyggen för S3 och P4 i PR:ens Actions-körning.
+- [x] Firmwarebyggen för S3/P4 och LVGL-värdtester är gröna i PR #51,
+  Actions-körning 41492735344. Firmwareartefakter är uppladdade som v0.24.0.
 - [ ] Prova touch, läsbarhet, röda felkryss, paus och återställning efter
   omstart på båda fysiska korten.
 - [ ] Automatisk leverans av nästa 100-pusselblock. Första versionen har
