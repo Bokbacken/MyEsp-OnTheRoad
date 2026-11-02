@@ -1377,7 +1377,7 @@ static void showRemoteGame()
     s_remoteLastChoiceMs = 0;
     ESP_LOGI(TAG, "opening remote Yatzy view");
     lv_obj_t *screen = Theme::screen();
-    Theme::header(screen, tr(Str::MULTI_REMOTE_TITLE));
+    Theme::header(screen, tr(Str::MULTI_REMOTE_TITLE), false);
 
     const int32_t margin = UiMetrics::marginNormal();
     const int32_t width = UiMetrics::screenW() - 2 * margin;
@@ -1694,7 +1694,7 @@ void show()
     startScan();
 
     lv_obj_t *screen = Theme::screen();
-    Theme::header(screen, tr(Str::MULTI_TITLE));
+    Theme::header(screen, tr(Str::MULTI_TITLE), false);
     const int32_t margin = UiMetrics::marginNormal();
     const int32_t top = UiMetrics::headerH();
     lv_obj_t *hint = Theme::label(screen, tr(Str::MULTI_HINT), &my_font_14, Theme::MUTED);

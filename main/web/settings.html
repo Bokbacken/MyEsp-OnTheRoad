@@ -42,6 +42,7 @@
   <p class="muted">Vid start söker enheten och ansluter till det första nätverket i listan som syns.
   Misslyckas det provas nästa. Ett nytt nätverk hamnar överst. Lösenord visas aldrig här.</p>
   <ul class="saved" id="saved"></ul>
+  <button type="button" class="secondary" id="load-nets-btn" hidden>Ladda sparade nätverk</button>
   <div class="row">
     <button type="button" class="primary" id="change-btn">Lägg till / anslut</button>
     <button type="button" class="danger" id="forget-btn">Glöm alla</button>
@@ -364,8 +365,7 @@ async function load() {
   try {
     const config = await (await fetch('/api/config', {cache: 'no-store'})).json();
     fill(config);
-    if (config.admin_pin_set) $('saved').innerHTML = '<li class="muted">Admin-PIN krävs för sparade nätverk</li>';
-    else loadNets();
+    setNetworksLocked(config.admin_pin_set);
   } catch (e) { toast('Kunde inte läsa inställningar', false); }
 }
 function bars(n) { return '▮'.repeat(n) + '▯'.repeat(5 - n); }
@@ -454,6 +454,13 @@ function renderNets(j) {
     ul.appendChild(li);
   });
 }
+function setNetworksLocked(locked) {
+  $('load-nets-btn').hidden = !locked;
+  if (locked) {
+    saved = [];
+    $('saved').innerHTML = '<li class="muted">Admin-PIN krävs för sparade nätverk</li>';
+  } else loadNets();
+}
 async function loadNets() {
   try { renderNets(await (await fetchAdmin('/api/nets', {cache: 'no-store'})).json()); }
   catch (e) { if (e.message !== 'Åtgärden avbröts') $('saved').innerHTML = '<li class="bad">Kunde inte läsa listan</li>'; }
@@ -461,6 +468,7 @@ async function loadNets() {
 async function netAct(data) {
   try { renderNets(await postAdmin('/api/nets', data)); } catch (err) { toast(err.message, false); }
 }
+$('load-nets-btn').addEventListener('click', loadNets);
 $('save-only-btn').addEventListener('click', async () => {
   const ssid = $('ssid').value.trim(), pass = $('pass').value;
   if (!ssid) return toast('Välj eller skriv ett nätverk', false);
@@ -518,6 +526,7 @@ $('admin-form').addEventListener('submit', async e => {
     const j = await post('/api/config', {pin: $('pin-old').value, admin_pin_new: nw});
     adminPin = nw;
     fill(j.config);
+    setNetworksLocked(!!nw);
     $('pin-old').value = ''; $('pin-new').value = '';
     toast(nw ? 'PIN bytt' : 'PIN borttagen');
   } catch (err) { toast(err.message, false); }
@@ -533,6 +542,7 @@ async function scan() {
       await new Promise(r => setTimeout(r, 700));
       j = await (await fetchAdmin('/api/scan')).json();
     }
+    await loadNets();
     const nets = j.networks;               // De-duplicated and sorted by the device
     list.innerHTML = '';
     if (!nets.length) list.innerHTML = '<li class="muted">Inga nätverk hittades</li>';

@@ -348,7 +348,11 @@ static void checkModals() {
     assert(lv_obj_has_flag(s_webPanel, LV_OBJ_FLAG_HIDDEN));
     lv_obj_delete(s_webBlock); lv_obj_delete(s_webPanel);
 
-    struct Result { int calls = 0; bool ok = false, accept = false; char pin[PLAYER_PIN_CAP] = {}; } result;
+    struct Result {
+        int calls = 0;
+        bool ok = false, accept = false;
+        char pin[UiNumpad::MAX_PIN_LENGTH + 1] = {};
+    } result;
     auto done = [](const char *pin, bool ok, void *u) {
         auto *r = (Result *)u; ++r->calls; r->ok = ok;
         snprintf(r->pin, sizeof(r->pin), "%s", pin);
@@ -379,6 +383,7 @@ static void checkModals() {
         int calls = result.calls;
         click(ok); assert(result.calls == calls);
         for (int id : {0, 1, 2, 3, 4}) key(matrix, id);
+        key(matrix, 5); // Player PINs remain exactly four digits.
         click(ok); assert(result.ok && strcmp(result.pin, "1234") == 0);
         key(matrix, 9); assert(lv_obj_has_state(ok, LV_STATE_DISABLED)); // Backspace.
         key(matrix, 10); click(ok); assert(strcmp(result.pin, "1230") == 0);
@@ -397,6 +402,35 @@ static void checkModals() {
     for (int id : {0, 1, 2, 3}) key(child(pad, -3), id);
     click(child(pad, -1));
     assert(result.ok && strcmp(result.pin, "1234") == 0);
+    assert(lv_obj_get_child_count(lv_layer_top()) == 0);
+
+    auto *adminPad = UiNumpad::open(tr(Str::SET_ADMIN), nullptr, done, &result, nullptr,
+                                    UiNumpad::MIN_PIN_LENGTH, UiNumpad::MAX_PIN_LENGTH);
+    settle();
+    for (int i = 0; i < UiNumpad::MAX_PIN_LENGTH; ++i) {
+        auto *cell = child(adminPad, i + 1);
+        assert(lv_obj_get_x(cell) >= 0);
+        assert(lv_obj_get_x(cell) + lv_obj_get_width(cell) <= UiMetrics::screenW());
+    }
+    auto *adminMatrix = child(adminPad, -3);
+    auto *adminOk = child(adminPad, -1);
+    assert(lv_obj_has_state(adminOk, LV_STATE_DISABLED));
+    for (int id : {0, 1, 2}) key(adminMatrix, id);
+    assert(lv_obj_has_state(adminOk, LV_STATE_DISABLED));
+    key(adminMatrix, 4);
+    assert(!lv_obj_has_state(adminOk, LV_STATE_DISABLED));
+    result.accept = true;
+    click(adminOk);
+    assert(result.ok && strcmp(result.pin, "1234") == 0);
+
+    adminPad = UiNumpad::open(tr(Str::SET_ADMIN), nullptr, done, &result, nullptr,
+                              UiNumpad::MIN_PIN_LENGTH, UiNumpad::MAX_PIN_LENGTH);
+    settle();
+    adminMatrix = child(adminPad, -3);
+    adminOk = child(adminPad, -1);
+    for (int id : {0, 1, 2, 4, 5, 6, 8, 9, 10}) key(adminMatrix, id);
+    click(adminOk);
+    assert(result.ok && strcmp(result.pin, "12345678") == 0);
     assert(lv_obj_get_child_count(lv_layer_top()) == 0);
 }
 // Run the real game-screen construction, phase animations, table and action refresh.

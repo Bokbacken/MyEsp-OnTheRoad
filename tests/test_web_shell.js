@@ -1,6 +1,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const css = fs.readFileSync('main/web/style.css', 'utf8');
+assert.match(css, /--otr-page-gutter:\s*clamp\(/);
+assert.match(css, /width:\s*calc\(100% \+ var\(--otr-page-gutter\)/);
+assert.doesNotMatch(css, /width:\s*100vw/);
 
 class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.className = ''; this.attributes = {}; this.text = ''; }

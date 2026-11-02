@@ -181,7 +181,7 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
 - **OTA firmware update** – web page `/update` streams `MyEsp_OnTheRoad.bin` into the inactive app slot
   (app0/app1) with progress on the web page and on the display; the running firmware stays if anything fails.
 - **Admin PIN** – optional 4–8 digit PIN (Inställningar on the web) protecting OTA, factory reset,
-  player removal and PIN changes.
+  player removal and PIN changes. The on-device administration keypad accepts the same 4–8 digits.
 - **Web UI** – dark card-based theme: dashboard, players, settings (display, LED, game, saved networks,
   clock, time zone, admin PIN), diagnostics and update. Pages are gzip-embedded in flash
   (`main/web_assets.h`), no filesystem upload needed.
@@ -525,8 +525,10 @@ python3 tests/test_sd_log_diagnostics.py   # runtime levels, SD persistence and 
 python3 tests/test_flash_repair.py   # explicit repair after a failed FFat mount; never automatic formatting
 python3 tests/test_ota_stream.py   # incremental erase, progress and failed validation leave the boot slot unchanged
 python3 tests/test_screen_power.py   # S3/P4 idle/manual off, wake-only touch + 250 ms, OTA and brightness restoration
+python3 tests/test_settings_toggles.py   # status-bar sound/power toggles stay in sync with open Settings
 python3 tests/test_text_size_layout.py   # boot/Wi-Fi layouts on 320x480 and 480x800 for every text size; font role switching
 node tests/test_board_diagnostics_web.js   # S3/P4 overview, RTC waiting and separate SD/FFat status
+node tests/test_settings_wifi_web.js && node tests/test_web_shell.js   # PIN-gated saved networks and shared navigation shell
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_cup.cpp main/dice_cup.cpp -o tests/test_cup && ./tests/test_cup   # dice cup gesture/physics
 g++ -std=c++17 -Wall -Wextra -Imain tests/test_games.cpp main/game_pig.cpp main/game_farkle.cpp main/game_scc.cpp -o tests/test_games && ./tests/test_games   # Pig / Farkle / Ship-Captain-Crew
 g++ -std=c++17 -Wall -Wextra -Icomponents/otr_engine/include tests/test_adventure.cpp components/otr_engine/otr_world.cpp components/otr_engine/otr_maps.cpp -o tests/test_adventure && ./tests/test_adventure   # adventure engine
@@ -572,6 +574,7 @@ Manual UI regression checklist (run on 320×480 and a larger portrait/landscape 
 - [ ] Dialogs: guest web-seat info and game-menu quit/continue stay on-screen; buttons work and long text scrolls.
 - [ ] Web overlay: waiting/connected text is readable, local game input stays blocked, and the local-takeover button works when disconnected.
 - [ ] Numpad: open from new-player and web-seat flows; enter four digits, backspace, retry after error, confirm and cancel; check centering and touch targets.
+- [ ] Admin/settings: enter 4–8 digits on the local admin keypad, toggle sound/power from the status bar while Settings is open, and retry saved-network loading after cancelling or mistyping the web PIN.
 - [ ] Picker: empty/full/filtered lists, long names, scroll to last row, select/change player, clear search and return without overlaps.
 
 Game-screen layout (UI step 5, firmware 0.19.1) derives header, felt/nest, suggestions, controls,

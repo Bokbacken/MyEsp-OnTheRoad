@@ -251,7 +251,7 @@ void showNetworks()
 {
     killTimer();
     lv_obj_t *scr = Theme::screen();
-    Theme::header(scr, tr(Str::WIFI_CHOOSE));
+    Theme::header(scr, tr(Str::WIFI_CHOOSE), false);
 
     const int32_t sw = UiMetrics::screenW(), sh = UiMetrics::screenH();
     const int32_t btnH = LV_MAX(sc(46), lv_font_get_line_height(&my_font_18) + 20);

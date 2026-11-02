@@ -10,6 +10,13 @@ a published GitHub Release.
 
 ## v0.23.22 (unreleased)
 
+- Review fixes keep Wi-Fi/multiplayer screens from navigating away before
+  their cleanup, synchronize Settings toggles with status-bar changes, accept
+  4–8 digit admin PINs locally, add authenticated saved-network loading, and
+  prevent the shared web navigation from overflowing beside desktop scrollbars.
+- Settings-toggle and web-shell host checks pass; the production keypad/layout
+  host test could not run here because `managed_components/lvgl__lvgl` is absent.
+  S3/P4 hardware checks remain pending.
 - Memory-aware SD uploads: extra parallel uploads are admitted only while
   internal RAM keeps a 40 KiB floor (HTTP 429 otherwise; the browser waits
   and retries). The file list reports `upload_slots`; the internal DMA

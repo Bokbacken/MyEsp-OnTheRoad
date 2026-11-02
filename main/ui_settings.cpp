@@ -42,6 +42,7 @@ static lv_obj_t *s_slowSl, *s_fastSl;
 static lv_timer_t *s_timer = nullptr;
 static lv_obj_t *s_adminCards[5];
 static lv_obj_t *s_adminPad = nullptr;
+static lv_obj_t *s_soundSwitch = nullptr, *s_ecoSwitch = nullptr;
 
 static void unlockAdminCards()
 {
@@ -108,7 +109,10 @@ bool toggleSound()
         config.soundOn = previous;
         return false;
     }
-    if (s_timer) s_edit.soundOn = config.soundOn;
+    if (s_soundSwitch) {
+        s_edit.soundOn = config.soundOn;
+        lv_obj_set_state(s_soundSwitch, LV_STATE_CHECKED, config.soundOn);
+    }
     Audio::setVolumes(config.soundOn, config.sfxVol, config.musicOn, config.musicVol);
     return true;
 }
@@ -122,7 +126,10 @@ bool togglePowerSaving()
         config.ecoSleep = previous;
         return false;
     }
-    if (s_timer) s_edit.ecoSleep = config.ecoSleep;
+    if (s_ecoSwitch) {
+        s_edit.ecoSleep = config.ecoSleep;
+        lv_obj_set_state(s_ecoSwitch, LV_STATE_CHECKED, config.ecoSleep);
+    }
     return true;
 }
 
@@ -424,7 +431,12 @@ void show()
     s_edit = Config::get();
     memset(s_adminCards, 0, sizeof(s_adminCards));
     s_adminPad = nullptr;
+    s_soundSwitch = s_ecoSwitch = nullptr;
     lv_obj_t *scr = Theme::screen();
+    lv_obj_add_event_cb(scr, [](lv_event_t *e) {
+        if (lv_event_get_target(e) == lv_event_get_current_target(e))
+            s_soundSwitch = s_ecoSwitch = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
     Theme::header(scr, tr(Str::SET_TITLE));
 
     lv_obj_t *body = lv_obj_create(scr);
@@ -446,7 +458,8 @@ void show()
             return;
         }
         s_adminPad = UiNumpad::open(tr(Str::SET_ADMIN), tr(Str::SET_ADMIN_PIN_INFO),
-                                    adminPinDone, nullptr, tr(Str::BTN_CANCEL));
+                                    adminPinDone, nullptr, tr(Str::BTN_CANCEL), UiNumpad::MIN_PIN_LENGTH,
+                                    UiNumpad::MAX_PIN_LENGTH);
     }, LV_EVENT_CLICKED, nullptr);
     if (!pinSet) lv_obj_add_flag(adminGate, LV_OBJ_FLAG_HIDDEN);
 
@@ -494,7 +507,7 @@ void show()
     lv_obj_add_event_cb(timeout, [](lv_event_t *e) {
         s_edit.screenOffSeconds = SCREEN_OFF_SECONDS[lv_dropdown_get_selected(lv_event_get_target_obj(e))];
     }, LV_EVENT_VALUE_CHANGED, nullptr);
-    switchRow(disp, tr(Str::SCREEN_ECO), s_edit.ecoSleep, [](lv_event_t *e) {
+    s_ecoSwitch = switchRow(disp, tr(Str::SCREEN_ECO), s_edit.ecoSleep, [](lv_event_t *e) {
         s_edit.ecoSleep = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });
     lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
@@ -531,7 +544,7 @@ void show()
     lv_obj_t *snd = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(snd, LV_FLEX_FLOW_COLUMN);
     Theme::label(snd, trp(LV_SYMBOL_AUDIO "  ", Str::SET_SOUND), &my_font_14, Theme::ACCENT);
-    switchRow(snd, tr(Str::SET_SOUND_ON), s_edit.soundOn, [](lv_event_t *e) {
+    s_soundSwitch = switchRow(snd, tr(Str::SET_SOUND_ON), s_edit.soundOn, [](lv_event_t *e) {
         s_edit.soundOn = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
         previewSound();
         Audio::play(Sound::Sfx::CLICK);

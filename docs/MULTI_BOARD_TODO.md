@@ -301,6 +301,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   (v0.22.6); träffytor i spelen är kvar att skala.
 - [ ] Layouttester för 320×480 och 480×800 för alla huvudskärmar.
 - [ ] **Hårdvara:** alla appar användbara på båda korten.
+- [ ] **Hårdvara:** verifiera statusradens navigation och reglage, lokal
+  admin-PIN-inmatning samt sparade Wi-Fi-nätverk på S3 och P4; värdtester
+  ersätter inte provning av de fysiska skärmarna.
 
 ## VII. Release, app-OTA och säkerhet mot fel kort
 
