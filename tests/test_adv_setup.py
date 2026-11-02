@@ -21,9 +21,11 @@ addrow = addrow.split("    return b;", 1)[0]
 playerrow = source.split("static void addPlayerRow(const char *name, uint16_t id)\n{", 1)[1]
 playerrow = playerrow.split("\n}\n\nstatic void fillPlayerList", 1)[0]
 assert "AdvUi::rowWidth()" in addrow, "addWorldRow must use the responsive row width"
-assert "UiMetrics::cardMinH() + 32" in addrow, "adventure cards must have a bounded design height"
-assert "LV_LABEL_LONG_MODE_DOTS" in addrow, "adventure titles must stay on one line"
-assert "2 * my_font_14.line_height" in addrow, "adventure descriptions must be limited to two lines"
+assert "Theme::menuCard" in addrow, "adventure cards must use the shared menu-card design"
+assert "s_coverImages[idx]" in addrow, "adventure cards must display validated cover images"
+loader = source[source.index("static void loadCatalogCovers()"):source.index("// One bounded adventure card")]
+assert "16385" in loader and "size <= 16384" in loader
+assert "Adv::decodeResourcePng" in loader and "ESP_LOGW" in loader
 assert "AdvUi::rowWidth()" in playerrow, "addPlayerRow must use the responsive row width"
 
 code = r'''
@@ -116,15 +118,19 @@ int main() {
                 lv_obj_t *b = rows[i];
                 const int w = int(lv_obj_get_width(b)), h = int(lv_obj_get_height(b));
                 assert(w == (size.x == 320 ? 296 : 444));
-                assert(h == (size.x == 320 ? 92 : 122));
+                const int icon = LV_MAX(40, lv_font_get_line_height(&my_font_24) + 8);
+                const int gap = LV_MAX(2, lv_font_get_line_height(&my_font_14) / 5);
+                const int expectedHeight = LV_MAX(icon + 16,
+                    16 + lv_font_get_line_height(&my_font_24) + gap + 2 * lv_font_get_line_height(&my_font_14));
+                assert(h == expectedHeight);
                 if (i) assert(lv_obj_get_y(rows[i - 1]) + lv_obj_get_height(rows[i - 1]) <= lv_obj_get_y(b));
-                assert(lv_obj_get_child_count(b) >= 2);
-                auto *nm = lv_obj_get_child(b, 0);
-                auto *desc = lv_obj_get_child(b, 1);
+                assert(lv_obj_get_child_count(b) >= 3);
+                auto *nm = lv_obj_get_child(b, 1);
+                auto *desc = lv_obj_get_child(b, 2);
                 assert(labelTextWidth(nm) <= lv_obj_get_width(nm));
                 assert(int(lv_obj_get_width(nm)) <= w);
                 assert(int(lv_obj_get_width(desc)) <= w);
-                assert(int(lv_obj_get_height(desc)) <= 2 * my_font_14.line_height);
+                assert(int(lv_obj_get_height(desc)) <= 2 * lv_font_get_line_height(&my_font_14));
                 lv_area_t buttonArea; lv_obj_get_coords(b, &buttonArea);
                 inside(nm, buttonArea);
                 if (lv_obj_get_height(desc)) inside(desc, buttonArea);

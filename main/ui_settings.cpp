@@ -35,6 +35,8 @@
 
 namespace UiSettings {
 
+enum class Page : uint8_t { GAME, USER, ADMIN };
+
 static AppConfig s_edit;            // Working copy, committed on "Spara"
 static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo, *s_batteryInfo;
 static lv_obj_t *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
@@ -43,12 +45,9 @@ static lv_timer_t *s_timer = nullptr;
 static lv_obj_t *s_adminCards[5];
 static lv_obj_t *s_adminPad = nullptr;
 static lv_obj_t *s_soundSwitch = nullptr, *s_ecoSwitch = nullptr;
+static lv_obj_t *s_gameCard = nullptr, *s_joyCard = nullptr, *s_userDisplay = nullptr, *s_soundCard = nullptr;
 
-static void unlockAdminCards()
-{
-    for (lv_obj_t *card : s_adminCards)
-        if (card && lv_obj_is_valid(card)) lv_obj_clear_flag(card, LV_OBJ_FLAG_HIDDEN);
-}
+static void showPage(Page page);
 
 static bool adminPinDone(const char *pin, bool ok, void *)
 {
@@ -61,8 +60,19 @@ static bool adminPinDone(const char *pin, bool ok, void *)
         return false;
     }
     s_adminPad = nullptr;
-    unlockAdminCards();
+    showPage(Page::ADMIN);
     return true;
+}
+
+static void openAdministration()
+{
+    if (!Config::get().adminPin[0]) {
+        showPage(Page::ADMIN);
+        return;
+    }
+    s_adminPad = UiNumpad::open(tr(Str::MENU_SETTINGS_ADMIN), tr(Str::SET_ADMIN_PIN_INFO),
+                                adminPinDone, nullptr, tr(Str::BTN_CANCEL),
+                                UiNumpad::MIN_PIN_LENGTH, UiNumpad::MAX_PIN_LENGTH);
 }
 
 // Display (MADCTL) and touch mirroring together. Also called from the web server task, hence
@@ -378,7 +388,7 @@ static void leave(bool save)
         s_timer = nullptr;
     }
     applyHardware();   // Reverts the live preview when cancelled
-    UiYatzy::showMenu();
+    show();
 }
 
 static lv_obj_t *styledDropdown(lv_obj_t *parent, const char *opts, uint32_t sel)
@@ -428,8 +438,44 @@ static lv_obj_t *switchRow(lv_obj_t *parent, const char *title, bool on, lv_even
 void show()
 {
     Theme::setStatusShareAvailable(false);
+    lv_obj_t *scr = Theme::screen();
+    Theme::header(scr, tr(Str::SET_TITLE), false);
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_remove_style_all(body);
+    const int32_t sw = UiMetrics::screenW(), sh = UiMetrics::screenH();
+    lv_obj_set_pos(body, UiMetrics::marginNormal(), UiMetrics::headerH());
+    lv_obj_set_size(body, sw - 2 * UiMetrics::marginNormal(), sh - UiMetrics::headerH() - UiMetrics::footerH());
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(body, UiMetrics::cardSpacing(), 0);
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_scrollable(body, false);
+
+    lv_obj_t *game = Theme::menuCard(body, LV_PCT(100), tr(Str::MENU_SETTINGS_GAME),
+                                     tr(Str::MENU_SETTINGS_GAME_DESC), UiYatzy::faceSprite(40, 6),
+                                     LV_SYMBOL_IMAGE, Theme::ACCENT);
+    lv_obj_add_event_cb(game, [](lv_event_t *) { showPage(Page::GAME); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *players = Theme::menuCard(body, LV_PCT(100), tr(Str::MENU_SETTINGS_PLAYERS),
+                                        tr(Str::MENU_SETTINGS_PLAYERS_DESC), nullptr,
+                                        LV_SYMBOL_LIST, Theme::TEAL);
+    lv_obj_add_event_cb(players, [](lv_event_t *) { UiYatzy::showPlayerCenter(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *user = Theme::menuCard(body, LV_PCT(100), tr(Str::MENU_SETTINGS_USER),
+                                     tr(Str::MENU_SETTINGS_USER_DESC), nullptr,
+                                     LV_SYMBOL_HOME, Theme::GREEN);
+    lv_obj_add_event_cb(user, [](lv_event_t *) { showPage(Page::USER); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *admin = Theme::menuCard(body, LV_PCT(100), tr(Str::MENU_SETTINGS_ADMIN),
+                                      tr(Str::MENU_SETTINGS_ADMIN_DESC), nullptr,
+                                      LV_SYMBOL_WIFI, Theme::GOLD);
+    lv_obj_add_event_cb(admin, [](lv_event_t *) { openAdministration(); }, LV_EVENT_CLICKED, nullptr);
+    Theme::loadScreen(scr);
+}
+
+static void showPage(Page page)
+{
+    Theme::setStatusShareAvailable(false);
     s_edit = Config::get();
     memset(s_adminCards, 0, sizeof(s_adminCards));
+    s_gameCard = s_joyCard = s_userDisplay = s_soundCard = nullptr;
     s_adminPad = nullptr;
     s_soundSwitch = s_ecoSwitch = nullptr;
     lv_obj_t *scr = Theme::screen();
@@ -437,7 +483,12 @@ void show()
         if (lv_event_get_target(e) == lv_event_get_current_target(e))
             s_soundSwitch = s_ecoSwitch = nullptr;
     }, LV_EVENT_DELETE, nullptr);
-    Theme::header(scr, tr(Str::SET_TITLE));
+    const char *title = page == Page::GAME ? tr(Str::MENU_SETTINGS_GAME) :
+                        page == Page::USER ? tr(Str::MENU_SETTINGS_USER) : tr(Str::MENU_SETTINGS_ADMIN);
+    lv_obj_t *header = Theme::header(scr, title, false);
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { leave(false); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
@@ -448,20 +499,6 @@ void show()
     lv_obj_set_style_pad_all(body, 8, 0);
     lv_obj_set_style_pad_row(body, 8, 0);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
-
-    const bool pinSet = Config::get().adminPin[0] != '\0';
-    lv_obj_t *adminGate = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_t *adminButton = Theme::button(adminGate, tr(Str::SET_ADMIN), LV_PCT(100), 44, Theme::TEAL);
-    lv_obj_add_event_cb(adminButton, [](lv_event_t *) {
-        if (!Config::get().adminPin[0]) {
-            unlockAdminCards();
-            return;
-        }
-        s_adminPad = UiNumpad::open(tr(Str::SET_ADMIN), tr(Str::SET_ADMIN_PIN_INFO),
-                                    adminPinDone, nullptr, tr(Str::BTN_CANCEL), UiNumpad::MIN_PIN_LENGTH,
-                                    UiNumpad::MAX_PIN_LENGTH);
-    }, LV_EVENT_CLICKED, nullptr);
-    if (!pinSet) lv_obj_add_flag(adminGate, LV_OBJ_FLAG_HIDDEN);
 
     // Language first, so a user who cannot read the current language finds it immediately.
     lv_obj_t *lang = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
@@ -483,6 +520,7 @@ void show()
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *disp = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_userDisplay = disp;
     lv_obj_set_flex_flow(disp, LV_FLEX_FLOW_COLUMN);
     sliderRow(disp, tr(Str::SET_BRIGHTNESS), 5, 100, s_edit.brightness, &s_brightVal, onBright);
     // Text size: applied on "Spara" (the menu is rebuilt with the new font roles).
@@ -513,8 +551,6 @@ void show()
     lv_obj_t *screenHelp = Theme::label(disp, tr(Str::SCREEN_SLEEP_HELP), &my_font_14, Theme::MUTED);
     lv_obj_set_width(screenHelp, LV_PCT(100));
     lv_label_set_long_mode(screenHelp, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_t *screenOff = Theme::button(disp, tr(Str::SCREEN_SLEEP_NOW), LV_PCT(100), 44, Theme::LINE);
-    lv_obj_add_event_cb(screenOff, [](lv_event_t *) { UiScreenPower::sleepNow(); }, LV_EVENT_CLICKED, nullptr);
     if (HwProfile::active().hasRgbLed) {
         switchRow(disp, tr(Str::SET_RGB_LED), s_edit.ledEnabled, [](lv_event_t *e) {
             s_edit.ledEnabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
@@ -539,9 +575,12 @@ void show()
     switchRow(powerAdmin, tr(Str::POWER_HISTORY), s_edit.powerLog, [](lv_event_t *e) {
         s_edit.powerLog = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     });
+    lv_obj_t *screenOff = Theme::button(powerAdmin, tr(Str::SCREEN_SLEEP_NOW), LV_PCT(100), 44, Theme::LINE);
+    lv_obj_add_event_cb(screenOff, [](lv_event_t *) { UiScreenPower::sleepNow(); }, LV_EVENT_CLICKED, nullptr);
 
     // Sound: previewed live (volumes + a sample effect when a slider is released)
     lv_obj_t *snd = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_soundCard = snd;
     lv_obj_set_flex_flow(snd, LV_FLEX_FLOW_COLUMN);
     Theme::label(snd, trp(LV_SYMBOL_AUDIO "  ", Str::SET_SOUND), &my_font_14, Theme::ACCENT);
     s_soundSwitch = switchRow(snd, tr(Str::SET_SOUND_ON), s_edit.soundOn, [](lv_event_t *e) {
@@ -559,6 +598,7 @@ void show()
     lv_obj_add_event_cb(mus, [](lv_event_t *) { Audio::play(Sound::Sfx::CLICK); }, LV_EVENT_RELEASED, nullptr);
 
     lv_obj_t *game = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_gameCard = game;
     lv_obj_set_flex_flow(game, LV_FLEX_FLOW_COLUMN);
     sliderRow(game, tr(Str::SET_ROLL_ANIM), 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim);
     Theme::label(game, tr(Str::SET_DEFAULT_VARIANT), &my_font_14, Theme::MUTED);
@@ -590,6 +630,7 @@ void show()
 
     // Adventure joystick (components/otr_engine/include/otr_joystick.h)
     lv_obj_t *joy = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
+    s_joyCard = joy;
     lv_obj_set_flex_flow(joy, LV_FLEX_FLOW_COLUMN);
     Theme::label(joy, trp(LV_SYMBOL_GPS "  ", Str::SET_JOY), &my_font_14, Theme::ACCENT);
     s_slowSl = s_fastSl = nullptr;
@@ -707,9 +748,17 @@ void show()
         Theme::msgboxFonts(box);
     }, LV_EVENT_CLICKED, nullptr);
 
-    if (pinSet) {
-        for (lv_obj_t *card : s_adminCards)
-            if (card) lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+    for (lv_obj_t *card : s_adminCards)
+        if (card) lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+    for (lv_obj_t *card : s_adminCards)
+        if (page == Page::ADMIN && card) lv_obj_clear_flag(card, LV_OBJ_FLAG_HIDDEN);
+    if (page != Page::USER) {
+        lv_obj_add_flag(s_userDisplay, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_soundCard, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (page != Page::GAME) {
+        lv_obj_add_flag(s_gameCard, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_joyCard, LV_OBJ_FLAG_HIDDEN);
     }
 
     const int32_t halfW = (sw - 22) / 2;

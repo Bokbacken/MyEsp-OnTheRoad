@@ -58,6 +58,7 @@ static int rnd(int lo, int hi) { return lo + (int)(esp_random() % (uint32_t)(hi 
 static void showPlayers();
 static void showGame();
 static void showResults(bool usePreferred = true);
+static void showMiniResults();
 static void startNewGame();
 static void showMini();   // Pig / Farkle / SCC game screen
 
@@ -111,53 +112,19 @@ static const char *gameTitle()
 static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *title, const char *sub,
                             uint32_t color, bool selected, bool twoLineSubtitle = false)
 {
-    lv_obj_t *b = lv_button_create(parent);
-    lv_obj_remove_style_all(b);
-    lv_obj_set_size(b, w, h);
-    lv_obj_set_style_radius(b, 14, 0);
-    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
-    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(b, selected ? 2 : 1, 0);
-    lv_obj_set_style_border_color(b, Theme::c(selected ? Theme::ACCENT : Theme::LINE), 0);
-    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
-    lv_obj_t *stripe = lv_obj_create(b);
-    lv_obj_remove_style_all(stripe);
-    lv_obj_set_size(stripe, 6, h - 24);
-    lv_obj_align(stripe, LV_ALIGN_LEFT_MID, 10, 0);
-    lv_obj_set_style_radius(stripe, 3, 0);
-    lv_obj_set_style_bg_color(stripe, Theme::c(color), 0);
-    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
-    lv_obj_set_clickable(stripe, false);
-    const bool small = h < 76;
-    lv_obj_t *t = Theme::label(b, title, small ? &my_font_18 : &my_font_24);
-    lv_obj_set_pos(t, 28, small ? 9 : 12);
-    if (twoLineSubtitle) {
-        lv_obj_set_width(t, LV_PCT(84));
-        lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
-    }
-    lv_obj_t *s = Theme::label(b, sub, &my_font_14, Theme::MUTED);
-    lv_label_set_long_mode(s, twoLineSubtitle ? LV_LABEL_LONG_MODE_WRAP : LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s, LV_COORD_IS_PCT(w) ? LV_PCT(87) : 262);
-    if (twoLineSubtitle) lv_obj_set_height(s, 2 * my_font_14.line_height);
-    lv_obj_set_pos(s, 28, small ? 36 : 48);
-    if (selected) {
-        lv_obj_t *star = Theme::label(b, LV_SYMBOL_OK, &my_font_18, Theme::ACCENT);
-        lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -12, small ? 8 : 12);
-    }
-    return b;
+    (void)h;
+    (void)twoLineSubtitle;
+    return Theme::menuCard(parent, w, title, sub, UiYatzy::faceSprite(40, 6),
+                           LV_SYMBOL_IMAGE, color, selected);
 }
 
-// Full-width menu card; the landing page uses a bounded height and two subtitle lines.
+// Full-width menu card sized from its active font roles, never from free list space.
 static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color,
                               bool selected, bool bounded = false)
 {
-    const int32_t height = bounded ? UiMetrics::cardMinH() + 32 : UiMetrics::cardMinH();
-    lv_obj_t *b = menuCardIn(list, LV_PCT(100), height, title, sub, color, selected, bounded);
-    if (!bounded) {
-        lv_obj_set_flex_grow(b, 1);
-        lv_obj_set_style_min_height(b, UiMetrics::cardMinH(), 0);
-    }
-    return b;
+    (void)bounded;
+    return Theme::menuCard(list, LV_PCT(100), title, sub, UiYatzy::faceSprite(40, 6),
+                           LV_SYMBOL_IMAGE, color, selected);
 }
 
 static void showVariants();
@@ -214,23 +181,67 @@ void showMenu()
     lv_obj_set_size(list, UiMetrics::screenW() - 2 * mN, UiMetrics::screenH() - top - UiMetrics::footerH());
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
-    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
     lv_obj_t *dice = menuListCard(list, tr(Str::MENU_DICE_GAMES), tr(Str::MENU_SUB_GAME_YATZY),
-                                  Theme::ACCENT, false, true);
+                                  Theme::ACCENT, false);
     lv_obj_add_event_cb(dice, [](lv_event_t *) { showDiceGames(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *adv = menuListCard(list, tr(Str::MENU_ADVENTURES), tr(Str::MENU_SUB_GAME_ADV),
-                                 Theme::GREEN, false, true);
+    lv_obj_t *adv = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_ADVENTURES), tr(Str::MENU_SUB_GAME_ADV),
+                                    nullptr, LV_SYMBOL_IMAGE, Theme::GREEN);
     lv_obj_add_event_cb(adv, [](lv_event_t *) { UiAdventure::show(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *kara = menuListCard(list, tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE),
-                                  Theme::GOLD, false, true);
+    lv_obj_t *kara = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE),
+                                     nullptr, LV_SYMBOL_AUDIO, Theme::GOLD);
     lv_obj_add_event_cb(kara, [](lv_event_t *) {
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);
+    Theme::loadScreen(scr);
+}
+
+void showPlayerCenter()
+{
+    Theme::setStatusShareAvailable(false);
+    lv_obj_t *scr = Theme::screen();
+    lv_obj_t *header = Theme::header(scr, tr(Str::MENU_SETTINGS_PLAYERS), false);
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { UiSettings::show(); }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *body = selectionColumn(scr, 0);
+    lv_obj_set_pos(body, UiMetrics::marginNormal(), UiMetrics::headerH());
+    lv_obj_set_size(body, UiMetrics::screenW() - 2 * UiMetrics::marginNormal(),
+                    UiMetrics::screenH() - UiMetrics::headerH() - UiMetrics::footerH());
+    lv_obj_set_style_pad_row(body, UiMetrics::cardSpacing(), 0);
+    lv_obj_t *profiles = Theme::menuCard(body, LV_PCT(100), tr(Str::PL_TITLE),
+                                         tr(Str::MENU_SETTINGS_PLAYERS_DESC), nullptr,
+                                         LV_SYMBOL_LIST, Theme::TEAL);
+    lv_obj_add_event_cb(profiles, [](lv_event_t *) {
+        s_gameType = GameType::YATZY;
+        const uint8_t variant = Config::get().defaultVariant;
+        s_variant = variant == 1 || variant == 3 ? YatzyVariant::MAXI : YatzyVariant::STANDARD;
+        s_mode = variant >= 2 ? YatzyMode::ORDERED : YatzyMode::NORMAL;
+        s_midi = false;
+        showPlayers();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *results = Theme::menuCard(body, LV_PCT(100), tr(Str::RES_TITLE),
+                                        tr(Str::RES_PROTOCOL_VIEW), nullptr,
+                                        LV_SYMBOL_LIST, Theme::GOLD);
+    lv_obj_add_event_cb(results, [](lv_event_t *) {
+        if (s_gameType == GameType::YATZY && s_game.finished()) showResults(false);
+        else if (s_gameType == GameType::PIG && s_pig.finished()) showMiniResults();
+        else if (s_gameType == GameType::FARKLE && s_farkle.finished()) showMiniResults();
+        else if (s_gameType == GameType::SCC && s_scc.finished()) showMiniResults();
+        else {
+            lv_obj_t *box = lv_msgbox_create(nullptr);
+            lv_msgbox_add_text(box, tr(Str::MENU_NO_RESULTS));
+            lv_msgbox_add_close_button(box);
+            Theme::msgboxFonts(box);
+        }
+    }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(scr);
 }
 

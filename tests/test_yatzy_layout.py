@@ -13,11 +13,14 @@ WORK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(tempfile
 WORK.mkdir(parents=True, exist_ok=True)
 source = (ROOT / "main/ui_yatzy.cpp").read_text()
 menu_card = source[source.index("static lv_obj_t *menuCardIn("):source.index("static void showVariants();")]
-assert "UiMetrics::cardMinH() + 32" in menu_card
-assert "bool twoLineSubtitle = false" in menu_card
-assert "LV_LABEL_LONG_MODE_WRAP" in menu_card
-assert "2 * my_font_14.line_height" in menu_card
-assert "bool selected, bool bounded = false" in menu_card
+assert "Theme::menuCard" in menu_card
+assert "faceSprite(40, 6)" in menu_card
+assert "lv_obj_set_flex_grow" not in menu_card
+home_menu = source[source.index("void showMenu()"):source.index("void showPlayerCenter()")]
+assert home_menu.count("Theme::menuCard") == 2 and "menuListCard(" in home_menu
+assert "lv_obj_set_flex_grow" not in home_menu
+dice_menu = source[source.index("static void showDiceGames()"):source.index("// Selection screens keep")]
+assert "menuListCard(" in dice_menu
 
 
 def section(start, end):

@@ -160,6 +160,8 @@ static Adventure::Session s_session;          // v0.16: built-in sessions (dorma
 // v0.17.0: SD-card adventures. The menu is data-driven from this catalog, built-in WorldId
 // adventures are no longer listed (the engine enum/maps stay for the dormant Session code above).
 static Adv::Catalog *s_cat = nullptr;         // Scanned SD catalog (PSRAM)
+static Adv::ResourceArt *s_coverArt = nullptr; // Bounded 32x32 catalog covers (PSRAM)
+static lv_image_dsc_t s_coverImages[Adv::MAX_ADVENTURES]{};
 static Adv::Loaded *s_adv = nullptr;          // Current parsed SD map (PSRAM, ~70 kB)
 static Adv::ResourceArt *s_resourceArt = nullptr; // One bounded PSRAM image per resource type.
 static Adv::SdSession s_sd;                   // Active SD adventure (folder, map index, carry/reset)
@@ -2780,6 +2782,7 @@ static void freeAll()
     heap_caps_free(s_path);
     heap_caps_free(s_saveBuf);
     heap_caps_free(s_cat);
+    heap_caps_free(s_coverArt);
     heap_caps_free(s_adv);
     heap_caps_free(s_resourceArt);
     s_resourceArt = nullptr;
@@ -2791,6 +2794,8 @@ static void freeAll()
     s_path = nullptr;
     s_saveBuf = nullptr;
     s_cat = nullptr;
+    s_coverArt = nullptr;
+    memset(s_coverImages, 0, sizeof(s_coverImages));
     s_adv = nullptr;
     s_activeScr = nullptr;
     s_scr = nullptr;
@@ -3419,37 +3424,74 @@ static void worldChosen(lv_event_t *e)
     buildPlayerPick();
 }
 
-// One bounded adventure card: title on top and at most two description lines below.
+static void loadCatalogCovers()
+{
+    heap_caps_free(s_coverArt);
+    s_coverArt = nullptr;
+    memset(s_coverImages, 0, sizeof(s_coverImages));
+    if (!s_cat || !s_cat->count) return;
+    s_coverArt = static_cast<Adv::ResourceArt *>(
+        heap_caps_calloc(s_cat->count, sizeof(Adv::ResourceArt), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s_coverArt) {
+        ESP_LOGW(TAG, "adventure covers: out of PSRAM; using fallback icons");
+        return;
+    }
+
+    static const char pngSuffix[] = ".png";
+    for (int i = 0; i < s_cat->count; ++i) {
+        const char *name = s_cat->items[i].header.cover;
+        if (!s_cat->items[i].headerOk || !name[0]) continue;
+        const size_t nameLen = strlen(name);
+        if (nameLen < sizeof(pngSuffix) - 1 || nameLen >= sizeof(s_cat->items[i].header.cover) ||
+            strstr(name, "..") || strpbrk(name, "/\\:") ||
+            strcasecmp(name + nameLen - (sizeof(pngSuffix) - 1), pngSuffix)) {
+            ESP_LOGW(TAG, "adventure cover invalid filename: %s/%s (using fallback icon)",
+                     s_cat->items[i].folder, name);
+            continue;
+        }
+
+        char path[192];
+        const int pathLen = snprintf(path, sizeof(path), "%s/%s/%s", SD_ADV_ROOT,
+                                     s_cat->items[i].folder, name);
+        if (pathLen <= 0 || (size_t)pathLen >= sizeof(path)) {
+            ESP_LOGW(TAG, "adventure cover path too long: %s", name);
+            continue;
+        }
+
+        auto *data = static_cast<uint8_t *>(heap_caps_malloc(16385, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        size_t size = 0;
+        {
+            BoardSd::Guard guard;
+            FILE *file = fopen(path, "rb");
+            if (file) {
+                if (data) size = fread(data, 1, 16385, file);
+                fclose(file);
+            }
+        }
+        const bool ok = data && size <= 16384 && Adv::decodeResourcePng(data, size, s_coverArt[i]);
+        heap_caps_free(data);
+        if (!ok) {
+            ESP_LOGW(TAG, "adventure cover missing/invalid: %s (using fallback icon)", path);
+            continue;
+        }
+
+        lv_image_dsc_t &image = s_coverImages[i];
+        image.header.magic = LV_IMAGE_HEADER_MAGIC;
+        image.header.cf = LV_COLOR_FORMAT_ARGB8888;
+        image.header.w = 32;
+        image.header.h = 32;
+        image.header.stride = 32 * 4;
+        image.data = s_coverArt[i].bgra;
+        image.data_size = sizeof(s_coverArt[i].bgra);
+    }
+}
+
+// One bounded adventure card: cover left, title on top and at most two description lines below.
 static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)
 {
     const int width = AdvUi::rowWidth();
-    const int rowHeight = UiMetrics::cardMinH() + 32;
-    lv_obj_t *b = Theme::button(list, name, width, rowHeight, Theme::LINE);
-    lv_obj_set_style_radius(b, 14, 0);
-    lv_obj_set_style_border_width(b, 1, 0);
-    lv_obj_set_style_border_color(b, Theme::c(Theme::LINE), 0);
-    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
-    lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL_RAISED), LV_STATE_PRESSED);
-    lv_obj_t *nm = lv_obj_get_child(b, 0);
-    lv_obj_set_style_text_font(nm, &my_font_24, 0);
-    lv_obj_set_width(nm, width - 2 * AdvUi::scale(12) - AdvUi::scale(18));
-    lv_label_set_long_mode(nm, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_t *d = Theme::label(b, desc, &my_font_14, Theme::MUTED);
-    lv_label_set_long_mode(d, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(d, width - 2 * AdvUi::scale(12) - AdvUi::scale(18));
-    const bool hasDescription = desc && desc[0];
-    if (!hasDescription) lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_height(d, hasDescription ? 2 * my_font_14.line_height : 0);
-    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, AdvUi::scale(28), AdvUi::scale(9));
-    lv_obj_align(d, LV_ALIGN_BOTTOM_LEFT, AdvUi::scale(28), -AdvUi::scale(7));
-    lv_obj_t *stripe = lv_obj_create(b);
-    lv_obj_remove_style_all(stripe);
-    lv_obj_set_size(stripe, AdvUi::scale(6), rowHeight - AdvUi::scale(24));
-    lv_obj_align(stripe, LV_ALIGN_LEFT_MID, AdvUi::scale(10), 0);
-    lv_obj_set_style_radius(stripe, AdvUi::scale(3), 0);
-    lv_obj_set_style_bg_color(stripe, Theme::c(Theme::GREEN), 0);
-    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
-    lv_obj_set_clickable(stripe, false);
+    const void *cover = s_coverArt && s_coverArt[idx].ready ? &s_coverImages[idx] : nullptr;
+    lv_obj_t *b = Theme::menuCard(list, width, name, desc, cover, LV_SYMBOL_IMAGE, Theme::GREEN);
     lv_obj_add_event_cb(b, worldChosen, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     return b;
 }
@@ -3568,6 +3610,7 @@ void show()
     }
     ESP_LOGI(TAG, "SD adventures found: %d", s_cat->count);
     if (s_advIdx < 0 || s_advIdx >= s_cat->count) s_advIdx = 0;
+    loadCatalogCovers();
     buildWorldPick();
 }
 

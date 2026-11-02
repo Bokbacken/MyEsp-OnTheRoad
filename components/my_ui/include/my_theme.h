@@ -223,6 +223,63 @@ inline lv_obj_t *button(lv_obj_t *parent, const char *text, int32_t w, int32_t h
     return b;
 }
 
+inline lv_obj_t *menuCard(lv_obj_t *parent, int32_t width, const char *title, const char *description,
+                          const void *image, const char *fallback, uint32_t accent, bool selected = false)
+{
+    const int32_t pad = 8;
+    const int32_t icon = LV_MAX(40, lv_font_get_line_height(&my_font_24) + 8);
+    const int32_t titleHeight = lv_font_get_line_height(&my_font_24);
+    const int32_t descriptionHeight = 2 * lv_font_get_line_height(&my_font_14);
+    const int32_t gap = LV_MAX(2, lv_font_get_line_height(&my_font_14) / 5);
+    const int32_t height = LV_MAX(icon + 2 * pad, 2 * pad + titleHeight + gap + descriptionHeight);
+    lv_obj_t *card = lv_button_create(parent);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, width, height);
+    lv_obj_set_style_radius(card, 14, 0);
+    lv_obj_set_style_bg_color(card, c(PANEL), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(card, selected ? 2 : 1, 0);
+    lv_obj_set_style_border_color(card, c(selected ? ACCENT : LINE), 0);
+    lv_obj_set_style_bg_color(card, c(PANEL_RAISED), LV_STATE_PRESSED);
+
+    lv_obj_t *iconBox = lv_obj_create(card);
+    lv_obj_remove_style_all(iconBox);
+    lv_obj_set_size(iconBox, icon, icon);
+    lv_obj_align(iconBox, LV_ALIGN_LEFT_MID, pad, 0);
+    lv_obj_set_style_radius(iconBox, 8, 0);
+    lv_obj_set_style_bg_color(iconBox, c(PANEL_RAISED), 0);
+    lv_obj_set_style_bg_opa(iconBox, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(iconBox, 1, 0);
+    lv_obj_set_style_border_color(iconBox, c(accent), 0);
+    lv_obj_set_clickable(iconBox, false);
+    if (image) {
+        lv_obj_t *picture = lv_image_create(iconBox);
+        lv_image_set_src(picture, image);
+        lv_obj_center(picture);
+        lv_obj_set_clickable(picture, false);
+    } else {
+        lv_obj_t *symbol = label(iconBox, fallback ? fallback : LV_SYMBOL_HOME, &my_font_24, accent);
+        lv_obj_center(symbol);
+        lv_obj_set_clickable(symbol, false);
+    }
+
+    const int32_t textX = 2 * pad + icon;
+    const int32_t textWidth = LV_MAX(1, width - textX - pad);
+    lv_obj_t *heading = label(card, title, &my_font_24);
+    lv_obj_set_width(heading, textWidth);
+    lv_obj_set_height(heading, titleHeight);
+    lv_label_set_long_mode(heading, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_pos(heading, textX, pad);
+    lv_obj_t *detail = label(card, description ? description : "", &my_font_14, MUTED);
+    lv_obj_set_width(detail, textWidth);
+    lv_obj_set_height(detail, descriptionHeight);
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_pos(detail, textX, pad + titleHeight + gap);
+    lv_obj_set_clickable(heading, false);
+    lv_obj_set_clickable(detail, false);
+    return card;
+}
+
 // Header bar used by all app screens: title on the left, optional right-side widgets.
 inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControls = true)
 {
