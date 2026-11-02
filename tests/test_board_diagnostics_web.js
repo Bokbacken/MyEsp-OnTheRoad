@@ -167,9 +167,11 @@ async function page(file, data) {
     },
   };
   vm.createContext(sandbox);
-  const settings = fs.readFileSync('main/web/settings.html', 'utf8')
-    .match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1]
-    .replace(/load\(\);\s*loadNets\(\);\s*status\(\);\s*setInterval\(status, 4000\);/, '');
+  const settingsSource = fs.readFileSync('main/web/settings.html', 'utf8')
+    .match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
+  const settings = settingsSource.replace(
+    /load\(\);\s*(?:loadNets\(\);\s*)?status\(\);\s*setInterval\(status, 4000\);/, '');
+  assert.notEqual(settings, settingsSource, 'Remove page startup before exercising settings in isolation');
   vm.runInContext(settings, sandbox);
   vm.runInContext("fill({hostname:'otr',has_rgb_led:true,has_host_radio:false})", sandbox);
   assert.equal(element('led-controls').hidden, false);
