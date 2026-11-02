@@ -479,6 +479,11 @@ Practical reading (ESP-IDF):
 
 **Charge-status caveat:** the ETA6098's `STAT` output only reaches test pad **TP1**; it is not wired to any GPIO. You cannot read "charging / charged" in firmware without a hardware bodge from TP1 to a spare input — infer state from the voltage trend instead.
 
+After each boot, the application logs battery millivolts, ADC millivolts,
+raw ADC counts and divider scale on the first valid main-loop reading,
+then every five minutes. Invalid readings are not logged as zero volts.
+The separate SD power-history CSV retains its interval-based sampling.
+
 Verify battery polarity against the PCB marking before connecting — do not rely on connector shape alone. The ESP32-P4 is a markedly more power-hungry SoC than the ESP32-S3, especially with the MIPI display, camera, and C6 radio active; budget power and battery capacity accordingly.
 
 ---

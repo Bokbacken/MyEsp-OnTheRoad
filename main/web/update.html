@@ -7,6 +7,29 @@
 <title>OnTheRoad – Uppdatera firmware</title>
 <link rel="stylesheet" href="/style.css">
 <script src="/device-name.js" defer></script>
+<style>
+input[type="file"] {
+  display: block;
+  width: 100%;
+  min-height: 76px;
+  padding: .8rem;
+  border: 2px dashed var(--otr-orange);
+  border-radius: .6rem;
+  background: var(--otr-panel-raised);
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button {
+  padding: .65rem 1rem;
+  margin-right: .8rem;
+  border: 0;
+  border-radius: .4rem;
+  background: var(--otr-orange);
+  color: var(--otr-navy);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+</style>
 </head>
 <body>
 <header class="otr-brand">
@@ -44,6 +67,7 @@
     <legend>Ladda upp</legend>
     <label for="fw">Firmwarefil (.bin)</label>
     <input type="file" id="fw" accept=".bin,application/octet-stream">
+    <p class="muted">Välj fil med knappen eller släpp OTA-filen i det markerade fältet ovan. Starta sedan med Uppdatera.</p>
     <div id="pin-wrap" hidden>
       <label for="pin">Admin-PIN</label>
       <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off">
@@ -64,6 +88,7 @@
     uppdateringen kan ta ett extra steg innan Host-radion är redo.</p>
     <label for="host-fw">C6 firmwarefil (.bin)</label>
     <input type="file" id="host-fw" accept=".bin,application/octet-stream">
+    <p class="muted">Välj fil med knappen eller släpp C6-filen i det markerade fältet ovan.</p>
     <progress id="host-prog" max="100" value="0" hidden></progress>
     <p class="muted" id="host-msg"></p>
     <div class="row"><button type="submit" class="primary" id="host-go">Uppdatera Host-radio</button></div>
