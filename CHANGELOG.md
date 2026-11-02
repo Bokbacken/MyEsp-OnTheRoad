@@ -16,6 +16,8 @@ a published GitHub Release.
   notes, and does not check against the solution. Completed keypad digits gray
   out, replacing an entered digit requires confirmation, pause includes the
   pending elapsed interval, and a failed save keeps the game open for retry.
+  Tapping the selected digit in a filled cell toggles it off; a randomized
+  animated cheer appears when the puzzle is solved.
 - Bundle 100 offline puzzles each for Easy, Medium, Hard and Extreme from
   the public-domain Sudoku Exchange bank. Additional blocks can be imported
   during firmware preparation; automatic next-block delivery is not yet

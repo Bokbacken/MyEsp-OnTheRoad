@@ -11,10 +11,12 @@ and pause. Check overlays red crosses on incorrect entered digits and ignores
 notes. It marks duplicates in the same row, column or 3×3 box, including both
 cells in a conflicting pair; it does not compare entries with the solution.
 A keypad digit is grayed out when all nine copies are on the board.
-Replacing an entered digit asks for confirmation. Pause hides the board and
-stops the elapsed timer, including time since the last timer tick. If saving
-fails when leaving, the game stays open so the warning remains visible and
-the save can be retried.
+Tapping a cell with the currently selected digit toggles that entry off;
+replacing it with a different digit asks for confirmation. Solving the puzzle
+shows a randomly selected, animated encouragement over the board. Pause hides
+the board and stops the elapsed timer, including time since the last timer
+tick. If saving fails when leaving, the game stays open so the warning remains
+visible and the save can be retried.
 
 The current puzzle, notes, elapsed time and completed count per difficulty
 are saved in NVS every 30 seconds, when pausing, leaving or finishing. Power

@@ -21,7 +21,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
   Färdiga siffror gråas ut, sifferbyten bekräftas och sparfel hindrar utgång;
   paustiden räknas upp till själva pausen. Kontroll markerar regelbrott i rad,
-  kolumn och ruta, inte enbart siffror som avviker från lösningen.
+  kolumn och ruta, inte enbart siffror som avviker från lösningen. Tryck på
+  samma valda siffra växlar den i rutan; lösning visas med slumpad uppmuntran.
 - [x] Animerad mini-Sudoku på startsidan under Tidsfördriv; samma på/av-val
   som övriga menyikoner. Yatzy-synkroniseringen är inte ändrad.
 - [x] Större filval för app-/C6-OTA och första giltiga batterispänningen

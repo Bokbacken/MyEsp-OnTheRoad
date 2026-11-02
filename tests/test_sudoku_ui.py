@@ -38,10 +38,16 @@ public:
 }
 """)
 (WORK / "sdkconfig.h").write_text("")
+(WORK / "esp_random.h").write_text("""
+#pragma once
+#include <stdint.h>
+inline uint32_t esp_random() { static uint32_t value=0; return value++; }
+""")
 (WORK / "test.cpp").write_text(r'''
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include "lvgl.h"
 #include "my_fonts.h"
 #include "lang.h"
@@ -63,6 +69,35 @@ static void inside(lv_obj_t *object, int w, int h) {
     lv_area_t a; lv_obj_get_coords(object,&a);
     assert(a.x1>=0 && a.y1>=0 && a.x2<w && a.y2<h);
 }
+static bool solveBoard(uint8_t board[81]) {
+    unsigned cell=81, best=10;
+    uint16_t options=0;
+    for(unsigned i=0;i<81;++i) {
+        if(board[i]) continue;
+        uint16_t candidates=0;
+        const unsigned row=i/9, col=i%9, boxRow=row/3*3, boxCol=col/3*3;
+        for(unsigned digit=1;digit<=9;++digit) {
+            bool valid=true;
+            for(unsigned k=0;k<9;++k) {
+                if(board[row*9+k]==digit || board[k*9+col]==digit ||
+                   board[(boxRow+k/3)*9+boxCol+k%3]==digit) valid=false;
+            }
+            if(valid) candidates|=static_cast<uint16_t>(1u<<(digit-1));
+        }
+        unsigned count=0;
+        for(uint16_t bits=candidates;bits;bits&=static_cast<uint16_t>(bits-1)) ++count;
+        if(count<best) { cell=i; best=count; options=candidates; }
+        if(!count) return false;
+    }
+    if(cell==81) return true;
+    for(unsigned digit=1;digit<=9;++digit) {
+        if(!(options&(1u<<(digit-1)))) continue;
+        board[cell]=digit;
+        if(solveBoard(board)) return true;
+        board[cell]=0;
+    }
+    return false;
+}
 int main() {
     lv_init();
     auto *display=lv_display_create(320,480);
@@ -70,6 +105,7 @@ int main() {
     lv_display_set_color_format(display,LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(display,pixels,nullptr,sizeof(pixels),LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *) { lv_display_flush_ready(d); });
+    std::string previousCheer;
     for (auto size : {lv_point_t{320,480},lv_point_t{480,320},lv_point_t{480,800},lv_point_t{800,480}}) {
       lv_display_set_resolution(display,size.x,size.y);
       for (int language=0;language<2;++language) {
@@ -123,6 +159,12 @@ int main() {
         replaceBox=lv_obj_get_child(UiSudoku::s_replaceDialog,0);
         lv_obj_send_event(lv_obj_get_child(replaceBox,2),LV_EVENT_CLICKED,nullptr);
         assert(UiSudoku::s_game.value(replacement)==7 && !UiSudoku::s_replaceDialog);
+        UiSudoku::chooseCell(replacement);
+        assert(UiSudoku::s_game.value(replacement)==0);
+        UiSudoku::chooseCell(replacement);
+        assert(UiSudoku::s_game.value(replacement)==7);
+        UiSudoku::chooseCell(replacement);
+        assert(UiSudoku::s_game.value(replacement)==0);
         UiSudoku::s_digit=8;
         UiSudoku::s_notes=true;
         UiSudoku::s_tick=MySys::now;
@@ -163,15 +205,17 @@ int main() {
             if(UiSudoku::s_game.incorrect(empty)) break;
         }
         event(2); assert(UiSudoku::s_checked && UiSudoku::s_game.incorrect(empty));
-        for(unsigned cell=0;cell<81;++cell) {
-            if(UiSudoku::s_game.fixed(cell)) continue;
-            for(unsigned digit=1;digit<=9;++digit) {
-                UiSudoku::s_game.put(cell,digit,false);
-                if(!UiSudoku::s_game.incorrect(cell)) break;
-            }
-        }
+        uint8_t solution[81];
+        for(unsigned cell=0;cell<81;++cell) solution[cell]=UiSudoku::s_game.givens()[cell]-'0';
+        assert(solveBoard(solution));
+        for(unsigned cell=0;cell<81;++cell)
+            if(!UiSudoku::s_game.fixed(cell)) UiSudoku::s_game.put(cell,solution[cell],false);
         UiSudoku::refresh();
         assert(UiSudoku::s_game.complete() && !UiSudoku::running());
+        assert(UiSudoku::s_cheer);
+        const std::string cheer=lv_label_get_text(UiSudoku::s_cheer);
+        assert(!cheer.empty() && cheer!=previousCheer);
+        previousCheer=cheer;
         for(auto *digit : UiSudoku::s_digits) assert(lv_obj_has_state(digit,LV_STATE_DISABLED));
         assert(UiSudoku::s_next[0]==1);
         UiSudoku::refresh(); assert(UiSudoku::s_next[0]==1);

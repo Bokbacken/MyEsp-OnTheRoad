@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "board_backlight.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "lang.h"
 #include "my_storage.h"
 #include "my_sys.h"
@@ -29,7 +30,7 @@ uint16_t s_next[4]{};
 lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
 lv_obj_t *s_gameScreen = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
-lv_obj_t *s_replaceDialog = nullptr;
+lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr;
 unsigned s_replaceCell = 0;
 uint8_t s_replaceDigit = 0;
 
@@ -47,6 +48,51 @@ Str difficultyLabel(unsigned difficulty)
 {
     const Str names[] = {Str::SUDOKU_EASY, Str::SUDOKU_MEDIUM, Str::SUDOKU_HARD, Str::SUDOKU_EXTREME};
     return names[difficulty < 4 ? difficulty : 0];
+}
+
+void cheerAnimation(void *object, int32_t rise)
+{
+    auto *label = static_cast<lv_obj_t *>(object);
+    if (!s_board || !lv_obj_is_valid(s_board)) return;
+    lv_obj_align_to(label, s_board, LV_ALIGN_CENTER, 0, -rise);
+    lv_obj_set_style_opa(label, static_cast<lv_opa_t>(LV_OPA_COVER - rise * LV_OPA_COVER / 44), 0);
+}
+
+void cheerDone(lv_anim_t *animation)
+{
+    auto *label = static_cast<lv_obj_t *>(animation->var);
+    if (s_cheer == label) s_cheer = nullptr;
+    lv_obj_delete_async(label);
+}
+
+void showCheer()
+{
+    static constexpr Str messages[] = {
+        Str::SUDOKU_CHEER_1, Str::SUDOKU_CHEER_2, Str::SUDOKU_CHEER_3,
+        Str::SUDOKU_CHEER_4, Str::SUDOKU_CHEER_5, Str::SUDOKU_CHEER_6
+    };
+    s_cheer = Theme::label(s_gameScreen, tr(messages[esp_random() % (sizeof(messages) / sizeof(messages[0]))]),
+                           &my_font_24, Theme::GOLD);
+    lv_obj_set_width(s_cheer, lv_obj_get_width(s_board));
+    lv_label_set_long_mode(s_cheer, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(s_cheer, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_bg_color(s_cheer, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(s_cheer, LV_OPA_80, 0);
+    lv_obj_set_style_radius(s_cheer, 12, 0);
+    lv_obj_set_style_pad_hor(s_cheer, 10, 0);
+    lv_obj_set_style_pad_ver(s_cheer, 6, 0);
+    lv_obj_add_flag(s_cheer, LV_OBJ_FLAG_FLOATING);
+    lv_obj_align_to(s_cheer, s_board, LV_ALIGN_CENTER, 0, 0);
+
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, s_cheer);
+    lv_anim_set_exec_cb(&animation, cheerAnimation);
+    lv_anim_set_values(&animation, 0, 44);
+    lv_anim_set_duration(&animation, 2200);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+    lv_anim_set_completed_cb(&animation, cheerDone);
+    lv_anim_start(&animation);
 }
 
 void save()
@@ -215,6 +261,7 @@ void refresh()
     s_running = !s_paused && !complete;
     if (complete && !s_completedSaved) {
         s_completedSaved = true;
+        showCheer();
         const unsigned difficulty = static_cast<unsigned>(s_game.difficulty());
         if (s_next[difficulty] <= s_game.puzzleIndex()) s_next[difficulty] = s_game.puzzleIndex() + 1;
         s_dirty = true;
@@ -291,6 +338,14 @@ void askReplaceDigit(unsigned index, uint8_t digit)
 void chooseCell(unsigned index)
 {
     if (s_paused || s_game.complete()) return;
+    if (!s_erase && !s_notes && s_game.value(index) == s_digit) {
+        if (s_game.erase(index)) {
+            s_dirty = true;
+            s_checked = false;
+        }
+        refresh();
+        return;
+    }
     if (!s_erase && !s_notes && s_game.value(index) && s_game.value(index) != s_digit) {
         askReplaceDigit(index, s_digit);
         return;
@@ -428,6 +483,7 @@ void play()
                 s_running = false;
                 save();
                 s_board = s_help = s_gameScreen = nullptr;
+                s_cheer = nullptr;
             }
             lv_timer_pause(timer);
         } else if (lv_event_get_code(event) == LV_EVENT_DELETE) lv_timer_delete(timer);
