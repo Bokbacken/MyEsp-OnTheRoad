@@ -271,6 +271,7 @@ extern const Entry LANG_EN[] = {
     {Str::RES_AGAIN, "Play again"},
     {Str::RES_MENU, "Menu"},
     {Str::VAR_MIDI, "Midi Yatzy"},
+    {Str::VAR_MIDI_ORDER, "Midi Yatzy in order"},
     {Str::MENU_SUB_MIDI, "5 dice, saved rolls"},
     {Str::MENU_CHOOSE_VARIANT, "Choose variant"},
     {Str::GAME_NAME_PIG, "Pig"},

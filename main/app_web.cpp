@@ -447,7 +447,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getBool("power_log", b)) next.powerLog = b;
     if (HwProfile::active().hasRgbLed && q.getInt("led_brightness", 0, 255, v, bad))
         next.ledBrightness = (uint8_t)v;
-    if (q.getInt("default_variant", 0, 3, v, bad)) next.defaultVariant = (uint8_t)v;
+    if (q.getInt("default_variant", 0, 5, v, bad)) next.defaultVariant = (uint8_t)v;
     if (q.getInt("result_protocol_first", 0, 1, v, bad)) next.resultProtocolFirst = v != 0;
     if (q.getInt("roll_anim_ms", 300, 2000, v, bad)) next.rollAnimMs = (uint16_t)v;
     if (q.getInt("throw_mode", 0, 1, v, bad)) next.throwMode = (uint8_t)v;

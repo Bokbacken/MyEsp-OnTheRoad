@@ -602,9 +602,10 @@ static void showPage(Page page)
     lv_obj_set_flex_flow(game, LV_FLEX_FLOW_COLUMN);
     sliderRow(game, tr(Str::SET_ROLL_ANIM), 300, 2000, s_edit.rollAnimMs, &s_animVal, onAnim);
     Theme::label(game, tr(Str::SET_DEFAULT_VARIANT), &my_font_14, Theme::MUTED);
-    static char varOpts[160];
-    snprintf(varOpts, sizeof(varOpts), "%s\n%s\n%s\n%s", tr(Str::VAR_YATZY), tr(Str::VAR_MAXI),
-             tr(Str::VAR_YATZY_ORDER), tr(Str::VAR_MAXI_ORDER));
+    static char varOpts[224];
+    snprintf(varOpts, sizeof(varOpts), "%s\n%s\n%s\n%s\n%s\n%s",
+             tr(Str::VAR_YATZY), tr(Str::VAR_MAXI), tr(Str::VAR_YATZY_ORDER),
+             tr(Str::VAR_MAXI_ORDER), tr(Str::VAR_MIDI), tr(Str::VAR_MIDI_ORDER));
     lv_obj_t *dd = styledDropdown(game, varOpts, s_edit.defaultVariant);
     lv_obj_add_event_cb(dd, [](lv_event_t *e) {
         s_edit.defaultVariant = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));

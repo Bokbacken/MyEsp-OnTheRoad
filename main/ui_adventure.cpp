@@ -31,6 +31,7 @@
 #include "my_lvgl.h"
 #include "my_storage.h"
 #include "my_theme.h"
+#include "menu_art.h"
 #include "otr_joystick.h"
 #include "otr_maps.h"
 #include "otr_stories.h"
@@ -3490,7 +3491,9 @@ static void loadCatalogCovers()
 static lv_obj_t *addWorldRow(lv_obj_t *list, const char *name, const char *desc, int idx)
 {
     const int width = AdvUi::rowWidth();
-    const void *cover = s_coverArt && s_coverArt[idx].ready ? &s_coverImages[idx] : nullptr;
+    const void *cover = s_coverArt && s_coverArt[idx].ready
+        ? static_cast<const void *>(&s_coverImages[idx])
+        : static_cast<const void *>(MenuArt::image(MenuArt::Icon::ADVENTURE));
     lv_obj_t *b = Theme::menuCard(list, width, name, desc, cover, LV_SYMBOL_IMAGE, Theme::GREEN);
     lv_obj_add_event_cb(b, worldChosen, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     return b;

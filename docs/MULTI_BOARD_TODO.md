@@ -302,8 +302,9 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 - [ ] Layouttester för 320×480 och 480×800 för alla huvudskärmar.
 - [ ] **Hårdvara:** alla appar användbara på båda korten.
 - [ ] **Hårdvara:** verifiera statusradens navigation och reglage, lokal
-  admin-PIN-inmatning, undermenygruppering och kortens text-/bildlayout på
-  S3 och P4; värdtester ersätter inte provning av de fysiska skärmarna.
+  admin-PIN-inmatning, undermenygruppering, statiska spelbilder,
+  äventyrsomslag/fallback och kortens text-/bildlayout på S3 och P4;
+  värdtester ersätter inte provning av de fysiska skärmarna.
 
 ## VII. Release, app-OTA och säkerhet mot fel kort
 

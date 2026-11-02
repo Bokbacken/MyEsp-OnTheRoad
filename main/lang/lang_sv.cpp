@@ -271,6 +271,7 @@ extern const Entry LANG_SV[] = {
     {Str::RES_AGAIN, "Spela igen"},
     {Str::RES_MENU, "Meny"},
     {Str::VAR_MIDI, "Midi-Yatzy"},
+    {Str::VAR_MIDI_ORDER, "Midi-Yatzy i ordning"},
     {Str::MENU_SUB_MIDI, "5 tärningar, sparade kast"},
     {Str::MENU_CHOOSE_VARIANT, "Välj variant"},
     {Str::GAME_NAME_PIG, "Pig"},

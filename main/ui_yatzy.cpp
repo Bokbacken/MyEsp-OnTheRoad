@@ -29,6 +29,7 @@
 #include "ui_numpad.h"
 #include "ui_settings.h"
 #include "my_theme.h"
+#include "menu_art.h"
 #include "ui_metrics.h"
 #include "ui_wifi.h"
 #include "lang_game.h"
@@ -73,17 +74,19 @@ struct VariantChoice {
     bool midi;   // Standard Yatzy with saved rolls
     Str sub;
     uint32_t color;
+    MenuArt::Icon art;
 };
 
-static const VariantChoice CHOICES[5] = {
-    {YatzyVariant::STANDARD, YatzyMode::NORMAL, false, Str::MENU_SUB_YATZY, Theme::ACCENT},
-    {YatzyVariant::STANDARD, YatzyMode::ORDERED, false, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT},
-    {YatzyVariant::STANDARD, YatzyMode::NORMAL, true, Str::MENU_SUB_MIDI, Theme::GOLD},
-    {YatzyVariant::MAXI, YatzyMode::NORMAL, false, Str::MENU_SUB_MAXI, Theme::TEAL},
-    {YatzyVariant::MAXI, YatzyMode::ORDERED, false, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL},
+static const VariantChoice CHOICES[6] = {
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, false, Str::MENU_SUB_YATZY, Theme::ACCENT, MenuArt::Icon::YATZY},
+    {YatzyVariant::STANDARD, YatzyMode::ORDERED, false, Str::MENU_SUB_YATZY_ORDER, Theme::ACCENT, MenuArt::Icon::YATZY},
+    {YatzyVariant::STANDARD, YatzyMode::NORMAL, true, Str::MENU_SUB_MIDI, Theme::GOLD, MenuArt::Icon::MIDI},
+    {YatzyVariant::STANDARD, YatzyMode::ORDERED, true, Str::MENU_SUB_MIDI_ORDER, Theme::GOLD, MenuArt::Icon::MIDI},
+    {YatzyVariant::MAXI, YatzyMode::NORMAL, false, Str::MENU_SUB_MAXI, Theme::TEAL, MenuArt::Icon::MAXI},
+    {YatzyVariant::MAXI, YatzyMode::ORDERED, false, Str::MENU_SUB_MAXI_ORDER, Theme::TEAL, MenuArt::Icon::MAXI},
 };
-// Config::defaultVariant (0 Yatzy, 1 Maxi, 2 Yatzy i ordning, 3 Maxi i ordning) -> CHOICES index
-static const int DEFAULT_TO_CHOICE[4] = {0, 3, 1, 4};
+// Config::defaultVariant (0 Yatzy, 1 Maxi, 2 Yatzy ordered, 3 Maxi ordered, 4 Midi, 5 Midi ordered) -> CHOICES index
+static const int DEFAULT_TO_CHOICE[6] = {0, 4, 1, 5, 2, 3};
 
 struct GameChoice {
     GameType type;
@@ -108,23 +111,22 @@ static const char *gameTitle()
     }
 }
 
-// Casino-style menu card: accent stripe, title, two-line subtitle, optional check mark.
-// w may be LV_PCT(..) (flex list) or pixels.
+// Shared compact menu card with static variant artwork.
 static lv_obj_t *menuCardIn(lv_obj_t *parent, int32_t w, int32_t h, const char *title, const char *sub,
-                            uint32_t color, bool selected, bool twoLineSubtitle = false)
+                            uint32_t color, bool selected, MenuArt::Icon art,
+                            bool twoLineSubtitle = false)
 {
     (void)h;
     (void)twoLineSubtitle;
-    return Theme::menuCard(parent, w, title, sub, UiYatzy::faceSprite(40, 6),
+    return Theme::menuCard(parent, w, title, sub, MenuArt::image(art),
                            LV_SYMBOL_IMAGE, color, selected);
 }
 
 // Full-width menu card sized from its active font roles, never from free list space.
 static lv_obj_t *menuListCard(lv_obj_t *list, const char *title, const char *sub, uint32_t color,
-                              bool selected, bool bounded = false)
+                              bool selected, MenuArt::Icon art)
 {
-    (void)bounded;
-    return Theme::menuCard(list, LV_PCT(100), title, sub, UiYatzy::faceSprite(40, 6),
+    return Theme::menuCard(list, LV_PCT(100), title, sub, MenuArt::image(art),
                            LV_SYMBOL_IMAGE, color, selected);
 }
 
@@ -186,13 +188,13 @@ void showMenu()
     lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
     lv_obj_t *dice = menuListCard(list, tr(Str::MENU_DICE_GAMES), tr(Str::MENU_SUB_GAME_YATZY),
-                                  Theme::ACCENT, false);
+                                  Theme::ACCENT, false, MenuArt::Icon::DICE);
     lv_obj_add_event_cb(dice, [](lv_event_t *) { showDiceGames(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *adv = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_ADVENTURES), tr(Str::MENU_SUB_GAME_ADV),
-                                    nullptr, LV_SYMBOL_IMAGE, Theme::GREEN);
+                                    MenuArt::image(MenuArt::Icon::ADVENTURE), LV_SYMBOL_IMAGE, Theme::GREEN);
     lv_obj_add_event_cb(adv, [](lv_event_t *) { UiAdventure::show(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *kara = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_KARAOKE), tr(Str::MENU_SUB_KARAOKE),
-                                     nullptr, LV_SYMBOL_AUDIO, Theme::GOLD);
+                                     MenuArt::image(MenuArt::Icon::KARAOKE), LV_SYMBOL_AUDIO, Theme::GOLD);
     lv_obj_add_event_cb(kara, [](lv_event_t *) {
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
@@ -224,8 +226,8 @@ void showPlayerCenter()
         s_gameType = GameType::YATZY;
         const uint8_t variant = Config::get().defaultVariant;
         s_variant = variant == 1 || variant == 3 ? YatzyVariant::MAXI : YatzyVariant::STANDARD;
-        s_mode = variant >= 2 ? YatzyMode::ORDERED : YatzyMode::NORMAL;
-        s_midi = false;
+        s_mode = variant == 2 || variant == 3 || variant == 5 ? YatzyMode::ORDERED : YatzyMode::NORMAL;
+        s_midi = variant >= 4;
         showPlayers();
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -264,38 +266,21 @@ static void showDiceGames()
         Str title, subtitle;
         uint32_t color;
         GameType type;
+        MenuArt::Icon art;
     };
     static const DiceMenuItem items[] = {
-        {Str::VAR_YATZY, Str::MENU_SUB_GAME_YATZY, Theme::ACCENT, GameType::YATZY},
-        {Str::VAR_MAXI, Str::MENU_SUB_MAXI, Theme::TEAL, GameType::YATZY},
-        {Str::VAR_MIDI, Str::MENU_SUB_MIDI, Theme::GOLD, GameType::YATZY},
-        {Str::GAME_NAME_PIG, Str::MENU_SUB_GAME_PIG, 0xF08A24, GameType::PIG},
-        {Str::GAME_NAME_FARKLE, Str::MENU_SUB_GAME_FARKLE, 0xA06CF0, GameType::FARKLE},
-        {Str::GAME_NAME_SCC, Str::MENU_SUB_GAME_SCC, Theme::BLUE, GameType::SCC},
+        {Str::VAR_YATZY, Str::MENU_SUB_GAME_YATZY, Theme::ACCENT, GameType::YATZY, MenuArt::Icon::YATZY},
+        {Str::GAME_NAME_PIG, Str::MENU_SUB_GAME_PIG, 0xF08A24, GameType::PIG, MenuArt::Icon::PIG},
+        {Str::GAME_NAME_FARKLE, Str::MENU_SUB_GAME_FARKLE, 0xA06CF0, GameType::FARKLE, MenuArt::Icon::FARKLE},
+        {Str::GAME_NAME_SCC, Str::MENU_SUB_GAME_SCC, Theme::BLUE, GameType::SCC, MenuArt::Icon::SHIP_CAPTAIN_CREW},
     };
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
-        lv_obj_t *button = menuListCard(list, tr(items[i].title), tr(items[i].subtitle), items[i].color, false);
+        lv_obj_t *button = menuListCard(list, tr(items[i].title), tr(items[i].subtitle),
+                                        items[i].color, false, items[i].art);
         lv_obj_add_event_cb(button, [](lv_event_t *e) {
             const size_t selected = (size_t)(intptr_t)lv_event_get_user_data(e);
             s_gameType = items[selected].type;
-            if (selected == 0) {
-                s_variant = YatzyVariant::STANDARD;
-                s_mode = Config::get().defaultVariant == 2 ? YatzyMode::ORDERED : YatzyMode::NORMAL;
-                s_midi = false;
-                showPlayers();
-            } else if (selected == 1) {
-                s_variant = YatzyVariant::MAXI;
-                s_mode = Config::get().defaultVariant == 3 ? YatzyMode::ORDERED : YatzyMode::NORMAL;
-                s_midi = false;
-                showPlayers();
-            } else if (selected == 2) {
-                s_variant = YatzyVariant::STANDARD;
-                s_mode = YatzyMode::NORMAL;
-                s_midi = true;
-                showPlayers();
-            } else {
-                showVariants();
-            }
+            showVariants();
         }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
@@ -381,10 +366,11 @@ static void showVariants()
     switch (s_gameType) {
     case GameType::YATZY: {
         int def = Config::get().defaultVariant;
-        def = (def >= 0 && def < 4) ? DEFAULT_TO_CHOICE[def] : 0;
-        for (int i = 0; i < 5; i++) {
+        def = (def >= 0 && def < 6) ? DEFAULT_TO_CHOICE[def] : 0;
+        for (int i = 0; i < 6; i++) {
             const VariantChoice &c = CHOICES[i];
-            lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, trVariant(c.v, c.m, c.midi), tr(c.sub), c.color, i == def);
+            lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, trVariant(c.v, c.m, c.midi), tr(c.sub),
+                                     c.color, i == def, c.art);
             lv_obj_add_event_cb(b, [](lv_event_t *e) {
                 const VariantChoice &v = CHOICES[(int)(intptr_t)lv_event_get_user_data(e)];
                 s_variant = v.v;
@@ -398,7 +384,8 @@ static void showVariants()
     case GameType::PIG:
         for (int i = 0; i < 2; i++) {
             lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(i ? Str::VAR_PIG_2 : Str::VAR_PIG_1),
-                                   tr(i ? Str::MENU_SUB_PIG_2 : Str::MENU_SUB_PIG_1), GAMES[1].color, false);
+                                   tr(i ? Str::MENU_SUB_PIG_2 : Str::MENU_SUB_PIG_1), GAMES[1].color, false,
+                                   i ? MenuArt::Icon::PIG_TWO : MenuArt::Icon::PIG);
             lv_obj_add_event_cb(b, [](lv_event_t *e) {
                 s_pigVariant = lv_event_get_user_data(e) ? PigVariant::TWO_DICE : PigVariant::ONE_DIE;
                 showPlayers();
@@ -406,12 +393,14 @@ static void showVariants()
         }
         break;
     case GameType::FARKLE: {
-        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_FARKLE), tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false);
+        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_FARKLE),
+                                 tr(Str::MENU_SUB_FARKLE), GAMES[2].color, false, MenuArt::Icon::FARKLE);
         lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
         break;
     }
     case GameType::SCC: {
-        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_SCC_3), tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false);
+        lv_obj_t *b = menuCardIn(list, LV_PCT(100), cardH, tr(Str::VAR_SCC_3),
+                                 tr(Str::MENU_SUB_SCC_3), GAMES[3].color, false, MenuArt::Icon::SHIP_CAPTAIN_CREW);
         lv_obj_add_event_cb(b, [](lv_event_t *) { showPlayers(); }, LV_EVENT_CLICKED, nullptr);
         break;
     }
@@ -419,7 +408,7 @@ static void showVariants()
 
     lv_obj_t *footer = selectionButtonRow(body);
     lv_obj_t *back = Theme::button(footer, trp(LV_SYMBOL_LEFT " ", Str::BTN_BACK), LV_PCT(47), UiMetrics::buttonH(), Theme::MUTED);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { showDiceGames(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(scr);
 }
 

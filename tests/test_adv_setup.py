@@ -29,6 +29,7 @@ assert "16385" in loader and "size <= 16384" in loader
 assert "Adv::decodeResourcePng" in loader and "ESP_LOGW" in loader
 assert "AdvUi::rowWidth()" in playerrow, "addPlayerRow must use the responsive row width"
 assert "lv_obj_update_layout(parent)" in theme and "lv_obj_get_width(card)" in theme
+assert "MenuArt::image(MenuArt::Icon::ADVENTURE)" in addrow
 
 code = r'''
 #include <cassert>

@@ -6,12 +6,18 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 source = (ROOT / "main/ui_settings.cpp").read_text()
+web = (ROOT / "main/app_web.cpp").read_text()
+web_settings = (ROOT / "main/web/settings.html").read_text()
 assert "MENU_SETTINGS_GAME" in source and "MENU_SETTINGS_PLAYERS" in source
 assert "MENU_SETTINGS_USER" in source and "MENU_SETTINGS_ADMIN" in source
 assert "if (page != Page::USER)" in source and "if (page != Page::GAME)" in source
 assert "showPage(Page::ADMIN)" in source and "UiNumpad::MAX_PIN_LENGTH" in source
 assert source.index("SCREEN_TIMEOUT"), "user screen timeout control must remain available"
 assert "Theme::button(powerAdmin, tr(Str::SCREEN_SLEEP_NOW)" in source
+assert "VAR_MIDI_ORDER" in source
+assert "VAR_YATZY_ORDER" in source and "VAR_MAXI_ORDER" in source
+assert 'getInt("default_variant", 0, 5' in web
+assert '<option value="5">Midi-Yatzy i ordning</option>' in web_settings
 start = source.index("bool toggleSound()")
 end = source.index("void prepareForMenuNavigation()", start)
 functions = source[start:end]

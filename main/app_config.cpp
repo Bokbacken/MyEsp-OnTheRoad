@@ -79,7 +79,8 @@ void begin()
             g_cfg.textSize = p.getU8("text_size", TEXT_SIZE_DEFAULT);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
-            g_cfg.defaultVariant = p.getU8("variant", 0) % 4;
+            g_cfg.defaultVariant = p.getU8("variant", 0);
+            if (g_cfg.defaultVariant > 5) g_cfg.defaultVariant = 0;
             g_cfg.resultProtocolFirst = p.getBool("result_protocol", false);
             g_cfg.rollAnimMs = MySys::clamp<uint16_t>(p.getU16("roll_ms", g_cfg.rollAnimMs), 300, 2000);
             g_cfg.maxiSavedRolls = p.getBool("maxi_save", true);

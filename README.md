@@ -27,11 +27,13 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 
 ## Features
 
-- **Dice games** – Yatzy, Maxi-Yatzy, Pig, Farkle and Ship-Captain-Crew.
+- **Dice games** – Yatzy, Maxi-Yatzy, Midi-Yatzy, Pig, Farkle and
+  Ship-Captain-Crew. Static illustrations distinguish each game and dice
+  variant; Yatzy, Maxi and Midi can be set to play in order.
 - **Tile adventures** – SD-loaded `.adv` campaigns, internal maps and portals,
   puzzles, story-driven terrain/object changes, resources, NPC dialogue,
-  checkpoints, saved progress, and optional 32×32 PNG cover images on adventure
-  cards. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
+  checkpoints, saved progress, static menu artwork, and optional 32×32 PNG
+  cover images on adventure cards. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
   and the [authoring reference](docs/AUTHORING_ADVENTURES.md) for examples,
   supported mechanics and limits.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device

@@ -25,7 +25,7 @@ struct AppConfig {
     uint8_t textSize;        // 0 small, 1 normal (default), 2 large, 3 extra large (MyFonts::TextSize)
     uint8_t ledBrightness;   // RGB LED 0..255
     bool ledEnabled;
-    uint8_t defaultVariant;  // 0 Yatzy, 1 Maxi, 2 Yatzy in order, 3 Maxi in order
+    uint8_t defaultVariant;  // 0 Yatzy, 1 Maxi, 2/3 ordered, 4 Midi, 5 Midi ordered
     bool resultProtocolFirst; // Show the Yatzy score protocol before the ranking
     uint16_t rollAnimMs;     // Dice roll animation length, 300..2000 ms
     bool maxiSavedRolls;     // Maxi-Yatzy: unused rolls are saved for later turns

@@ -18,6 +18,9 @@ a published GitHub Release.
   bounded descriptions. Adventure cards display optional `@about cover` /
   `cover.image` PNGs; missing or invalid declared images use the fallback icon
   and log a warning.
+- Static illustrations distinguish the home game families and dice-game
+  variants. Settings can choose Yatzy, Maxi, or Midi in-order variants; existing
+  saved variant selections retain their meanings.
 - Settings-toggle, Adventure UI, and source-level menu checks pass.
   LVGL-dependent layout builds cannot configure here because
   `managed_components/lvgl__lvgl` is absent. ESP32-S3/P4 hardware verification

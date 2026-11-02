@@ -23,10 +23,11 @@ inline const char *trVariant(YatzyVariant v, YatzyMode m)
     return tr(ord ? Str::VAR_YATZY_ORDER : Str::VAR_YATZY);
 }
 
-// v0.6.0: Midi-Yatzy = standard Yatzy (free order) with the saved-rolls rule.
+// Midi-Yatzy uses standard dice with saved rolls; ordered mode remains available too.
 inline const char *trVariant(YatzyVariant v, YatzyMode m, bool savedRolls)
 {
-    if (v == YatzyVariant::STANDARD && m == YatzyMode::NORMAL && savedRolls) return tr(Str::VAR_MIDI);
+    if (v == YatzyVariant::STANDARD && savedRolls)
+        return tr(m == YatzyMode::ORDERED ? Str::VAR_MIDI_ORDER : Str::VAR_MIDI);
     return trVariant(v, m);
 }
 

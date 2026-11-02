@@ -14,7 +14,7 @@ WORK.mkdir(parents=True, exist_ok=True)
 source = (ROOT / "main/ui_yatzy.cpp").read_text()
 menu_card = source[source.index("static lv_obj_t *menuCardIn("):source.index("static void showVariants();")]
 assert "Theme::menuCard" in menu_card
-assert "faceSprite(40, 6)" in menu_card
+assert "MenuArt::image(art)" in menu_card
 assert "lv_obj_set_flex_grow" not in menu_card
 home_menu = source[source.index("void showMenu()"):source.index("void showPlayerCenter()")]
 assert home_menu.count("Theme::menuCard") == 2 and "menuListCard(" in home_menu
@@ -25,6 +25,10 @@ assert "MENU_SETTINGS_PLAYERS_DESC" in player_center
 assert "if (s_playerCenterReturn)" in source
 dice_menu = source[source.index("static void showDiceGames()"):source.index("// Selection screens keep")]
 assert "menuListCard(" in dice_menu
+assert "MenuArt::Icon::DICE" in home_menu
+assert "MenuArt::Icon::KARAOKE" in home_menu
+assert "CHOICES[6]" in source and "MenuArt::Icon::MIDI" in source
+assert "MenuArt::Icon::SHIP_CAPTAIN_CREW" in dice_menu
 
 
 def section(start, end):
@@ -42,6 +46,7 @@ code = r'''
 #include <unistd.h>
 #include "lvgl.h"
 #include "my_theme.h"
+#include "menu_art.h"
 #include "ui_metrics.h"
 #include "hw_profile.h"
 #include "app_config.h"
@@ -83,6 +88,7 @@ static void showPlayers();
 static void showMenu() { ++menus; }
 static void startNewGame() { ++starts; }
 @CHOICES@
+@CARD_HELPERS@
 @LAYOUTS@
 @PLAYERS@
 @PICKER@
@@ -632,7 +638,7 @@ int main() {
                     assert(lv_obj_get_y(box) == 74 && lv_obj_get_y(child(box, 1)) + lv_obj_get_y(box) == 432);
                     assert(lv_obj_get_scroll_bottom(list) <= 0);
                 }
-                unsigned count = game == GameType::YATZY ? 5 : game == GameType::PIG ? 2 : 1;
+                unsigned count = game == GameType::YATZY ? 6 : game == GameType::PIG ? 2 : 1;
                 assert(lv_obj_get_child_count(list) == count);
                 for (unsigned i = 0; i < count; ++i) {
                     lv_obj_scroll_to_view(child(list, i), LV_ANIM_OFF); settle();
@@ -716,6 +722,7 @@ int main() {
 }
 '''
 code = code.replace("@CHOICES@", section("struct VariantChoice {", "static void showVariants();"))
+code = code.replace("@CARD_HELPERS@", section("static lv_obj_t *menuCardIn(", "static void showVariants();"))
 code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ========================================================================================\n// Players"))
 code = code.replace(
     "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)\n{",
@@ -754,7 +761,7 @@ add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/ui_numpad.cpp" "{ROOT}/main/hw_profile.cpp"
  "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
-  "{ROOT}/main/app_players.cpp"
+  "{ROOT}/components/my_ui/menu_art.cpp" "{ROOT}/main/app_players.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"
  "{ROOT}/main/game_yatzy.cpp" "{ROOT}/main/dice_cup.cpp")
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/tests/player_stubs"
