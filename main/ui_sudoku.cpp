@@ -30,7 +30,7 @@ uint16_t s_next[4]{};
 lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
 lv_obj_t *s_gameScreen = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
-lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr;
+lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr;
 unsigned s_replaceCell = 0;
 uint8_t s_replaceDigit = 0;
 
@@ -50,6 +50,9 @@ Str difficultyLabel(unsigned difficulty)
     return names[difficulty < 4 ? difficulty : 0];
 }
 
+void startNew(unsigned difficulty);
+void showWinPrompt();
+
 void cheerAnimation(void *object, int32_t rise)
 {
     auto *label = static_cast<lv_obj_t *>(object);
@@ -63,6 +66,7 @@ void cheerDone(lv_anim_t *animation)
     auto *label = static_cast<lv_obj_t *>(animation->var);
     if (s_cheer == label) s_cheer = nullptr;
     lv_obj_delete_async(label);
+    showWinPrompt();
 }
 
 void showCheer()
@@ -93,6 +97,49 @@ void showCheer()
     lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&animation, cheerDone);
     lv_anim_start(&animation);
+}
+
+void closeWinPrompt()
+{
+    if (!s_winPrompt) return;
+    lv_obj_delete(s_winPrompt);
+    s_winPrompt = nullptr;
+}
+
+void nextPuzzle(lv_event_t *event)
+{
+    const unsigned difficulty = static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    closeWinPrompt();
+    startNew(difficulty);
+}
+
+void backToPuzzleList(lv_event_t *)
+{
+    closeWinPrompt();
+    show();
+}
+
+void showWinPrompt()
+{
+    if (!s_gameScreen || lv_screen_active() != s_gameScreen || !s_game.complete() || s_winPrompt) return;
+    s_winPrompt = lv_obj_create(s_gameScreen);
+    lv_obj_set_size(s_winPrompt, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(s_winPrompt, LV_OPA_80, 0);
+    lv_obj_add_flag(s_winPrompt, LV_OBJ_FLAG_CLICKABLE);
+    auto *box = Theme::card(s_winPrompt, UiMetrics::screenW() - 40, 174);
+    lv_obj_center(box);
+    auto *message = Theme::label(box, tr(Str::SUDOKU_NEXT_PROMPT), &my_font_14);
+    lv_obj_set_width(message, LV_PCT(100));
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    auto *next = Theme::button(box, tr(Str::SUDOKU_NEXT), 126, 40, Theme::ACCENT);
+    lv_obj_align(next, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_add_event_cb(next, nextPuzzle, LV_EVENT_CLICKED,
+                        reinterpret_cast<void *>(uintptr_t(s_game.difficulty())));
+    if (s_next[static_cast<unsigned>(s_game.difficulty())] >= Sudoku::BLOCK_SIZE)
+        lv_obj_add_state(next, LV_STATE_DISABLED);
+    auto *back = Theme::button(box, tr(Str::BTN_BACK), 110, 40, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_add_event_cb(back, backToPuzzleList, LV_EVENT_CLICKED, nullptr);
 }
 
 void save()
@@ -294,6 +341,18 @@ void placeDigit(unsigned index, uint8_t digit)
     if (s_game.put(index, digit, false)) {
         s_dirty = true;
         s_checked = false;
+        const uint16_t bit = static_cast<uint16_t>(1u << (digit - 1));
+        const unsigned row = index / 9, column = index % 9;
+        const unsigned box = row / 3 * 3 + column / 3;
+        for (unsigned peer = 0; peer < Sudoku::CELL_COUNT; ++peer) {
+            if (peer == index || !(s_game.notes(peer) & bit)) continue;
+            const unsigned peerRow = peer / 9, peerColumn = peer % 9;
+            if (peerRow == row || peerColumn == column ||
+                peerRow / 3 * 3 + peerColumn / 3 == box) {
+                s_game.put(peer, digit, true);
+                s_dirty = true;
+            }
+        }
     }
     refresh();
 }
@@ -424,8 +483,10 @@ void play()
     s_gameScreen = screen;
     Theme::header(screen, tr(Str::SUDOKU_TITLE));
     const int w = UiMetrics::screenW(), h = UiMetrics::screenH();
-    const int top = UiMetrics::titleH() + 6, margin = 8, gap = 4;
+    const int margin = 8, gap = 4;
     const bool landscape = w > h;
+    const int infoY = UiMetrics::titleH() + 4, infoH = 24;
+    const int top = infoY + infoH + 4;
     int side = landscape ? h - top - 8 : w - 2 * margin;
     if (!landscape && side > h - top - 174) side = h - top - 174;
     side = side / 9 * 9;
@@ -433,8 +494,7 @@ void play()
     const int controlsY = landscape ? top : top + side + 4;
     const int controlsW = landscape ? w - controlsX - margin : w - 2 * margin;
     const int buttonW = (controlsW - 4 * gap) / 5;
-    const int infoH = 22;
-    const int buttonH = landscape ? (h - controlsY - 92) / 3 : (h - controlsY - 56) / 3;
+    const int buttonH = landscape ? (h - controlsY - 68) / 3 : (h - controlsY - 40) / 3;
 
     s_board = lv_obj_create(screen);
     lv_obj_remove_style_all(s_board);
@@ -444,13 +504,14 @@ void play()
     lv_obj_remove_flag(s_board, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_board, draw, LV_EVENT_DRAW_MAIN, nullptr);
     lv_obj_add_event_cb(s_board, boardClick, LV_EVENT_CLICKED, nullptr);
-    s_info = Theme::label(screen, "", &my_font_raw_12);
-    lv_obj_set_pos(s_info, controlsX, controlsY);
-    lv_obj_set_width(s_info, controlsW - 66);
-    lv_obj_set_style_text_font(s_info, &my_font_raw_12, 0);
-    lv_obj_t *back = Theme::button(screen, tr(Str::BTN_BACK), 62, infoH, Theme::MUTED);
-    lv_obj_set_style_text_font(lv_obj_get_child(back, 0), &my_font_raw_12, 0);
-    lv_obj_set_pos(back, controlsX + controlsW - 62, controlsY);
+    s_info = Theme::label(screen, "", &my_font_14);
+    lv_obj_set_pos(s_info, margin, infoY);
+    lv_obj_set_width(s_info, w - 2 * margin - 72);
+    lv_obj_set_style_text_font(s_info, &my_font_14, 0);
+    lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_t *back = Theme::button(screen, tr(Str::BTN_BACK), 64, infoH, Theme::MUTED);
+    lv_obj_set_style_text_font(lv_obj_get_child(back, 0), &my_font_14, 0);
+    lv_obj_set_pos(back, w - margin - 64, infoY);
     lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
     const char *tools[] = {LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_OK, LV_SYMBOL_EDIT, LV_SYMBOL_CLOSE, LV_SYMBOL_PAUSE};
     for (unsigned row = 0; row < 3; ++row) {
@@ -460,7 +521,7 @@ void play()
             char label[2] = {static_cast<char>('0' + id), 0};
             auto *b = Theme::button(screen, digit ? label : tools[id], buttonW, buttonH, Theme::LINE);
             lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_raw_24, 0);
-            lv_obj_set_pos(b, controlsX + col * (buttonW + gap), controlsY + infoH + 3 + row * (buttonH + gap));
+            lv_obj_set_pos(b, controlsX + col * (buttonW + gap), controlsY + row * (buttonH + gap));
             lv_obj_add_event_cb(b, digit ? digitClick : tool, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(id)));
             if (digit) s_digits[id - 1] = b;
             else if (id == 3) s_noteButton = b;
@@ -469,7 +530,7 @@ void play()
         }
     }
     s_help = Theme::label(screen, "", &my_font_raw_12, Theme::MUTED);
-    lv_obj_set_pos(s_help, controlsX, controlsY + infoH + 3 + 3 * (buttonH + gap));
+    lv_obj_set_pos(s_help, controlsX, controlsY + 3 * (buttonH + gap));
     lv_obj_set_width(s_help, controlsW);
     lv_label_set_long_mode(s_help, LV_LABEL_LONG_MODE_WRAP);
     s_tick = s_savedAt = MySys::millis();
@@ -483,7 +544,7 @@ void play()
                 s_running = false;
                 save();
                 s_board = s_help = s_gameScreen = nullptr;
-                s_cheer = nullptr;
+                s_cheer = s_winPrompt = nullptr;
             }
             lv_timer_pause(timer);
         } else if (lv_event_get_code(event) == LV_EVENT_DELETE) lv_timer_delete(timer);

@@ -125,6 +125,10 @@ int main() {
         inside(UiSudoku::s_board,size.x,size.y);
         inside(UiSudoku::s_info,size.x,size.y);
         inside(UiSudoku::s_help,size.x,size.y);
+        lv_area_t infoArea, boardArea;
+        lv_obj_get_coords(UiSudoku::s_info,&infoArea);
+        lv_obj_get_coords(UiSudoku::s_board,&boardArea);
+        assert(infoArea.y2 < boardArea.y1);
         for(auto *digit : UiSudoku::s_digits) inside(digit,size.x,size.y);
         inside(UiSudoku::s_noteButton,size.x,size.y);
         inside(UiSudoku::s_pauseButton,size.x,size.y);
@@ -200,6 +204,32 @@ int main() {
         assert(UiSudoku::s_dirty && UiSudoku::s_saveFailed);
         MyNvs::fail=false; UiSudoku::save();
         assert(!UiSudoku::s_dirty && !UiSudoku::s_saveFailed);
+        unsigned target=0;
+        while(target<Sudoku::CELL_COUNT &&
+              (UiSudoku::s_game.fixed(target) || target==empty ||
+               target/9==empty/9 || target%9==empty%9 ||
+               (target/27==empty/27 && target%9/3==empty%9/3))) ++target;
+        assert(target<Sudoku::CELL_COUNT);
+        const unsigned targetRow=target/9, targetCol=target%9, targetBox=targetRow/3*3+targetCol/3;
+        unsigned peers[3]={Sudoku::CELL_COUNT,Sudoku::CELL_COUNT,Sudoku::CELL_COUNT};
+        for(unsigned peer=0;peer<Sudoku::CELL_COUNT;++peer) {
+            if(peer==target || UiSudoku::s_game.fixed(peer)) continue;
+            const unsigned row=peer/9, col=peer%9, box=row/3*3+col/3;
+            if(row==targetRow && col/3!=targetCol/3) peers[0]=peer;
+            if(col==targetCol && row/3!=targetRow/3) peers[1]=peer;
+            if(box==targetBox && row!=targetRow && col!=targetCol) peers[2]=peer;
+        }
+        for(unsigned peer:peers) {
+            assert(peer<Sudoku::CELL_COUNT);
+            assert(UiSudoku::s_game.put(peer,8,true));
+            assert(UiSudoku::s_game.notes(peer)&128);
+        }
+        UiSudoku::s_notes=false;
+        UiSudoku::s_digit=8;
+        UiSudoku::chooseCell(target);
+        assert(UiSudoku::s_game.value(target)==8);
+        for(unsigned peer:peers) assert(!(UiSudoku::s_game.notes(peer)&128));
+        assert(UiSudoku::s_game.notes(empty)&128);
         for(unsigned digit=1;digit<=9;++digit) {
             UiSudoku::s_game.put(empty,digit,false);
             if(UiSudoku::s_game.incorrect(empty)) break;
@@ -216,9 +246,24 @@ int main() {
         const std::string cheer=lv_label_get_text(UiSudoku::s_cheer);
         assert(!cheer.empty() && cheer!=previousCheer);
         previousCheer=cheer;
+        for(int frame=0;frame<240;++frame) {
+            lv_tick_inc(10); MySys::now+=10; lv_timer_handler();
+        }
+        assert(UiSudoku::s_winPrompt);
+        auto *winBox=lv_obj_get_child(UiSudoku::s_winPrompt,0);
+        assert(lv_obj_get_child_count(winBox)==3);
         for(auto *digit : UiSudoku::s_digits) assert(lv_obj_has_state(digit,LV_STATE_DISABLED));
         assert(UiSudoku::s_next[0]==1);
         UiSudoku::refresh(); assert(UiSudoku::s_next[0]==1);
+        const bool testBack = size.x==320 && size.y==480 && language==0 &&
+                              textSize==MyFonts::TextSize::NORMAL;
+        lv_obj_send_event(lv_obj_get_child(winBox,testBack ? 2 : 1),LV_EVENT_CLICKED,nullptr);
+        settle();
+        if(testBack) {
+            assert(!UiSudoku::s_board && !UiSudoku::running());
+            continue;
+        }
+        assert(UiSudoku::s_game.puzzleIndex()==1 && UiSudoku::s_board && UiSudoku::running());
         UiSudoku::s_dirty=true;
         MyNvs::fail=true;
         auto *gameScreen=UiSudoku::s_gameScreen;

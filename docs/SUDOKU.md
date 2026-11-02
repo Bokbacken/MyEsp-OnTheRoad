@@ -17,6 +17,10 @@ shows a randomly selected, animated encouragement over the board. Pause hides
 the board and stops the elapsed timer, including time since the last timer
 tick. If saving fails when leaving, the game stays open so the warning remains
 visible and the save can be retried.
+When placing a digit, matching notes are removed from its row, column and
+3×3 box. After the floating completion cheer, choose the next puzzle or return
+to the Sudoku difficulty list. Puzzle number, difficulty and elapsed time are
+shown in a larger status line above the board.
 
 The current puzzle, notes, elapsed time and completed count per difficulty
 are saved in NVS every 30 seconds, when pausing, leaving or finishing. Power
@@ -39,14 +43,16 @@ digits 1–9. The four difficulties are `EASY`, `MEDIUM`, `HARD`, and `EXTREME`;
 Extreme uses the source bank's `diabolical.txt` category.
 
 The model supports fixed givens, digit placement, per-cell candidate notes,
-erase, undo/redo, checking a placed digit against the stored solution, and a
-completion predicate. Notes are a nine-bit mask: bit `digit - 1` represents
-that candidate (digits 1–9 map to bits 0–8). The model does not implement pause
-state or UI selection; the caller can pause and resume by retaining the `Game`
-instance. A `Game` has no dynamic allocations and keeps a 128-action bounded
-undo/redo history. Restore saved values and notes through the edit methods,
-then call `clearHistory()` so undo cannot enter the prior session. Invalid
-inputs and edits to givens are rejected without changing game state.
+erase, undo/redo, detecting duplicate placed digits in rows, columns and boxes,
+and a completion predicate based on the stored solution. Rule checking does not
+compare an individual entry to the solution. Notes are a nine-bit mask: bit
+`digit - 1` represents that candidate (digits 1–9 map to bits 0–8). The model
+does not implement pause state or UI selection; the caller can pause and resume
+by retaining the `Game` instance. A `Game` has no dynamic allocations and
+keeps a 128-action bounded undo/redo history. Restore saved values and notes
+through the edit methods, then call `clearHistory()` so undo cannot enter the
+prior session. Invalid inputs and edits to givens are rejected without
+changing game state.
 
 The first bundled block has 100 puzzles per difficulty (400 total) stored as
 81-character givens strings in flash; solutions are derived when a puzzle is

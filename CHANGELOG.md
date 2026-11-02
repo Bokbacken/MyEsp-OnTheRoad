@@ -17,7 +17,9 @@ a published GitHub Release.
   out, replacing an entered digit requires confirmation, pause includes the
   pending elapsed interval, and a failed save keeps the game open for retry.
   Tapping the selected digit in a filled cell toggles it off; a randomized
-  animated cheer appears when the puzzle is solved.
+  animated cheer appears when the puzzle is solved, followed by next/back
+  choices. Notes matching a newly placed digit are removed from peer cells;
+  larger puzzle status appears above the board.
 - Bundle 100 offline puzzles each for Easy, Medium, Hard and Extreme from
   the public-domain Sudoku Exchange bank. Additional blocks can be imported
   during firmware preparation; automatic next-block delivery is not yet

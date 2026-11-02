@@ -22,6 +22,8 @@ extern const Entry LANG_SV[] = {
     {Str::SUDOKU_CHEER_5, "Suveränt!"},
     {Str::SUDOKU_CHEER_6, "Vilken triumf!"},
     {Str::SUDOKU_COMPLETE, "Löst! Tillbaka för nästa pussel"},
+    {Str::SUDOKU_NEXT_PROMPT, "Vill du ta nästa pussel eller gå tillbaka?"},
+    {Str::SUDOKU_NEXT, "Nästa pussel"},
     {Str::SUDOKU_RESUME, "Fortsätt sparat pussel"},
     {Str::SUDOKU_PROGRESS, "%u av %u lösta"},
     {Str::SUDOKU_SAVE_FAILED, "Kunde inte spara pusslet"},

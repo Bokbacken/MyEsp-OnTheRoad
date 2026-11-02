@@ -22,6 +22,8 @@ extern const Entry LANG_EN[] = {
     {Str::SUDOKU_CHEER_5, "Superb!"},
     {Str::SUDOKU_CHEER_6, "What a triumph!"},
     {Str::SUDOKU_COMPLETE, "Solved! Go back for the next puzzle"},
+    {Str::SUDOKU_NEXT_PROMPT, "Would you like the next puzzle or go back?"},
+    {Str::SUDOKU_NEXT, "Next puzzle"},
     {Str::SUDOKU_RESUME, "Resume saved puzzle"},
     {Str::SUDOKU_PROGRESS, "%u of %u solved"},
     {Str::SUDOKU_SAVE_FAILED, "Could not save puzzle"},
