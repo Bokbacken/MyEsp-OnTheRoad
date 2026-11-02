@@ -338,7 +338,7 @@ extern "C" void app_main(void)
     PowerHistory::begin();
     uint32_t lastRtcCheck = MySys::millis();
     uint32_t lastBatteryAlertCheck = lastRtcCheck;
-    uint32_t lastBatteryLog = lastRtcCheck;
+    uint32_t lastBatteryLog = lastRtcCheck - BatteryMath::LOG_INTERVAL_MS;
     for (;;) {
         MyWifi::loop();
         MyTime::loop();
