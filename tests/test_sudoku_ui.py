@@ -362,7 +362,8 @@ add_executable(sudoku_ui test.cpp "{ROOT}/main/sudoku_game.cpp"
  "{ROOT}/components/my_ui/my_fonts.cpp" {fonts}
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
 target_include_directories(sudoku_ui PRIVATE "{WORK}" "{ROOT}/tests/player_stubs"
- "{ROOT}/main" "{ROOT}/main/lang" "{ROOT}/components/my_ui/include")
+ "{ROOT}/main" "{ROOT}/main/lang" "{ROOT}/components/my_ui/include"
+ "{ROOT}/components/my_wifi/include")
 target_compile_options(sudoku_ui PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror;-Wno-error=deprecated-declarations>)
 target_link_libraries(sudoku_ui PRIVATE lvgl m)
 """)
