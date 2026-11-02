@@ -151,6 +151,13 @@ orsaken. Prova fullständigt mörker, upprepad väckning och sparad ljusstyrka;
 om ljus kvarstår behövs kontroll av EN-nivån och LED-matningen på kortet.
 ST7701-kommandon kan inte ersätta den separata bakljusavstängningen.
 
+S3-kontroll samma dag: ES3C35P använder GPIO41, aktiv hög, och firmware
+sätter redan PWM till noll vid vila. Publicerad schemagenomgång beskriver
+en BSS138 som lågsidebrytare för LED-ljuset; ingen separat enable-pin
+identifieras. Originalschemat kunde inte hämtas, så topologin är ännu
+sekundärkälluppgift. GPIO26/33 får inte kopieras från P4: de används av
+flash/PSRAM på S3-kortet. Se [S3-referensens bakljusavsnitt](hardware_reference.md#7-backlight-control).
+
 ### Wi-Fi med bibehållen webbåtkomst
 
 | Läge | Egenskap och begränsning |
