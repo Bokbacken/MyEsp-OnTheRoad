@@ -7,9 +7,11 @@ Easy, Medium, Hard or Extreme. Select a digit in the 3×3 keypad, then touch a
 board cell. The selected button and matching board digits are highlighted.
 The pencil toggles positional notes; matching notes are highlighted too.
 The left tools are undo, redo and check; the right tools are pencil, erase
-and pause. Check overlays red crosses on entered digits that do not match the
-solution and ignores notes. The model separately detects duplicates in the
-same row, column or 3×3 box, including both cells in a conflicting pair.
+and pause. Rule conflicts in the same row, column or 3×3 box get red crosses
+immediately, including both cells in a conflicting pair. Check also marks
+entered digits that do not match the solution and ignores notes. Taps on fixed
+clues do nothing. Board taps need to land at least four pixels inside each
+cell edge, leaving a smaller, centered active area to reduce accidental input.
 A keypad digit is grayed out when all nine copies are on the board.
 Tapping a cell with the currently selected digit toggles that entry off;
 replacing it with a different digit asks for confirmation. Solving the puzzle

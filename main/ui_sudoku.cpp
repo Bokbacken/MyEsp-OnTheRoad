@@ -99,6 +99,11 @@ void showCheer()
     lv_anim_start(&animation);
 }
 
+bool showErrorCross(unsigned cell)
+{
+    return s_game.incorrect(cell) || (s_checked && !s_game.matchesSolution(cell));
+}
+
 void closeWinPrompt()
 {
     if (!s_winPrompt) return;
@@ -261,7 +266,7 @@ void draw(lv_event_t *event)
             d.align = LV_TEXT_ALIGN_CENTER;
             lv_area_t a{x, y + (cell - d.font->line_height) / 2, x + cell - 1, y + cell - 1};
             lv_draw_label(layer, &d, &a);
-            if (s_checked && !s_game.matchesSolution(i)) {
+            if (showErrorCross(i)) {
                 for (int k = 3; k < cell - 3; ++k) {
                     fill(layer, x + k, y + k, 2, 2, Theme::RED);
                     fill(layer, x + cell - k - 2, y + k, 2, 2, Theme::RED);
@@ -396,7 +401,7 @@ void askReplaceDigit(unsigned index, uint8_t digit)
 
 void chooseCell(unsigned index)
 {
-    if (s_paused || s_game.complete()) return;
+    if (s_paused || s_game.complete() || s_game.fixed(index)) return;
     if (!s_erase && !s_notes && s_game.value(index) == s_digit) {
         if (s_game.erase(index)) {
             s_dirty = true;
@@ -421,6 +426,17 @@ void chooseCell(unsigned index)
     refresh();
 }
 
+int cellAtPoint(int x, int y, int size)
+{
+    const int cell = size / 9;
+    if (cell <= 8 || x < 0 || y < 0 || x >= cell * 9 || y >= cell * 9) return -1;
+    const int column = x / cell, row = y / cell;
+    constexpr int deadZone = 4;
+    if (x % cell < deadZone || x % cell >= cell - deadZone ||
+        y % cell < deadZone || y % cell >= cell - deadZone) return -1;
+    return row * 9 + column;
+}
+
 void boardClick(lv_event_t *event)
 {
     lv_indev_t *input = lv_indev_active();
@@ -429,9 +445,8 @@ void boardClick(lv_event_t *event)
     lv_indev_get_point(input, &p);
     lv_area_t a;
     lv_obj_get_coords(lv_event_get_current_target_obj(event), &a);
-    const int cell = lv_obj_get_width(s_board) / 9;
-    const int col = (p.x - a.x1) / cell, row = (p.y - a.y1) / cell;
-    if (p.x >= a.x1 && p.y >= a.y1 && col < 9 && row < 9) chooseCell(row * 9 + col);
+    const int index = cellAtPoint(p.x - a.x1, p.y - a.y1, lv_obj_get_width(s_board));
+    if (index >= 0) chooseCell(static_cast<unsigned>(index));
 }
 
 void tool(lv_event_t *event)

@@ -122,6 +122,22 @@ int main() {
         UiSudoku::s_paused=false;
         UiSudoku::play(); settle();
         assert(UiSudoku::running());
+        unsigned given=0;
+        while(!UiSudoku::s_game.fixed(given)) ++given;
+        const uint8_t givenValue=UiSudoku::s_game.value(given);
+        UiSudoku::s_digit=static_cast<uint8_t>(givenValue%9+1);
+        UiSudoku::s_notes=false;
+        UiSudoku::s_erase=false;
+        UiSudoku::chooseCell(given);
+        assert(UiSudoku::s_game.value(given)==givenValue && !UiSudoku::s_replaceDialog);
+        assert(UiSudoku::cellAtPoint(4,4,432)==0);
+        assert(UiSudoku::cellAtPoint(43,43,432)==0);
+        assert(UiSudoku::cellAtPoint(3,24,432)==-1);
+        assert(UiSudoku::cellAtPoint(44,24,432)==-1);
+        assert(UiSudoku::cellAtPoint(24,3,432)==-1);
+        assert(UiSudoku::cellAtPoint(24,44,432)==-1);
+        assert(UiSudoku::cellAtPoint(52,24,432)==1);
+        assert(UiSudoku::cellAtPoint(432,24,432)==-1);
         inside(UiSudoku::s_board,size.x,size.y);
         inside(UiSudoku::s_info,size.x,size.y);
         inside(UiSudoku::s_help,size.x,size.y);
@@ -169,6 +185,26 @@ int main() {
         assert(UiSudoku::s_game.value(replacement)==7);
         UiSudoku::chooseCell(replacement);
         assert(UiSudoku::s_game.value(replacement)==0);
+        unsigned conflictCell=0, conflictPeer=0;
+        for(;conflictCell<Sudoku::CELL_COUNT;++conflictCell) {
+            if(UiSudoku::s_game.fixed(conflictCell)) continue;
+            for(conflictPeer=0;conflictPeer<Sudoku::CELL_COUNT;++conflictPeer) {
+                if(!UiSudoku::s_game.fixed(conflictPeer)) continue;
+                const unsigned r=conflictCell/9, c=conflictCell%9;
+                const unsigned pr=conflictPeer/9, pc=conflictPeer%9;
+                if(r==pr || c==pc || (r/3==pr/3 && c/3==pc/3)) break;
+            }
+            if(conflictPeer<Sudoku::CELL_COUNT) break;
+        }
+        assert(conflictCell<Sudoku::CELL_COUNT && conflictPeer<Sudoku::CELL_COUNT);
+        UiSudoku::s_digit=UiSudoku::s_game.value(conflictPeer);
+        UiSudoku::s_notes=false;
+        UiSudoku::chooseCell(conflictCell);
+        assert(UiSudoku::s_game.incorrect(conflictCell));
+        assert(UiSudoku::showErrorCross(conflictCell));
+        assert(UiSudoku::showErrorCross(conflictPeer));
+        UiSudoku::chooseCell(conflictCell);
+        assert(UiSudoku::s_game.value(conflictCell)==0);
         UiSudoku::s_digit=8;
         UiSudoku::s_notes=true;
         if (!(UiSudoku::s_game.notes(empty)&128)) UiSudoku::chooseCell(empty);

@@ -21,8 +21,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
   Färdiga siffror gråas ut, sifferbyten bekräftas och sparfel hindrar utgång;
   paustiden räknas upp till själva pausen. Kontroll markerar siffror som
-  avviker från lösningen, medan motorn separat upptäcker regelbrott i rad,
-  kolumn och ruta. Tryck på
+  avviker från lösningen, och regelkonflikter kryssas direkt. Fasta givenceller
+  ignorerar tryck; spelrutorna har en 4 px dödzon. Motorn upptäcker regelbrott
+  i rad, kolumn och ruta. Tryck på
   samma valda siffra växlar den i rutan; konfliktanteckningar tas bort,
   statusraden ligger ovanför brädet och lösning följs av val för nästa eller
   tillbaka. Slumpad uppmuntran visas före valet.
