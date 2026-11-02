@@ -20,6 +20,8 @@ extern const Entry LANG_EN[] = {
     {Str::SUDOKU_PROGRESS, "%u of %u solved"},
     {Str::SUDOKU_SAVE_FAILED, "Could not save puzzle"},
     {Str::SUDOKU_REPLACE, "Replace your current puzzle? The saved puzzle will be overwritten."},
+    {Str::SUDOKU_REPLACE_VALUE, "Replace the number in this cell?"},
+    {Str::SUDOKU_CONFIRM_REPLACE, "Replace"},
     {Str::SUDOKU_NEW, "New puzzle"},
     {Str::MENU_PASTIMES, "Pastimes"},
     {Str::BTN_CANCEL, "Cancel"},

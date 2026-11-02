@@ -12,7 +12,10 @@ a published GitHub Release.
 
 - Native Sudoku under Pastimes, with digit-first entry, positional pencil
   notes, undo/redo, erase, pause, elapsed time and saved progress. Checking
-  marks incorrect entered digits with red crosses, not notes.
+  marks incorrect entered digits with red crosses, not notes. Completed keypad
+  digits gray out, replacing an entered digit requires confirmation, pause
+  includes the pending elapsed interval, and a failed save keeps the game open
+  for retry.
 - Bundle 100 offline puzzles each for Easy, Medium, Hard and Extreme from
   the public-domain Sudoku Exchange bank. Additional blocks can be imported
   during firmware preparation; automatic next-block delivery is not yet

@@ -20,6 +20,8 @@ extern const Entry LANG_SV[] = {
     {Str::SUDOKU_PROGRESS, "%u av %u lösta"},
     {Str::SUDOKU_SAVE_FAILED, "Kunde inte spara pusslet"},
     {Str::SUDOKU_REPLACE, "Ersätta ditt pågående pussel? Det sparade pusslet skrivs över."},
+    {Str::SUDOKU_REPLACE_VALUE, "Ersätta siffran i den här rutan?"},
+    {Str::SUDOKU_CONFIRM_REPLACE, "Ersätt"},
     {Str::SUDOKU_NEW, "Nytt pussel"},
     {Str::MENU_PASTIMES, "Tidsfördriv"},
     {Str::BTN_CANCEL, "Avbryt"},

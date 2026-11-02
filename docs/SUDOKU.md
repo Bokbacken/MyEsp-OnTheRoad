@@ -8,7 +8,11 @@ board cell. The selected button and matching board digits are highlighted.
 The pencil toggles positional notes; matching notes are highlighted too.
 The left tools are undo, redo and check; the right tools are pencil, erase
 and pause. Check overlays red crosses on incorrect entered digits and ignores
-notes. Pause hides the board and stops the elapsed timer.
+notes. A keypad digit is grayed out when all nine copies are on the board.
+Replacing an entered digit asks for confirmation. Pause hides the board and
+stops the elapsed timer, including time since the last timer tick. If saving
+fails when leaving, the game stays open so the warning remains visible and
+the save can be retried.
 
 The current puzzle, notes, elapsed time and completed count per difficulty
 are saved in NVS every 30 seconds, when pausing, leaving or finishing. Power

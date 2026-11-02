@@ -29,6 +29,9 @@ uint16_t s_next[4]{};
 lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
 lv_obj_t *s_gameScreen = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
+lv_obj_t *s_replaceDialog = nullptr;
+unsigned s_replaceCell = 0;
+uint8_t s_replaceDigit = 0;
 
 struct Save {
     uint32_t version = 1;
@@ -193,8 +196,17 @@ void draw(lv_event_t *event)
 void refresh()
 {
     for (unsigned i = 0; i < 9; ++i) {
-        lv_obj_set_style_bg_color(s_digits[i], Theme::c(i + 1 == s_digit ? Theme::GOLD : Theme::PANEL_RAISED), 0);
-        lv_obj_set_style_text_color(s_digits[i], Theme::c(i + 1 == s_digit ? Theme::BG : Theme::TEXT), 0);
+        unsigned count = 0;
+        for (unsigned cell = 0; cell < Sudoku::CELL_COUNT; ++cell)
+            if (s_game.value(cell) == i + 1) ++count;
+        const bool complete = count >= 9;
+        const bool selected = i + 1 == s_digit;
+        const uint32_t background = complete ? Theme::PANEL : selected ? Theme::GOLD : Theme::PANEL_RAISED;
+        const uint32_t foreground = complete ? Theme::MUTED : selected ? Theme::BG : Theme::TEXT;
+        lv_obj_set_style_bg_color(s_digits[i], Theme::c(background), 0);
+        lv_obj_set_style_text_color(s_digits[i], Theme::c(foreground), 0);
+        if (complete) lv_obj_add_state(s_digits[i], LV_STATE_DISABLED);
+        else lv_obj_remove_state(s_digits[i], LV_STATE_DISABLED);
     }
     lv_obj_set_style_bg_color(s_noteButton, Theme::c(s_notes ? Theme::ACCENT : Theme::PANEL_RAISED), 0);
     lv_obj_set_style_bg_color(s_eraseButton, Theme::c(s_erase ? Theme::RED : Theme::PANEL_RAISED), 0);
@@ -224,9 +236,69 @@ void refresh()
 
 void play();
 
+void leave()
+{
+    save();
+    if (!s_saveFailed) show();
+}
+
+void placeDigit(unsigned index, uint8_t digit)
+{
+    if (s_game.put(index, digit, false)) {
+        s_dirty = true;
+        s_checked = false;
+    }
+    refresh();
+}
+
+void dismissReplacement(lv_event_t *)
+{
+    if (!s_replaceDialog) return;
+    lv_obj_delete(s_replaceDialog);
+    s_replaceDialog = nullptr;
+}
+
+void confirmReplacement(lv_event_t *)
+{
+    const unsigned index = s_replaceCell;
+    const uint8_t digit = s_replaceDigit;
+    dismissReplacement(nullptr);
+    if (s_paused || s_game.complete() || s_game.fixed(index)) return;
+    placeDigit(index, digit);
+}
+
+void askReplaceDigit(unsigned index, uint8_t digit)
+{
+    s_replaceCell = index;
+    s_replaceDigit = digit;
+    s_replaceDialog = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_replaceDialog, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(s_replaceDialog, LV_OPA_80, 0);
+    lv_obj_add_flag(s_replaceDialog, LV_OBJ_FLAG_CLICKABLE);
+    auto *box = Theme::card(s_replaceDialog, UiMetrics::screenW() - 40, 190);
+    lv_obj_center(box);
+    auto *message = Theme::label(box, tr(Str::SUDOKU_REPLACE_VALUE), &my_font_14);
+    lv_obj_set_width(message, LV_PCT(100));
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    auto *cancel = Theme::button(box, tr(Str::BTN_CANCEL), 110, 40, Theme::MUTED);
+    lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_add_event_cb(cancel, dismissReplacement, LV_EVENT_CLICKED, nullptr);
+    auto *replace = Theme::button(box, tr(Str::SUDOKU_CONFIRM_REPLACE), 110, 40, Theme::ACCENT);
+    lv_obj_align(replace, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_add_event_cb(replace, confirmReplacement, LV_EVENT_CLICKED, nullptr);
+}
+
 void chooseCell(unsigned index)
 {
     if (s_paused || s_game.complete()) return;
+    if (!s_erase && !s_notes && s_game.value(index) && s_game.value(index) != s_digit) {
+        askReplaceDigit(index, s_digit);
+        return;
+    }
+    if (!s_erase && !s_notes) {
+        placeDigit(index, s_digit);
+        return;
+    }
     const bool changed = s_erase ? s_game.erase(index) : s_game.put(index, s_digit, s_notes);
     if (changed) {
         s_dirty = true;
@@ -252,8 +324,11 @@ void tool(lv_event_t *event)
 {
     const auto action = static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     if (action == 5) {
+        const uint32_t now = MySys::millis();
+        if (!s_paused && !s_game.complete() && !Backlight::sleeping())
+            s_elapsed += now - s_tick;
         s_paused = !s_paused;
-        s_tick = MySys::millis();
+        s_tick = now;
         s_dirty = true;
         save();
     } else if (!s_paused && !s_game.complete()) {
@@ -321,7 +396,7 @@ void play()
     lv_obj_t *back = Theme::button(screen, tr(Str::BTN_BACK), 62, infoH, Theme::MUTED);
     lv_obj_set_style_text_font(lv_obj_get_child(back, 0), &my_font_raw_12, 0);
     lv_obj_set_pos(back, controlsX + controlsW - 62, controlsY);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { save(); show(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
     const char *tools[] = {LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_OK, LV_SYMBOL_EDIT, LV_SYMBOL_CLOSE, LV_SYMBOL_PAUSE};
     for (unsigned row = 0; row < 3; ++row) {
         for (unsigned col = 0; col < 5; ++col) {
