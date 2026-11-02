@@ -126,6 +126,36 @@ Spänningskurvan och 2000 mAh räcker inte för att beräkna mA, förbrukad
 kapacitetsandel eller återstående timmar. CSV behövs för att jämföra
 spel-/ljud-/lagringsaktivitet; verklig effekt kräver strömmätning.
 
+### Kompletterande CSV från samma natt
+
+Ägarens `power-14.csv` innehåller 93 hela femminutersposter från boot 62,
+v0.23.22: totalt 7 h 45 min 9 s. Tiderna är UTC i CSV; loggens lokala
+tider ligger en timme före. Intervallens slut går från 23:51:15 UTC
+2026-11-01 till 07:31:24 UTC 2026-11-02.
+
+| Fält summerat över filen | Resultat |
+|---|---|
+| Skärm tänd | 221085 ms, cirka 3 min 41 s, 0,79 % |
+| Wi-Fi anslutet | 99,82 % av tiden |
+| Förstärkare på (`audio_ms`) | 100 %; anger inte hörbar uppspelning |
+| Ekoläge | 0 % |
+| Spel/äventyr/spelande karaoke | 0; hela tiden kategoriseras som `idle_other` |
+| Batteriets intervallmedel | 4039 → 3547 mV; ändpunkterna ligger 7 h 40 min 9 s isär |
+| SD-fel / ljudunderruns / tappade historikposter | Samtliga 0 |
+| Lägsta fria interna RAM | 323431 byte; största fria block minst 278528 byte |
+| SD läst / skrivet | 1174016 / 272384 byte |
+| FFat läst / skrivet | 1388544 / 979392 byte |
+
+Detta bekräftar nästan helt släckt skärm, inga aktiva spel och att det
+separata ekoläget inte användes. Ljudelektronikens förstärkare var ändå
+på hela tiden, med inställd SFX-/musikvolym 10 %. CSV visar inte om musik
+faktiskt hördes. Ett nätanslutet viloläge bör därför även utreda avstängning
+av mixer/I2S/förstärkare utan att stoppa Wi-Fi, men bevara avsiktligt
+fortsatt ljud och larm. Det är en kandidat, inte uppmätt energivinst.
+Lagringsräknarna inkluderar metadata och bakgrundsloggning, inte bara
+användarens filöverföringar. CSV mäter fortfarande varken CPU-last,
+faktisk klockfrekvens, radioaktiv tid eller ström.
+
 ### Panel och separat bakljusdriver
 
 ST7701-vägen använder redan standardkommandona display-off `0x28` och
