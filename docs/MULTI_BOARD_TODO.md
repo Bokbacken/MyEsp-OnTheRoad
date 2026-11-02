@@ -412,6 +412,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   hälsokontroll eller längre stabilitetsperiod är ännu rapporterad.
   S3 lämnas på v0.23.18 under observation; nästa strömspararbete fokuserar
   på P4 utan att kräva att S3 uppdateras.
+  Uppdaterad ägarrapport 2026-11-02: S3 har därefter uppdaterats till
+  v0.23.22 och gått många timmar utan krasch; intern flash är fortsatt
+  okej. Detta stärker SPI-rättningen men anger ingen exakt testlängd och
+  är inte bevis för att alla möjliga krascher är borta.
   **Formatera inte FFat innan råpartitionen och läsbara filer har säkrats.**
   Den manuella reparationsvägen säkerhetskopierar bara `players.bin` och
   `events.log`, inte alla filer/sparningar, och en formatering raderar övrigt
@@ -467,7 +471,20 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   v0.23.20 låter P4-panelen sova vid all skärmsläckning. Ägaren
   rapporterar (2026-11-01) att skärmen nu slocknar helt; loggen visar
   "panel asleep"/"panel awake" vid upprepad släckning och touchväckning.
+  Uppdaterad ägarrapport 2026-11-02: mycket svagt ljus finns fortfarande.
+  Schemat skiljer GPIO26/PWM från GPIO33/BL_EN till AP3032; firmware styr
+  ännu inte EN. Full bakljusavstängning är alltså inte verifierad.
   Effektmätning och lång körning återstår.
+- [ ] P4: styr separat bakljus-enable GPIO33 enligt schemat och prova
+  restljus, ljusstyrka och upprepad vila/väckning. Se
+  [utredning och nattloggsanalys](POWER_HISTORY.md#p4-fortsatt-strömsparutredning-2026-11-02).
+- [ ] P4: separat nätanslutet sparläge; jämför befintlig MIN_MODEM,
+  MAX_MODEM/listen interval och C6 iTWT med verifierat AP-avtal. Webben
+  ska förbli nåbar; mät latens, mDNS, roaming och överföringar.
+- [ ] P4: stoppa DPI via säker drivrutinslivscykel före DFS-utvärdering.
+  IDF v6.1:s DPI-objekt håller CPU_FREQ_MAX, DSI-bussen NO_LIGHT_SLEEP.
+  Utvärdera 400/200/100 MHz och 40 MHz tomgång för kortets revision 3.2;
+  visa faktisk klocka/lås. Automatisk light sleep är ett separat senare steg.
 - [ ] Verifiera v0.23.17 på S3/P4: läsbara tidszonval på display/webb,
   sommartid och namnbyte i boot/huvudmeny, samtliga webbsidors gemensamma
   statusrad/meny samt DHCP/mDNS. v0.23.17 inkluderar historik/viloläge
@@ -492,10 +509,13 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
   DSI/DPI-vsync/DMA och S3:s QSPI-uppdatering måste verifieras mot PM-lås.
   UART/USB-loggens beteende vid sleep/frekvensändring måste också provas. Ingen
   säkert generaliserbar mW- eller batteritidsvinst är känd.
+  Utredning 2026-11-02 verifierar P4:s 400/200/100/40 MHz-nivåer och att
+  DSI/DPI:s livstidslås blockerar enbart påslagen DFS/light sleep.
+  Se [detaljer, nätanslutna lägen och nattlogg](POWER_HISTORY.md#p4-fortsatt-strömsparutredning-2026-11-02).
 - **Pausa Wi-Fi helt:** kan minska förbrukning mer än modem-sleep men bryter
-  webbtillgänglighet och kräver återanslutning vid väckning. Ingen av/på-
-  livscykel eller återanslutningstid är mätt; behåll därför Wi-Fi anslutet och
-  använd endast MIN_MODEM i v0.23.
+  webbtillgänglighet och kräver återanslutning vid väckning. Av/på-vägen
+  finns nu i det valbara ekoläget, men återanslutningstid/strömvinst är inte
+  mätt. Vanlig skärmsläckning behåller anslutningen med MIN_MODEM.
 - **Deep sleep/touch:** deep sleep stänger av körande spel/ljud/Wi-Fi och
   återstartar appen. Touch kan väcka endast om controllerens INT är kopplad till
   en RTC/LP-wake-kompatibel GPIO; I2C är inte aktiv som wake-källa. S3 INT är
@@ -595,10 +615,10 @@ rekommendation innan kod skrivs.
      befintlig skärmtimeout/manuell släckning.
    - [x] Utred Wi-Fi/DFS/deep sleep och dokumentera rekommendationerna nedan.
      **Hårdvara:** mät effekt och verifiera återanslutning på båda korten.
-   - [ ] **Hårdvara:** ägaren rapporterar att P4-panelens bild fortfarande syns
-     när endast bakgrundsbelysningen släcks. Utred controller-specifik
-     display-off/sleep och väcksekvens; verifiera att skärmen släcks och
-     återställs på båda korten innan strömsparningen markeras klar.
+   - [ ] **Hårdvara:** P4 display-off/sleep och väckning är införda och
+     ägarprovade, men mycket svagt ljus kvarstår enligt rapport 2026-11-02.
+     Styr separat GPIO33/BL_EN och verifiera full bakljusavstängning före
+     slutgodkännande; panelvila stänger inte av DSI eller CPU.
 7. **Spela mellan enheter (Yatzy fjärrspel).** Flera OnTheRoad
    och mobiler/webbläsare på samma nät spelar samma spel; en enhet är
    master. Bygger på befintlig webb-live-vy och WebSocket-platser.

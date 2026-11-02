@@ -328,6 +328,17 @@ The board has a **PWR LED power indicator** only. Unlike the 3.5-inch board, the
 
 The 4.3-inch panel has a dedicated backlight circuit with 500 cd/m² rated brightness. Brightness is controlled through the board BSP / firmware rather than a documented single "backlight GPIO" on the header. Use the Waveshare BSP's brightness API (or the ESP-IDF backlight control it wraps) instead of bit-banging a pin, and confirm the actual control line against the schematic if you need direct PWM control.
 
+The official schematic (page 1, Display / Back Light) distinguishes two
+controls: **GPIO26 via R43 is `LCD_BL_PWM`**, while **GPIO33 via R32 is
+`BL_EN`**, connected to pin 4 (EN) of the **AP3032KTR-G1, U9** LED boost
+driver. GPIO26 uses inverted PWM in the BSP. Its zero-brightness setting
+is not an explicit shutdown of U9 through EN. Current OnTheRoad firmware
+controls only GPIO26; the owner's 2026-11-02 report of faint remaining light
+after ST7701 sleep requires testing EN-low shutdown via GPIO33. This is
+separate from ST7701 display-off/sleep commands and from stopping DSI.
+See the [power investigation](POWER_HISTORY.md#p4-fortsatt-strömsparutredning-2026-11-02)
+for the proposed sequence and remaining hardware checks.
+
 ---
 
 ## 8. microSD / TF subsystem

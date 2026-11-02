@@ -331,6 +331,24 @@ ESP_ERROR_CHECK(led_strip_refresh(strip));
 
 The display backlight uses GPIO41 and is reported active high.
 
+Cross-check for power saving (2026-11-02): both the community's tested
+pin map and its documented schematic analysis identify **GPIO41 as the
+backlight control**, LOW off / HIGH on. The latter describes a BSS138
+N-channel low-side switch for the LED cathodes, not a separate PWM input
+plus an independently controlled boost-driver enable as on P4.
+No second backlight-enable GPIO is identified in these sources.
+OnTheRoad already sets GPIO41 PWM to zero during screen sleep.
+The original manufacturer schematic could not be retrieved during this
+check, so the transistor topology is secondary-source evidence, not a
+new direct schematic or electrical verification.
+Sources: [tested pin map](https://github.com/jlmeredith/ES3C35P/blob/main/docs/HARDWARE.md)
+and [electrical/backlight reference, section 7](https://github.com/tivnantu/esp32-for-fun-docs/blob/main/02-electrical-and-timing.md).
+
+Do not copy P4 GPIO26/GPIO33 control to this S3 board: those pins belong
+to its flash/PSRAM interface. LCD reset is tied to CHIP_PU/EN, while
+GPIO48 is touch reset, not a backlight-enable line. ST77922 panel sleep
+is a separate feature and is not currently enabled by OnTheRoad.
+
 ### Simple on/off
 
 ```cpp
