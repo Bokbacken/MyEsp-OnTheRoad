@@ -754,7 +754,7 @@ void updateLyrics(const Karaoke::View &v, bool force)
     }
     if (P.plainMode) {
         P.plainMode = false;
-        lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_hidden(P.plain, true);
         for (lv_obj_t *label : P.before) lv_obj_set_hidden(label, false);
         for (lv_obj_t *label : P.after) lv_obj_set_hidden(label, false);
@@ -1216,9 +1216,86 @@ void showFonts(bool forSong)
     }
 }
 
+void drawMelodyIcon(lv_event_t *event)
+{
+    lv_obj_t *button = lv_event_get_target_obj(event);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    lv_area_t bounds;
+    lv_obj_get_coords(button, &bounds);
+    const int size = std::min({36, lv_area_get_width(&bounds) - 8, lv_area_get_height(&bounds) - 8});
+    const int x = bounds.x1 + (lv_area_get_width(&bounds) - size) / 2;
+    const int y = bounds.y1 + (lv_area_get_height(&bounds) - size) / 2;
+    const auto point = [=](int px, int py) {
+        return lv_point_t{x + px * size / 36, y + py * size / 36};
+    };
+    // Scan-convert an original singing profile; no font or external image dependency.
+    static constexpr lv_point_t profile[] = {
+        {22, 3}, {29, 3}, {33, 7}, {34, 14}, {32, 21}, {29, 26}, {30, 33},
+        {20, 33}, {21, 26}, {17, 25}, {16, 23}, {18, 21}, {15, 20},
+        {18, 18}, {14, 17}, {18, 12}, {18, 7}
+    };
+    lv_draw_rect_dsc_t fill;
+    lv_draw_rect_dsc_init(&fill);
+    fill.base.obj = button;
+    fill.bg_color = Theme::c(Theme::TEXT);
+    fill.bg_opa = LV_OPA_COVER;
+    for (int row = 3; row < 33; ++row) {
+        int edges[sizeof(profile) / sizeof(profile[0])], count = 0;
+        for (size_t i = 0; i < sizeof(profile) / sizeof(profile[0]); ++i) {
+            const auto &a = profile[i];
+            const auto &b = profile[(i + 1) % (sizeof(profile) / sizeof(profile[0]))];
+            if ((a.y <= row && b.y > row) || (b.y <= row && a.y > row))
+                edges[count++] = a.x + (row - a.y) * (b.x - a.x) / (b.y - a.y);
+        }
+        std::sort(edges, edges + count);
+        for (int i = 0; i + 1 < count; i += 2) {
+            const auto a = point(edges[i], row), b = point(edges[i + 1], row + 1);
+            const lv_area_t area{a.x, a.y, b.x, std::max(a.y, b.y - 1)};
+            lv_draw_rect(layer, &fill, &area);
+        }
+    }
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.base.obj = button;
+    line.color = Theme::c(Theme::TEXT);
+    line.width = 2;
+    const auto stroke = [&](int ax, int ay, int bx, int by) {
+        const auto a = point(ax, ay), b = point(bx, by);
+        line.p1 = {a.x, a.y};
+        line.p2 = {b.x, b.y};
+        lv_draw_line(layer, &line);
+    };
+    stroke(7, 9, 7, 17);
+    stroke(7, 9, 11, 7);
+    stroke(11, 22, 11, 28);
+    stroke(11, 22, 14, 23);
+    fill.radius = LV_RADIUS_CIRCLE;
+    for (const auto &note : {lv_point_t{4, 16}, lv_point_t{8, 27}}) {
+        const auto a = point(note.x, note.y), b = point(note.x + 4, note.y + 3);
+        const lv_area_t area{a.x, a.y, b.x, b.y};
+        lv_draw_rect(layer, &fill, &area);
+    }
+    if (Karaoke::melodyMuted()) {
+        lv_draw_arc_dsc_t ring;
+        lv_draw_arc_dsc_init(&ring);
+        ring.base.obj = button;
+        ring.center = point(18, 18);
+        ring.radius = size / 2;
+        ring.width = 3;
+        ring.color = lv_color_hex(0xE53935);
+        ring.start_angle = 0;
+        ring.end_angle = 360;
+        lv_draw_arc(layer, &ring);
+        line.color = ring.color;
+        line.width = 3;
+        stroke(6, 30, 30, 6);
+    }
+}
+
 void updateMelodyButton()
 {
     if (P.melBtnLbl) lv_label_set_text(P.melBtnLbl, tr(Karaoke::melodyMuted() ? Str::KARA_MELODY_OFF : Str::KARA_MELODY_ON));
+    if (P.melodyMuteBtn) lv_obj_invalidate(P.melodyMuteBtn);
 }
 
 void showPlayerMenu()
@@ -1302,7 +1379,7 @@ void showPlayer()
     lv_obj_set_pos(P.lyrics, l.lyricsX, l.lyricsY);
     lv_obj_set_size(P.lyrics, l.lyricsW, l.lyricsH);
     lv_obj_set_flex_flow(P.lyrics, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(P.lyrics, l.gap, 0);
     lv_obj_set_scroll_dir(P.lyrics, LV_DIR_VER);
     lv_obj_set_scroll_chain(P.lyrics, false);
@@ -1496,14 +1573,14 @@ void showPlayer()
         updatePlayLabel(false);
         P.line = -3;
     });
-    P.melodyMuteBtn = ctlButton(scr, Karaoke::melodyMuted() ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX,
+    P.melodyMuteBtn = ctlButton(scr, "",
                                 X0 + 5 * DX, Y1, BW, BH, Theme::LINE, [](lv_event_t *) {
         static uint32_t last = 0;
         if (!Theme::debounce(last, DEBOUNCE_MS)) return;
         Karaoke::setMelodyMuted(!Karaoke::melodyMuted());
-        lv_label_set_text(lv_obj_get_child(P.melodyMuteBtn, 0),
-                          Karaoke::melodyMuted() ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
+        updateMelodyButton();
     });
+    lv_obj_add_event_cb(P.melodyMuteBtn, drawMelodyIcon, LV_EVENT_DRAW_MAIN, nullptr);
 
     updateLyrics(Karaoke::view(), true);
     tick(nullptr);

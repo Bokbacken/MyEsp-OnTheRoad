@@ -145,6 +145,7 @@ uint8_t songVolume() { return (uint8_t)vol; }
 void setSongVolume(uint8_t v) { vol = v; }
 void setVoiceLimit(uint8_t v) { Config::get().karaVoices = v; }
 bool takeTransposeRejected() { bool r = rejectTranspose; rejectTranspose = false; return r; }
+bool takeOverloadStopped() { return false; }
 }
 using namespace UiKaraoke;
 static void settle() {
@@ -249,6 +250,39 @@ static void checkBattery(lv_obj_t *battery) {
     assert(!strcmp(lv_label_get_text(percent), "?"));
     batterySample = {true, 50};
     settle();
+}
+static void checkMelodyIcon() {
+    struct Drawn { int rings = 0, slashes = 0; } drawn;
+    auto capture = [](lv_event_t *event) {
+        auto *task = lv_event_get_draw_task(event);
+        auto *result = static_cast<Drawn *>(lv_event_get_user_data(event));
+        if (auto *arc = lv_draw_task_get_arc_dsc(task)) {
+            assert(lv_color_eq(arc->color, lv_color_hex(0xE53935)));
+            ++result->rings;
+        }
+        if (auto *line = lv_draw_task_get_line_dsc(task))
+            if (lv_color_eq(line->color, lv_color_hex(0xE53935))) ++result->slashes;
+    };
+    const bool previous = Karaoke::melodyMuted();
+    lv_obj_set_send_draw_task_events(P.melodyMuteBtn, true);
+    lv_obj_add_event_cb(P.melodyMuteBtn, capture, LV_EVENT_DRAW_TASK_ADDED, &drawn);
+    for (bool muted : {false, true}) {
+        drawn = {};
+        Karaoke::setMelodyMuted(muted);
+        lv_layer_t layer;
+        lv_layer_init(&layer);
+        layer.display = lv_display_get_default();
+        layer._clip_area = layer.buf_area = layer.phy_clip_area =
+            {0, 0, UiMetrics::screenW() - 1, UiMetrics::screenH() - 1};
+        layer.color_format = LV_COLOR_FORMAT_RGB565;
+        lv_obj_send_event(P.melodyMuteBtn, LV_EVENT_DRAW_MAIN, &layer);
+        lv_draw_layer_deinit(&layer);
+        assert(drawn.rings == (muted ? 1 : 0));
+        assert(drawn.slashes == (muted ? 1 : 0));
+    }
+    lv_obj_remove_event_cb(P.melodyMuteBtn, capture);
+    lv_obj_set_send_draw_task_events(P.melodyMuteBtn, false);
+    Karaoke::setMelodyMuted(previous);
 }
 static void checkDrawnVolumeKnob() {
     lv_area_t drawn{};
@@ -366,6 +400,8 @@ static void checkPlayer() {
     assert(hit(P.midiVolumeSlider) == P.midiVolumeSlider);
     assert(hit(P.masterVolumeSlider) == P.masterVolumeSlider);
     assert(P.melodyMuteBtn);
+    assert(!strcmp(lv_label_get_text(lv_obj_get_child(P.melodyMuteBtn, 0)), ""));
+    checkMelodyIcon();
     inside(button(P.scr, LV_SYMBOL_LIST), P.scr);
     const auto sungBefore = std::string(lv_span_get_text(P.spSung));
     Karaoke::state.syl = 108;
@@ -436,11 +472,13 @@ static void checkPlayer() {
     lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_RELEASED, nullptr);
     assert(Karaoke::songVolume() == 90);
+    closeMenu();
+    const bool beforeQuickMute = Karaoke::melodyMuted();
     click(P.melodyMuteBtn);
-    assert(Karaoke::melodyMuted());
+    assert(Karaoke::melodyMuted() != beforeQuickMute);
     lv_tick_inc(600);
     click(P.melodyMuteBtn);
-    assert(!Karaoke::melodyMuted());
+    assert(Karaoke::melodyMuted() == beforeQuickMute);
     const int savesBeforeMaster = Config::saveCalls;
     lv_obj_send_event(P.masterVolumeSlider, LV_EVENT_PRESSED, nullptr);
     lv_slider_set_value(P.masterVolumeSlider, 55, LV_ANIM_OFF);
@@ -449,7 +487,8 @@ static void checkPlayer() {
     lv_obj_send_event(P.masterVolumeSlider, LV_EVENT_RELEASED, nullptr);
     assert(Config::get().masterVol == 55 && Audio::masterVolume == 55);
     assert(Config::saveCalls == savesBeforeMaster + 1);
-    closeMenu();
+    Config::get().masterVol = 80;
+    syncVolumeControls();
     click(button(P.scr, LV_SYMBOL_LIST));
     assert(button(s_sheet, (std::string(tr(Str::KARA_BTN_SETTINGS)) + "  105%  +1").c_str()));
     click(button(s_sheet, tr(Str::KARA_BTN_TRACK), true));
@@ -533,7 +572,7 @@ int main(int argc, char **) {
             auto *bank = button(s_listScr, tr(Str::KARA_BTN_FONT));
             fitsText(bank);
             click(bank); auto *body = sheetBody();
-            auto *list = lv_obj_get_child(body,1);
+            auto *list = lv_obj_get_child(body,-1);
             click(lv_obj_get_child(list,1));
             assert(!s_sheet && s_fonts.capacity() == 0 &&
                    std::string(Karaoke::defaultFont()).find("Åäö") != std::string::npos);
