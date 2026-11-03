@@ -26,7 +26,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   och centrum för Karaoke-panel/knapp och låtväljarens innehåll, utan
   horisontell scroll. Cachad titel/namn är stabila även med två sekunders
   fördröjt statussvar.
-- [ ] S3/P4-firmwarebyggen och provning på enheternas webbserver.
+- [x] S3/P4-firmwarebyggen och värdtester är gröna i PR #52,
+  Actions-körning 41631899766; firmwareartefakter finns för v0.24.1.
+- [ ] Prova navigation, namn och Karaoke/Låtar på enheternas webbserver.
 
 ### Sudoku, OTA-filval och bootbatteri, v0.24.0
 
