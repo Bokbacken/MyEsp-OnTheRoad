@@ -24,6 +24,8 @@ LV_FONT_DECLARE(my_font_raw_24);
 LV_FONT_DECLARE(my_font_raw_32);
 
 namespace UiSudoku {
+void show();
+
 namespace {
 Sudoku::Game s_game;
 std::atomic<bool> s_running{false};
@@ -78,7 +80,6 @@ constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 
 void startNew(unsigned difficulty);
 void showWinPrompt();
-void show();
 
 void hideHelp(lv_timer_t *timer)
 {
