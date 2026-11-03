@@ -75,7 +75,6 @@ constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 
 void startNew(unsigned difficulty);
 void showWinPrompt();
-void show();
 
 uint32_t available(unsigned difficulty)
 {
