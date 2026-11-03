@@ -29,6 +29,7 @@
 #palette { display:flex; flex-wrap:wrap; gap:.3rem; margin:.4rem 0; }
 #palette button { min-width:2.6rem; padding:.2rem .4rem; font-family:ui-monospace, Consolas, monospace; }
 #palette button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
+#treasure-place.active { outline:2px solid var(--otr-accent, #2d6cdf); }
 .palette-symbol, .resource-preview { width:2rem; height:2rem; image-rendering:pixelated; object-fit:contain; vertical-align:middle; }
 .panel-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap:.8rem; margin-top:.8rem; }
 .panel-grid > div, .legend-form, .section-editors, .section-editors details { min-width:0; }
@@ -113,6 +114,22 @@
       <button type="button" class="secondary" data-tool="pick" title="Klicka på en ruta för att välja dess glyf i paletten.">Plocka</button>
       <button type="button" class="secondary" data-tool="move" title="Dra en ruta till en ny position. Målrutan skrivs över.">Flytta</button>
       <button type="button" class="secondary" data-tool="dark" title="Dra en rektangel för att skapa eller ändra ett mörkt område.">Mörkt område</button>
+    </div>
+    <div class="legend-form" aria-label="Placera skatt">
+      <label>Skatt
+        <select id="treasure-item" disabled>
+          <option value="key">Nyckel</option><option value="gem">Juvel</option><option value="boat">Båt</option>
+          <option value="potion">Trolldryck</option><option value="heart">Hjärta</option><option value="suit">Dräkt</option>
+          <option value="life">Extraliv</option><option value="bomb3">Bomb 3</option><option value="bomb4">Bomb 4</option>
+          <option value="flash">Ficklampa</option><option value="pogo">Hoppstylta</option><option value="skates">Skridskor</option>
+          <option value="suction">Sugpropp</option>
+        </select>
+      </label>
+      <label>Antal / nivå
+        <select id="treasure-amount"></select>
+      </label>
+      <button id="treasure-place" type="button" class="secondary" aria-pressed="false" disabled>Placera skatter</button>
+      <span class="muted">Välj föremål och klicka på en eller flera kartrutor.</span>
     </div>
     <div id="display-modes" aria-label="Kartvisning">
       <button id="display-image" type="button" class="secondary active" title="Visa kartans symboler som bilder/ikoner.">Bildsymboler</button>
@@ -431,7 +448,7 @@ const LEGEND_ART = {
   poison:{ground:'poison'}, swamp:{ground:'swamp'}, sharp_rocks:{ground:'sharp'},
   ice:{ground:'floor'}, belt:{ground:'floor'}, lever:{ground:'floor'}
 };
-let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
+let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null, treasurePlacement = false;
 let editingLegend = null;
 let displayMode = 'image', selectedGroupCells = [], selectedDarkIndex = null, editingDarkIndex = null;
 let revealLayers = false, selectedLayerCell = null;
@@ -650,6 +667,7 @@ function commit(change) {
 }
 function setInfo(message, bad = false) { $('map-info').textContent = message; $('map-info').style.color = bad ? 'var(--otr-red)' : ''; }
 function enterMapMode() {
+  setTreasurePlacement(false);
   try {
     doc = M.parse($('source').value);
     const ids = M.mapIds(doc);
@@ -677,6 +695,7 @@ function showMode(map) {
   $('undo').hidden = !map;
 }
 function enterTextMode() {
+  setTreasurePlacement(false);
   if (mapMode() && doc) $('source').value = M.serialize(doc);
   undoStack.length = 0;
   $('undo').disabled = true;
@@ -686,6 +705,9 @@ function enterTextMode() {
 }
 function renderAll() {
   if (!doc) return;
+  $('treasure-item').disabled = false;
+  $('treasure-place').disabled = false;
+  updateTreasureAmounts();
   renderTabs(); renderPalette(); renderLegend(); renderDark(); renderGroups(); renderSectionEditors(); renderResourceImages(); drawMap();
   renderLayers();
   const grid = M.getGrid(doc, mapId);
@@ -776,8 +798,42 @@ function renderResourceImages() {
   }
 }
 function setTool(next) {
+  setTreasurePlacement(false);
   tool = next;
   document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('active', b.dataset.tool === next));
+}
+function setTreasurePlacement(enabled) {
+  drag = null;
+  treasurePlacement = Boolean(enabled) && Boolean(doc);
+  const button = $('treasure-place');
+  button.classList.toggle('active', treasurePlacement);
+  button.setAttribute('aria-pressed', String(treasurePlacement));
+  button.textContent = treasurePlacement ? 'Avsluta placering' : 'Placera skatter';
+  if (treasurePlacement) {
+    revealLayers = true;
+    $('reveal-layers').classList.add('active');
+    $('reveal-layers').setAttribute('aria-pressed', 'true');
+    selectedLayerCell = null;
+    renderLayers(); drawMap();
+    setInfo('Placera skatter: klicka på en eller flera rutor. Klicka på knappen igen för att avsluta.');
+  }
+}
+function updateTreasureAmounts() {
+  const item = $('treasure-item').value;
+  const amount = $('treasure-amount');
+  const previous = amount.value;
+  const values = item === 'flash' || item === 'pogo'
+    ? [['1', '1'], ['2', '2'], ['3', '3']]
+    : item === 'potion' || item === 'heart'
+      ? Array.from({length: 256}, (_, i) => [String(i), String(i)])
+      : [['1', '1']];
+  amount.replaceChildren(...values.map(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value; option.textContent = label;
+    return option;
+  }));
+  amount.value = values.some(([value]) => value === previous) ? previous : '1';
+  amount.disabled = !doc || !['flash', 'pogo', 'potion', 'heart'].includes(item);
 }
 function legendLabel(def) {
   return def.value;
@@ -1101,6 +1157,18 @@ canvas.addEventListener('pointerdown', event => {
   if (!doc) return;
   canvas.setPointerCapture(event.pointerId);
   const pos = cellAt(event);
+  if (treasurePlacement) {
+    const bounds = canvas.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX >= bounds.right ||
+        event.clientY < bounds.top || event.clientY >= bounds.bottom) {
+      setInfo('Rutan ligger utanför kartan.', true);
+      return;
+    }
+    const amount = Number($('treasure-amount').value);
+    if (commit(() => M.addTreasure(doc, mapId, pos.x, pos.y, $('treasure-item').value, amount)))
+      setInfo('Skatt placerad. Klicka på fler rutor eller avsluta placeringsläget.');
+    return;
+  }
   const grid = M.getGrid(doc, mapId);
   const glyph = grid[pos.y][pos.x];
   if (tool === 'pick') {
@@ -1149,6 +1217,9 @@ canvas.addEventListener('pointerup', finishDrag);
 canvas.addEventListener('pointercancel', () => { drag = null; if (doc) drawMap(); });
 
 document.querySelectorAll('#tools button').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+$('treasure-item').onchange = updateTreasureAmounts;
+$('treasure-place').onclick = () => setTreasurePlacement(!treasurePlacement);
+updateTreasureAmounts();
 $('mode-map').onclick = () => enterMapMode();
 $('mode-text').onclick = () => enterTextMode();
 $('display-image').onclick = () => {

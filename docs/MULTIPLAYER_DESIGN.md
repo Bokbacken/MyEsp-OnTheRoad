@@ -42,8 +42,11 @@ kan avvisa inkompatibla värdar innan de reserverar en plats.
 3. Spelaren väljer värd, skriver sitt spelarnamn/PIN och väljer eller får en
    ledig plats. PIN skickas endast över WebSocket till värden och aldrig via
    mDNS.
-4. Enheten visar den vanliga Yatzy-snapshoten och skickar befintliga
-   WebSocket-kommandon. Värden validerar alltid plats, tur och spelregel.
+4. En ESP-klient använder spelets vanliga inbyggda Yatzy-skärm, driven av
+   värdens snapshot. När någon annan har tur visas ett vänteläge över skärmen;
+   när den valda platsen får tur aktiveras de vanliga tärningarna, tabellen och
+   kontrollerna. Kommandon skickas bara till värden, som validerar plats, tur
+   och spelregel. Webbläsarens `/play`-gränssnitt ändras inte.
 
 ## Säkerhet
 
@@ -90,9 +93,24 @@ sparas bara temporärt i minnet för återanslutning och skrivs inte i loggar.
 `join` utan sessions-ID behåller browserkompatibiliteten.
 Targetbyggen är verifierade i CI-run 41051798946 för C6-host, S3 och P4;
 S3-jobbets automatiska hostkontroller passerar. Ägaren bekräftar 2026-10-30
-att spel mellan enheterna och webben fungerar och att Spela tillsammans är i
-fungerande skick efter fjärrvyns förbättringar. Fjärrvyn återanvänder
-originalspelets tärnings-/bägarutseende och har ett separat bo för hållna
-tärningar, kastanimation utan gamla kastvärden och dubbeltryck för poängval.
-Återanslutning och fullständig verifiering av båda värd-/klientriktningarna
+att spel mellan enheterna och webben fungerar med den tidigare touch-vyn.
+Klienten använder nu samma Yatzy-skärm och poängtabell som lokalt spel, men
+spelets tillstånd och alla kast/poängval kommer från värden. För att återskapa
+den inbyggda poängtabellen innehåller snapshoten även variant, spelläge och
+regeln för sparade kast; browserklienter påverkas inte. Fysisk verifiering av
+den gemensamma skärmen, återanslutning och båda värd-/klientriktningarna
 återstår enligt hårdvarumatrisen i TODO-dokumentet.
+
+## Prova v0.24.4
+
+Uppdatera både värd och ESP-klient till testversionen. På värden väljer du
+Yatzy/Maxi/Midi och spelare; markera fjärrspelarnas platser för webb och ge dem
+personliga PIN-koder. Starta spelet. På den andra enheten öppnar du **Spela
+tillsammans**, väljer värd och plats och anger spelarens PIN. ESP-klienten
+ska nu visa samma inbyggda Yatzy-vy som vid lokalt spel, inte den äldre
+förenklade fjärrvyn. En tredje spelare kan använda `/play` i webbläsaren.
+
+Kontrollera kast med bägare/knapp, håll/släpp tärningar, poängval, växling mellan
+tur och vänteläge, färdig poängtabell samt frånkoppling/återanslutning. Prova
+också Maxi och spel i ordning. Värden är enda auktoritet; klientens beräknade
+poängförslag är visning, inte ett eget spel eller lokalt utförda kast.

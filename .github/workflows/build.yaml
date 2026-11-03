@@ -145,6 +145,10 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_power_interval.cpp -o /tmp/test_power_interval
           /tmp/test_power_interval
           python3 tests/test_power_history.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_yatzy.cpp main/game_yatzy.cpp -o /tmp/test_yatzy
+          /tmp/test_yatzy
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_multiplayer_protocol.cpp -o /tmp/test_multiplayer_protocol
+          /tmp/test_multiplayer_protocol
           python3 tests/test_power_io.py
           python3 tests/test_text_size_layout.py
           python3 tests/test_host_ota.py

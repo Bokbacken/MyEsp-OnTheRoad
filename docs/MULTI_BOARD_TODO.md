@@ -740,9 +740,11 @@ rekommendation innan kod skrivs.
      WebSocket-`state`/`joined`. Ett `join` med ID avvisas om sessionen ändrats
      eller platsen inte längre är en ledig webbplats; äldre browser-`join`
      utan ID är oförändrad.
-   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och touch-vy.
-     Snapshot, tur, tärningar, möjliga kategorier och poäng kommer från
-     värden; ESP-klienten skickar bara tillåtna `hold`, `roll` och `choose`.
+   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och den vanliga
+     inbyggda Yatzy-skärmen. Snapshot, tur, tärningar och poäng kommer från
+     värden; klientens Yatzy-kontroller skickar bara `hold`, `roll` och
+     `choose`, och vänteläget blockerar input när någon annan har tur.
+     Webbläsarens `/play`-gränssnitt behålls.
    - [x] Återanslutning använder endast vald värd, sessions-ID och plats.
      Bytt session eller upptagen plats stoppar anslutningen och kräver en ny
      join. PIN skrivs inte i loggar och browser-join utan sessions-ID fungerar
@@ -750,8 +752,9 @@ rekommendation innan kod skrivs.
    - [x] CI-run 41051798946 bygger ESP32-C6-host, S3 och P4; S3-jobbets
      automatiska hostkontroller passerar. ESP-IDF saknas lokalt, så targetbyggen
      görs i CI.
-   - [ ] Komplettera fysisk verifiering av återanslutning och båda
-     värd-/klientriktningarna enligt checklistorna nedan.
+   - [ ] Komplettera fysisk verifiering av den gemensamma Yatzy-skärmen,
+     återanslutning och båda värd-/klientriktningarna enligt checklistorna
+     nedan.
    - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
      deras aktiva spel. Detta är inte ett speltest.
    - [x] **Hårdvara, ägarrapport 2026-10-30:** S3 som värd och P4 som klient:

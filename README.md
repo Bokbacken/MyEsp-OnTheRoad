@@ -42,9 +42,12 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   checkpoints, saved progress, menu artwork, and optional 32×32 PNG
   cover images on adventure cards. See the [Motoräventyret install guide](sdcard_bundle/otr/adventure/motoraventyr/README.md)
   and the [authoring reference](docs/AUTHORING_ADVENTURES.md) for examples,
-  supported mechanics and limits.
+  supported mechanics and limits. The web map editor can place hidden treasures
+  with item and amount/level selectors, repeated clicks and undo.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device
   or a browser, with personal player PINs and host-authoritative game state.
+  ESP clients use the native Yatzy screen and wait while other players take
+  their turns; browser players continue using the web interface.
 - **Karaoke** – responsive landscape layout at logical
   480×320 / 800×480, wrapping scrollable lyrics, one primary transport row and hamburger settings;
   multiple SoundFonts (song-list global default, existing per-song registry overrides), plays `.mid`/`.kar` from the SD card through a SoundFont synth

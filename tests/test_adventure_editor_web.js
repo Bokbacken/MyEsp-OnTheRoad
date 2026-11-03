@@ -16,6 +16,11 @@ assert.match(page, /\/otr\/adventure\//);
 
 assert.match(page, /<script src="\/adventure-model\.js"><\/script>/);
 assert.match(page, /id="map-canvas"/);
+assert.match(page, /id="treasure-item"/);
+assert.match(page, /id="treasure-amount"/);
+assert.match(page, /id="treasure-place"/);
+assert.match(page, /M\.addTreasure\(doc, mapId, pos\.x, pos\.y/);
+assert.match(page, /function updateTreasureAmounts\(\)/);
 assert.match(page, /id="lg-add"/);
 assert.match(page, /textContent = 'Ändra'/);
 assert.match(page, /M\.updateLegend/);
@@ -58,6 +63,34 @@ for (const name of ['flash', 'pogo', 'poison', 'swamp', 'sharp', 'skates', 'box'
 
 const script = page.match(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
 new vm.Script(script);
+const elements = {
+  'treasure-item': {value: 'potion'},
+  'treasure-amount': {
+    value: '',
+    replaceChildren(...options) { this.options = options; this.value = options[0].value; }
+  }
+};
+const controls = vm.createContext({
+  $: id => elements[id],
+  doc: {},
+  document: {createElement: () => ({})}
+});
+vm.runInContext(script.slice(script.indexOf('function updateTreasureAmounts()'),
+                            script.indexOf('function legendLabel(')), controls);
+controls.updateTreasureAmounts();
+assert.equal(elements['treasure-amount'].value, '1');
+assert.equal(elements['treasure-amount'].options.length, 256);
+elements['treasure-amount'].value = '50';
+controls.updateTreasureAmounts();
+assert.equal(elements['treasure-amount'].value, '50', 'repeated placement retains amount');
+elements['treasure-item'].value = 'flash';
+controls.updateTreasureAmounts();
+assert.deepEqual(elements['treasure-amount'].options.map(o => [o.value, o.textContent]),
+                 [['1', '1'], ['2', '2'], ['3', '3']]);
+elements['treasure-item'].value = 'gem';
+controls.updateTreasureAmounts();
+assert.equal(elements['treasure-amount'].value, '1');
+assert.equal(elements['treasure-amount'].disabled, true);
 const server = fs.readFileSync('main/app_web_adventure_editor.cpp', 'utf8');
 const filesServer = fs.readFileSync('main/app_web_files.cpp', 'utf8');
 assert.match(server, /request->content_len > MAX_BODY/);

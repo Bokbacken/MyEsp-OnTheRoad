@@ -168,8 +168,10 @@ Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
   `bitmaps/`-bilder visas med enhetens formatgränser och gul påse som reserv.
 - [x] Skapa guidade textavsnitt, med formulär för `@node`-talare, repliker och
   länkade val. Noden behöver fortfarande granskas och produktionsvalideras.
-- [ ] Grafisk redigering av skatter, resurser, fiender, NPC-placering,
-  destinationer, portaler, `@andgate`, rutor för spakar/tidsgrind och story.
+- [x] Grafisk placering av skatter med föremåls-/mängdval och upprepade
+  kartklick; befintlig syntax, kommentarer och kartavgränsning bevaras.
+- [ ] Grafisk redigering av resurser, fiender, NPC-placering, destinationer,
+  portaler, `@andgate`, rutor för spakar/tidsgrind och story.
 - [x] Textläge som behåller kommentarer och okänd syntax vid öppna/spara.
 - [x] Visa valideringsfel med rad från parsern och kart-ID från motorn.
 

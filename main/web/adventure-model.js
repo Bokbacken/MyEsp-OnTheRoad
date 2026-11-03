@@ -4,9 +4,12 @@
 'use strict';
 
 const MAX_W = 128, MAX_H = 128, MAX_MAPS = 4, MAX_LEGEND = 128, MAX_DARK = 16;
+const MAX_TREASURES = 48;
 const COLORS = ['red', 'green', 'blue', 'yellow', 'purple', 'cyan'];
 const RESERVED = new Set(['S', ' ', '\t', '@']);
 const GROUP_RE = /^[0-9A-Za-z]$/;
+const TREASURE_ITEMS = ['key', 'gem', 'boat', 'potion', 'heart', 'suit', 'life',
+  'bomb3', 'bomb4', 'flash', 'pogo', 'skates', 'suction'];
 
 const TERRAIN = [
   ['.', 'Gräs'], [',', 'Sand'], ['_', 'Golv'], ['#', 'Vägg'], ['%', 'Spricka'], ['T', 'Träd'],
@@ -138,6 +141,40 @@ function coordinateLayers(doc, id) {
     }
   }
   return {layers, errors};
+}
+
+function addTreasure(doc, id, x, y, item, amount = 1) {
+  const grid = getGrid(doc, id);
+  if (!Number.isInteger(x) || !Number.isInteger(y))
+    throw new Error('Skattens koordinater måste vara heltal.');
+  checkCell(grid, x, y);
+  if (!TREASURE_ITEMS.includes(item)) throw new Error('Välj ett giltigt skatteföremål.');
+  if (!Number.isInteger(amount) || amount < 0 || amount > 255)
+    throw new Error('Antalet måste vara 0–255.');
+  const glyph = grid[y][x];
+  const legend = listLegend(doc, id).find(entry => entry.glyph === glyph);
+  if (glyph === 'o' || glyph === '=' ||
+      (legend && ['plate', 'gate', 'lever'].includes(legend.value.split(/\s+/)[0])))
+    throw new Error('En skatt kan inte placeras på en platta, grind eller spak.');
+
+  const current = coordinateLayers(doc, id).layers.filter(layer => layer.kind === 'treasures');
+  if (current.some(layer => layer.x === x && layer.y === y))
+    throw new Error('Det finns redan en skatt på den här rutan.');
+  if (current.length >= MAX_TREASURES)
+    throw new Error(`Kartan kan ha högst ${MAX_TREASURES} skatter.`);
+
+  const line = `${x} ${y} ${item} ${amount}`;
+  const treasureSections = sections(doc).filter(section => section.tag === '@treasures');
+  const scoped = treasureSections.find(section => mapOf(section.arg) === id);
+  if (scoped) {
+    doc.lines.splice(scoped.end, 0, line);
+  } else if (treasureSections.length) {
+    const section = treasureSections[0];
+    doc.lines.splice(section.end, 0, `map=${id}: ${line}`);
+  } else {
+    if (doc.lines.length && doc.lines[doc.lines.length - 1].trim() !== '') doc.lines.push('');
+    doc.lines.push(id === 1 ? '@treasures' : `@treasures map=${id}`, line);
+  }
 }
 
 function isRow(line) {
@@ -539,7 +576,7 @@ function addMap(doc, id, width, height) {
 }
 
 const api = {
-  coordinateLayers,
+  coordinateLayers, addTreasure, TREASURE_ITEMS, MAX_TREASURES,
   newAdventure, suggestMapId, nextMapId, addMap, blankGrid, validStem, MAX_MAPS, FILLS,
   MAX_W, MAX_H, MAX_LEGEND, MAX_DARK, COLORS, TERRAIN, OBJECTS,
   parse, serialize, sections, replaceSection, addSection, mapIds, getGrid, setGrid,

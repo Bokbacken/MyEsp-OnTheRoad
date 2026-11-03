@@ -52,6 +52,10 @@ static PigVariant s_pigVariant = PigVariant::ONE_DIE;
 static bool s_midi = false;   // Midi-Yatzy: standard Yatzy with saved rolls
 static bool s_resultsProtocol = false;
 static bool s_playerCenterReturn = false;
+static bool s_remoteMode = false;
+static RemoteState s_remoteState = {};
+static RemoteCommandCallback s_remoteCommand = nullptr;
+static lv_timer_t *s_remoteAnimTimer = nullptr;
 static PigGame s_pig;
 static FarkleGame s_farkle;
 static SccGame s_scc;
@@ -1061,6 +1065,10 @@ static YatzyCategory s_best = YatzyCategory::COUNT;
 // "Spela på enheten" button (webRelease); a plain disconnect keeps it waiting for the web.
 static bool webTurn()
 {
+    if (s_remoteMode) {
+        if (!s_remoteState.connected || !s_remoteState.joined || !s_remoteState.active) return true;
+        return !s_game.finished() && s_remoteState.you != s_game.currentPlayer();
+    }
     int p;
     bool live;
     switch (s_gameType) {
@@ -1380,6 +1388,11 @@ static void dieEvent(lv_event_t *e)
         else if (!held && (d.totY > 25 || centerY >= s_layout.nestY)) wantHold = true;   // Swipe down
         else if (held && (d.totY < -25 || centerY < s_layout.nestY)) wantHold = false;   // Swipe up
         if (wantHold != held) {
+            if (s_remoteMode) {
+                if (s_remoteCommand) s_remoteCommand(RemoteCommand::HOLD, i);
+                moveDie(i, true);
+                return;
+            }
             s_game.setHold(i, wantHold);
             if (!wantHold) {   // Back to the throw zone: new random spot, rolled on next Kasta
                 s_dice[i].jx = (int32_t)rnd(-scatterX(), scatterX());
@@ -1663,7 +1676,7 @@ static void cupSetShaking(bool on)
     if (s_cupShaking == on) return;
     s_cupShaking = on;
     if (on) Audio::play(Sound::Sfx::DICE_SHAKE);
-    GameLive::setShaking(on);   // Web live view: "skakar bägaren..."
+    if (!s_remoteMode) GameLive::setShaking(on);   // Web live view: "skakar bägaren..."
 }
 
 static void styleCupDie(int i)
@@ -1779,6 +1792,11 @@ static void cupThrow(const DiceCup::ThrowParams &tp)
 {
     if (!s_cupActive || s_rolling || s_phase != Phase::ROLL || !s_game.canRoll()) return;
     s_cupHintDone = true;
+    if (s_remoteMode) {
+        if (s_remoteCommand && !webTurn()) s_remoteCommand(RemoteCommand::ROLL, -1);
+        hideCup(true, false);
+        return;
+    }
     startRoll(&tp);
 }
 
@@ -2019,6 +2037,11 @@ static void onRoll(lv_event_t *)
 {
     if (webTurn()) return;
     if (s_rolling || s_phase != Phase::ROLL || !s_game.canRoll()) return;
+    if (s_remoteMode) {
+        if (cupMode()) showCup(true);
+        else if (s_remoteCommand) s_remoteCommand(RemoteCommand::ROLL, -1);
+        return;
+    }
     if (cupMode()) showCup(true);   // Cup mode: [Kasta n] brings the cup back
     else startRoll(nullptr);
 }
@@ -2161,6 +2184,11 @@ static void writeSelected()
 {
     if (s_rolling || s_phase != Phase::RESULT || s_selected == YatzyCategory::COUNT || !s_game.canScore(s_selected))
         return;
+    if (s_remoteMode) {
+        if (s_remoteCommand && !webTurn())
+            s_remoteCommand(RemoteCommand::CHOOSE, (int)s_selected);
+        return;
+    }
     int pts = s_game.potentialScore(s_selected);
     s_game.score(s_selected);
     if (pts > 0) Rgb::effectFlash(40, 255, 90, 250);
@@ -2338,8 +2366,10 @@ static void refreshActions()
         setVisible(s_cupHide, s_game.hasRolled());
         setVisible(s_cupHint, !s_cupHintDone);
     }
-    if (s_rolling) GameLive::publish(s_preRoll, true, true, false, s_preRollMask);   // Values hidden until the dice stop
-    else GameLive::publish(s_game, true, false, s_phase == Phase::RESULT);            // Web live view
+    if (!s_remoteMode) {
+        if (s_rolling) GameLive::publish(s_preRoll, true, true, false, s_preRollMask);
+        else GameLive::publish(s_game, true, false, s_phase == Phase::RESULT);
+    }
 }
 
 static void quitEvent(lv_event_t *e)
@@ -2347,6 +2377,11 @@ static void quitEvent(lv_event_t *e)
     lv_msgbox_close((lv_obj_t *)lv_event_get_user_data(e));
     s_gen++;
     cupKill();
+    if (s_remoteMode) {
+        endRemoteGame();
+        UiMultiplayer::leaveRemote();
+        return;
+    }
     GameLive::setActive(false);
     showMenu();
 }
@@ -2399,6 +2434,23 @@ static void updateWebOverlay()
     lv_obj_set_hidden(s_webPanel, !on);
     if (!on) {
         s_webShownConn = -1;
+        return;
+    }
+    if (s_remoteMode) {
+        char status[96] = {};
+        if (s_remoteState.status[0]) {
+            strlcpy(status, s_remoteState.status, sizeof(status));
+        } else if (!s_remoteState.connected) {
+            strlcpy(status, tr(Str::MULTI_REMOTE_DISCONNECTED), sizeof(status));
+        } else if (!s_remoteState.joined) {
+            strlcpy(status, tr(Str::MULTI_REMOTE_CONNECTING), sizeof(status));
+        } else {
+            snprintf(status, sizeof(status), tr(Str::MULTI_REMOTE_WAIT_FMT), curName());
+        }
+        lv_label_set_text(s_webText, status);
+        if (s_webLocal) lv_obj_set_hidden(s_webLocal, true);
+        lv_obj_move_foreground(s_webBlock);
+        lv_obj_move_foreground(s_webPanel);
         return;
     }
     const int cur = curPlayer();
@@ -2560,8 +2612,10 @@ static void buildWebOverlay(lv_obj_t *scr)
     lv_obj_set_hidden(s_webPanel, true);
     s_webShownConn = -1;
     s_webPending = YatzyCategory::COUNT;
-    GameLive::clearCmds();
-    lv_timer_create(webTimer, WEB_TICK_MS, (void *)(uintptr_t)s_gen);
+    if (!s_remoteMode) {
+        GameLive::clearCmds();
+        lv_timer_create(webTimer, WEB_TICK_MS, (void *)(uintptr_t)s_gen);
+    }
 }
 
 static void showGame()
@@ -2725,6 +2779,122 @@ static void showGame()
 
     Theme::loadScreen(scr);
     newTurnUi();
+}
+
+static void remoteDiceTick(lv_timer_t *timer)
+{
+    const uint32_t gen = (uint32_t)(uintptr_t)lv_timer_get_user_data(timer);
+    if (gen != s_gen || !s_remoteMode) {
+        if (s_remoteAnimTimer == timer) s_remoteAnimTimer = nullptr;
+        lv_timer_delete(timer);
+        return;
+    }
+    if (!s_remoteState.rolling || !s_remoteState.connected || !s_remoteState.joined) return;
+    const uint32_t tick = lv_tick_get();
+    for (int i = 0; i < s_game.diceCount(); i++) {
+        if (!s_dice[i].obj || !(s_remoteState.rollMask & (1u << i))) continue;
+        const int face = (int)((tick / 70u + (uint32_t)i * 3u) % 6u) + 1;
+        setFace(s_dice[i], face);
+        lv_image_set_rotation(s_dice[i].obj,
+                              (int32_t)((tick * 7u + (uint32_t)i * 900u) % 3600u));
+    }
+}
+
+static void applyRemoteState(const RemoteState &state)
+{
+    const bool turnChanged = state.game.currentPlayer() != s_game.currentPlayer() ||
+                             state.game.round() != s_game.round();
+    const bool rollChanged = state.game.rollsUsed() != s_game.rollsUsed() ||
+                             state.rolling != s_remoteState.rolling;
+    const bool phaseChanged = state.resultPhase != s_remoteState.resultPhase;
+    const bool finishedChanged = state.game.finished() != s_game.finished();
+    s_remoteState = state;
+    if (!s_remoteMode) return;
+    if (!state.joined || !state.active || state.game.playerCount() < 1) {
+        updateWebOverlay();
+        return;
+    }
+
+    s_game = state.game;
+    s_variant = s_game.variant();
+    s_mode = s_game.mode();
+    s_midi = s_game.savedRollsRule();
+    s_gameType = GameType::YATZY;
+    s_rolling = state.rolling ? 1 : 0;
+    if (turnChanged || rollChanged) s_selected = YatzyCategory::COUNT;
+    s_sugCount = s_game.getSuggestedCategories(s_sug, SUG_MAX);
+    s_best = s_sugCount ? s_sug[0].category : YatzyCategory::COUNT;
+
+    const int player = s_game.currentPlayer();
+    lv_label_set_text(s_playerLabel, s_game.player(player).name);
+    char round[48];
+    snprintf(round, sizeof(round), tr(Str::GAME_ROUND),
+             LV_MIN(s_game.round(), s_game.totalRounds()), s_game.totalRounds());
+    lv_label_set_text(s_roundLabel, round);
+    lv_obj_update_layout(s_roundLabel);
+    lv_obj_set_width(s_playerLabel, LV_MIN(s_layout.w - 150,
+                                      lv_obj_get_x(s_roundLabel) - 10 - UiMetrics::marginSmall()));
+
+    if (turnChanged || rollChanged || phaseChanged || finishedChanged) {
+        const Phase wanted = state.resultPhase || s_game.finished() ||
+                             (s_game.hasRolled() && s_game.rollsLeft() == 0) ?
+                             Phase::RESULT : Phase::ROLL;
+        if (s_phase != wanted) setPhase(wanted, false);
+    }
+    if (s_cupActive && !cupWanted()) hideCup(true, false);
+    for (int i = 0; i < s_game.diceCount(); i++) {
+        DieUi &die = s_dice[i];
+        die.rolling = state.rolling && (state.rollMask & (1u << i));
+        if (!die.rolling) {
+            lv_image_set_rotation(die.obj, 0);
+            setFace(die, s_game.die(i));
+        }
+        if (!die.dragging && !die.inCup) moveDie(i, false);
+    }
+    refreshSuggestions(false);
+    refreshTable();
+    refreshActions();
+    updateWebOverlay();
+    if (s_game.finished()) {
+        lv_label_set_text(s_writeLabel, tr(Str::MULTI_REMOTE_FINISHED));
+    }
+    if (!s_cupActive && !s_game.hasRolled() && cupWanted()) showCup(false);
+}
+
+void showRemoteGame(const RemoteState &state, RemoteCommandCallback command)
+{
+    s_remoteMode = true;
+    s_remoteCommand = command;
+    s_remoteAnimTimer = nullptr;
+    s_gameType = GameType::YATZY;
+    memset(s_web, 0, sizeof(s_web));
+    s_remoteState = {};
+    s_game = state.game;
+    s_variant = s_game.variant();
+    s_mode = s_game.mode();
+    s_midi = s_game.savedRollsRule();
+    showGame();
+    s_remoteState.rolling = !state.rolling;
+    applyRemoteState(state);
+    s_remoteAnimTimer = lv_timer_create(remoteDiceTick, 70, (void *)(uintptr_t)s_gen);
+}
+
+void updateRemoteGame(const RemoteState &state)
+{
+    if (!s_remoteMode || state.revision == s_remoteState.revision) return;
+    applyRemoteState(state);
+}
+
+void endRemoteGame()
+{
+    if (s_remoteAnimTimer) {
+        lv_timer_delete(s_remoteAnimTimer);
+        s_remoteAnimTimer = nullptr;
+    }
+    cupKill();
+    s_remoteMode = false;
+    s_remoteCommand = nullptr;
+    s_remoteState = {};
 }
 
 // ========================================================================================

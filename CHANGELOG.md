@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.4 (unreleased)
+
+- ESP players joining a hosted Yatzy game now use the native Yatzy screen,
+  dice/cup and score table. The host remains authoritative; other players'
+  turns and connection loss block input. Periodic snapshots preserve local
+  category selection. Browser play remains compatible and unchanged.
+- Place `@treasures` directly in the adventure map editor: select an item
+  and amount/level, enable placement and click multiple cells. Placements
+  support undo, reveal hidden layers, retain comments/map scope and reject
+  duplicate coordinates, mechanism cells and the 48-treasure limit.
+- Includes v0.24.3 daily power logs. Physical S3/P4 mixed-device/browser
+  play, reconnect and editor save/reload verification remain pending.
+
 ## v0.24.3 (unreleased)
 
 - Deliver daily UTC power-history files (`power-YYYYMMDD.csv`) instead of the

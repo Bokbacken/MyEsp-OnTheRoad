@@ -92,6 +92,20 @@ static void showPlayerCenter() { ++menus; }
 static void startNewGame() { ++starts; }
 @CHOICES@
 @LAYOUTS@
+enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE };
+struct RemoteState {
+    YatzyGame game;
+    bool connected, joined, active, rolling, resultPhase;
+    uint8_t rollMask;
+    int you;
+    uint32_t revision;
+    char status[96];
+};
+using RemoteCommandCallback = void (*)(RemoteCommand command, int arg);
+static bool s_remoteMode = false;
+static RemoteState s_remoteState = {};
+static RemoteCommandCallback s_remoteCommand = nullptr;
+static lv_timer_t *s_remoteAnimTimer = nullptr;
 @PLAYERS@
 @PICKER@
 static int quits, localClicks, clearCmds;
@@ -459,7 +473,15 @@ static void checkModals() {
 namespace GameScreenTest {
 static YatzyGame s_game;
 struct CupVisual { lv_obj_t *rim, *lip, *bottom; };
+static bool cupWanted() { return false; }
 @GAME_STATE@
+static bool webTurn() {
+    if (s_remoteMode) {
+        if (!s_remoteState.connected || !s_remoteState.joined || !s_remoteState.active) return true;
+        return !s_game.finished() && s_remoteState.you != s_game.currentPlayer();
+    }
+    return ::webTurn();
+}
 @CUP_STATE@
 @ANIMATIONS@
 @PLACEMENT@
@@ -604,6 +626,59 @@ static void check() {
           }
         }
     }
+    RemoteState remote{};
+    remote.game.reset(YatzyVariant::STANDARD, YatzyMode::NORMAL);
+    remote.game.clearPlayers();
+    assert(remote.game.addPlayer("Host"));
+    assert(remote.game.addPlayer("ESP"));
+    remote.game.start();
+    remote.connected = remote.joined = remote.active = true;
+    remote.you = 1;
+    remote.revision = 1;
+    showRemoteGame(remote, nullptr);
+    finishAnimations();
+    assert(webTurn()); // Another player's turn blocks native controls.
+    assert(s_game.rollsUsed() == 0);
+
+    assert(remote.game.roll());
+    assert(remote.game.score(YatzyCategory::ONES));
+    remote.revision++;
+    updateRemoteGame(remote);
+    finishAnimations();
+    assert(!webTurn() && s_game.currentPlayer() == 1);
+    assert(s_phase == Phase::ROLL);
+    assert(remote.game.roll());
+    remote.revision++;
+    updateRemoteGame(remote);
+    finishAnimations();
+    assert(s_game.hasRolled());
+    s_selected = YatzyCategory::CHANCE;
+    setPhase(Phase::RESULT, false);
+    remote.revision++;
+    updateRemoteGame(remote);
+    finishAnimations();
+    assert(s_phase == Phase::RESULT && s_selected == YatzyCategory::CHANCE);
+    assert(remote.game.setHold(0, true));
+    remote.revision++;
+    updateRemoteGame(remote);
+    assert(s_phase == Phase::RESULT && s_selected == YatzyCategory::CHANCE);
+    assert(s_game.held(0));
+    remote.connected = false;
+    remote.revision++;
+    updateRemoteGame(remote);
+    assert(webTurn());
+    remote.connected = true;
+    remote.revision++;
+    updateRemoteGame(remote);
+    assert(!webTurn());
+    assert(remote.game.score(YatzyCategory::CHANCE));
+    remote.revision++;
+    updateRemoteGame(remote);
+    finishAnimations();
+    assert(webTurn() && s_game.currentPlayer() == 0);
+    assert(s_game.player(1).scores[(int)YatzyCategory::CHANCE] >= 0);
+    endRemoteGame();
+    assert(!s_remoteMode && s_remoteAnimTimer == nullptr);
     printf("game layout/interactions OK: %dx%d\n", int(UiMetrics::screenW()), int(UiMetrics::screenH()));
 }
 }

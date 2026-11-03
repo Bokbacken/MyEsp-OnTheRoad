@@ -176,6 +176,107 @@ static void testNewGameRoster()
     }
 }
 
+static void testSnapshotRestore()
+{
+    static const uint8_t vals[] = {4, 4, 2, 6, 1};
+    Seq seq{vals, 5, 0};
+    YatzyGame source;
+    source.reset(S, YatzyMode::NORMAL);
+    source.addPlayer("Anna");
+    source.addPlayer("Bo");
+    source.start();
+    source.setRng(seqRng, &seq);
+    source.roll();
+    source.setHold(0, true);
+
+    YatzySnapshot snapshot{};
+    snapshot.variant = source.variant();
+    snapshot.mode = source.mode();
+    snapshot.started = source.started();
+    snapshot.finished = source.finished();
+    snapshot.playerCount = source.playerCount();
+    snapshot.currentPlayer = source.currentPlayer();
+    snapshot.round = source.round();
+    snapshot.rollsUsed = source.rollsUsed();
+    snapshot.rollsLeft = source.rollsLeft();
+    snapshot.players[0] = source.player(0);
+    snapshot.players[1] = source.player(1);
+    memcpy(snapshot.dice, source.dice(), sizeof(snapshot.dice));
+    for (int i = 0; i < source.diceCount(); i++) snapshot.held[i] = source.held(i);
+
+    YatzyGame restored;
+    CHECK_EQ(restored.restoreSnapshot(snapshot), 1);
+    CHECK_EQ(static_cast<int>(restored.variant()), static_cast<int>(S));
+    CHECK_EQ(static_cast<int>(restored.mode()), static_cast<int>(YatzyMode::NORMAL));
+    CHECK_EQ(restored.playerCount(), 2);
+    CHECK_EQ(restored.currentPlayer(), 0);
+    CHECK_EQ(restored.rollsLeft(), 2);
+    CHECK_EQ(restored.die(0), 4);
+    CHECK_EQ(restored.held(0), 1);
+
+    snapshot.dice[0] = 7;
+    CHECK_EQ(restored.restoreSnapshot(snapshot), 0);
+    CHECK_EQ(restored.die(0), 4);   // Invalid snapshots do not partially replace state.
+    snapshot.dice[0] = 4;
+    snapshot.rollsUsed = INT32_MAX;
+    CHECK_EQ(restored.restoreSnapshot(snapshot), 0);
+    CHECK_EQ(restored.die(0), 4);
+}
+
+static void testMaxiAndFinishedSnapshotRestore()
+{
+    YatzySnapshot maxi{};
+    maxi.variant = M;
+    maxi.mode = YatzyMode::ORDERED;
+    maxi.savedRollsRule = true;
+    maxi.started = true;
+    maxi.playerCount = 1;
+    maxi.currentPlayer = 0;
+    maxi.round = 3;
+    maxi.rollsUsed = 1;
+    maxi.rollsLeft = 4;
+    std::strcpy(maxi.players[0].name, "Maxi");
+    for (int c = 0; c < YATZY_CATEGORY_COUNT; c++) maxi.players[0].scores[c] = YATZY_EMPTY;
+    maxi.players[0].scores[(int)C::ONES] = 6;
+    maxi.players[0].savedRolls = 2;
+    for (int i = 0; i < 6; i++) maxi.dice[i] = (uint8_t)(i + 1);
+    maxi.held[2] = true;
+
+    YatzyGame restoredMaxi;
+    CHECK_EQ(restoredMaxi.restoreSnapshot(maxi), 1);
+    CHECK_EQ(static_cast<int>(restoredMaxi.variant()), static_cast<int>(M));
+    CHECK_EQ(static_cast<int>(restoredMaxi.mode()), static_cast<int>(YatzyMode::ORDERED));
+    CHECK_EQ(restoredMaxi.savedRollsRule(), 1);
+    CHECK_EQ(restoredMaxi.round(), 3);
+    CHECK_EQ(restoredMaxi.rollsLeft(), 4);
+    CHECK_EQ(restoredMaxi.player(0).scores[(int)C::ONES], 6);
+    CHECK_EQ(restoredMaxi.player(0).savedRolls, 2);
+    CHECK_EQ(restoredMaxi.diceCount(), 6);
+    CHECK_EQ(restoredMaxi.die(5), 6);
+    CHECK_EQ(restoredMaxi.held(2), 1);
+
+    YatzySnapshot finished{};
+    finished.variant = S;
+    finished.mode = YatzyMode::NORMAL;
+    finished.started = true;
+    finished.finished = true;
+    finished.playerCount = 1;
+    finished.currentPlayer = 0;
+    finished.round = 16;
+    finished.held[0] = true; // Host retains the last turn's held dice when finished.
+    int categoryCount = 0;
+    const YatzyCategory *categories = Yatzy::categories(S, categoryCount);
+    for (int c = 0; c < YATZY_CATEGORY_COUNT; c++) finished.players[0].scores[c] = YATZY_EMPTY;
+    for (int i = 0; i < categoryCount; i++) finished.players[0].scores[(int)categories[i]] = 0;
+    std::strcpy(finished.players[0].name, "Klart");
+
+    YatzyGame restoredFinished;
+    CHECK_EQ(restoredFinished.restoreSnapshot(finished), 1);
+    CHECK_EQ(restoredFinished.finished(), 1);
+    CHECK_EQ(restoredFinished.round(), 16);
+    CHECK_EQ(restoredFinished.player(0).scores[(int)C::YATZY], 0);
+}
+
 int main()
 {
     testNewGameRoster();
@@ -184,6 +285,8 @@ int main()
     testMaxiScoring();
     testGameFlow();
     testOrderedAndSavedRolls();
+    testSnapshotRestore();
+    testMaxiAndFinishedSnapshotRestore();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

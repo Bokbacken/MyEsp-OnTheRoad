@@ -871,6 +871,8 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
         cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
         cJSON_AddBoolToObject(o, "finished", g.finished());
         cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");
+        cJSON_AddStringToObject(o, "mode", g.mode() == YatzyMode::ORDERED ? "ordered" : "normal");
+        cJSON_AddBoolToObject(o, "saved_rolls_rule", g.savedRollsRule());
         cJSON_AddStringToObject(o, "name", trVariant(var, g.mode(), g.savedRollsRule()));
         cJSON_AddNumberToObject(o, "round", g.round());
         cJSON_AddNumberToObject(o, "rounds", g.totalRounds());

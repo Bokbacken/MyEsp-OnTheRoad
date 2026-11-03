@@ -1275,6 +1275,13 @@ bildnamn läser editorn samma `bitmaps/`-fil som enheten och visar bara bilden o
 den är högst 16 KiB och avkodas som 32×32 PNG; saknad eller ogiltig bild visas
 som enhetens gula påse. I teckenläge behålls kartans färger.
 
+Kartvyns **Placera skatter** väljer ett inbyggt föremål och dess mängd/nivå;
+klicka sedan på en eller flera rutor. Editorn lägger till koordinater i
+`@treasures` för vald karta, skapar avsnittet vid behov och avvisar dubbletter,
+mekanikrutor och fler än 48 skatter. För en dold skatt klickar du på en ruta
+med ett täckande objekt. Befintliga kommentarer och andra kartors rader lämnas
+orörda. Övriga koordinatlager redigeras fortsatt i textläget.
+
 **Visa dolda lager** visar skatter från `@treasures`, fiendestarter från
 `@enemies`, portaler och ankomstpunkter ovanpå grundkartan. Orange markering
 och antal visar hur många koordinatlager som finns i rutan; skattens bild

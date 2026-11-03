@@ -73,6 +73,22 @@ struct YatzyPlayer {
     uint8_t savedRolls;                     // Maxi/Midi: rolls carried over to later turns
 };
 
+struct YatzySnapshot {
+    YatzyVariant variant;
+    YatzyMode mode;
+    bool savedRollsRule;
+    bool started;
+    bool finished;
+    int playerCount;
+    int currentPlayer;
+    int round;
+    int rollsUsed;
+    int rollsLeft;
+    YatzyPlayer players[YATZY_MAX_PLAYERS];
+    uint8_t dice[YATZY_MAX_DICE];
+    bool held[YATZY_MAX_DICE];
+};
+
 // Random source YatzyDieRng (1..6, defaults to rand()): see game_base.h.
 
 class YatzyGame {
@@ -88,6 +104,7 @@ public:
     void start();                                   // Clears scores, first player's turn
     void restartSamePlayers();                      // New game, same variant/mode/players
     void setRng(YatzyDieRng rng, void *ctx);
+    bool restoreSnapshot(const YatzySnapshot &snapshot);
 
     // --- Turn ---
     bool canRoll() const;
