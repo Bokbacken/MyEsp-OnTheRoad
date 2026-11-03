@@ -15,12 +15,16 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
-### Native Yatzy och skatteditor, v0.24.4–0.24.5
+### Native Yatzy och skatteditor, v0.24.4–0.24.6
 
 - [x] ESP-klienter använder den inbyggda Yatzy-vyn; värden är ensam
   regelauktoritet. Skatter placeras via föremål/mängd och kartklick.
 - [x] Ägaren har provat S3 som värd och P4 som klient samt skatteditorn
   (2026-11-03). Rapporterat problem: värden avslöjar kastet före klienten.
+- [x] Ägaren bekräftar editorn och visningsordningens princip i v0.24.5.
+  Värdens tärningar stannade dock på provisoriska sidor under väntan.
+  v0.24.6 låter kastade tärningar fortsätta snurra/byta sida tills grinden
+  släpper; hållna tärningar står still. Fysisk omprovning återstår.
 - [x] v0.24.5 inför privat resultat till kastande klient och bekräftelse
   efter rendering innan värd/övriga visare avslöjar slutvärdena.
   Avbrott/femsekunderstimeout släpper väntan med loggad varning.

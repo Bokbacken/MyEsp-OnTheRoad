@@ -1541,6 +1541,14 @@ static void rollFrame(int i, float p)
     }
 }
 
+static void animateWaitingDie(DieUi &die, int index)
+{
+    const uint32_t tick = lv_tick_get();
+    const int32_t angle = (int32_t)((tick * 7u) % 3600u);
+    lv_image_set_rotation(die.obj, die.spin < 0 ? -angle : angle);
+    setFace(die, (int)((tick / 90u + (uint32_t)index) % 6u) + 1);
+}
+
 static void rollExec(void *, int32_t v)
 {
     uint32_t t = (uint32_t)v;
@@ -1548,10 +1556,21 @@ static void rollExec(void *, int32_t v)
         DieUi &d = s_dice[i];
         if (!d.rolling || t < d.startMs) continue;
         if (t >= d.finishMs) {
-            landDie(i);
+            if (s_remoteRollFirst) animateWaitingDie(d, i);
+            else landDie(i);
             continue;
         }
         rollFrame(i, (float)(t - d.startMs) / (float)(d.finishMs - d.startMs));
+    }
+}
+
+static void animatePendingRoll()
+{
+    if (!s_remoteRollFirst || !s_rollRevealId) return;
+    for (int i = 0; i < s_game.diceCount(); i++) {
+        DieUi &die = s_dice[i];
+        if (!die.obj || !die.rolling) continue;
+        animateWaitingDie(die, i);
     }
 }
 
@@ -2581,6 +2600,8 @@ static void webTimer(lv_timer_t *t)
             s_rollRevealId = 0;
             s_remoteRollFirst = false;
             finishRollPresentation();
+        } else {
+            animatePendingRoll();
         }
     }
     GameLive::Cmd c;

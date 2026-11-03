@@ -82,6 +82,9 @@ gamla eller andra spelares bekräftelser accepteras inte. Klienten kan upprepa
 en bekräftelse utan dubbel effekt. Avbruten anslutning eller fem sekunder utan
 bekräftelse släpper väntan med loggad varning, så matchen inte fastnar.
 Vanliga browserkast använder inte denna bekräftelse och fungerar som tidigare.
+Från v0.24.6 fortsätter värdens kastade tärningar att snurra och byta
+provisoriska sidor under väntan; hållna tärningar påverkas inte. Inget
+provisoriskt stillastående kast ska visas före det riktiga slutresultatet.
 Uppdatera både värd och ESP-klient för denna ordningsgaranti.
 
 ## Spelaridentitet och historik
@@ -134,7 +137,7 @@ regeln för sparade kast; browserklienter påverkas inte. Fysisk verifiering av
 den gemensamma skärmen, återanslutning och båda värd-/klientriktningarna
 återstår enligt hårdvarumatrisen i TODO-dokumentet.
 
-## Prova v0.24.5
+## Prova v0.24.6
 
 Uppdatera både värd och ESP-klient till testversionen. På värden väljer du
 Yatzy/Maxi/Midi och spelare; markera fjärrspelarnas platser för webb och ge dem

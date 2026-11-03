@@ -506,6 +506,7 @@ static void createDie(lv_obj_t *scr, int i) {
 static const void *s_faces;
 static const void *facesFor(int) { return nullptr; }
 static void setFace(DieUi &d, int face) { d.face = face; }
+@PENDING_ROLL@
 @CUP_PLACE@
 static void cupKill() { s_cupActive = false; }
 static void hideCup(bool, bool) { s_cupActive = false; lv_obj_set_hidden(s_cupArea, true); }
@@ -711,6 +712,35 @@ static void check() {
     assert(s_game.player(1).scores[(int)YatzyCategory::CHANCE] >= 0);
     endRemoteGame();
     assert(!s_remoteMode && s_remoteAnimTimer == nullptr);
+    // The host keeps changing faces and rotating every waiting tick, even long after landing.
+    s_remoteRollFirst = true;
+    s_rollRevealId = 42;
+    s_rollRevealStarted = lv_tick_get();
+    for (int i = 0; i < s_game.diceCount(); ++i) {
+        s_dice[i].rolling = i != 0; // A held die must remain untouched.
+        s_dice[i].spin = i % 2 ? -3600 : 3600;
+        setFace(s_dice[i], 6);
+        lv_image_set_rotation(s_dice[i].obj, 0);
+    }
+    int lastFace = 0;
+    int32_t lastRotation = 0;
+    for (int ms = 100; ms < 5000; ms += 100) {
+        lv_tick_inc(100);
+        animatePendingRoll();
+        assert(s_dice[0].face == 6 && lv_image_get_rotation(s_dice[0].obj) == 0);
+        assert(s_dice[1].face != lastFace);
+        assert(lv_image_get_rotation(s_dice[1].obj) != lastRotation);
+        lastFace = s_dice[1].face;
+        lastRotation = lv_image_get_rotation(s_dice[1].obj);
+        assert(s_dice[1].rolling);
+    }
+    s_rollRevealId = 0;
+    lv_tick_inc(100);
+    animatePendingRoll();
+    assert(s_dice[1].face == lastFace &&
+           lv_image_get_rotation(s_dice[1].obj) == lastRotation);
+    s_remoteRollFirst = false;
+    for (int i = 0; i < s_game.diceCount(); ++i) s_dice[i].rolling = false;
     printf("game layout/interactions OK: %dx%d\n", int(UiMetrics::screenW()), int(UiMetrics::screenH()));
 }
 }
@@ -919,6 +949,9 @@ code = code.replace("@MODALS@", section("static void onMenu(lv_event_t *)\n{", "
                     section("static void updateWebOverlay()\n{", "static void webWriteTimer") +
                     section("static void buildWebOverlay(lv_obj_t *scr)\n{", "static void showGame()\n{"))
 code = code.replace("@GAME_STATE@", section("static constexpr int32_t SCR_W", "// Current seat is played"))
+code = code.replace("@PENDING_ROLL@",
+                    section("static void animateWaitingDie(", "static void rollExec(") +
+                    section("static void animatePendingRoll()", "static void finishRollPresentation()"))
 code = code.replace("@CUP_STATE@", section("static constexpr int32_t CUP_D =", "// Pip cells"))
 code = code.replace("@ANIMATIONS@", section("static void zoomExec(", "// --- Dice placement"))
 code = code.replace("@PLACEMENT@", section("static int32_t slotX(", "// Held dice get"))

@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.6 (unreleased)
+
+- Keep the host's thrown dice rotating and changing faces while waiting for
+  the throwing ESP to acknowledge its displayed result. Held dice stay still;
+  final faces are revealed only when the existing acknowledgement/disconnect/
+  timeout gate releases. Previously the host paused on temporary faces.
+- Owner confirms the editor improvements and the result-first principle work
+  in v0.24.5; this animation follow-up still needs physical verification.
+
 ## v0.24.5 (unreleased)
 
 - Native remote Yatzy rolls reveal their completed dice on the throwing
