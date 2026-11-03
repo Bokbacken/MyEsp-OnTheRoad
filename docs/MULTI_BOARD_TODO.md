@@ -15,6 +15,21 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Webbjusteringar, v0.24.1
+
+- [x] Karaokens anslutningsknapp centreras under textrutan. Låtväljaren
+  använder samma responsiva innehållsbredd som övriga sidor.
+- [x] Namnet återanvänds från flikens sessionscache innan sidtitel/huvud
+  visas, och uppdateras fortsatt från enhetens status. Vid kontaktfel visas
+  varning; blockerat webbläsarlager hindrar inte sidans användning.
+- [x] Webbläsarkontroll vid 320, 390, 768, 1440 och 1920 px: lika bredd
+  och centrum för Karaoke-panel/knapp och låtväljarens innehåll, utan
+  horisontell scroll. Cachad titel/namn är stabila även med två sekunders
+  fördröjt statussvar.
+- [x] S3/P4-firmwarebyggen och värdtester är gröna i PR #52,
+  Actions-körning 41631899766; firmwareartefakter finns för v0.24.1.
+- [ ] Prova navigation, namn och Karaoke/Låtar på enheternas webbserver.
+
 ### Sudoku, OTA-filval och bootbatteri, v0.24.0
 
 - [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
@@ -40,6 +55,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   flera textstorlekar och S3/P4:s stående/liggande upplösningar.
 - [x] Firmwarebyggen för S3/P4 och LVGL-värdtester är gröna i PR #51,
   Actions-körning 41492735344. Firmwareartefakter är uppladdade som v0.24.0.
+- [x] Ägaren bekräftar 2026-11-03 att Sudoku fungerar väl. Kort och
+  enskilda testscenarier anges inte; punkterna nedan markeras inte klara
+  enbart utifrån den allmänna bekräftelsen.
 - [ ] Prova touch, läsbarhet, röda felkryss, paus och återställning efter
   omstart på båda fysiska korten.
 - [x] Nästa pusselblock läses automatiskt från `/sdcard/otr/sudoku/` när de

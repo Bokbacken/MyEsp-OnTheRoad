@@ -17,6 +17,19 @@ inte en leverans i denna version.
 
 Karaoke är en egen modul (`main/karaoke.*`, `main/ui_karaoke.*`) och ersätter inget av tärningsspelen eller äventyret.
 
+### Webbkaraoke och låtväljare
+
+`/karaoke` visar textpanelen och anslutningsknappen med samma bredd och
+gemensamt centrum. `/karaoke/songs` använder webbens gemensamma responsiva
+innehållsbredd, utan den tidigare 44-rem-gränsen på hela sidan.
+Båda sidorna följer den gemensamma navigationen och enhetsstatusen.
+Enhetsnamnet cachas i flikens `sessionStorage` och sätts på sidtiteln redan
+under inläsningen; huvudets standardnamn hålls dolt tills det cachade eller
+nyhämtade namnet kan visas. Status hämtas fortsatt från `/api/info` var
+tionde sekund och när fliken åter visas. Vid första besöket utan cache
+hämtas namnet från enheten; vid kontaktfel visas det tillgängliga namnet
+och en varning. Om sessionslagring blockeras fungerar livehämtningen ändå.
+
 ### Karaokevolym och batteristatus
 
 Volymreglaget använder befintliga `Karaoke::setVolume()` / `Audio::setExternalVolume()` och påverkar den

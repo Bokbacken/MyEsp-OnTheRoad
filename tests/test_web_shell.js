@@ -5,6 +5,14 @@ const css = fs.readFileSync('main/web/style.css', 'utf8');
 assert.match(css, /--otr-page-gutter:\s*clamp\(/);
 assert.match(css, /width:\s*calc\(100% \+ var\(--otr-page-gutter\)/);
 assert.doesNotMatch(css, /width:\s*100vw/);
+assert.match(css, /\.otr-name-pending \.otr-project \{ visibility: hidden; \}/);
+assert.match(css, /body \{ padding: \.6rem var\(--otr-page-gutter\) 2rem;/,
+  'mobile content and edge-to-edge chrome must use the same gutter');
+for (const file of fs.readdirSync('main/web').filter(file => file.endsWith('.html'))) {
+  const html = fs.readFileSync('main/web/' + file, 'utf8');
+  assert.match(html, /<script src="\/device-name.js"><\/script>/, file);
+  assert.doesNotMatch(html, /<script src="\/device-name.js" defer/, file);
+}
 
 class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.className = ''; this.attributes = {}; this.text = ''; }
@@ -43,7 +51,7 @@ class Element {
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
 
-async function check(path, existingHeader) {
+async function check(path, existingHeader, {cachedName = '', fetchFails = false, storageFails = false} = {}) {
   const body = new Element('body');
   if (existingHeader) {
     const header = new Element('header'); header.className = 'otr-brand';
@@ -54,23 +62,51 @@ async function check(path, existingHeader) {
     const nav = new Element('nav'); nav.className = 'otr-nav'; body.appendChild(nav);
   }
   const footer = new Element('footer'); footer.textContent = 'MyEsp-OnTheRoad'; body.appendChild(footer);
+  const events = new Map(), classes = new Set(), stored = new Map();
+  if (cachedName) stored.set('otr-device-name', cachedName);
   const document = {
-    body, hidden: false, title: 'OnTheRoad – Inställningar',
+    body, hidden: false, title: 'OnTheRoad – Inställningar', readyState: 'loading',
+    documentElement: {classList: {
+      add: name => classes.add(name), remove: name => classes.delete(name)
+    }},
     createElement: tag => new Element(tag),
     querySelector: s => body.querySelector(s), querySelectorAll: s => body.querySelectorAll(s),
-    addEventListener() {}
+    addEventListener: (name, handler) => events.set(name, handler)
   };
   let wifi = {hostname: 'kitchen-console', connected: true, ssid: 'test', rssi: -45};
   let refresh;
   const sandbox = {
     document, location: {pathname: path}, window: {addEventListener() {}},
-    fetch: async () => ({ok: true, json: async () => ({wifi})}),
-    setInterval: fn => { refresh = fn; }, console
+    fetch: async () => {
+      if (fetchFails) throw new Error('offline');
+      return {ok: true, json: async () => ({wifi})};
+    },
+    sessionStorage: {
+      getItem(key) { if (storageFails) throw new Error('storage blocked'); return stored.get(key) || null; },
+      setItem(key, value) { if (storageFails) throw new Error('storage blocked'); stored.set(key, value); }
+    },
+    setInterval: fn => { refresh = fn; },
+    console: {warn() {}}
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('main/web/device-name.js', 'utf8'), sandbox);
+  assert.equal(document.title, (cachedName && !storageFails ? cachedName : 'OnTheRoad') + ' – Inställningar',
+    'cached name is applied to the title during head parsing, before any API response');
+  assert(classes.has('otr-name-pending'), 'fallback brand is not painted during startup');
+  document.readyState = 'interactive';
+  events.get('DOMContentLoaded')();
+  if (cachedName && !storageFails) {
+    assert(document.querySelector('.otr-project').textContent.startsWith(cachedName));
+    assert(!classes.has('otr-name-pending'), 'cached brand is shown before the API response');
+  }
   await new Promise(resolve => setTimeout(resolve, 0));
   const brand = document.querySelector('.otr-project');
+  assert(!classes.has('otr-name-pending'), 'network failure must not leave the brand hidden');
+  if (fetchFails) {
+    assert(brand.textContent.startsWith(cachedName || 'OnTheRoad'));
+    assert.equal(document.querySelector('.otr-device-status').children[1].textContent, 'Ingen kontakt');
+    return;
+  }
   assert(brand.textContent.startsWith('kitchen-console'));
   assert.equal(document.title, 'kitchen-console – Inställningar');
   assert.equal(footer.textContent, 'kitchen-console');
@@ -85,6 +121,7 @@ async function check(path, existingHeader) {
   sandbox.window.OtrDevice.apply({hostname: 'new-name'});
   assert(brand.textContent.startsWith('new-name'), 'settings save applies name immediately');
   assert.equal(document.title, 'new-name – Inställningar');
+  if (!storageFails) assert.equal(stored.get('otr-device-name'), 'new-name', 'saved rename updates navigation cache');
   sandbox.window.OtrDevice.setTitle('Byn');
   assert.equal(document.title, 'new-name – Byn');
   footer.textContent = 'road-unit v1 · esp32s3';
@@ -99,6 +136,10 @@ async function check(path, existingHeader) {
   for (const path of ['/', '/game', '/play', '/adventure', '/adventure-editor', '/karaoke',
     '/karaoke/songs', '/players', '/diag', '/files', '/update', '/songs_picker.html']) {
     assert.deepEqual(await check(path, !path.includes('karaoke')), expected);
+    assert.deepEqual(await check(path, !path.includes('karaoke'), {cachedName: 'previous-name'}), expected);
   }
+  await check('/karaoke', false, {fetchFails: true});
+  await check('/settings', true, {cachedName: 'cached-offline-name', fetchFails: true});
+  await check('/settings', true, {storageFails: true});
   console.log('Shared web shell: identical navigation, active route and repeated live name changes passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

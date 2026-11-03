@@ -50,7 +50,11 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
   per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
   MIDI without lyrics can use a matching [`.lyr` text/LRC sidecar](docs/KARAOKE_LYRICS.md).
-  Web karaoke uses the browser width with responsive lyrics.
+  Web karaoke and its song picker share the responsive web content width;
+  the connection button is centered beneath the lyrics.
+- **Web navigation** – a shared menu and live device status across pages.
+  The last known device name is reused within the browser tab while fresh
+  status loads, avoiding the default-name flash on subsequent page changes.
 - **Sound** – ES8311 codec + amplifier, mixer task with 1 music + 4 effect
   channels, built-in chiptune synth (square/triangle/noise, ADSR, MML tunes). Any sound can be replaced by a WAV on
   the SD card. Volumes and on/off on the device and in the web settings.

@@ -5,6 +5,9 @@ const html = fs.readFileSync('main/web/karaoke.html', 'utf8');
 assert.match(html, /body \{ max-width: none; \}/);
 assert.match(html, /min-height: 55vh/);
 assert.match(html, /font-size: clamp\(1.5rem, 6vw, 6rem\)/);
+assert.match(html, /#go \{ display: block; width: 100%;/);
+const songsHtml = fs.readFileSync('main/web/songs_picker.html', 'utf8');
+assert.doesNotMatch(songsHtml, /body\s*\{\s*max-width:/, 'song picker uses the shared responsive page width');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const elements = new Map(), timers = [];
 function element() {
