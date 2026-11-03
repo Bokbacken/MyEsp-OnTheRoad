@@ -21,9 +21,11 @@ a published GitHub Release.
   previous saved state and leave the draft available for retry. Existing entries,
   playlists and favorites remain readable; optional playlist paths help the web
   picker resolve songs without hashing the entire library.
-- Letter jumps reuse the current browser view instead of allocating another full
+- All songs now lists songs only, instead of prepending every subfolder (145
+  folders could fill several pages before the first song). Folder navigation
+  stays available in the root browser. Letter jumps reuse the current browser view instead of allocating another full
   song-index vector and rebuilding it. Log lines identify the selected sort key,
-  entry and page. Host coverage includes 1,521 songs, visible targets, S3/P4,
+  entry and page. Host coverage includes 1,521 songs across 145 folders, visible targets, S3/P4,
   both landscape rotations and SV/EN. The owner's S3 failure was not reproduced
   on the host; physical retesting is still required.
 

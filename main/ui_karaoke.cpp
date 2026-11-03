@@ -312,7 +312,8 @@ void buildEntries()
         if (s_mode == ListMode::SEARCH) {
             songs = lib.search(s_query.c_str());
         } else {
-            std::vector<std::string> dirs = lib.subdirs(s_dir);
+            std::vector<std::string> dirs;
+            if (s_mode == ListMode::ROOT || !s_dir.empty()) dirs = lib.subdirs(s_dir);
             if (s_mode == ListMode::ROOT && dirs.empty()) s_mode = ListMode::DIR;   // No folders: songs directly
             if (s_mode == ListMode::DIR && !s_dir.empty() && lib.songsIn(s_dir).empty()) {   // Folder gone
                 s_dir.clear();

@@ -87,7 +87,10 @@ Favoriter/sångarval har ännu inte fått något nytt UI i detta steg.
 
 - [x] Ägaren har bekräftat reglagen på P4 och den smalare S3-layouten.
 - [x] Hosttest: spellisters lagring/ordning, SF2-val, sparfel och Spara/Kasta/Avbryt.
-- [x] Hosttest: 1 521 låtar, bokstavsbyte mellan sidor, faktiskt synligt mål och högst 40 låtknappar.
+- [x] **Alla låtar** visar bara låtar. Mapparna finns kvar i rotvyn; med 145
+  mappar låg de tidigare före låtarna även i Alla-vyn.
+- [x] Hosttest: 1 521 låtar i 145 mappar, separat mappnavigering, bokstavsbyte
+  mellan sidor, faktiskt synligt mål och högst 40 låtknappar.
 - [ ] S3: prova bokstavshopp igen med det verkliga biblioteket. Felet kunde inte
   återskapas på host. Ny logg `kara-ui: jump rank=... entry=... page=... sort=...`
   visar vilken artist (titel om artist saknas) som hoppet väljer.

@@ -583,15 +583,21 @@ int main(int argc, char **) {
             for (int i = 0; i < 1521; ++i) {
                 char path[80], artist[40];
                 snprintf(artist, sizeof(artist), "%c Artist %04d", 'A' + i % 26, i);
-                snprintf(path, sizeof(path), "Collection/%s_Title.kar", artist);
+                snprintf(path, sizeof(path), "Folder %03d/%s_Title.kar", i % 145, artist);
                 assert(Karaoke::library.add(path, "Title", artist, 100));
             }
             Karaoke::library.sort();
             Karaoke::opened = false;
             s_mode = ListMode::ROOT; s_dir.clear(); s_page = 0;
             UiKaraoke::show(); settle();
-            openEntry(0); settle(); // All songs, with folders above the song entries.
-            assert(s_entries.size() - s_firstSong == 1521);
+            assert(s_entries.size() == 146); // All songs + 145 top-level folders.
+            openEntry(1); settle(); // Folder browsing still includes that folder's songs.
+            assert(s_mode == ListMode::DIR && !s_dir.empty() && s_entries.size() > 0);
+            goUp(); settle();
+            click(lv_obj_get_child(s_list, 0)); // Use the real All songs button.
+            assert(s_mode == ListMode::DIR && s_dir.empty());
+            assert(s_firstSong == 0 && s_entries.size() == 1521);
+            assert(!s_entries[0].folder);
             for (int index : {5, 1, 8, 3, 0, 11}) {
                 auto *keyButton = lv_obj_get_child(s_jumpCol, index);
                 lv_obj_scroll_to_view(keyButton, LV_ANIM_OFF); settle();
