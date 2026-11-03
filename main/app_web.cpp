@@ -408,10 +408,10 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "rotation", c.rotation);
     cJSON_AddStringToObject(o, "lang", c.lang);
     cJSON_AddBoolToObject(o, "sound_on", c.soundOn);
+    cJSON_AddNumberToObject(o, "master_vol", c.masterVol);
     cJSON_AddNumberToObject(o, "sfx_vol", c.sfxVol);
     cJSON_AddBoolToObject(o, "music_on", c.musicOn);
     cJSON_AddNumberToObject(o, "music_vol", c.musicVol);
-    cJSON_AddNumberToObject(o, "kara_volume", c.karaVolume);
     cJSON_AddNumberToObject(o, "battery_scale_permille", c.batteryScalePermille);
     cJSON_AddNumberToObject(o, "battery_full_mv", c.batteryFullMv);
     cJSON_AddNumberToObject(o, "joy_zones", c.joyZones);
@@ -458,8 +458,8 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.rotation = (uint16_t)v;
     }
     if (q.getInt("sfx_vol", 0, 100, v, bad)) next.sfxVol = (uint8_t)v;
+    if (q.getInt("master_vol", 0, 100, v, bad)) next.masterVol = (uint8_t)v;
     if (q.getInt("music_vol", 0, 100, v, bad)) next.musicVol = (uint8_t)v;
-    if (q.getInt("kara_volume", 0, 100, v, bad)) next.karaVolume = (uint8_t)v;
     if (q.getInt("battery_scale_permille", 0, BatteryMath::SCALE_MAX_PERMILLE, v, bad)) {
         if (!BatteryMath::validScale(static_cast<uint16_t>(v))) bad = true;
         else next.batteryScalePermille = static_cast<uint16_t>(v);

@@ -303,6 +303,50 @@ static void testRegistrySf2()
     CHECK(r2.save().find("9218be09 40000 3 -2 90 After shave_Macken.mid\n") != std::string::npos);
 }
 
+static void testRegistrySongSettings()
+{
+    Registry r;
+    r.load("11111111 100 2 -3 125 sf2=Band%20Font.sf2 mute=1 volume=140 Song name.mid\n"
+           "22222222 200 1 0 100 volume=999 mute=0 Legacy extension text.mid\n"
+           "33333333 300 1 0 100 mute=1 Old song.mid\n");
+    const RegEntry *e = r.find(0x11111111, 100);
+    CHECK(e && e->sf2 == "Band Font.sf2" && e->melodyMuted && e->volume == 140 && e->name == "Song name.mid");
+    const RegEntry *invalid = r.find(0x22222222, 200);
+    CHECK(invalid && invalid->volume == 100 && !invalid->melodyMuted &&
+          invalid->name == "Legacy extension text.mid");
+    const RegEntry *mute = r.find(0x33333333, 300);
+    CHECK(mute && mute->melodyMuted && mute->volume == 100 && mute->name == "Old song.mid");
+    Registry copy;
+    copy.load(r.save());
+    const RegEntry *roundTrip = copy.find(0x11111111, 100);
+    CHECK(roundTrip && roundTrip->melodyMuted && roundTrip->volume == 140 &&
+          roundTrip->sf2 == "Band Font.sf2" && roundTrip->name == "Song name.mid");
+}
+
+static void testPlaylistsAndFavorites()
+{
+    Registry r;
+    const uint16_t playlist = r.createPlaylist("Road trip favorites");
+    CHECK(playlist != 0 && !r.createPlaylist("road trip favorites"));
+    CHECK(r.renamePlaylist(playlist, "Road trip 2026"));
+    CHECK(r.setPlaylistSong(playlist, 0x1234, 321, true));
+    CHECK(r.setPlaylistSong(playlist, 0x1234, 321, true));
+    CHECK(r.hasPlaylistSong(playlist, 0x1234, 321));
+    CHECK(!r.hasPlaylistSong(playlist, 0x1234, 322));
+    CHECK(!r.setFavorite(0, 0x1234, 321, true));
+    CHECK(r.setFavorite(7, 0x1234, 321, true));
+    CHECK(r.isFavorite(7, 0x1234, 321) && !r.isFavorite(8, 0x1234, 321));
+    Registry restored;
+    restored.load(r.save());
+    CHECK(restored.playlists().size() == 1);
+    CHECK(restored.playlists()[0].id == playlist && restored.playlists()[0].name == "Road trip 2026");
+    CHECK(restored.hasPlaylistSong(playlist, 0x1234, 321));
+    CHECK(restored.isFavorite(7, 0x1234, 321));
+    CHECK(restored.setPlaylistSong(playlist, 0x1234, 321, false));
+    CHECK(!restored.hasPlaylistSong(playlist, 0x1234, 321));
+    CHECK(restored.deletePlaylist(playlist) && !restored.deletePlaylist(playlist));
+}
+
 static void testPlayer()
 {
     std::vector<uint8_t> f = karFile();
@@ -387,6 +431,8 @@ int main(int argc, char **argv)
     testUtf8AndNames();
     testRegistry();
     testRegistrySf2();
+    testRegistrySongSettings();
+    testPlaylistsAndFavorites();
     testPlayer();
     testRealFiles(argc, argv);
     CHECK_DONE();

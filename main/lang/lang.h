@@ -506,6 +506,7 @@
     X(SET_ROT_180) \
     X(SET_SOUND) \
     X(SET_SOUND_ON) \
+    X(SET_MASTER_VOL) \
     X(SET_SFX_VOL) \
     X(SET_MUSIC_ON) \
     X(SET_MUSIC_VOL) \

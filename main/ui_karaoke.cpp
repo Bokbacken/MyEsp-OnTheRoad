@@ -107,44 +107,22 @@ struct Player {
     lv_timer_t *timer;
     int line, syl;
     uint32_t lastSec;
-    bool dragging, volumeDragging, volumeUpdating, volumeChanged, finished;
+    bool dragging, volumeDragging, finished;
     bool plainMode, hasPlainLyrics;
 };
 Player P{};
-lv_timer_t *s_volumeSaveTimer = nullptr;
-
-void persistVolume(lv_timer_t *timer)
-{
-    if (timer) {
-        if (timer != s_volumeSaveTimer) return;
-        s_volumeSaveTimer = nullptr;  // A one-shot timer deletes itself after this callback.
-    } else if (s_volumeSaveTimer) {
-        lv_timer_delete(s_volumeSaveTimer);
-        s_volumeSaveTimer = nullptr;
-    }
-    P.volumeChanged = false;
-    Config::save();
-}
-
-void scheduleVolumeSave()
-{
-    if (!s_volumeSaveTimer) s_volumeSaveTimer = lv_timer_create(persistVolume, 700, nullptr);
-    if (s_volumeSaveTimer) {
-        lv_timer_set_repeat_count(s_volumeSaveTimer, 1);
-        lv_timer_reset(s_volumeSaveTimer);
-    } else Config::save();
-}
 
 void syncVolumeControls()
 {
     if (!P.volumeSlider) return;
-    const uint8_t volume = Karaoke::volume();
+    const uint8_t volume = Karaoke::songVolume();
     if (!P.volumeDragging && lv_slider_get_value(P.volumeSlider) != volume) {
-        P.volumeUpdating = true;
         lv_slider_set_value(P.volumeSlider, volume, LV_ANIM_OFF);
-        P.volumeUpdating = false;
     }
-    if (P.volumeValue) lv_label_set_text_fmt(P.volumeValue, "%u%%", (unsigned)volume);
+    if (P.volumeValue) {
+        const int shown = P.volumeDragging ? lv_slider_get_value(P.volumeSlider) : volume;
+        lv_label_set_text_fmt(P.volumeValue, LV_SYMBOL_AUDIO " %d%%", shown);
+    }
 }
 
 void showPlayer();
@@ -917,7 +895,6 @@ void playerDeleted(lv_event_t *e)
 {
     if (lv_event_get_target(e) != P.scr) return;
     if (P.timer) lv_timer_delete(P.timer);
-    if (s_volumeSaveTimer || P.volumeChanged) persistVolume(nullptr);
     P = Player{};
 }
 
@@ -1263,7 +1240,6 @@ void showPlayer()
 {
     const Midi::Song *song = Karaoke::song();
     if (!song) return;
-    Karaoke::setVolume(Config::get().karaVolume);
     closeSheet();
     const auto l = layout();
     if (s_listTimer) lv_timer_pause(s_listTimer);
@@ -1408,8 +1384,8 @@ void showPlayer()
     lv_obj_set_pos(P.volumeSlider, l.volumeX + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
     lv_obj_set_ext_click_area(P.volumeSlider, (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH + 1) / 2);
     lv_slider_set_orientation(P.volumeSlider, LV_SLIDER_ORIENTATION_VERTICAL);
-    lv_slider_set_range(P.volumeSlider, 0, 100);
-    lv_slider_set_value(P.volumeSlider, Karaoke::volume(), LV_ANIM_OFF);
+    lv_slider_set_range(P.volumeSlider, 0, 200);
+    lv_slider_set_value(P.volumeSlider, Karaoke::songVolume(), LV_ANIM_OFF);
     lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_40, LV_PART_INDICATOR);
@@ -1431,21 +1407,14 @@ void showPlayer()
         (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
     lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
         P.volumeDragging = true;
-        P.volumeChanged = false;
     }, LV_EVENT_PRESSED, nullptr);
-    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *e) {
-        if (P.volumeUpdating) return;
-        Karaoke::setVolume((uint8_t)lv_slider_get_value(lv_event_get_target_obj(e)));
-        P.volumeChanged = true;
+    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
         syncVolumeControls();
-        if (!P.volumeDragging) scheduleVolumeSave();
     }, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
+        if (P.volumeDragging)
+            Karaoke::setSongVolume((uint8_t)lv_slider_get_value(P.volumeSlider));
         P.volumeDragging = false;
-        if (P.volumeChanged) {
-            scheduleVolumeSave();
-            P.volumeChanged = false;
-        }
     }, LV_EVENT_RELEASED, nullptr);
     syncVolumeControls();
 

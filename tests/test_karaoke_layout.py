@@ -139,8 +139,8 @@ int melody() { return channel; }
 void setMelody(int ch) { channel = ch; }
 bool melodyMuted() { return muted; }
 void setMelodyMuted(bool b) { muted = b; }
-uint8_t volume() { return vol; }
-void setVolume(uint8_t v) { vol = v; Config::get().karaVolume = v; }
+uint8_t songVolume() { return (uint8_t)vol; }
+void setSongVolume(uint8_t v) { vol = v; }
 void setVoiceLimit(uint8_t v) { Config::get().karaVoices = v; }
 bool takeTransposeRejected() { bool r = rejectTranspose; rejectTranspose = false; return r; }
 }
@@ -283,7 +283,7 @@ static void checkDrawnVolumeKnob() {
     lv_obj_remove_state(P.volumeSlider, LV_STATE_PRESSED);
     lv_obj_remove_event_cb(P.volumeSlider, capture);
     lv_obj_set_send_draw_task_events(P.volumeSlider, false);
-    lv_slider_set_value(P.volumeSlider, Karaoke::volume(), LV_ANIM_OFF);
+    lv_slider_set_value(P.volumeSlider, Karaoke::songVolume(), LV_ANIM_OFF);
 }
 static void checkPlayer() {
     const auto l = layout();
@@ -395,30 +395,27 @@ static void checkPlayer() {
         click(lv_obj_get_child(row, 1));
         click(lv_obj_get_child(row, 3));
     }
-    assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::volume() == 80);
+    assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::songVolume() == 80);
     assert(!button(s_sheet, tr(Str::KARA_VOLUME)));
     assert(lv_slider_get_value(P.volumeSlider) == 80);
-    assert(std::string(lv_label_get_text(P.volumeValue)) == "80%");
+    assert(std::string(lv_label_get_text(P.volumeValue)).find("80%") != std::string::npos);
     lv_tick_inc(800); settle(); // Flush any preceding stepper change before checking drag debounce.
     const int savesBeforeDrag = Config::saveCalls;
     lv_obj_send_event(P.volumeSlider, LV_EVENT_PRESSED, nullptr);
     lv_slider_set_value(P.volumeSlider, 55, LV_ANIM_OFF);
     lv_obj_send_event(P.volumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
-    assert(Karaoke::volume() == 55 && Config::get().karaVolume == 55);
+    assert(Karaoke::songVolume() == 80);
     assert(Config::saveCalls == savesBeforeDrag); // No NVS writes during a drag.
     lv_tick_inc(900); settle();
     assert(Config::saveCalls == savesBeforeDrag);
     lv_obj_send_event(P.volumeSlider, LV_EVENT_RELEASED, nullptr);
-    lv_tick_inc(699); lv_timer_handler();
+    assert(Karaoke::songVolume() == 55);
     assert(Config::saveCalls == savesBeforeDrag);
-    lv_tick_inc(2); lv_timer_handler();
-    assert(Config::saveCalls == savesBeforeDrag + 1);
     lv_obj_send_event(P.volumeSlider, LV_EVENT_PRESSED, nullptr);
     lv_slider_set_value(P.volumeSlider, 90, LV_ANIM_OFF);
     lv_obj_send_event(P.volumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_send_event(P.volumeSlider, LV_EVENT_RELEASED, nullptr);
-    lv_tick_inc(701); lv_timer_handler();
-    assert(Karaoke::volume() == 90 && Config::get().karaVolume == 90);
+    assert(Karaoke::songVolume() == 90);
     closeMenu();
     click(button(P.scr, LV_SYMBOL_LIST));
     assert(button(s_sheet, (std::string(tr(Str::KARA_BTN_SETTINGS)) + "  105%  +1").c_str()));
@@ -470,7 +467,7 @@ int main(int argc, char **) {
             lv_display_set_rotation(display, LV_DISPLAY_ROTATION_0);
             lv_display_set_resolution(display, size.x, size.y);
             Lang::setLang(language);
-            Config::get().soundOn = true; Config::get().karaFlip = flip; Config::get().karaVolume = 80;
+            Config::get().soundOn = true; Config::get().karaFlip = flip;
             Karaoke::library.clear();
             for (int i = 0; i < 90; ++i) {
                 char path[80]; snprintf(path,sizeof(path),"Test %03d.kar",i);

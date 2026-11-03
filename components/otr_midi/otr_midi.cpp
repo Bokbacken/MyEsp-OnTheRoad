@@ -541,6 +541,9 @@ void nameFromFile(const std::string &fileName, std::string &title, std::string &
 void Registry::load(const std::string &text)
 {
     entries_.clear();
+    playlists_.clear();
+    favorites_.clear();
+    nextPlaylistId_ = 1;
     size_t pos = 0;
     while (pos < text.size()) {
         size_t eol = text.find('\n', pos);
@@ -548,40 +551,122 @@ void Registry::load(const std::string &text)
         std::string line = text.substr(pos, eol - pos);
         pos = eol + 1;
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty()) continue;
+        if (line.compare(0, 10, "#playlist ") == 0) {
+            unsigned id = 0;
+            char encoded[256] = {};
+            if (sscanf(line.c_str() + 10, "%u %255s", &id, encoded) != 2 || !id || id > UINT16_MAX)
+                continue;
+            std::string name;
+            for (size_t i = 0; encoded[i]; i++) {
+                if (encoded[i] == '%' && encoded[i + 1] && encoded[i + 2] &&
+                    isxdigit((unsigned char)encoded[i + 1]) && isxdigit((unsigned char)encoded[i + 2])) {
+                    char hex[] = {encoded[i + 1], encoded[i + 2], 0};
+                    const long value = strtol(hex, nullptr, 16);
+                    if (value > 0) name += (char)value;
+                    i += 2;
+                } else name += encoded[i];
+            }
+            if (!name.empty() && name.size() <= 48 &&
+                std::none_of(playlists_.begin(), playlists_.end(),
+                             [id](const Playlist &p) { return p.id == id; })) {
+                playlists_.push_back(Playlist{(uint16_t)id, name, {}});
+                if (id >= nextPlaylistId_) nextPlaylistId_ = id == UINT16_MAX ? 1 : (uint16_t)(id + 1);
+            }
+            continue;
+        }
+        if (line.compare(0, 9, "#playlist") == 0) {
+            unsigned id = 0, crc = 0, size = 0;
+            if (sscanf(line.c_str(), "#playlist-song %u %8x %u", &id, &crc, &size) == 3 && id && id <= UINT16_MAX) {
+                for (Playlist &playlist : playlists_)
+                    if (playlist.id == id && !hasPlaylistSong((uint16_t)id, crc, size))
+                        playlist.songs.push_back(SongKey{crc, size});
+            }
+            continue;
+        }
+        if (line.compare(0, 10, "#favorite ") == 0) {
+            unsigned player = 0, crc = 0, size = 0;
+            if (sscanf(line.c_str(), "#favorite %u %8x %u", &player, &crc, &size) == 3 &&
+                player && player <= UINT16_MAX)
+                favorites_.push_back(Favorite{(uint16_t)player, crc, size});
+            continue;
+        }
+        if (line[0] == '#') continue;
         unsigned crc = 0, size = 0;
         int mel = 0, tr = 0, tempo = 0, used = 0;
         if (sscanf(line.c_str(), "%8x %u %d %d %d %n", &crc, &size, &mel, &tr, &tempo, &used) < 5) continue;
         if (mel < -1 || mel > 15 || tr < -12 || tr > 12 || tempo < 50 || tempo > 150) continue;
         RegEntry e;
         e.crc = crc, e.size = size, e.melody = (int8_t)mel, e.transpose = (int8_t)tr, e.tempo = (uint8_t)tempo;
-        if (used > 0 && (size_t)used <= line.size()) e.name = line.substr((size_t)used);
-        if (e.name.compare(0, 4, "sf2=") == 0) {   // v0.13.1 per-song SoundFont
-            const size_t sp = e.name.find(' ');
-            const std::string tok = e.name.substr(4, sp == std::string::npos ? std::string::npos : sp - 4);
-            e.name = sp == std::string::npos ? std::string() : e.name.substr(sp + 1);
-            for (size_t i = 0; i < tok.size(); i++) {
-                if (tok[i] == '%' && i + 2 < tok.size() && isxdigit((unsigned char)tok[i + 1]) &&
-                    isxdigit((unsigned char)tok[i + 2])) {
-                    const long v = strtol(tok.substr(i + 1, 2).c_str(), nullptr, 16);
-                    if (v > 0) {
-                        e.sf2 += (char)v;
-                        i += 2;
-                        continue;
+        std::string rest = used > 0 && (size_t)used <= line.size() ? line.substr((size_t)used) : "";
+        while (!rest.empty()) {
+            const size_t first = rest.find_first_not_of(' ');
+            if (first == std::string::npos) { rest.clear(); break; }
+            if (first) rest.erase(0, first);
+            const size_t sp = rest.find(' ');
+            const std::string token = rest.substr(0, sp);
+            const size_t next = sp == std::string::npos ? rest.size() : rest.find_first_not_of(' ', sp);
+            const std::string tail = next == std::string::npos ? "" : rest.substr(next);
+            if (token.compare(0, 4, "sf2=") == 0) {   // v0.13.1 per-song SoundFont
+                const std::string encoded = token.substr(4);
+                for (size_t i = 0; i < encoded.size(); i++) {
+                    if (encoded[i] == '%' && i + 2 < encoded.size() && isxdigit((unsigned char)encoded[i + 1]) &&
+                        isxdigit((unsigned char)encoded[i + 2])) {
+                        const long v = strtol(encoded.substr(i + 1, 2).c_str(), nullptr, 16);
+                        if (v > 0) {
+                            e.sf2 += (char)v;
+                            i += 2;
+                            continue;
+                        }
                     }
+                    e.sf2 += encoded[i];
                 }
-                e.sf2 += tok[i];
+                if (e.sf2.find_first_of("/\\") != std::string::npos || e.sf2.size() > 63) e.sf2.clear();
+                rest = tail;
+            } else if (token.compare(0, 5, "mute=") == 0 && (token == "mute=0" || token == "mute=1")) {
+                e.melodyMuted = token == "mute=1";
+                rest = tail;
+            } else if (token.compare(0, 7, "volume=") == 0) {
+                char *end = nullptr;
+                const long value = strtol(token.c_str() + 7, &end, 10);
+                if (end != token.c_str() + 7 && *end == 0 && value >= 0 && value <= 200)
+                    e.volume = (uint8_t)value;
+                rest = tail;
+            } else {
+                break;
             }
-            if (e.sf2.find_first_of("/\\") != std::string::npos || e.sf2.size() > 63) e.sf2.clear();   // File name only
         }
+        e.name = rest;
         set(e);
     }
 }
 
 std::string Registry::save() const
 {
-    std::string o = "# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% [sf2=font] name\n";
+    std::string o = "# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% [settings] name\n";
     char buf[64];
+    for (const Playlist &playlist : playlists_) {
+        snprintf(buf, sizeof(buf), "#playlist %u ", (unsigned)playlist.id);
+        o += buf;
+        for (unsigned char c : playlist.name) {
+            if (isalnum(c) || c == '_' || c == '-') o += (char)c;
+            else {
+                snprintf(buf, sizeof(buf), "%%%02X", c);
+                o += buf;
+            }
+        }
+        o += '\n';
+        for (const SongKey &song : playlist.songs) {
+            snprintf(buf, sizeof(buf), "#playlist-song %u %08x %u\n", (unsigned)playlist.id,
+                     (unsigned)song.crc, (unsigned)song.size);
+            o += buf;
+        }
+    }
+    for (const Favorite &favorite : favorites_) {
+        snprintf(buf, sizeof(buf), "#favorite %u %08x %u\n", (unsigned)favorite.playerId,
+                 (unsigned)favorite.crc, (unsigned)favorite.size);
+        o += buf;
+    }
     for (const RegEntry &e : entries_) {
         snprintf(buf, sizeof(buf), "%08x %u %d %d %u ", (unsigned)e.crc, (unsigned)e.size, e.melody, e.transpose,
                  e.tempo);
@@ -595,6 +680,11 @@ std::string Registry::save() const
                 else o += c;
             }
             o += ' ';
+        }
+        if (e.melodyMuted) o += "mute=1 ";
+        if (e.volume != 100) {
+            snprintf(buf, sizeof(buf), "volume=%u ", (unsigned)e.volume);
+            o += buf;
         }
         for (char c : e.name) o += (c == '\n' || c == '\r') ? ' ' : c;
         o += '\n';
@@ -614,6 +704,90 @@ void Registry::set(const RegEntry &e)
     for (RegEntry &x : entries_)
         if (x.crc == e.crc && x.size == e.size) { x = e; return; }
     entries_.push_back(e);
+}
+
+uint16_t Registry::createPlaylist(const char *name)
+{
+    if (!name || !*name || strlen(name) > 48 || strpbrk(name, "\r\n\t")) return 0;
+    for (const Playlist &playlist : playlists_)
+        if (strcasecmp(playlist.name.c_str(), name) == 0) return 0;
+    for (unsigned attempt = 0; attempt < UINT16_MAX; attempt++) {
+        uint16_t id = nextPlaylistId_++;
+        if (!nextPlaylistId_) nextPlaylistId_ = 1;
+        if (!id) continue;
+        if (std::none_of(playlists_.begin(), playlists_.end(),
+                         [id](const Playlist &p) { return p.id == id; })) {
+            playlists_.push_back(Playlist{id, name, {}});
+            return id;
+        }
+    }
+    return 0;
+}
+
+bool Registry::renamePlaylist(uint16_t id, const char *name)
+{
+    if (!id || !name || !*name || strlen(name) > 48 || strpbrk(name, "\r\n\t")) return false;
+    for (const Playlist &playlist : playlists_)
+        if (playlist.id != id && strcasecmp(playlist.name.c_str(), name) == 0) return false;
+    for (Playlist &playlist : playlists_)
+        if (playlist.id == id) { playlist.name = name; return true; }
+    return false;
+}
+
+bool Registry::deletePlaylist(uint16_t id)
+{
+    auto it = std::find_if(playlists_.begin(), playlists_.end(),
+                           [id](const Playlist &p) { return p.id == id; });
+    if (it == playlists_.end()) return false;
+    playlists_.erase(it);
+    return true;
+}
+
+bool Registry::setPlaylistSong(uint16_t id, uint32_t crc, uint32_t size, bool included)
+{
+    for (Playlist &playlist : playlists_) {
+        if (playlist.id != id) continue;
+        auto it = std::find_if(playlist.songs.begin(), playlist.songs.end(),
+                               [crc, size](const SongKey &song) { return song.crc == crc && song.size == size; });
+        if (included) {
+            if (it == playlist.songs.end()) playlist.songs.push_back(SongKey{crc, size});
+        } else if (it != playlist.songs.end()) {
+            playlist.songs.erase(it);
+        }
+        return true;
+    }
+    return false;
+}
+
+bool Registry::hasPlaylistSong(uint16_t id, uint32_t crc, uint32_t size) const
+{
+    for (const Playlist &playlist : playlists_)
+        if (playlist.id == id)
+            return std::any_of(playlist.songs.begin(), playlist.songs.end(),
+                               [crc, size](const SongKey &song) { return song.crc == crc && song.size == size; });
+    return false;
+}
+
+bool Registry::setFavorite(uint16_t playerId, uint32_t crc, uint32_t size, bool favorite)
+{
+    if (!playerId) return false;
+    auto it = std::find_if(favorites_.begin(), favorites_.end(),
+                           [playerId, crc, size](const Favorite &f) {
+                               return f.playerId == playerId && f.crc == crc && f.size == size;
+                           });
+    if (favorite) {
+        if (it == favorites_.end()) favorites_.push_back(Favorite{playerId, crc, size});
+    } else if (it != favorites_.end()) {
+        favorites_.erase(it);
+    }
+    return true;
+}
+
+bool Registry::isFavorite(uint16_t playerId, uint32_t crc, uint32_t size) const
+{
+    return std::any_of(favorites_.begin(), favorites_.end(), [playerId, crc, size](const Favorite &f) {
+        return f.playerId == playerId && f.crc == crc && f.size == size;
+    });
 }
 
 // ---- Player -----------------------------------------------------------------------------------

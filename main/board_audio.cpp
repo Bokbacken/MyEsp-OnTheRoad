@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <atomic>
+#include <math.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -76,8 +77,9 @@ const char *s_error = "";
 uint32_t s_underruns = 0;
 volatile ExternalRender s_ext = nullptr;
 void *volatile s_extCtx = nullptr;
-volatile int s_extGain = 0;    // Q8, master switch applied
-volatile uint8_t s_extVol = 70;
+volatile int s_extGain = 0;    // Q8, external source unity gain
+std::atomic<uint8_t> s_masterVolume{100};
+uint8_t s_appliedMasterVolume = 100;   // Mixer task only
 volatile uint32_t s_mixSeq = 0;   // Incremented after every mixer block
 uint32_t s_extLoad100 = 0;        // Smoothed load in 1/100 %
 // Render load statistics since the last takeExternalStats() (guarded by s_statMux)
@@ -108,6 +110,14 @@ bool wr(uint8_t reg, uint8_t val)
 {
     uint8_t b[2] = {reg, val};
     return i2c_master_transmit(s_dev, b, 2, 50) == ESP_OK;
+}
+
+uint8_t dacVolumeCode(uint8_t volume)
+{
+    if (!volume) return 0;
+    const float db = 40.0f * log10f((float)volume / 100.0f);
+    const int code = (int)lroundf((float)DAC_VOL + db * 2.0f);
+    return (uint8_t)(code < 0 ? 0 : code > DAC_VOL ? DAC_VOL : code);
 }
 
 bool rd(uint8_t reg, uint8_t &val) { return i2c_master_transmit_receive(s_dev, &reg, 1, &val, 1, 50) == ESP_OK; }
@@ -361,6 +371,16 @@ void handle(const Msg &m)
     }
 }
 
+void applyMasterVolume()
+{
+    if (s_webMuted) return;
+    const uint8_t volume = s_masterVolume.load();
+    if (volume == s_appliedMasterVolume) return;
+    if (s_codec && !wr(0x32, dacVolumeCode(volume)))
+        ESP_LOGE(TAG, "ES8311 master volume update failed");
+    s_appliedMasterVolume = volume;
+}
+
 void mixerTask(void *)
 {
     // Ramp the DAC up behind the (silent) DMA stream, then enable the amplifier.
@@ -368,10 +388,13 @@ void mixerTask(void *)
         wr(0x32, (uint8_t)(v > DAC_VOL ? DAC_VOL : v));
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-    wr(0x32, DAC_VOL);
+    const uint8_t startupVolume = s_masterVolume.load();
+    wr(0x32, dacVolumeCode(startupVolume));
+    s_appliedMasterVolume = startupVolume;
     for (;;) {
         Msg m;
         while (xQueueReceive(s_queue, &m, 0) == pdTRUE) handle(m);
+        applyMasterVolume();
         if (s_sleepRequested && !s_sleeping) {
             setAmp(false);
             const esp_err_t err = i2s_channel_disable(s_tx);
@@ -403,8 +426,9 @@ void mixerTask(void *)
         // off) so it does not echo; the synth keeps running at its normal level for the stream
         const bool web = s_webStream;
         if (web != s_webMuted) {
-            wr(0x32, web ? 0x00 : DAC_VOL);
+            wr(0x32, web ? 0x00 : dacVolumeCode(s_masterVolume.load()));
             s_webMuted = web;
+            if (!web) s_appliedMasterVolume = s_masterVolume.load();
             ESP_LOGI(TAG, "web stream %s: speaker %s", web ? "on" : "off", web ? "muted" : "restored");
         }
         setAmp(s_soundOn && !web);
@@ -558,11 +582,9 @@ void setVolumes(bool soundOn, uint8_t sfxVol, bool musicOn, uint8_t musicVol)
     s_soundOn = soundOn;
 }
 
-void setExternalVolume(uint8_t vol)
+void setMasterVolume(uint8_t vol)
 {
-    if (vol > 100) vol = 100;
-    s_extVol = vol;
-    s_extGain = vol * vol * 512 / 10000;   // Up to 2x the synth level (the SF2 synth has 14 dB headroom)
+    s_masterVolume.store(vol > 100 ? 100 : vol);
 }
 
 void setExternal(ExternalRender fn, void *ctx)
@@ -578,7 +600,7 @@ void setExternal(ExternalRender fn, void *ctx)
         s_extLoad100 = 0;
         return;
     }
-    if (s_extGain == 0 && s_extVol) setExternalVolume(s_extVol);
+    s_extGain = 256;
     s_extCtx = ctx;
     s_ext = fn;
 }

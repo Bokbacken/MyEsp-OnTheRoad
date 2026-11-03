@@ -56,7 +56,7 @@ uint32_t s_crc = 0, s_size = 0;
 std::string s_fileName;
 int s_melody = -1;
 bool s_melodyReg = false, s_melodyMuted = false;
-uint8_t s_volume = 70;
+uint8_t s_songVolume = 100;
 
 volatile FontState s_fontState = FontState::NONE;
 volatile Err s_fontErr = Err::OK;
@@ -122,7 +122,8 @@ void renderCb(int32_t *acc, int n, int gainQ8, void *)
             s_player.play(true);
         }
         s_player.advance((uint32_t)((uint64_t)n * 1000000u / Synth::RATE), s_synth);
-        s_synth.render(acc, n, gainQ8);
+        const int songGainQ8 = (int)((int64_t)gainQ8 * s_songVolume / 100);
+        s_synth.render(acc, n, songGainQ8);
         KaraWeb::onRender(s_song, s_player.position());   // v0.13.5: lyric events for the web stream
         const int v = s_synth.activeVoices();
         if (v > s_voicesPeak) s_voicesPeak = v;
@@ -155,6 +156,8 @@ std::string updateRegistry()
     e.melody = (int8_t)s_melody;
     e.transpose = (int8_t)s_synth.transpose();
     e.tempo = (uint8_t)s_player.tempo();
+    e.melodyMuted = s_melodyMuted;
+    e.volume = s_songVolume;
     e.sf2 = s_songSf2;
     e.name = s_fileName;
     s_reg.set(e);
@@ -1002,6 +1005,7 @@ Err open(const SongFile &sf)
     s_melody = s_song.melody;
     s_melodyReg = false;
     s_melodyMuted = false;
+    s_songVolume = 100;
     int tr = 0, tempo = 100;
     s_songSf2.clear();
     if (const Midi::RegEntry *r = s_reg.find(s_crc, s_size)) {
@@ -1009,6 +1013,8 @@ Err open(const SongFile &sf)
         if (r->melody != s_song.melody) s_melody = r->melody, s_melodyReg = true;
         tr = r->transpose;
         tempo = r->tempo;
+        s_melodyMuted = r->melodyMuted;
+        s_songVolume = r->volume;
     }
     s_player.load(&s_song);
     s_player.setTempo(tempo);
@@ -1030,7 +1036,6 @@ Err open(const SongFile &sf)
     ESP_LOGI(TAG, "%s: %u events, %u lines, melody ch %d%s, crc %08x", s_fileName.c_str(),
              (unsigned)s_song.events.size(), (unsigned)s_song.lines.size(), s_melody + 1,
              s_melodyReg ? " (register)" : "", (unsigned)s_crc);
-    Audio::setExternalVolume(s_volume);
     Audio::setExternal(&renderCb, nullptr);
     KaraWeb::setSong(true, s_fileName.c_str(), s_plainLyrics.empty() ? nullptr : s_plainLyrics.c_str());
     startDiag();
@@ -1164,21 +1169,31 @@ bool melodyFromRegister() { return s_melodyReg; }
 
 void setMelodyMuted(bool m)
 {
-    Lock l;
-    s_melodyMuted = m;
-    if (s_open && !synthBusy()) applyMelodyMute();
+    std::string text;
+    {
+        Lock l;
+        s_melodyMuted = m;
+        if (s_open && !synthBusy()) applyMelodyMute();
+        text = updateRegistry();
+    }
+    writeRegistry(text);
 }
 
 bool melodyMuted() { return s_melodyMuted; }
 
-void setVolume(uint8_t v)
-{
-    s_volume = v > 100 ? 100 : v;
-    Config::get().karaVolume = s_volume;
-    Audio::setExternalVolume(s_volume);
-}
+uint8_t songVolume() { return s_songVolume; }
 
-uint8_t volume() { return s_volume; }
+void setSongVolume(uint8_t v)
+{
+    std::string text;
+    {
+        Lock l;
+        if (!s_open) return;
+        s_songVolume = v > 200 ? 200 : v;
+        text = updateRegistry();
+    }
+    writeRegistry(text);
+}
 
 View view()
 {

@@ -98,18 +98,30 @@ void nameFromFile(const std::string &fileName, std::string &title, std::string &
 
 // ---- Song registry -------------------------------------------------------------------------------
 // One line per song, text file (karaoke.reg on the SD card), editable by hand:
-//   <crc32 hex8> <size> <melody -1..15> <transpose -12..12> <tempo 50..150> [sf2=<font>] <name...>
+//   <crc32 hex8> <size> <melody -1..15> <transpose -12..12> <tempo 50..150>
+//   [sf2=<font>] [mute=1] [volume=0..200] <name...>
 // Keyed by file content (CRC + size), so renaming or moving a file keeps its settings.
-// v0.13.1: optional per-song SoundFont token "sf2=<file name>" (spaces as %20, '%' as %25). It is
-// only written when set, so files without per-song fonts look exactly like v0.13.0 files; older
-// firmware reading a new line just shows the token as part of the name.
+// Optional settings are written only when non-default; older lines remain readable. SoundFont
+// token "sf2=<file name>" encodes spaces as %20 and '%' as %25.
 struct RegEntry {
     uint32_t crc = 0, size = 0;
     int8_t melody = -1;
     int8_t transpose = 0;
     uint8_t tempo = 100;
+    bool melodyMuted = false;
+    uint8_t volume = 100;    // Per-song MIDI gain, independent of the global karaoke output volume.
     std::string sf2;    // SoundFont file name in /sdcard/otr/sf2, "" = global default
     std::string name;
+};
+
+struct SongKey {
+    uint32_t crc = 0, size = 0;
+};
+
+struct Playlist {
+    uint16_t id = 0;
+    std::string name;
+    std::vector<SongKey> songs;
 };
 
 class Registry {
@@ -119,9 +131,21 @@ public:
     const RegEntry *find(uint32_t crc, uint32_t size) const;
     void set(const RegEntry &e);           // Insert or replace
     size_t size() const { return entries_.size(); }
+    const std::vector<Playlist> &playlists() const { return playlists_; }
+    uint16_t createPlaylist(const char *name);
+    bool renamePlaylist(uint16_t id, const char *name);
+    bool deletePlaylist(uint16_t id);
+    bool setPlaylistSong(uint16_t id, uint32_t crc, uint32_t size, bool included);
+    bool hasPlaylistSong(uint16_t id, uint32_t crc, uint32_t size) const;
+    bool setFavorite(uint16_t playerId, uint32_t crc, uint32_t size, bool favorite);
+    bool isFavorite(uint16_t playerId, uint32_t crc, uint32_t size) const;
 
 private:
+    struct Favorite { uint16_t playerId; uint32_t crc, size; };
     std::vector<RegEntry> entries_;
+    std::vector<Playlist> playlists_;
+    std::vector<Favorite> favorites_;
+    uint16_t nextPlaylistId_ = 1;
 };
 
 // ---- Sequencer -------------------------------------------------------------------------------------

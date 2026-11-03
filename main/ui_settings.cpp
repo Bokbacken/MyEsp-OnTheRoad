@@ -40,7 +40,7 @@ enum class Page : uint8_t { GAME, USER, ADMIN };
 
 static AppConfig s_edit;            // Working copy, committed on "Spara"
 static lv_obj_t *s_brightVal, *s_ledVal, *s_animVal, *s_netInfo, *s_touchInfo, *s_batteryInfo;
-static lv_obj_t *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
+static lv_obj_t *s_masterVal, *s_sfxVal, *s_musVal, *s_zoneVal, *s_slowVal, *s_fastVal, *s_holdVal, *s_sdInfo;
 static lv_obj_t *s_slowSl, *s_fastSl;
 static lv_obj_t *s_sudokuDeadZoneVal = nullptr, *s_deadZoneActive = nullptr;
 static lv_timer_t *s_timer = nullptr;
@@ -110,7 +110,7 @@ void applyHardware()
     Rgb::setBrightness(c.ledBrightness);
     applyRotation(c.rotation == 180);
     Audio::setVolumes(c.soundOn, c.sfxVol, c.musicOn, c.musicVol);
-    Karaoke::setVolume(c.karaVolume);
+    Audio::setMasterVolume(c.masterVol);
 }
 
 bool toggleSound()
@@ -154,7 +154,11 @@ void prepareForMenuNavigation()
     applyHardware();
 }
 
-static void previewSound() { Audio::setVolumes(s_edit.soundOn, s_edit.sfxVol, s_edit.musicOn, s_edit.musicVol); }
+static void previewSound()
+{
+    Audio::setVolumes(s_edit.soundOn, s_edit.sfxVol, s_edit.musicOn, s_edit.musicVol);
+    Audio::setMasterVolume(s_edit.masterVol);
+}
 
 static void refreshInfo(lv_timer_t *)
 {
@@ -304,6 +308,13 @@ static void onSfx(lv_event_t *e)
     previewSound();
 }
 
+static void onMasterVolume(lv_event_t *e)
+{
+    s_edit.masterVol = (uint8_t)lv_slider_get_value(lv_event_get_target_obj(e));
+    lv_label_set_text_fmt(s_masterVal, "%d %%", s_edit.masterVol);
+    Audio::setMasterVolume(s_edit.masterVol);
+}
+
 static void onMusic(lv_event_t *e)
 {
     s_edit.musicVol = (uint8_t)lv_slider_get_value(lv_event_get_target_obj(e));
@@ -380,6 +391,7 @@ static void leave(bool save)
         Config::get().throwMode = s_edit.throwMode;
         Config::get().rotation = s_edit.rotation;
         Config::get().soundOn = s_edit.soundOn;
+        Config::get().masterVol = s_edit.masterVol;
         Config::get().sfxVol = s_edit.sfxVol;
         Config::get().musicOn = s_edit.musicOn;
         Config::get().musicVol = s_edit.musicVol;
@@ -618,6 +630,7 @@ static void showPage(Page page)
         previewSound();
         Audio::play(Sound::Sfx::CLICK);
     });
+    sliderRow(snd, tr(Str::SET_MASTER_VOL), 0, 100, s_edit.masterVol, &s_masterVal, onMasterVolume);
     lv_obj_t *sfx = sliderRow(snd, tr(Str::SET_SFX_VOL), 0, 100, s_edit.sfxVol, &s_sfxVal, onSfx);
     lv_obj_add_event_cb(sfx, [](lv_event_t *) { Audio::play(Sound::Sfx::SCORE); }, LV_EVENT_RELEASED, nullptr);
     switchRow(snd, tr(Str::SET_MUSIC_ON), s_edit.musicOn, [](lv_event_t *e) {
