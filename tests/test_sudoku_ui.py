@@ -369,7 +369,7 @@ int main() {
         if(testBack) {
             assert(!UiSudoku::s_board && !UiSudoku::running());
             assert(UiSudoku::s_listScreen && !MyNvs::data.empty());
-            UiSudoku::showResetDialog();
+            UiSudoku::confirmResetProgress();
             auto *resetBox=lv_obj_get_parent(UiSudoku::s_resetMessage);
             assert(resetBox && lv_obj_get_child_count(resetBox)==3);
             lv_obj_send_event(lv_obj_get_child(resetBox,2),LV_EVENT_CLICKED,nullptr);
@@ -393,6 +393,19 @@ int main() {
         }
       }
     }
+    Lang::setLang("en");
+    MyFonts::apply(MyFonts::TextSize::NORMAL, 480);
+    UiSudoku::s_sdScanNoticeRequired=true;
+    UiSudoku::show(); settle();
+    assert(UiSudoku::s_sdScanNoticeRequired);
+    UiSudoku::show(); settle();
+    assert(UiSudoku::s_sdScanNoticeRequired);
+    auto *screen=lv_screen_active();
+    auto *shade=lv_obj_get_child(screen,lv_obj_get_child_count(screen)-1);
+    auto *box=lv_obj_get_child(shade,0);
+    assert(lv_obj_get_child_count(box)==2);
+    lv_obj_send_event(lv_obj_get_child(box,1),LV_EVENT_CLICKED,nullptr);
+    assert(!UiSudoku::s_sdScanNoticeRequired);
     lv_display_delete(display);
     lv_deinit();
 }

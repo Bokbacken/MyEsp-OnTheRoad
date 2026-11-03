@@ -29,6 +29,7 @@
 #include "my_theme.h"
 #include "ui_wifi.h"
 #include "ui_yatzy.h"
+#include "ui_sudoku.h"
 #include "ui_screen_power.h"
 #include "ui_metrics.h"
 #include "hw_profile.h"
@@ -709,6 +710,11 @@ static void showPage(Page page)
     lv_obj_set_style_text_color(digit, Theme::c(Theme::BG), 0);
     lv_obj_center(digit);
     updateDeadZonePreview();
+    lv_obj_t *resetProgress = Theme::button(sudoku, tr(Str::SUDOKU_RESET_PROGRESS),
+                                            LV_PCT(100), UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_add_event_cb(resetProgress, [](lv_event_t *) {
+        UiSudoku::confirmResetProgress();
+    }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *clk = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     s_adminCards[2] = clk;

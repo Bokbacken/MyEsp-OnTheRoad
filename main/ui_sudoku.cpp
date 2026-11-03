@@ -47,7 +47,7 @@ lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr,
 lv_obj_t *s_resetMessage = nullptr;
 unsigned s_replaceCell = 0;
 uint8_t s_replaceDigit = 0;
-bool s_sdScanNoticePending = false;
+bool s_sdScanNoticeRequired = false;
 
 struct Save {
     uint32_t version = 2;
@@ -183,13 +183,12 @@ void scanSdIfNeeded()
     }
     if (s_sdScanReady.load(std::memory_order_acquire) ||
         s_sdScanRunning.exchange(true, std::memory_order_acq_rel)) return;
-    s_sdScanNoticePending = SudokuSd::needsScanNotice();
+    const bool needsNotice = SudokuSd::needsScanNotice();
     if (xTaskCreate(scanTask, "sudoku_sd", 8192, nullptr, 1, nullptr) != pdPASS) {
         s_sdScanRunning.store(false, std::memory_order_release);
         s_sdScanReady.store(true, std::memory_order_release);
-        s_sdScanNoticePending = false;
         lv_async_call(scanDone, nullptr);
-    }
+    } else if (needsNotice) s_sdScanNoticeRequired = true;
 }
 
 void showScanNotice()
@@ -205,6 +204,7 @@ void showScanNotice()
     auto *ok = Theme::button(box, tr(Str::ADV_TALK_OK), 110, 40, Theme::ACCENT);
     lv_obj_align(ok, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_add_event_cb(ok, [](lv_event_t *event) {
+        s_sdScanNoticeRequired = false;
         lv_obj_delete(static_cast<lv_obj_t *>(lv_event_get_user_data(event)));
     }, LV_EVENT_CLICKED, shade);
 }
@@ -224,7 +224,6 @@ void resetProgress(lv_event_t *event)
     s_elapsed = 0;
     s_resetMessage = nullptr;
     lv_obj_delete(shade);
-    show();
 }
 
 void showResetDialog()
@@ -867,6 +866,8 @@ void start(lv_event_t *event)
 
 bool running() { return s_running.load(); }
 
+void confirmResetProgress() { showResetDialog(); }
+
 void show()
 {
     static bool restoreChecked = false;
@@ -902,17 +903,10 @@ void show()
             lv_obj_add_state(b, LV_STATE_DISABLED);
         lv_obj_add_event_cb(b, start, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(i)));
     }
-    auto *reset = Theme::button(list, tr(Str::SUDOKU_RESET_PROGRESS), LV_PCT(100),
-                                UiMetrics::buttonH(), Theme::MUTED);
-    lv_obj_add_event_cb(reset, [](lv_event_t *) { showResetDialog(); },
-                        LV_EVENT_CLICKED, nullptr);
     auto *back = Theme::button(screen, tr(Str::BTN_BACK), 100, 34, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_add_event_cb(back, [](lv_event_t *) { UiYatzy::showMenu(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(screen);
-    if (s_sdScanNoticePending) {
-        s_sdScanNoticePending = false;
-        showScanNotice();
-    }
+    if (s_sdScanNoticeRequired) showScanNotice();
 }
 }  // namespace UiSudoku

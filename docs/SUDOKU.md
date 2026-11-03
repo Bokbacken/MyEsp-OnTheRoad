@@ -33,9 +33,9 @@ are saved in NVS every 30 seconds, when pausing, leaving or finishing. Power
 loss can therefore discard the last 30 seconds; undo history is not persisted.
 Only one unfinished puzzle is saved, with confirmation before replacing it.
 Use **Continue saved puzzle** to resume after returning or restarting.
-**Reset progress** in the puzzle selector asks for confirmation, then removes
-the saved game and all four solved counts from Sudoku's NVS namespace. It does
-not erase other settings, puzzle files or SD index caches.
+**Reset progress** in **Settings → Game → Sudoku** asks for confirmation, then
+removes the saved game and all four solved counts from Sudoku's NVS namespace.
+It does not erase other settings, puzzle files or SD index caches.
 Finishing unlocks the next puzzle in that difficulty. There is no hint solver
 or automatic candidate elimination.
 
@@ -85,7 +85,9 @@ Valid-record counts and block offsets are cached beside each source as an
 time are unchanged; only changed or uncached files need a full scan. The
 generated `.sidx` files can be deleted safely and are rebuilt when needed.
 When a file needs a full scan, a popup explains that checking new or changed
-large files can take several minutes. The selector continues to show solved
+large files can take several minutes and remains visible until acknowledged
+with OK. It appears only when a source file has no matching valid index cache,
+such as when files are new or changed. The selector continues to show solved
 progress out of the first 100 while the scan runs; the available total updates
 when indexing finishes. With no source files present, no background scan task
 is started. Puzzles are loaded one block of 100 at a time as the player
