@@ -67,6 +67,7 @@ struct AppConfig {
     // Approximate battery-full point for the generic LiPo percentage curve (mV).
     uint16_t batteryFullMv;
     uint8_t sudokuDeadZone;    // Inactive edge width in pixels (0..8, default 2)
+    bool sudokuHelpHints;      // Show brief Sudoku control hints
 };
 
 // Joystick limits shared by the UI and the web API.

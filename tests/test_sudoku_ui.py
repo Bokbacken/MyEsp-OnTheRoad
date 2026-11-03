@@ -131,6 +131,7 @@ static bool solveBoard(uint8_t board[81]) {
 int main() {
     lv_init();
     Config::get().sudokuDeadZone=4;
+    Config::get().sudokuHelpHints=true;
     lv_font_glyph_dsc_t undoGlyph{}, redoGlyph{};
     assert(lv_font_get_glyph_dsc(&my_font_raw_24, &undoGlyph, 0xF0E2, 0));
     assert(lv_font_get_glyph_dsc(&my_font_raw_24, &redoGlyph, 0xF2F9, 0));
@@ -186,6 +187,13 @@ int main() {
         lv_obj_get_coords(UiSudoku::s_info,&infoArea);
         lv_obj_get_coords(UiSudoku::s_board,&boardArea);
         assert(infoArea.y2 < boardArea.y1);
+        if(size.x<size.y) assert(lv_obj_get_width(UiSudoku::s_board)>=size.x-8);
+        UiSudoku::showHelp(Str::SUDOKU_MODE_NOTES);
+        assert(!lv_obj_has_flag(UiSudoku::s_help,LV_OBJ_FLAG_HIDDEN));
+        Config::get().sudokuHelpHints=false;
+        UiSudoku::showHelp(Str::SUDOKU_MODE_DIGIT);
+        assert(lv_obj_has_flag(UiSudoku::s_help,LV_OBJ_FLAG_HIDDEN));
+        Config::get().sudokuHelpHints=true;
         for(auto *digit : UiSudoku::s_digits) inside(digit,size.x,size.y);
         inside(UiSudoku::s_noteButton,size.x,size.y);
         inside(UiSudoku::s_pauseButton,size.x,size.y);

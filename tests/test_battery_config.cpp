@@ -34,6 +34,7 @@ int main()
     CHECK(!defaults.ecoSleep && !defaults.powerLog);
     CHECK(defaults.menuAnimations);
     CHECK(defaults.sudokuDeadZone == SUDOKU_DEAD_ZONE_DEFAULT);
+    CHECK(defaults.sudokuHelpHints);
 
     TestNvs::numbers.clear();
     Config::begin();
@@ -41,6 +42,17 @@ int main()
     CHECK(Config::get().batteryFullMv == 4200);
     CHECK(Config::get().karaVolume == 70);
     CHECK(Config::get().sudokuDeadZone == SUDOKU_DEAD_ZONE_DEFAULT);
+    CHECK(Config::get().sudokuHelpHints);
+
+    Config::get().sudokuHelpHints = false;
+    CHECK(Config::save());
+    CHECK(TestNvs::numbers["sud_help"] == 0);
+    Config::begin();
+    CHECK(!Config::get().sudokuHelpHints);
+    Config::get().sudokuHelpHints = true;
+    CHECK(Config::save());
+    Config::begin();
+    CHECK(Config::get().sudokuHelpHints);
 
     for (uint8_t deadZone = SUDOKU_DEAD_ZONE_MIN; deadZone <= SUDOKU_DEAD_ZONE_MAX; ++deadZone) {
         Config::get().sudokuDeadZone = deadZone;

@@ -39,6 +39,7 @@ char s_sdBlock[Sudoku::BLOCK_SIZE][Sudoku::CELL_COUNT + 1]{};
 uint32_t s_sdBlockDifficulty = UINT32_MAX, s_sdBlockNumber = UINT32_MAX, s_sdBlockCount = 0;
 lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
 lv_obj_t *s_gameScreen = nullptr, *s_listScreen = nullptr;
+lv_timer_t *s_helpTimer = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
 lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr, *s_winNext = nullptr;
 unsigned s_replaceCell = 0;
@@ -75,6 +76,25 @@ constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 
 void startNew(unsigned difficulty);
 void showWinPrompt();
+
+void hideHelp(lv_timer_t *timer)
+{
+    auto *label = static_cast<lv_obj_t *>(lv_timer_get_user_data(timer));
+    if (label && lv_obj_is_valid(label)) lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_pause(timer);
+}
+
+void showHelp(Str message, bool force = false)
+{
+    if (!s_help || (!force && !Config::get().sudokuHelpHints)) return;
+    lv_label_set_text(s_help, tr(message));
+    lv_obj_clear_flag(s_help, LV_OBJ_FLAG_HIDDEN);
+    if (!s_helpTimer) s_helpTimer = lv_timer_create(hideHelp, 2200, s_help);
+    if (s_helpTimer) {
+        lv_timer_reset(s_helpTimer);
+        lv_timer_resume(s_helpTimer);
+    }
+}
 
 uint32_t available(unsigned difficulty)
 {
@@ -272,7 +292,7 @@ void save()
     if (!h || !h.setBlob("game", &data, sizeof(data)) || !h.commit()) {
         ESP_LOGE("sudoku", "cannot save game");
         s_saveFailed = true;
-        if (s_help) lv_label_set_text(s_help, tr(Str::SUDOKU_SAVE_FAILED));
+        showHelp(Str::SUDOKU_SAVE_FAILED, true);
         return;
     }
     s_saveFailed = false;
@@ -452,17 +472,17 @@ void refresh()
         s_dirty = true;
         save();
     }
-    char text[96];
-    snprintf(text, sizeof(text), "%s #%u   %02lu:%02lu%s",
-             tr(difficultyLabel(static_cast<unsigned>(s_game.difficulty()))), s_game.puzzleIndex() + 1,
-             (unsigned long)(s_elapsed / 60000), (unsigned long)(s_elapsed / 1000 % 60),
-             complete ? " *" : "");
+    char text[48];
+    if ((MySys::millis() / 2500) % 2 == 0) {
+        snprintf(text, sizeof(text), "%s", tr(Str::SUDOKU_TITLE));
+    } else {
+        snprintf(text, sizeof(text), "%s #%u %lu:%02lu",
+                 tr(difficultyLabel(static_cast<unsigned>(s_game.difficulty()))),
+                 s_game.puzzleIndex() + 1,
+                 (unsigned long)(s_elapsed / 60000), (unsigned long)(s_elapsed / 1000 % 60));
+    }
     lv_label_set_text(s_info, text);
-    lv_label_set_text(s_help, tr(s_saveFailed ? Str::SUDOKU_SAVE_FAILED :
-                               complete ? Str::SUDOKU_COMPLETE :
-                               s_paused ? Str::SUDOKU_PAUSED :
-                               s_erase ? Str::SUDOKU_ERASE :
-                               s_notes ? Str::SUDOKU_NOTES : Str::SUDOKU_HINT));
+    if (s_saveFailed) showHelp(Str::SUDOKU_SAVE_FAILED, true);
     lv_obj_invalidate(s_board);
 }
 
@@ -585,21 +605,31 @@ void boardClick(lv_event_t *event)
 void tool(lv_event_t *event)
 {
     const auto action = static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    Str hint = Str::SUDOKU_MODE_DIGIT;
     if (action == 5) {
         const uint32_t now = MySys::millis();
         if (!s_paused && !s_game.complete() && !Backlight::sleeping())
             s_elapsed += now - s_tick;
         s_paused = !s_paused;
+        hint = s_paused ? Str::SUDOKU_MODE_PAUSE : Str::SUDOKU_MODE_DIGIT;
         s_tick = now;
         s_dirty = true;
         save();
     } else if (!s_paused && !s_game.complete()) {
-        if (action == 0) { if (s_game.undo()) s_dirty = true; s_checked = false; }
-        if (action == 1) { if (s_game.redo()) s_dirty = true; s_checked = false; }
-        if (action == 2) s_checked = true;
-        if (action == 3) { s_notes = !s_notes; s_erase = false; }
-        if (action == 4) s_erase = !s_erase;
+        if (action == 0) { if (s_game.undo()) s_dirty = true; s_checked = false; hint = Str::SUDOKU_MODE_UNDO; }
+        if (action == 1) { if (s_game.redo()) s_dirty = true; s_checked = false; hint = Str::SUDOKU_MODE_REDO; }
+        if (action == 2) { s_checked = true; hint = Str::SUDOKU_MODE_CHECK; }
+        if (action == 3) {
+            s_notes = !s_notes; s_erase = false;
+            hint = s_notes ? Str::SUDOKU_MODE_NOTES : Str::SUDOKU_MODE_DIGIT;
+        }
+        if (action == 4) {
+            s_erase = !s_erase;
+            hint = s_erase ? Str::SUDOKU_MODE_ERASE :
+                   s_notes ? Str::SUDOKU_MODE_NOTES : Str::SUDOKU_MODE_DIGIT;
+        }
     }
+    showHelp(hint);
     refresh();
 }
 
@@ -608,6 +638,7 @@ void digitClick(lv_event_t *event)
     s_digit = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     s_erase = false;
     refresh();
+    showHelp(s_notes ? Str::SUDOKU_MODE_NOTES : Str::SUDOKU_MODE_DIGIT);
 }
 
 void tick(lv_timer_t *timer)
@@ -629,21 +660,29 @@ void play()
     Theme::setStatusShareAvailable(false);
     lv_obj_t *screen = Theme::screen();
     s_gameScreen = screen;
-    Theme::header(screen, tr(Str::SUDOKU_TITLE));
+    lv_obj_t *header = Theme::header(screen, tr(Str::SUDOKU_TITLE));
+    s_info = lv_obj_get_child(header, 0);
     const int w = UiMetrics::screenW(), h = UiMetrics::screenH();
-    const int margin = 8, gap = 4;
+    const int margin = 4, gap = 3;
     const bool landscape = w > h;
-    const int infoY = UiMetrics::titleH() + 4, infoH = 24;
-    const int top = infoY + infoH + 4;
-    int side = landscape ? h - top - 8 : w - 2 * margin;
-    if (!landscape && side > h - top - 174) side = h - top - 174;
+    const int top = UiMetrics::titleH() + 4;
+    const int buttonH = landscape ? 42 : (h <= 500 ? 32 : 40);
+    const int controlsH = 3 * buttonH + 2 * gap;
+    int side = landscape ? h - top - 8 : h - top - controlsH - gap - margin;
+    if (!landscape && side > w - 2 * margin) side = w - 2 * margin;
     side = side / 9 * 9;
     const int controlsX = landscape ? margin + side + 10 : margin;
-    const int controlsY = landscape ? top : top + side + 4;
+    const int controlsY = landscape ? top : top + side + gap;
     const int controlsW = landscape ? w - controlsX - margin : w - 2 * margin;
     const int buttonW = (controlsW - 4 * gap) / 5;
-    const int buttonH = landscape ? (h - controlsY - 68) / 3 : (h - controlsY - 40) / 3;
 
+    auto *back = Theme::button(header, LV_SYMBOL_LEFT, 32, 32, Theme::MUTED);
+    lv_obj_set_pos(back, 6, 6);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_set_pos(s_info, 44, 6);
+    lv_obj_set_size(s_info, LV_MAX(1, w - Theme::STATUS_BAR_RESERVED_WIDTH - 50), 32);
+    lv_obj_set_style_text_font(s_info, &my_font_raw_12, 0);
+    lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
     s_board = lv_obj_create(screen);
     lv_obj_remove_style_all(s_board);
     lv_obj_set_pos(s_board, landscape ? margin : (w - side) / 2, top);
@@ -652,15 +691,6 @@ void play()
     lv_obj_remove_flag(s_board, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_board, draw, LV_EVENT_DRAW_MAIN, nullptr);
     lv_obj_add_event_cb(s_board, boardClick, LV_EVENT_CLICKED, nullptr);
-    s_info = Theme::label(screen, "", &my_font_14);
-    lv_obj_set_pos(s_info, margin, infoY);
-    lv_obj_set_width(s_info, w - 2 * margin - 72);
-    lv_obj_set_style_text_font(s_info, &my_font_14, 0);
-    lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_t *back = Theme::button(screen, tr(Str::BTN_BACK), 64, infoH, Theme::MUTED);
-    lv_obj_set_style_text_font(lv_obj_get_child(back, 0), &my_font_14, 0);
-    lv_obj_set_pos(back, w - margin - 64, infoY);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
     const char *tools[] = {SUDOKU_SYMBOL_UNDO, SUDOKU_SYMBOL_REDO, LV_SYMBOL_OK,
                            LV_SYMBOL_EDIT, LV_SYMBOL_CLOSE, LV_SYMBOL_PAUSE};
     for (unsigned row = 0; row < 3; ++row) {
@@ -679,8 +709,15 @@ void play()
         }
     }
     s_help = Theme::label(screen, "", &my_font_raw_12, Theme::MUTED);
-    lv_obj_set_pos(s_help, controlsX, controlsY + 3 * (buttonH + gap));
-    lv_obj_set_width(s_help, controlsW);
+    lv_obj_set_width(s_help, w - 16);
+    lv_obj_set_style_text_align(s_help, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_bg_color(s_help, Theme::c(Theme::PANEL), 0);
+    lv_obj_set_style_bg_opa(s_help, LV_OPA_90, 0);
+    lv_obj_set_style_radius(s_help, 8, 0);
+    lv_obj_set_style_pad_hor(s_help, 6, 0);
+    lv_obj_set_style_pad_ver(s_help, 4, 0);
+    lv_obj_align(s_help, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_add_flag(s_help, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_HIDDEN);
     lv_label_set_long_mode(s_help, LV_LABEL_LONG_MODE_WRAP);
     s_tick = s_savedAt = MySys::millis();
     s_paused = false;
@@ -695,18 +732,27 @@ void play()
                 s_board = s_help = s_gameScreen = nullptr;
                 s_cheer = s_winPrompt = nullptr;
                 s_winNext = nullptr;
+                s_info = nullptr;
+                if (s_helpTimer) lv_timer_pause(s_helpTimer);
             }
             lv_timer_pause(timer);
-        } else if (lv_event_get_code(event) == LV_EVENT_DELETE) lv_timer_delete(timer);
+        } else if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+            lv_timer_delete(timer);
+            if (s_helpTimer) {
+                lv_timer_delete(s_helpTimer);
+                s_helpTimer = nullptr;
+            }
+        }
     }, LV_EVENT_ALL, timer);
     refresh();
+    showHelp(s_paused ? Str::SUDOKU_MODE_PAUSE : Str::SUDOKU_MODE_DIGIT);
     Theme::loadScreen(screen);
 }
 
 void startNew(unsigned difficulty)
 {
-    if (s_next[difficulty] >= Sudoku::BLOCK_SIZE) return;
-    if (!s_game.start(static_cast<Sudoku::Difficulty>(difficulty), s_next[difficulty])) {
+    if (difficulty >= 4 || s_next[difficulty] >= available(difficulty)) return;
+    if (!startPuzzle(s_game, difficulty, s_next[difficulty])) {
         ESP_LOGE("sudoku", "cannot start puzzle");
         return;
     }

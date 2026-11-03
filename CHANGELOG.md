@@ -29,6 +29,9 @@ a published GitHub Release.
   bank, then load additional puzzles from matching files under
   `/sdcard/otr/sudoku/`. The selector shows the total available count and
   accepts `extreme.txt` or `diabolical.txt` for Extreme.
+- Make the Sudoku board use the full available portrait width, move Back to a
+  header icon and alternate the header title with compact puzzle/time details.
+  Brief contextual control hints can be disabled in Sudoku game settings.
 - Add an animated mini-Sudoku home icon, controlled by the existing menu
   animation setting. Yatzy multiplayer behaviour is unchanged.
 - Make the app/C6 OTA file pickers larger, with a highlighted drop area and

@@ -384,6 +384,7 @@ static void leave(bool save)
         Config::get().musicVol = s_edit.musicVol;
         Config::get().batteryScalePermille = s_edit.batteryScalePermille;
         Config::get().sudokuDeadZone = s_edit.sudokuDeadZone;
+        Config::get().sudokuHelpHints = s_edit.sudokuHelpHints;
         Config::get().joyZones = s_edit.joyZones;
         Config::get().joySlowMs = s_edit.joySlowMs;
         Config::get().joyFastMs = s_edit.joyFastMs;
@@ -681,6 +682,9 @@ static void showPage(Page page)
     Theme::label(sudoku, tr(Str::SUDOKU_TITLE), &my_font_14, Theme::ACCENT);
     sliderRow(sudoku, tr(Str::SET_SUDOKU_DEAD_ZONE), SUDOKU_DEAD_ZONE_MIN,
               SUDOKU_DEAD_ZONE_MAX, s_edit.sudokuDeadZone, &s_sudokuDeadZoneVal, onSudokuDeadZone);
+    switchRow(sudoku, tr(Str::SET_SUDOKU_HELP_HINTS), s_edit.sudokuHelpHints, [](lv_event_t *event) {
+        s_edit.sudokuHelpHints = lv_obj_has_state(lv_event_get_target_obj(event), LV_STATE_CHECKED);
+    });
     lv_obj_t *deadZoneHelp = Theme::label(sudoku, tr(Str::SET_SUDOKU_DEAD_ZONE_HELP), &my_font_14, Theme::MUTED);
     lv_obj_set_width(deadZoneHelp, LV_PCT(100));
     lv_label_set_long_mode(deadZoneHelp, LV_LABEL_LONG_MODE_WRAP);
