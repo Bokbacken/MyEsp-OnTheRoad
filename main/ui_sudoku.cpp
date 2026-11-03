@@ -717,7 +717,8 @@ void play()
     lv_obj_set_style_pad_hor(s_help, 6, 0);
     lv_obj_set_style_pad_ver(s_help, 4, 0);
     lv_obj_align(s_help, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_add_flag(s_help, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_help, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(s_help, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_long_mode(s_help, LV_LABEL_LONG_MODE_WRAP);
     s_tick = s_savedAt = MySys::millis();
     s_paused = false;
