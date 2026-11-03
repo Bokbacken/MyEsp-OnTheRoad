@@ -38,6 +38,21 @@ public:
 }
 """)
 (WORK / "sdkconfig.h").write_text("")
+(WORK / "freertos").mkdir(exist_ok=True)
+(WORK / "freertos" / "FreeRTOS.h").write_text("""
+#pragma once
+using BaseType_t = int;
+using UBaseType_t = unsigned;
+using TaskHandle_t = void *;
+#define pdPASS 1
+""")
+(WORK / "freertos" / "task.h").write_text("""
+#pragma once
+#include "FreeRTOS.h"
+using TaskFunction_t = void (*)(void *);
+BaseType_t xTaskCreate(TaskFunction_t, const char *, unsigned, void *, UBaseType_t, TaskHandle_t *);
+void vTaskDelete(void *);
+""")
 (WORK / "esp_random.h").write_text("""
 #pragma once
 #include <stdint.h>
@@ -58,6 +73,18 @@ namespace Config { AppConfig &get() { return testConfig; } }
 #include "ui_sudoku.cpp"
 namespace Backlight { bool sleeping() { return false; } }
 namespace UiYatzy { void showMenu() {} }
+namespace BoardSd {
+bool begin() { return false; }
+bool mounted() { return false; }
+bool transferHealthy() { return false; }
+bool beginTransfer() { return false; }
+void endTransfer() {}
+Info info() { return {}; }
+}
+BaseType_t xTaskCreate(TaskFunction_t, const char *, unsigned, void *, UBaseType_t, TaskHandle_t *) {
+    return 0;
+}
+void vTaskDelete(void *) {}
 static void settle() {
     for (int i=0;i<30;++i) { lv_tick_inc(10); MySys::now+=10; lv_timer_handler(); }
     lv_obj_update_layout(lv_screen_active());
@@ -362,13 +389,13 @@ set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
-add_executable(sudoku_ui test.cpp "{ROOT}/main/sudoku_game.cpp"
+add_executable(sudoku_ui test.cpp "{ROOT}/main/sudoku_game.cpp" "{ROOT}/main/sudoku_sd.cpp"
  "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp"
  "{ROOT}/components/my_ui/my_fonts.cpp" {fonts}
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
 target_include_directories(sudoku_ui PRIVATE "{WORK}" "{ROOT}/tests/player_stubs"
  "{ROOT}/main" "{ROOT}/main/lang" "{ROOT}/components/my_ui/include"
- "{ROOT}/components/my_wifi/include")
+ "{ROOT}/components/my_wifi/include" "{WORK}")
 target_compile_options(sudoku_ui PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror;-Wno-error=deprecated-declarations>)
 target_link_libraries(sudoku_ui PRIVATE lvgl m)
 """)

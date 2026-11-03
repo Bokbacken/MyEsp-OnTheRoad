@@ -130,12 +130,18 @@ static void testBundledPuzzleUniquenessAndLoading()
 static void testInputAndFixedCells()
 {
     Sudoku::Game game;
+    Sudoku::Game external;
     CHECK(!game.undo());
     CHECK(!game.put(0, 1, false));
     CHECK(!game.erase(0));
     CHECK(!game.start(static_cast<Sudoku::Difficulty>(4), 0));
     CHECK(!game.start(Sudoku::Difficulty::EASY, Sudoku::BLOCK_SIZE));
     CHECK(game.start(Sudoku::Difficulty::EASY, 0));
+    CHECK(external.startFromGivens(Sudoku::Difficulty::EASY, Sudoku::BLOCK_SIZE,
+                                   Sudoku::detail::kPuzzleGivens[0][0]));
+    CHECK(external.puzzleIndex() == Sudoku::BLOCK_SIZE);
+    CHECK(!external.startFromGivens(static_cast<Sudoku::Difficulty>(4), Sudoku::BLOCK_SIZE,
+                                    Sudoku::detail::kPuzzleGivens[0][0]));
     const char *givens = game.givens();
     char savedGivens[82];
     std::memcpy(savedGivens, givens, sizeof(savedGivens));

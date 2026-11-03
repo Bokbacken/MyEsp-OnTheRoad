@@ -12,6 +12,7 @@ constexpr unsigned HISTORY_CAPACITY = 128;
 class Game {
 public:
     bool start(Difficulty difficulty, unsigned puzzleIndex);
+    bool startFromGivens(Difficulty difficulty, unsigned puzzleIndex, const char *givens);
     bool put(unsigned cell, uint8_t digit, bool notesMode);
     bool erase(unsigned cell);
     bool undo();

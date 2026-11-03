@@ -23,7 +23,7 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   paustiden räknas upp till själva pausen. Kontroll markerar siffror som
   avviker från lösningen, och regelkonflikter kryssas direkt. Fasta givenceller
   ignorerar tryck; dödzonen kan ställas 0–8 px per kant i Sudoku-inställningarna
-  (standard 4) med en rödmarkerad illustration. Motorn upptäcker regelbrott
+  (standard 2) med en rödmarkerad illustration. Motorn upptäcker regelbrott
   i rad, kolumn och ruta. Tryck på
   samma valda siffra växlar den i rutan; konfliktanteckningar tas bort,
   statusraden ligger ovanför brädet och lösning följs av val för nästa eller
@@ -40,8 +40,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   Actions-körning 41492735344. Firmwareartefakter är uppladdade som v0.24.0.
 - [ ] Prova touch, läsbarhet, röda felkryss, paus och återställning efter
   omstart på båda fysiska korten.
-- [ ] Automatisk leverans av nästa 100-pusselblock. Första versionen har
-  bara ett inbyggt block; importverktyget kan förbereda nästa inför ombygge.
+- [x] Nästa pusselblock läses automatiskt från `/sdcard/otr/sudoku/` när de
+  inbyggda 100 pusslen per svårighet är klara. Väljaren räknar och visar alla
+  giltiga poster i filerna; Extreme accepterar `extreme.txt` eller `diabolical.txt`.
 
 ### CI-byggurval
 

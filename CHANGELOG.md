@@ -15,7 +15,7 @@ a published GitHub Release.
   marks entered digits that differ from the solution with red crosses and
   ignores notes; rule conflicts are crossed immediately. Fixed clues ignore
   taps, and the per-cell inactive border is adjustable from 0 to 8 px
-  (default 4) in Sudoku's Game settings, with a red live illustration.
+  (default 2) in Sudoku's Game settings, with a red live illustration.
   The model separately detects row, column and box conflicts.
   Completed keypad digits gray
   out, replacing an entered digit requires confirmation, pause includes the
@@ -25,10 +25,10 @@ a published GitHub Release.
   Back/Next choices in that order. Undo/redo use curved arrows. Notes matching a
   newly placed digit are removed from peer cells; larger puzzle status appears
   above the board.
-- Bundle 100 offline puzzles each for Easy, Medium, Hard and Extreme from
-  the public-domain Sudoku Exchange bank. Additional blocks can be imported
-  during firmware preparation; automatic next-block delivery is not yet
-  implemented.
+- Bundle 100 puzzles per difficulty from the public-domain Sudoku Exchange
+  bank, then load additional puzzles from matching files under
+  `/sdcard/otr/sudoku/`. The selector shows the total available count and
+  accepts `extreme.txt` or `diabolical.txt` for Extreme.
 - Add an animated mini-Sudoku home icon, controlled by the existing menu
   animation setting. Yatzy multiplayer behaviour is unchanged.
 - Make the app/C6 OTA file pickers larger, with a highlighted drop area and

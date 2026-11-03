@@ -32,9 +32,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   Ship-Captain-Crew. Static illustrations distinguish each game and dice
   variant; Yatzy, Maxi and Midi can be set to play in order.
 - **Sudoku** – digit-first touch controls, pencil notes, undo/redo, checking,
-  pause and saved progress, with a per-game adjustable touch dead zone. The
-  Pastimes menu includes 100 offline puzzles each for Easy, Medium, Hard and
-  Extreme.
+  pause and saved progress, with a per-game adjustable touch dead zone (2 px by
+  default). The Pastimes menu includes 100 built-in puzzles per difficulty and
+  can load additional bank files from SD.
 - **Tile adventures** – SD-loaded `.adv` campaigns, internal maps and portals,
   puzzles, story-driven terrain/object changes, resources, NPC dialogue,
   checkpoints, saved progress, menu artwork, and optional 32×32 PNG

@@ -142,7 +142,13 @@ bool validDifficulty(Difficulty difficulty)
 bool Game::start(Difficulty difficulty, unsigned puzzleIndex)
 {
     if (!validDifficulty(difficulty) || puzzleIndex >= BLOCK_SIZE) return false;
-    const char *source = detail::kPuzzleGivens[static_cast<unsigned>(difficulty)][puzzleIndex];
+    return startFromGivens(
+        difficulty, puzzleIndex, detail::kPuzzleGivens[static_cast<unsigned>(difficulty)][puzzleIndex]);
+}
+
+bool Game::startFromGivens(Difficulty difficulty, unsigned puzzleIndex, const char *source)
+{
+    if (!validDifficulty(difficulty) || !source || std::strlen(source) != CELL_COUNT) return false;
     uint8_t solution[CELL_COUNT];
     Solver solver{};
     if (!solver.solve(source, solution)) return false;

@@ -2,15 +2,20 @@
 
 #include <atomic>
 #include <stdio.h>
+#include <string.h>
 #include "board_backlight.h"
+#include "board_sd.h"
 #include "app_config.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lang.h"
 #include "my_storage.h"
 #include "my_sys.h"
 #include "my_theme.h"
 #include "sudoku_game.h"
+#include "sudoku_sd.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
 
@@ -27,15 +32,29 @@ bool s_dirty = false, s_completedSaved = false;
 bool s_saveFailed = false;
 uint8_t s_digit = 1;
 uint32_t s_elapsed = 0, s_tick = 0, s_savedAt = 0;
-uint16_t s_next[4]{};
+uint32_t s_next[4]{}, s_sdCounts[4]{};
+uint32_t s_sdGeneration = UINT32_MAX;
+std::atomic<bool> s_sdScanRunning{false}, s_sdScanReady{false};
+char s_sdBlock[Sudoku::BLOCK_SIZE][Sudoku::CELL_COUNT + 1]{};
+uint32_t s_sdBlockDifficulty = UINT32_MAX, s_sdBlockNumber = UINT32_MAX, s_sdBlockCount = 0;
 lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
-lv_obj_t *s_gameScreen = nullptr;
+lv_obj_t *s_gameScreen = nullptr, *s_listScreen = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
-lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr;
+lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr, *s_winNext = nullptr;
 unsigned s_replaceCell = 0;
 uint8_t s_replaceDigit = 0;
 
 struct Save {
+    uint32_t version = 2;
+    uint32_t elapsed = 0;
+    uint32_t next[4]{};
+    uint16_t notes[81]{};
+    uint32_t puzzle = 0;
+    uint8_t difficulty = 0, values[81]{};
+    uint8_t reserved = 0;
+};
+
+struct SaveV1 {
     uint32_t version = 1;
     uint32_t elapsed = 0;
     uint16_t next[4]{};
@@ -56,6 +75,88 @@ constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 
 void startNew(unsigned difficulty);
 void showWinPrompt();
+void show();
+
+uint32_t available(unsigned difficulty)
+{
+    return Sudoku::BLOCK_SIZE +
+           (s_sdScanReady.load(std::memory_order_acquire) ? s_sdCounts[difficulty] : 0);
+}
+
+uint32_t blockProgress(unsigned difficulty)
+{
+    const uint32_t completed = s_next[difficulty] % Sudoku::BLOCK_SIZE;
+    return completed || !s_next[difficulty] ? completed : Sudoku::BLOCK_SIZE;
+}
+
+bool startPuzzle(Sudoku::Game &game, unsigned difficulty, uint32_t index)
+{
+    const auto level = static_cast<Sudoku::Difficulty>(difficulty);
+    if (index < Sudoku::BLOCK_SIZE) return game.start(level, index);
+    if (!s_sdScanReady.load(std::memory_order_acquire) || index >= available(difficulty)) return false;
+    const uint32_t externalIndex = index - Sudoku::BLOCK_SIZE;
+    const uint32_t block = externalIndex / Sudoku::BLOCK_SIZE;
+    if (s_sdBlockDifficulty != difficulty || s_sdBlockNumber != block) {
+        uint32_t count = 0;
+        if (!SudokuSd::loadBlock(level, block, s_sdBlock, count)) return false;
+        s_sdBlockDifficulty = difficulty;
+        s_sdBlockNumber = block;
+        s_sdBlockCount = count;
+    }
+    const uint32_t position = externalIndex % Sudoku::BLOCK_SIZE;
+    if (position >= s_sdBlockCount) return false;
+    return game.startFromGivens(level, index, s_sdBlock[position]);
+}
+
+void scanDone(void *)
+{
+    s_sdScanRunning.store(false, std::memory_order_release);
+    if (s_listScreen && lv_screen_active() == s_listScreen) show();
+    if (s_winNext && lv_obj_is_valid(s_winNext)) {
+        const unsigned difficulty = static_cast<unsigned>(s_game.difficulty());
+        if (s_next[difficulty] < available(difficulty))
+            lv_obj_remove_state(s_winNext, LV_STATE_DISABLED);
+        else
+            lv_obj_add_state(s_winNext, LV_STATE_DISABLED);
+    }
+}
+
+void scanTask(void *)
+{
+    uint32_t counts[4]{};
+    if (SudokuSd::scan(counts))
+        for (unsigned i = 0; i < 4; ++i) s_sdCounts[i] = counts[i];
+    s_sdScanReady.store(true, std::memory_order_release);
+    lv_async_call(scanDone, nullptr);
+    vTaskDelete(nullptr);
+}
+
+void scanSdIfNeeded()
+{
+    const BoardSd::Info info = BoardSd::info();
+    if (info.generation != s_sdGeneration &&
+        !s_sdScanRunning.load(std::memory_order_acquire)) {
+        s_sdGeneration = info.generation;
+        for (auto &count : s_sdCounts) count = 0;
+        s_sdBlockDifficulty = s_sdBlockNumber = UINT32_MAX;
+        s_sdBlockCount = 0;
+        s_sdScanReady.store(false, std::memory_order_release);
+    }
+    if (!BoardSd::mounted()) {
+        for (auto &count : s_sdCounts) count = 0;
+        s_sdBlockDifficulty = s_sdBlockNumber = UINT32_MAX;
+        s_sdBlockCount = 0;
+        s_sdScanReady.store(true, std::memory_order_release);
+        return;
+    }
+    if (s_sdScanReady.load(std::memory_order_acquire) ||
+        s_sdScanRunning.exchange(true, std::memory_order_acq_rel)) return;
+    if (xTaskCreate(scanTask, "sudoku_sd", 4096, nullptr, 1, nullptr) != pdPASS) {
+        s_sdScanRunning.store(false, std::memory_order_release);
+        s_sdScanReady.store(true, std::memory_order_release);
+        lv_async_call(scanDone, nullptr);
+    }
+}
 
 void cheerAnimation(void *object, int32_t rise)
 {
@@ -113,6 +214,7 @@ void closeWinPrompt()
     if (!s_winPrompt) return;
     lv_obj_delete(s_winPrompt);
     s_winPrompt = nullptr;
+    s_winNext = nullptr;
 }
 
 void nextPuzzle(lv_event_t *event)
@@ -144,10 +246,14 @@ void showWinPrompt()
     lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_add_event_cb(back, backToPuzzleList, LV_EVENT_CLICKED, nullptr);
     auto *next = Theme::button(box, tr(Str::SUDOKU_NEXT), 126, 40, Theme::ACCENT);
+    s_winNext = next;
     lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_add_event_cb(next, nextPuzzle, LV_EVENT_CLICKED,
                         reinterpret_cast<void *>(uintptr_t(s_game.difficulty())));
-    if (s_next[static_cast<unsigned>(s_game.difficulty())] >= Sudoku::BLOCK_SIZE)
+    const unsigned difficulty = static_cast<unsigned>(s_game.difficulty());
+    if ((!s_sdScanReady.load(std::memory_order_acquire) &&
+         s_next[difficulty] >= Sudoku::BLOCK_SIZE) ||
+        s_next[difficulty] >= available(difficulty))
         lv_obj_add_state(next, LV_STATE_DISABLED);
 }
 
@@ -174,38 +280,61 @@ void save()
     s_dirty = false;
 }
 
-void restore()
+bool restore()
 {
     MyNvs::Handle h("sudoku", true);
-    if (!h || h.blobSize("game") == 0) return;
+    if (!h || h.blobSize("game") == 0) return true;
     Save data{};
-    if (h.blobSize("game") != sizeof(data) || !h.getBlob("game", &data, sizeof(data)) ||
-        data.version != 1 || data.difficulty >= 4 || data.puzzle >= Sudoku::BLOCK_SIZE) {
+    const size_t size = h.blobSize("game");
+    if (size == sizeof(SaveV1)) {
+        SaveV1 old{};
+        if (!h.getBlob("game", &old, sizeof(old)) || old.version != 1) {
+            ESP_LOGE("sudoku", "invalid saved game");
+            return true;
+        }
+        data.elapsed = old.elapsed;
+        for (unsigned i = 0; i < 4; ++i) data.next[i] = old.next[i];
+        memcpy(data.notes, old.notes, sizeof(data.notes));
+        data.puzzle = old.puzzle;
+        data.difficulty = old.difficulty;
+        memcpy(data.values, old.values, sizeof(data.values));
+    } else if (size != sizeof(Save) || !h.getBlob("game", &data, sizeof(data)) ||
+               data.version != 2) {
         ESP_LOGE("sudoku", "invalid saved game");
-        return;
+        return true;
+    }
+    if (data.difficulty >= 4) {
+        ESP_LOGE("sudoku", "invalid saved game");
+        return true;
     }
     for (unsigned i = 0; i < 4; ++i) {
-        if (data.next[i] > Sudoku::BLOCK_SIZE) {
+        if (data.next[i] > available(i) &&
+            !(data.next[i] >= Sudoku::BLOCK_SIZE &&
+              !s_sdScanReady.load(std::memory_order_acquire))) {
+            if (data.next[i] >= Sudoku::BLOCK_SIZE && !BoardSd::mounted()) return false;
             ESP_LOGE("sudoku", "invalid saved progress");
-            return;
+            return true;
         }
     }
     for (unsigned i = 0; i < 81; ++i) {
         if (data.values[i] > 9 || data.notes[i] > 0x1ff || (data.values[i] && data.notes[i])) {
             ESP_LOGE("sudoku", "invalid saved cell");
-            return;
+            return true;
         }
     }
     Sudoku::Game restored;
-    if (!restored.start(static_cast<Sudoku::Difficulty>(data.difficulty), data.puzzle)) {
+    if (!startPuzzle(restored, data.difficulty, data.puzzle)) {
         ESP_LOGE("sudoku", "cannot restore puzzle");
-        return;
+        if (data.puzzle >= Sudoku::BLOCK_SIZE &&
+            (!BoardSd::mounted() || !s_sdScanReady.load(std::memory_order_acquire)))
+            return false;
+        return true;
     }
     for (unsigned i = 0; i < 81; ++i) {
         if (restored.fixed(i)) {
             if (data.values[i] != restored.value(i) || data.notes[i]) {
                 ESP_LOGE("sudoku", "saved puzzle does not match bundled givens");
-                return;
+                return true;
             }
             continue;
         }
@@ -219,6 +348,7 @@ void restore()
     s_game.clearHistory();
     s_completedSaved = s_game.complete();
     s_ready = true;
+    return true;
 }
 
 void fill(lv_layer_t *layer, int x, int y, int w, int h, uint32_t color)
@@ -565,6 +695,7 @@ void play()
                 save();
                 s_board = s_help = s_gameScreen = nullptr;
                 s_cheer = s_winPrompt = nullptr;
+                s_winNext = nullptr;
             }
             lv_timer_pause(timer);
         } else if (lv_event_get_code(event) == LV_EVENT_DELETE) lv_timer_delete(timer);
@@ -618,10 +749,16 @@ bool running() { return s_running.load(); }
 
 void show()
 {
-    static bool restored = false;
-    if (!restored) { restored = true; restore(); }
+    static bool restoreChecked = false;
+    if (!restoreChecked) restoreChecked = restore();
+    scanSdIfNeeded();
     Theme::setStatusShareAvailable(false);
     auto *screen = Theme::screen();
+    s_listScreen = screen;
+    lv_obj_add_event_cb(screen, [](lv_event_t *event) {
+        if (lv_event_get_code(event) == LV_EVENT_DELETE &&
+            lv_event_get_current_target_obj(event) == s_listScreen) s_listScreen = nullptr;
+    }, LV_EVENT_ALL, nullptr);
     Theme::header(screen, tr(Str::SUDOKU_TITLE));
     auto *list = lv_obj_create(screen);
     lv_obj_remove_style_all(list);
@@ -635,10 +772,19 @@ void show()
     }
     for (unsigned i = 0; i < 4; ++i) {
         char description[64];
-        snprintf(description, sizeof(description), tr(Str::SUDOKU_PROGRESS), s_next[i], Sudoku::BLOCK_SIZE);
+        if (s_sdScanReady.load(std::memory_order_acquire)) {
+            snprintf(description, sizeof(description), tr(Str::SUDOKU_PROGRESS),
+                     blockProgress(i), Sudoku::BLOCK_SIZE, available(i));
+        } else {
+            snprintf(description, sizeof(description), tr(Str::SUDOKU_SD_SCANNING),
+                     blockProgress(i), Sudoku::BLOCK_SIZE);
+        }
         auto *b = Theme::menuCard(list, LV_PCT(100), tr(difficultyLabel(i)), description,
                                  nullptr, LV_SYMBOL_LIST, Theme::GOLD);
-        if (s_next[i] >= Sudoku::BLOCK_SIZE) lv_obj_add_state(b, LV_STATE_DISABLED);
+        if (s_next[i] >= available(i) ||
+            (!s_sdScanReady.load(std::memory_order_acquire) &&
+             s_next[i] >= Sudoku::BLOCK_SIZE))
+            lv_obj_add_state(b, LV_STATE_DISABLED);
         lv_obj_add_event_cb(b, start, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(i)));
     }
     auto *back = Theme::button(screen, tr(Str::BTN_BACK), 100, 34, Theme::MUTED);

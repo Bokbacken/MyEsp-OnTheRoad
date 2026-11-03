@@ -11,7 +11,7 @@ and pause. Rule conflicts in the same row, column or 3×3 box get red crosses
 immediately, including both cells in a conflicting pair. Check also marks
 entered digits that do not match the solution and ignores notes. Taps on fixed
 clues do nothing. In **Settings → Game → Sudoku**, choose a 0–8 px inactive
-border on every cell edge (default 4 px); the red illustration previews the
+border on every cell edge (default 2 px); the red illustration previews the
 centered active area and updates with the setting.
 A keypad digit is grayed out when all nine copies are on the board.
 Tapping a cell with the currently selected digit toggles that entry off;
@@ -60,8 +60,24 @@ changing game state.
 
 The first bundled block has 100 puzzles per difficulty (400 total) stored as
 81-character givens strings in flash; solutions are derived when a puzzle is
-started. No puzzle is fetched from the network at runtime. SD delivery of
-subsequent blocks is not implemented. Future blocks can be prepared offline:
+started. Additional puzzles are read from the SD card, in source-file order,
+after the bundled block. Copy the original bank files into `/sdcard/otr/sudoku/`:
+
+| Difficulty | File |
+|---|---|
+| Easy | `easy.txt` |
+| Medium | `medium.txt` |
+| Hard | `hard.txt` |
+| Extreme | `extreme.txt` or `diabolical.txt` |
+
+The selector scans valid records on the SD card and shows the total number of
+available puzzles (bundled plus SD). Puzzles are loaded one at a time as the
+player completes each block of 100; no network access is used. If a file is
+missing, that difficulty remains limited to its 100 bundled puzzles. The source
+files can be downloaded from [Grant McLean's Sudoku Exchange Puzzle
+Bank](https://github.com/grantm/sudoku-exchange-puzzle-bank).
+
+Future flash blocks can still be prepared offline:
 
 ```sh
 git clone https://github.com/grantm/sudoku-exchange-puzzle-bank.git sudoku-exchange-puzzle-bank
@@ -72,9 +88,7 @@ python3 tools/import_sudoku.py --source-dir sudoku-exchange-puzzle-bank --block 
 Block numbers are zero-based. The utility takes the next 100 records per
 difficulty in the original file order and writes `main/sudoku_puzzles.h` by
 default; `--output PATH` can select another destination. It validates every
-imported puzzle's unique solution before writing. The pinned source files are
-`easy.txt`, `medium.txt`, `hard.txt`, and `diabolical.txt`; the last is
-presented in the game as Extreme.
+imported puzzle's unique solution before writing.
 
 ## Data source and license
 
@@ -94,5 +108,6 @@ host test suite.
 g++ -std=c++17 -O2 -Wall -Wextra -Werror -Imain \
   tests/test_sudoku.cpp main/sudoku_game.cpp -o tests/test_sudoku
 ./tests/test_sudoku
+python3 tests/test_sudoku_sd.py
 python3 tests/test_sudoku_ui.py
 ```
