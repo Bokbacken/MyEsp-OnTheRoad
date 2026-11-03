@@ -639,6 +639,8 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   inte oberoende panelmätningar.
 - [x] Lägg till hostassertioner för båda profilernas pixelpitch/PPI och
   ungefärlig fysisk storlek på 24 px S3 respektive 32 px P4.
+- [x] S3/P4-firmware och hosttester gröna i PR #53, Actions-körning
+  41641170780; artefakter byggda som v0.24.2.
 - [ ] Verifiera aktiva displaymått mot datablad eller noggrann fysisk mätning
   innan fysisk UI-skalning. Ännu inga `ButtonInfo`/`AudioInfo` structs:
   nuvarande pinnamn och referenser räcker tills gemensam kod konsumerar
