@@ -149,6 +149,8 @@ jobs:
           /tmp/test_yatzy
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_multiplayer_protocol.cpp -o /tmp/test_multiplayer_protocol
           /tmp/test_multiplayer_protocol
+          g++ -std=c++17 -Wall -Wextra -Werror -Itests/stub -Imain tests/test_game_live.cpp main/game_live.cpp main/game_yatzy.cpp -o /tmp/test_game_live
+          /tmp/test_game_live
           python3 tests/test_power_io.py
           python3 tests/test_text_size_layout.py
           python3 tests/test_host_ota.py

@@ -12,6 +12,10 @@ static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_released = 0;   // v0.7.2: seats given back by the web (bit mask)
 static Cmd s_q[CMD_QUEUE];
 static int s_qHead = 0, s_qLen = 0;
+static YatzyGame s_rollResult;
+static uint32_t s_rollToken = 0, s_nextRollToken = 0;
+static int s_rollSeat = -1;
+static bool s_rollAcknowledged = false;
 
 void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase, uint8_t rollMask)
 {
@@ -22,6 +26,7 @@ void publish(const YatzyGame &g, bool active, bool rolling, bool resultPhase, ui
     s_snap.rolling = rolling;
     s_snap.rollMask = rolling ? rollMask : 0;
     s_snap.resultPhase = resultPhase;
+    if (!rolling) s_rollToken = 0;
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);
 }
@@ -141,6 +146,7 @@ void setActive(bool active)
         s_snap.rolling = false;
         s_snap.rollMask = 0;
         s_snap.shaking = false;
+        s_rollToken = 0;
         if (!active) s_qLen = 0;   // Game left: web clients drop to the lobby (see app_web)
         s_snap.version++;
     }
@@ -172,6 +178,66 @@ void get(Snapshot &out)
     portEXIT_CRITICAL(&s_mux);
 }
 
+uint32_t offerRollResult(const YatzyGame &g, int seat)
+{
+    portENTER_CRITICAL(&s_mux);
+    if (!s_snap.active || s_snap.gameType != GameType::YATZY || !s_snap.rolling ||
+        seat < 0 || seat >= g.playerCount() || seat != g.currentPlayer() || !s_snap.web[seat]) {
+        portEXIT_CRITICAL(&s_mux);
+        return 0;
+    }
+    if (++s_nextRollToken > INT32_MAX) s_nextRollToken = 1;
+    s_rollToken = s_nextRollToken;
+    s_rollSeat = seat;
+    s_rollResult = g;
+    s_rollAcknowledged = false;
+    s_snap.version++;
+    const uint32_t token = s_rollToken;
+    portEXIT_CRITICAL(&s_mux);
+    return token;
+}
+
+uint32_t getForSeat(Snapshot &out, int seat, uint32_t session)
+{
+    portENTER_CRITICAL(&s_mux);
+    out = s_snap;
+    const uint32_t token = seat == s_rollSeat && session == s_snap.session ? s_rollToken : 0;
+    if (token) {
+        out.game = s_rollResult;
+        out.rolling = false;
+        out.rollMask = 0;
+    }
+    portEXIT_CRITICAL(&s_mux);
+    return token;
+}
+
+bool acknowledgeRollResult(int seat, uint32_t session, uint32_t token)
+{
+    portENTER_CRITICAL(&s_mux);
+    const bool valid = token && token == s_rollToken && session == s_snap.session && seat == s_rollSeat;
+    if (valid) s_rollAcknowledged = true;
+    portEXIT_CRITICAL(&s_mux);
+    return valid;
+}
+
+bool rollResultAcknowledged(uint32_t token)
+{
+    portENTER_CRITICAL(&s_mux);
+    const bool ready = token && token == s_rollToken && s_rollAcknowledged;
+    portEXIT_CRITICAL(&s_mux);
+    return ready;
+}
+
+void clearRollResult()
+{
+    portENTER_CRITICAL(&s_mux);
+    if (s_rollToken) {
+        s_rollToken = 0;
+        s_snap.version++;
+    }
+    portEXIT_CRITICAL(&s_mux);
+}
+
 void setSeats(const bool *web, const uint16_t *pids, int n)
 {
     portENTER_CRITICAL(&s_mux);
@@ -181,6 +247,7 @@ void setSeats(const bool *web, const uint16_t *pids, int n)
         s_snap.pid[i] = i < n && pids ? pids[i] : 0;
     }
     s_qLen = 0;
+    s_rollToken = 0;
     s_released = 0;   // Releases from an older game must not touch the new seats
     s_snap.version++;
     portEXIT_CRITICAL(&s_mux);

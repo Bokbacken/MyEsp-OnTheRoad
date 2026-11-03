@@ -1,5 +1,5 @@
-/* Lossless .adv text model for the graphical editor. Only map rows, @legend lines, @dark rectangles
-   and @plategroup/@gategroup coordinates are rewritten; every other line is kept byte for byte. */
+/* Lossless .adv text model for the graphical editor. Unedited sections and comments
+   are preserved when changing maps, legends, coordinate layers or text sections. */
 (function (root) {
 'use strict';
 
@@ -99,7 +99,7 @@ function coordinateLayers(doc, id) {
     for (let i = sec.start + 1; i < sec.end; i++) {
       let text = stripComment(doc.lines[i]).trim();
       if (!text || text.startsWith('#')) continue;
-      let map = mapOf(sec.arg);
+      let map = mapOf(sec.arg.split('#', 1)[0]);
       const prefix = /^map=(\d+)\s*:\s*/.exec(text);
       if (prefix) { map = Number(prefix[1]); text = text.slice(prefix[0].length); }
       if (map !== id) continue;
@@ -165,7 +165,7 @@ function addTreasure(doc, id, x, y, item, amount = 1) {
 
   const line = `${x} ${y} ${item} ${amount}`;
   const treasureSections = sections(doc).filter(section => section.tag === '@treasures');
-  const scoped = treasureSections.find(section => mapOf(section.arg) === id);
+  const scoped = treasureSections.find(section => mapOf(section.arg.split('#', 1)[0]) === id);
   if (scoped) {
     doc.lines.splice(scoped.end, 0, line);
   } else if (treasureSections.length) {
@@ -175,6 +175,16 @@ function addTreasure(doc, id, x, y, item, amount = 1) {
     if (doc.lines.length && doc.lines[doc.lines.length - 1].trim() !== '') doc.lines.push('');
     doc.lines.push(id === 1 ? '@treasures' : `@treasures map=${id}`, line);
   }
+}
+
+function removeTreasure(doc, id, line) {
+  const layer = coordinateLayers(doc, id).layers.find(entry =>
+    entry.kind === 'treasures' && entry.line === line);
+  if (!layer) throw new Error('Skattraden finns inte på den valda kartan.');
+  const index = line - 1;
+  const comment = doc.lines[index].indexOf(' #');
+  if (comment >= 0) doc.lines[index] = doc.lines[index].slice(comment + 1);
+  else doc.lines.splice(index, 1);
 }
 
 function isRow(line) {
@@ -576,7 +586,7 @@ function addMap(doc, id, width, height) {
 }
 
 const api = {
-  coordinateLayers, addTreasure, TREASURE_ITEMS, MAX_TREASURES,
+  coordinateLayers, addTreasure, removeTreasure, TREASURE_ITEMS, MAX_TREASURES,
   newAdventure, suggestMapId, nextMapId, addMap, blankGrid, validStem, MAX_MAPS, FILLS,
   MAX_W, MAX_H, MAX_LEGEND, MAX_DARK, COLORS, TERRAIN, OBJECTS,
   parse, serialize, sections, replaceSection, addSection, mapIds, getGrid, setGrid,

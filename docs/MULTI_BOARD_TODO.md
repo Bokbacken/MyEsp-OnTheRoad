@@ -15,6 +15,28 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Native Yatzy och skatteditor, v0.24.4–0.24.5
+
+- [x] ESP-klienter använder den inbyggda Yatzy-vyn; värden är ensam
+  regelauktoritet. Skatter placeras via föremål/mängd och kartklick.
+- [x] Ägaren har provat S3 som värd och P4 som klient samt skatteditorn
+  (2026-11-03). Rapporterat problem: värden avslöjar kastet före klienten.
+- [x] v0.24.5 inför privat resultat till kastande klient och bekräftelse
+  efter rendering innan värd/övriga visare avslöjar slutvärdena.
+  Avbrott/femsekunderstimeout släpper väntan med loggad varning.
+- [x] Kompakta skattlistor med Visa/Ta bort och ångra. Placeringslistan
+  stängs med placeringsläget; separat visning av dolda lager bevaras.
+- [x] Sessionsutkast i webbläsarfliken återställer osparad källa,
+  redigeringsläge, karta, verktyg och skattval efter refresh. Lagringsfel
+  visas; återställning skriver inte över SD-filen.
+- [ ] Prova visningsordningen med S3/P4 som värd i båda riktningarna,
+  blandad browser, olika animationsinställningar och avbrott under kast.
+- [ ] Prova kompakt lista, radering/ångra och refresh med osparad källa i
+  både kart- och textläge mot enhetens webbserver.
+- [ ] Beständig matchhistorik och uttrycklig koppling mellan lokala
+  spelarprofiler på olika enheter. Samma namn/id är inte en global identitet;
+  använd match-id för att undvika dubbel historik vid återanslutning.
+
 ### Webbjusteringar, v0.24.1
 
 - [x] Karaokens anslutningsknapp centreras under textrutan. Låtväljaren

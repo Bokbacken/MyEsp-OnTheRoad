@@ -8,6 +8,24 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.5 (unreleased)
+
+- Native remote Yatzy rolls reveal their completed dice on the throwing
+  client's display before the host, spectators or public HTTP state.
+  Session-/seat-bound acknowledgements release the result after rendering;
+  disconnect or a five-second timeout releases a stalled reveal with a warning.
+  Browser-initiated rolls retain their existing behavior. Update both ESPs.
+- Compact coordinate-layer rows include inline Show/Delete controls for
+  treasures, with undo. Ending placement hides its list unless hidden layers
+  were independently enabled.
+- The adventure editor automatically restores per-tab drafts after refresh,
+  including unsaved source, map/view/tool selections, treasure settings and
+  bounded undo. Recovery does not fetch or overwrite the draft from SD;
+  unavailable browser storage is reported visibly.
+- Owner reports the initial native Yatzy/editor version looks good, but
+  observed the host revealing a remote roll early. Physical verification
+  of these follow-up changes remains pending.
+
 ## v0.24.4 (unreleased)
 
 - ESP players joining a hosted Yatzy game now use the native Yatzy screen,

@@ -33,7 +33,7 @@ struct CupVisual {
     lv_obj_t *bottom;
 };
 
-enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE };
+enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE, RESULT_SHOWN };
 struct RemoteState {
     YatzyGame game;
     bool connected;
@@ -44,6 +44,7 @@ struct RemoteState {
     uint8_t rollMask;
     int you;
     uint32_t revision;
+    uint32_t resultId;
     char status[96];
 };
 using RemoteCommandCallback = void (*)(RemoteCommand command, int arg);

@@ -66,6 +66,39 @@ visa att den måste gå med på nytt i stället för att skicka gamla kommandon.
 Värdbyte är manuellt; klienten återupptar aldrig ett gammalt spel på en annan
 värd automatiskt.
 
+## Kastets visningsordning
+
+Från v0.24.5 skickar ESP-klienten `roll` med `reveal_first:true`. Värden
+beräknar fortfarande kastet och animerar det, men visar inte de nya slutvärdena.
+När värdens animation är klar skickas det färdiga kastet först till den
+kastande platsens WebSocket, med ett `roll_result_id`. Övriga klienter och
+`/api/game` behåller före-kast-snapshoten med `rolling:true`.
+
+Klienten stannar sina tärningar, renderar slutvärdena och bekräftar
+`result_shown` med samma id. Först därefter släpper värden resultatet till sin
+egen skärm och övriga visare. Klientens nästa spelkommando väntar på denna
+publika uppdatering. Bekräftelsen valideras mot plats, spelsession och kast-id;
+gamla eller andra spelares bekräftelser accepteras inte. Klienten kan upprepa
+en bekräftelse utan dubbel effekt. Avbruten anslutning eller fem sekunder utan
+bekräftelse släpper väntan med loggad varning, så matchen inte fastnar.
+Vanliga browserkast använder inte denna bekräftelse och fungerar som tidigare.
+Uppdatera både värd och ESP-klient för denna ordningsgaranti.
+
+## Spelaridentitet och historik
+
+Idag synkroniseras den pågående matchen och dess slutprotokoll, inte
+spelarregister eller beständig matchhistorik. Spelar-id är lokala för respektive
+enhet; samma namn eller samma numeriska id på S3 och P4 betyder inte att
+registren är sammankopplade. Beständig Yatzy-matchhistorik är ännu inte
+implementerad; reserverade spelar-id i spellistan är förberedelse, inte
+historiksynk.
+
+Ett separat framtida steg behöver en uttrycklig koppling mellan spelarprofiler
+på olika enheter (inte automatisk sammanslagning på namn), beständiga match-id
+för deduplicering och återhämtning efter frånkoppling. Värdens färdiga
+matchprotokoll bör vara källan; lokal klient ska inte bokföra samma match igen
+vid återanslutning. Detta är dokumenterat behov, inte implementerat stöd.
+
 ## Stegordning
 
 1. mDNS-kapabilitetsannonsering och dokumentation.
@@ -101,7 +134,7 @@ regeln för sparade kast; browserklienter påverkas inte. Fysisk verifiering av
 den gemensamma skärmen, återanslutning och båda värd-/klientriktningarna
 återstår enligt hårdvarumatrisen i TODO-dokumentet.
 
-## Prova v0.24.4
+## Prova v0.24.5
 
 Uppdatera både värd och ESP-klient till testversionen. På värden väljer du
 Yatzy/Maxi/Midi och spelare; markera fjärrspelarnas platser för webb och ge dem
@@ -114,3 +147,6 @@ Kontrollera kast med bägare/knapp, håll/släpp tärningar, poängval, växling
 tur och vänteläge, färdig poängtabell samt frånkoppling/återanslutning. Prova
 också Maxi och spel i ordning. Värden är enda auktoritet; klientens beräknade
 poängförslag är visning, inte ett eget spel eller lokalt utförda kast.
+Kontrollera särskilt att kastande ESP ser sina stillastående slutvärden före
+värden och en tredje visare. Prova S3/P4 i båda riktningarna, olika
+animationsinställningar, nätfördröjning och frånkoppling under kastet.

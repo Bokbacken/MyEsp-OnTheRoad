@@ -68,6 +68,14 @@ void setShaking(bool shaking);   // Bumps the version only on change
 uint32_t version();
 void get(Snapshot &out);
 
+// Offer a completed native-client roll privately; public snapshots stay pre-roll until the
+// client's display acknowledges it. Tokens are scoped to this game session and seat.
+uint32_t offerRollResult(const YatzyGame &g, int seat);
+uint32_t getForSeat(Snapshot &out, int seat, uint32_t session);
+bool acknowledgeRollResult(int seat, uint32_t session, uint32_t token);
+bool rollResultAcknowledged(uint32_t token);
+void clearRollResult();
+
 // Seats of a new game: per-seat web flag / registry id. Starts a new session (old web bindings
 // become invalid) and clears the command queue.
 void setSeats(const bool *web, const uint16_t *pids, int n);

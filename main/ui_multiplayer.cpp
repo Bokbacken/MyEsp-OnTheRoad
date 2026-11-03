@@ -72,6 +72,7 @@ struct RemotePlayer {
 struct RemoteGame {
     uint32_t version;
     uint32_t revision;
+    uint32_t resultId;
     bool connected;
     bool joined;
     bool needsJoin;
@@ -278,13 +279,19 @@ static void sendRemoteCommand(const char *cmd, int arg = -1)
                          strcmp(cmd, "hold") == 0 ? MultiplayerProtocol::canRemoteHold(actions) &&
                                                        arg >= 0 && arg < state.diceCount :
                          strcmp(cmd, "choose") == 0 ? MultiplayerProtocol::canRemoteChoose(actions, categoryAvailable) :
+                         strcmp(cmd, "result_shown") == 0 ? state.joined && state.active &&
+                             !state.rolling && state.you == state.current && arg > 0 &&
+                             state.resultId == (uint32_t)arg :
                          false;
-    if (!allowed || !state.connected) return;
-    char message[48];
+    if (!allowed || !state.connected ||
+        (state.resultId && strcmp(cmd, "result_shown") != 0)) return;
+    char message[80];
     int len;
     if (strcmp(cmd, "hold") == 0) len = snprintf(message, sizeof(message), "{\"cmd\":\"hold\",\"die\":%d}", arg);
     else if (strcmp(cmd, "choose") == 0) len = snprintf(message, sizeof(message), "{\"cmd\":\"choose\",\"cat\":%d}", arg);
-    else len = snprintf(message, sizeof(message), "{\"cmd\":\"roll\"}");
+    else if (strcmp(cmd, "result_shown") == 0)
+        len = snprintf(message, sizeof(message), "{\"cmd\":\"result_shown\",\"roll_result_id\":%d}", arg);
+    else len = snprintf(message, sizeof(message), "{\"cmd\":\"roll\",\"reveal_first\":true}");
     if (len > 0 && (size_t)len < sizeof(message)) {
         esp_websocket_client_handle_t client;
         portENTER_CRITICAL(&s_remoteMux);
@@ -303,6 +310,7 @@ static void remoteYatzyAction(UiYatzy::RemoteCommand command, int arg)
     case UiYatzy::RemoteCommand::HOLD: sendRemoteCommand("hold", arg); break;
     case UiYatzy::RemoteCommand::ROLL: sendRemoteCommand("roll"); break;
     case UiYatzy::RemoteCommand::CHOOSE: sendRemoteCommand("choose", arg); break;
+    case UiYatzy::RemoteCommand::RESULT_SHOWN: sendRemoteCommand("result_shown", arg); break;
     }
 }
 
@@ -380,6 +388,13 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
     next.rollsLeft = rollsLeft->valueint;
     const int rollsUsedValue = rollsUsed->valueint;
     next.version = (uint32_t)version->valuedouble;
+    const cJSON *resultId = cJSON_GetObjectItemCaseSensitive(json, "roll_result_id");
+    if (resultId) {
+        if (!cJSON_IsNumber(resultId) || resultId->valueint <= 0 ||
+            resultId->valuedouble != resultId->valueint || next.rolling ||
+            next.current != next.you) return false;
+        next.resultId = (uint32_t)resultId->valueint;
+    }
     copyJsonString(json, "name", next.gameName, sizeof(next.gameName));
     strlcpy(next.sessionId, session->valuestring, sizeof(next.sessionId));
     next.diceCount = cJSON_GetArraySize(dice);
@@ -1436,6 +1451,7 @@ static UiYatzy::RemoteState nativeRemoteState(const RemoteGame &state)
     view.resultPhase = state.resultPhase;
     view.you = state.you;
     view.revision = state.revision;
+    view.resultId = state.resultId;
     for (int i = 0; i < state.diceCount; i++)
         if (state.rollMask[i]) view.rollMask |= (uint8_t)(1u << i);
 

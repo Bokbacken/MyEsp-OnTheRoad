@@ -1282,6 +1282,29 @@ mekanikrutor och fler än 48 skatter. För en dold skatt klickar du på en ruta
 med ett täckande objekt. Befintliga kommentarer och andra kartors rader lämnas
 orörda. Övriga koordinatlager redigeras fortsatt i textläget.
 
+Listan under kartan har en kompakt rad per lager: **Visa** centrerar rutan
+och **Ta bort** tar bort en skatt från just den valda kartan. Kommentarer,
+grundrutan och andra kartors skatter bevaras; **Ångra** återställer borttagningen.
+**Avsluta placering** döljer placeringslistan och dess markeringar.
+Om du själv har aktiverat **Visa dolda lager** ligger den oberoende visningen
+kvar tills du stänger av även den knappen.
+
+Editorn återställer automatiskt flikens senaste utkast vid omladdning, utan
+att hämta SD-filen och skriva över osparad text. Återställningen omfattar
+sökväg, text/kartläge, vald karta, bild/teckenläge, zoom, verktyg, pensel,
+skattval, mängd och placeringsläge samt upp till 60 kartångringar.
+Ändringar lagras direkt i flikens `sessionStorage`, även textinmatning och
+när sidan lämnas. Kartångringar rensas när du går till textläge eller ändrar
+källtexten. Admin-PIN ingår inte i utkastet. En synlig notis bekräftar
+återställningen; **Spara säkert** krävs fortfarande för att skriva till SD.
+
+Återställningskopian tillåter högst 64 KiB källtext; större text lämnas kvar
+i editorn men skyddas inte av återställningen. Ångrahistoriken kan kortas
+för att rymmas i webbläsarlagringen (budget cirka 256 KiB före lagring).
+Lagringsfel och begränsningar visas tydligt: kopiera då texten före
+omladdning. Detta är inte en säkerhetskopia efter att fliken stängts.
+**Öppna** och **Ny fil** ber om bekräftelse innan ett osparat utkast ersätts.
+
 **Visa dolda lager** visar skatter från `@treasures`, fiendestarter från
 `@enemies`, portaler och ankomstpunkter ovanpå grundkartan. Orange markering
 och antal visar hur många koordinatlager som finns i rutan; skattens bild

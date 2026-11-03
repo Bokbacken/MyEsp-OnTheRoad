@@ -92,13 +92,14 @@ static void showPlayerCenter() { ++menus; }
 static void startNewGame() { ++starts; }
 @CHOICES@
 @LAYOUTS@
-enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE };
+enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE, RESULT_SHOWN };
 struct RemoteState {
     YatzyGame game;
     bool connected, joined, active, rolling, resultPhase;
     uint8_t rollMask;
     int you;
     uint32_t revision;
+    uint32_t resultId;
     char status[96];
 };
 using RemoteCommandCallback = void (*)(RemoteCommand command, int arg);
@@ -106,6 +107,7 @@ static bool s_remoteMode = false;
 static RemoteState s_remoteState = {};
 static RemoteCommandCallback s_remoteCommand = nullptr;
 static lv_timer_t *s_remoteAnimTimer = nullptr;
+static uint32_t s_remoteResultAt = 0, s_remoteAckAt = 0;
 @PLAYERS@
 @PICKER@
 static int quits, localClicks, clearCmds;
@@ -122,6 +124,7 @@ namespace MyWifi { const char *ipStr() { return "192.168.123.123"; } }
 namespace GameLive {
 int connections(int) { return connected; }
 void clearCmds() { ++::clearCmds; }
+void clearRollResult() {}
 void publish(const YatzyGame &, bool, bool, bool, uint8_t = 0) {}
 }
 static constexpr int32_t FELT_Y = 48;
@@ -478,6 +481,7 @@ static bool cupWanted() { return false; }
 static bool webTurn() {
     if (s_remoteMode) {
         if (!s_remoteState.connected || !s_remoteState.joined || !s_remoteState.active) return true;
+        if (s_remoteState.resultId) return true;
         return !s_game.finished() && s_remoteState.you != s_game.currentPlayer();
     }
     return ::webTurn();
@@ -529,6 +533,16 @@ static void checkDie(int i, lv_obj_t *zone) {
     inside(die, lv_screen_active());
     assert(lv_obj_get_y(die) >= lv_obj_get_y(zone));
     assert(lv_obj_get_y(die) + s_dieSize <= lv_obj_get_y(zone) + lv_obj_get_height(zone));
+}
+static int resultAcks;
+static void remoteCommand(RemoteCommand command, int token) {
+    assert(command == RemoteCommand::RESULT_SHOWN && token == 42);
+    assert(!s_rolling);
+    for (int i = 0; i < s_game.diceCount(); ++i) {
+        assert(!s_dice[i].rolling && s_dice[i].face == s_game.die(i));
+        assert(lv_image_get_rotation(s_dice[i].obj) == 0);
+    }
+    ++resultAcks;
 }
 static void check() {
     s_gameType = GameType::YATZY;
@@ -635,7 +649,8 @@ static void check() {
     remote.connected = remote.joined = remote.active = true;
     remote.you = 1;
     remote.revision = 1;
-    showRemoteGame(remote, nullptr);
+    resultAcks = 0;
+    showRemoteGame(remote, remoteCommand);
     finishAnimations();
     assert(webTurn()); // Another player's turn blocks native controls.
     assert(s_game.rollsUsed() == 0);
@@ -652,6 +667,23 @@ static void check() {
     updateRemoteGame(remote);
     finishAnimations();
     assert(s_game.hasRolled());
+    remote.resultId = 42;
+    remote.revision++;
+    updateRemoteGame(remote);
+    assert(webTurn()); // Private result is visible, but further actions wait for host release.
+    remoteDiceTick(s_remoteAnimTimer);
+    assert(resultAcks == 0);
+    lv_tick_inc(99);
+    remoteDiceTick(s_remoteAnimTimer);
+    assert(resultAcks == 0); // Never acknowledge before a settled frame has been rendered.
+    lv_tick_inc(1);
+    remoteDiceTick(s_remoteAnimTimer);
+    assert(resultAcks == 1);
+    remoteDiceTick(s_remoteAnimTimer);
+    assert(resultAcks == 1); // Retry is rate limited until public reveal arrives.
+    remote.resultId = 0;
+    remote.revision++;
+    updateRemoteGame(remote);
     s_selected = YatzyCategory::CHANCE;
     setPhase(Phase::RESULT, false);
     remote.revision++;

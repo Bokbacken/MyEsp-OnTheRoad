@@ -56,6 +56,7 @@ static bool s_remoteMode = false;
 static RemoteState s_remoteState = {};
 static RemoteCommandCallback s_remoteCommand = nullptr;
 static lv_timer_t *s_remoteAnimTimer = nullptr;
+static uint32_t s_remoteResultAt = 0, s_remoteAckAt = 0;
 static PigGame s_pig;
 static FarkleGame s_farkle;
 static SccGame s_scc;
@@ -1051,6 +1052,8 @@ static int s_sugCount = 0;
 static RowInfo s_rows[1 + YATZY_CATEGORY_COUNT + 3];
 static int s_rowCount = 0;
 static int s_rolling = 0;
+static bool s_remoteRollFirst = false;
+static uint32_t s_rollRevealId = 0, s_rollRevealStarted = 0;
 // v0.7.1: the game as it was before the current roll. While the dice are in the air the web gets
 // this copy (plus the mask of dice in the air), so the new values are not revealed before they stop.
 static YatzyGame s_preRoll;
@@ -1067,6 +1070,7 @@ static bool webTurn()
 {
     if (s_remoteMode) {
         if (!s_remoteState.connected || !s_remoteState.joined || !s_remoteState.active) return true;
+        if (s_remoteState.resultId) return true;
         return !s_game.finished() && s_remoteState.you != s_game.currentPlayer();
     }
     int p;
@@ -1494,7 +1498,7 @@ static void afterRoll()
 static void landDie(int i)
 {
     DieUi &d = s_dice[i];
-    if (!d.rolling) return;
+    if (!d.rolling || s_remoteRollFirst) return;
     d.rolling = false;
     setFace(d, s_game.die(i));
     lv_image_set_rotation(d.obj, 0);
@@ -1527,7 +1531,7 @@ static void rollFrame(int i, float p)
     int32_t seg = LV_ABS(angle) / 900;
     if (seg != d.lastSeg) {
         d.lastSeg = seg;
-        if (seg == 0) {
+        if (seg == 0 && !s_remoteRollFirst) {
             setFace(d, s_game.die(i));
         } else {
             int f = rnd(1, 5);
@@ -1551,12 +1555,24 @@ static void rollExec(void *, int32_t v)
     }
 }
 
-static void rollDone(lv_anim_t *)
+static void finishRollPresentation()
 {
     Audio::play(Sound::Sfx::DIE_LAND);
     for (int i = 0; i < s_game.diceCount(); i++) landDie(i);
     s_rolling = 0;
     afterRoll();
+}
+
+static void rollDone(lv_anim_t *)
+{
+    if (s_remoteRollFirst) {
+        s_rollRevealId = GameLive::offerRollResult(s_game, s_game.currentPlayer());
+        s_rollRevealStarted = lv_tick_get();
+        if (s_rollRevealId) return;
+        ESP_LOGW("yatzy", "could not offer private roll result; releasing host display");
+        s_remoteRollFirst = false;
+    }
+    finishRollPresentation();
 }
 
 static uint32_t rollBaseMs()
@@ -1586,6 +1602,7 @@ static void startRoll(const DiceCup::ThrowParams *tp)
     s_sugCount = 0;
     const uint32_t ms = tp ? tp->durationMs : rollBaseMs();
     if (count == 0) {                          // Everything held: nothing moves
+        s_remoteRollFirst = false;
         if (s_cupActive) hideCup(false, true);
         afterRoll();
         return;
@@ -2523,6 +2540,7 @@ static void webCommand(const GameLive::Cmd &c)
     case GameLive::CmdType::ROLL:
         if (!s_game.canRoll()) return;
         if (s_phase == Phase::RESULT) setPhase(Phase::ROLL, false);
+        s_remoteRollFirst = c.arg == 1;
         startRoll(nullptr);   // Classic throw; the console shows the animation
         break;
     case GameLive::CmdType::CHOOSE: {
@@ -2549,6 +2567,21 @@ static void webTimer(lv_timer_t *t)
     if (gen != s_gen) {   // Game screen left
         lv_timer_delete(t);
         return;
+    }
+    if (s_rollRevealId) {
+        const bool acknowledged = GameLive::rollResultAcknowledged(s_rollRevealId);
+        const bool disconnected = !GameLive::connections(s_game.currentPlayer()) ||
+                                  !GameLive::isWeb(s_game.currentPlayer());
+        const bool timedOut = lv_tick_elaps(s_rollRevealStarted) >= 5000;
+        if (acknowledged || disconnected || timedOut) {
+            if (!acknowledged)
+                ESP_LOGW("yatzy", "roll display acknowledgement %s; releasing host display",
+                         disconnected ? "disconnected" : "timed out");
+            GameLive::clearRollResult();
+            s_rollRevealId = 0;
+            s_remoteRollFirst = false;
+            finishRollPresentation();
+        }
     }
     GameLive::Cmd c;
     for (int n = 0; n < 4 && GameLive::popCmd(c); n++) {
@@ -2627,6 +2660,9 @@ static void showGame()
     s_webBlock = s_webPanel = s_webText = s_webLocal = nullptr;
     s_cupHintDone = false;   // "Skaka och svep uppåt" once per game
     s_rolling = 0;
+    s_remoteRollFirst = false;
+    s_rollRevealId = 0;
+    if (!s_remoteMode) GameLive::clearRollResult();
     s_phase = Phase::ROLL;
     s_sugCount = 0;
     s_selected = s_best = YatzyCategory::COUNT;
@@ -2789,7 +2825,17 @@ static void remoteDiceTick(lv_timer_t *timer)
         lv_timer_delete(timer);
         return;
     }
-    if (!s_remoteState.rolling || !s_remoteState.connected || !s_remoteState.joined) return;
+    if (!s_remoteState.connected || !s_remoteState.joined) return;
+    if (s_remoteState.resultId && !s_remoteState.rolling &&
+        lv_tick_elaps(s_remoteResultAt) >= 100 &&
+        (!s_remoteAckAt || lv_tick_elaps(s_remoteAckAt) >= 500)) {
+        // Render the settled faces before allowing the host and spectators to reveal them.
+        lv_refr_now(nullptr);
+        s_remoteAckAt = lv_tick_get();
+        if (s_remoteCommand)
+            s_remoteCommand(RemoteCommand::RESULT_SHOWN, (int)s_remoteState.resultId);
+    }
+    if (!s_remoteState.rolling) return;
     const uint32_t tick = lv_tick_get();
     for (int i = 0; i < s_game.diceCount(); i++) {
         if (!s_dice[i].obj || !(s_remoteState.rollMask & (1u << i))) continue;
@@ -2808,6 +2854,10 @@ static void applyRemoteState(const RemoteState &state)
                              state.rolling != s_remoteState.rolling;
     const bool phaseChanged = state.resultPhase != s_remoteState.resultPhase;
     const bool finishedChanged = state.game.finished() != s_game.finished();
+    if (state.resultId != s_remoteState.resultId) {
+        s_remoteResultAt = lv_tick_get();
+        s_remoteAckAt = 0;
+    }
     s_remoteState = state;
     if (!s_remoteMode) return;
     if (!state.joined || !state.active || state.game.playerCount() < 1) {
