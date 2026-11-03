@@ -35,7 +35,8 @@ och en varning. Om sessionslagring blockeras fungerar livehämtningen ändå.
 Mastervolymen styr ES8311-DAC:en och gäller allt lokalt ljud. Den är separat från sound-on-knappen,
 som även styr förstärkarens enable. Låtens MIDI-volym är ett per-låt syntpåslag (0–200 %, 100 % =
 oförstärkt) i `karaoke.reg`; den påverkar inte ljudeffekter eller bakgrundsmusik. Höga MIDI-nivåer
-kan klippa när flera toner summeras.
+kan klippa när flera toner summeras. Båda volymreglagen finns på uppspelningsskärmen: MIDI till
+vänster och master till höger. Melodispåret kan snabbt tystas med knappen efter stopp.
 
 Batteriindikeringen kan bara visa spänning efter att både ADC-fabriks/eFuse-kalibrering finns och användaren
 har sparat en engångsskala från en multimetermätning. GPIO8:s spänningsdelare är inte verifierad; utan

@@ -48,7 +48,7 @@ code = r'''
 
 namespace Config {
 static int saveCalls;
-AppConfig &get() { static AppConfig c{}; return c; }
+AppConfig &get() { static AppConfig c = [] { AppConfig v{}; v.masterVol = 80; return v; }(); return c; }
 bool save() { ++saveCalls; return true; }
 bool validKaraVoices(uint8_t v) { return v == 32 || v == 64 || v == 96 || v == 128 || v == 160 || v == 192; }
 }
@@ -58,8 +58,10 @@ static std::string s_songSf2;
 @BANK_REQUEST@
 }
 namespace Audio {
+static uint8_t masterVolume;
 void music(Sound::Music) {}
 void setVolumes(bool, uint8_t, bool, uint8_t) {}
+void setMasterVolume(uint8_t v) { masterVolume = v; }
 bool webStream() { return false; }
 }
 namespace KaraWeb { int clients() { return 0; } }
@@ -257,19 +259,19 @@ static void checkDrawnVolumeKnob() {
         if (dsc->part == LV_PART_KNOB)
             lv_draw_task_get_area(task, static_cast<lv_area_t *>(lv_event_get_user_data(event)));
     };
-    lv_obj_set_send_draw_task_events(P.volumeSlider, true);
-    lv_obj_add_event_cb(P.volumeSlider, capture, LV_EVENT_DRAW_TASK_ADDED, &drawn);
+    lv_obj_set_send_draw_task_events(P.midiVolumeSlider, true);
+    lv_obj_add_event_cb(P.midiVolumeSlider, capture, LV_EVENT_DRAW_TASK_ADDED, &drawn);
     for (bool pressed : {false, true}) {
-        if (pressed) lv_obj_add_state(P.volumeSlider, LV_STATE_PRESSED);
+        if (pressed) lv_obj_add_state(P.midiVolumeSlider, LV_STATE_PRESSED);
         for (int value : {0, 50, 100}) {
-            lv_slider_set_value(P.volumeSlider, value, LV_ANIM_OFF);
+            lv_slider_set_value(P.midiVolumeSlider, value, LV_ANIM_OFF);
             lv_layer_t layer;
             lv_layer_init(&layer);
             layer.display = lv_display_get_default();
             layer._clip_area = layer.buf_area = layer.phy_clip_area =
                 {0, 0, UiMetrics::screenW() - 1, UiMetrics::screenH() - 1};
             layer.color_format = LV_COLOR_FORMAT_RGB565;
-            lv_obj_send_event(P.volumeSlider, LV_EVENT_DRAW_MAIN, &layer);
+            lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_DRAW_MAIN, &layer);
             lv_draw_layer_deinit(&layer);
             if (lv_area_get_width(&drawn) != KaraokeLayout::VOLUME_KNOB_WIDTH ||
                 lv_area_get_height(&drawn) != KaraokeLayout::VOLUME_KNOB_HEIGHT)
@@ -280,10 +282,10 @@ static void checkDrawnVolumeKnob() {
             assert(lv_area_get_width(&drawn) > 2 * lv_area_get_height(&drawn));
         }
     }
-    lv_obj_remove_state(P.volumeSlider, LV_STATE_PRESSED);
-    lv_obj_remove_event_cb(P.volumeSlider, capture);
-    lv_obj_set_send_draw_task_events(P.volumeSlider, false);
-    lv_slider_set_value(P.volumeSlider, Karaoke::songVolume(), LV_ANIM_OFF);
+    lv_obj_remove_state(P.midiVolumeSlider, LV_STATE_PRESSED);
+    lv_obj_remove_event_cb(P.midiVolumeSlider, capture);
+    lv_obj_set_send_draw_task_events(P.midiVolumeSlider, false);
+    lv_slider_set_value(P.midiVolumeSlider, Karaoke::songVolume(), LV_ANIM_OFF);
 }
 static void checkPlayer() {
     const auto l = layout();
@@ -313,7 +315,7 @@ static void checkPlayer() {
     auto *battery = lv_obj_get_child(header, 1);
     inside(battery, header);
     checkBattery(battery);
-    lv_area_t titleArea, batteryArea, volumeArea, lyricsArea, timeArea;
+    lv_area_t titleArea, batteryArea, midiVolumeArea, masterVolumeArea, lyricsArea, timeArea;
     lv_obj_get_coords(lv_obj_get_child(header, 0), &titleArea);
     lv_obj_get_coords(battery, &batteryArea);
     assert(titleArea.x2 < batteryArea.x1 || titleArea.y2 < batteryArea.y1);
@@ -324,28 +326,46 @@ static void checkPlayer() {
         assert(navArea.x2 < batteryArea.x1 || navArea.x1 > batteryArea.x2 ||
                navArea.y2 < batteryArea.y1 || navArea.y1 > batteryArea.y2);
     }
-    inside(P.volumeSlider, P.scr);
-    inside(P.volumeValue, P.scr);
-    inside(P.volumeTrack, P.scr);
-    assert(lv_obj_get_width(P.volumeSlider) == KaraokeLayout::VOLUME_TRACK_WIDTH &&
-           lv_obj_get_height(P.volumeSlider) >= 100);
-    lv_area_t clickArea;
-    lv_obj_get_click_area(P.volumeSlider, &clickArea);
-    assert(lv_area_get_width(&clickArea) >= l.volumeW && l.volumeW >= 52);
-    for (int x : {l.volumeX, l.volumeX + l.volumeW - 1}) {
+    for (auto *rail : {P.midiVolumeSlider, P.masterVolumeSlider}) {
+        inside(rail, P.scr);
+        assert(lv_obj_get_width(rail) == KaraokeLayout::VOLUME_TRACK_WIDTH &&
+               lv_obj_get_height(rail) >= 100);
+        lv_area_t clickArea;
+        lv_obj_get_click_area(rail, &clickArea);
+        assert(lv_area_get_width(&clickArea) >= l.volumeW && l.volumeW >= 68);
+    }
+    inside(P.midiVolumeValue, P.scr); inside(P.masterVolumeValue, P.scr);
+    inside(P.midiVolumeTrack, P.scr); inside(P.masterVolumeTrack, P.scr);
+    for (int x : {l.midiVolumeX, l.midiVolumeX + l.volumeW - 1}) {
         lv_point_t point{x, l.volumeSliderY + l.volumeH / 2};
-        assert(lv_indev_search_obj(lv_screen_active(), &point) == P.volumeSlider);
+        assert(lv_indev_search_obj(lv_screen_active(), &point) == P.midiVolumeSlider);
+    }
+    for (int x : {l.masterVolumeX, l.masterVolumeX + l.volumeW - 1}) {
+        lv_point_t point{x, l.volumeSliderY + l.volumeH / 2};
+        assert(lv_indev_search_obj(lv_screen_active(), &point) == P.masterVolumeSlider);
     }
     checkDrawnVolumeKnob();
-    assert(lv_obj_get_style_radius(P.volumeSlider, LV_PART_KNOB) == 3);
-    lv_obj_get_coords(P.volumeSlider, &volumeArea);
+    assert(lv_obj_get_style_radius(P.midiVolumeSlider, LV_PART_KNOB) == 3);
+    lv_slider_set_value(P.midiVolumeSlider, 200, LV_ANIM_OFF);
+    assert(lv_slider_get_value(P.midiVolumeSlider) == 200);
+    lv_slider_set_value(P.masterVolumeSlider, 100, LV_ANIM_OFF);
+    assert(lv_slider_get_value(P.masterVolumeSlider) == 100);
+    lv_slider_set_value(P.midiVolumeSlider, Karaoke::songVolume(), LV_ANIM_OFF);
+    lv_slider_set_value(P.masterVolumeSlider, Config::get().masterVol, LV_ANIM_OFF);
+    assert(lv_slider_get_value(P.masterVolumeSlider) == 80);
+    lv_obj_get_coords(P.midiVolumeSlider, &midiVolumeArea);
+    lv_obj_get_coords(P.masterVolumeSlider, &masterVolumeArea);
     lv_obj_get_coords(P.lyrics, &lyricsArea);
     lv_obj_get_coords(P.timeLbl, &timeArea);
-    assert(lyricsArea.x2 < volumeArea.x1);
-    assert(timeArea.x2 < volumeArea.x1);
-    assert(volumeArea.y1 > l.infoY + my_font_14.line_height);
-    assert(volumeArea.y2 < l.bottomY);
-    assert(hit(P.volumeSlider) == P.volumeSlider);
+    assert(midiVolumeArea.x2 < lyricsArea.x1);
+    assert(lyricsArea.x2 < masterVolumeArea.x1);
+    assert(timeArea.x2 < masterVolumeArea.x1);
+    assert(midiVolumeArea.y1 > l.infoY + my_font_14.line_height);
+    assert(masterVolumeArea.y1 == midiVolumeArea.y1);
+    assert(midiVolumeArea.y2 < l.bottomY);
+    assert(hit(P.midiVolumeSlider) == P.midiVolumeSlider);
+    assert(hit(P.masterVolumeSlider) == P.masterVolumeSlider);
+    assert(P.melodyMuteBtn);
     inside(button(P.scr, LV_SYMBOL_LIST), P.scr);
     const auto sungBefore = std::string(lv_span_get_text(P.spSung));
     Karaoke::state.syl = 108;
@@ -397,25 +417,38 @@ static void checkPlayer() {
     }
     assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::songVolume() == 80);
     assert(!button(s_sheet, tr(Str::KARA_VOLUME)));
-    assert(lv_slider_get_value(P.volumeSlider) == 80);
-    assert(std::string(lv_label_get_text(P.volumeValue)).find("80%") != std::string::npos);
+    assert(lv_slider_get_value(P.midiVolumeSlider) == 80);
+    assert(std::string(lv_label_get_text(P.midiVolumeValue)).find("80%") != std::string::npos);
     lv_tick_inc(800); settle(); // Flush any preceding stepper change before checking drag debounce.
     const int savesBeforeDrag = Config::saveCalls;
-    lv_obj_send_event(P.volumeSlider, LV_EVENT_PRESSED, nullptr);
-    lv_slider_set_value(P.volumeSlider, 55, LV_ANIM_OFF);
-    lv_obj_send_event(P.volumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_PRESSED, nullptr);
+    lv_slider_set_value(P.midiVolumeSlider, 55, LV_ANIM_OFF);
+    lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
     assert(Karaoke::songVolume() == 80);
     assert(Config::saveCalls == savesBeforeDrag); // No NVS writes during a drag.
     lv_tick_inc(900); settle();
     assert(Config::saveCalls == savesBeforeDrag);
-    lv_obj_send_event(P.volumeSlider, LV_EVENT_RELEASED, nullptr);
+    lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_RELEASED, nullptr);
     assert(Karaoke::songVolume() == 55);
     assert(Config::saveCalls == savesBeforeDrag);
-    lv_obj_send_event(P.volumeSlider, LV_EVENT_PRESSED, nullptr);
-    lv_slider_set_value(P.volumeSlider, 90, LV_ANIM_OFF);
-    lv_obj_send_event(P.volumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_send_event(P.volumeSlider, LV_EVENT_RELEASED, nullptr);
+    lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_PRESSED, nullptr);
+    lv_slider_set_value(P.midiVolumeSlider, 90, LV_ANIM_OFF);
+    lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_RELEASED, nullptr);
     assert(Karaoke::songVolume() == 90);
+    click(P.melodyMuteBtn);
+    assert(Karaoke::melodyMuted());
+    lv_tick_inc(600);
+    click(P.melodyMuteBtn);
+    assert(!Karaoke::melodyMuted());
+    const int savesBeforeMaster = Config::saveCalls;
+    lv_obj_send_event(P.masterVolumeSlider, LV_EVENT_PRESSED, nullptr);
+    lv_slider_set_value(P.masterVolumeSlider, 55, LV_ANIM_OFF);
+    lv_obj_send_event(P.masterVolumeSlider, LV_EVENT_VALUE_CHANGED, nullptr);
+    assert(Audio::masterVolume == 55 && Config::get().masterVol == 80);
+    lv_obj_send_event(P.masterVolumeSlider, LV_EVENT_RELEASED, nullptr);
+    assert(Config::get().masterVol == 55 && Audio::masterVolume == 55);
+    assert(Config::saveCalls == savesBeforeMaster + 1);
     closeMenu();
     click(button(P.scr, LV_SYMBOL_LIST));
     assert(button(s_sheet, (std::string(tr(Str::KARA_BTN_SETTINGS)) + "  105%  +1").c_str()));

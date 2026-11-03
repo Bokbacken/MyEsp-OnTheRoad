@@ -33,8 +33,8 @@ constexpr uint32_t DEBOUNCE_MS = 500;
 struct Layout {
     int32_t w, h, inset, gap, buttonH, headerH, infoY, lyricsY, lyricsH;
     int32_t visibleLines;
-    int32_t lyricsW, seekY, seekH, seekW, timeX, bottomY, bottomW, listY, listW, jumpW, toolbarY, toolbarW;
-    int32_t volumeX, volumeW, volumeLabelY, volumeSliderY, volumeH;
+    int32_t lyricsX, lyricsW, seekY, seekH, seekX, seekW, timeX, bottomY, bottomW, listY, listW, jumpW, toolbarY, toolbarW;
+    int32_t midiVolumeX, masterVolumeX, volumeW, volumeLabelY, volumeSliderY, volumeH;
 };
 
 Layout layout()
@@ -48,7 +48,7 @@ Layout layout()
     l.headerH = l.buttonH + l.gap;
     l.infoY = l.headerH;
     l.lyricsY = l.infoY + my_font_14.line_height + l.gap;
-    l.bottomW = (l.w - 2 * l.inset - 4 * l.gap) / 5;
+    l.bottomW = (l.w - 2 * l.inset - 5 * l.gap) / 6;
     l.bottomY = l.h - l.inset - l.buttonH;
     l.seekH = std::max<int32_t>(28, my_font_14.line_height + 12);
     l.seekY = l.bottomY - l.gap - l.seekH;
@@ -58,12 +58,15 @@ Layout layout()
     const KaraokeLayout::VolumeRail rail = KaraokeLayout::volumeRail(
         l.w, l.inset, l.gap, l.buttonH, l.infoY, l.bottomY, my_font_14.line_height,
         UiMetrics::buttonWMin(), timeW);
-    l.volumeX = rail.x;
+    l.midiVolumeX = rail.midiX;
+    l.masterVolumeX = rail.masterX;
     l.volumeW = rail.width;
     l.volumeLabelY = rail.labelY;
     l.volumeSliderY = rail.sliderY;
     l.volumeH = rail.height;
+    l.lyricsX = rail.lyricsX;
     l.lyricsW = rail.lyricsWidth;
+    l.seekX = rail.lyricsX;
     l.seekW = rail.seekWidth;
     l.timeX = rail.timeX;
     l.jumpW = std::clamp<int32_t>(l.w / 12, 44, 52);
@@ -96,8 +99,9 @@ bool s_fontForSong = false;
 
 // Player screen
 struct Player {
-    lv_obj_t *scr, *lyrics, *cur, *plain, *slider, *volumeTrack, *volumeSlider, *volumeValue, *timeLbl,
-        *playBtn, *playLbl, *melBtnLbl, *diag, *fontLbl;
+    lv_obj_t *scr, *lyrics, *cur, *plain, *slider, *midiVolumeTrack, *midiVolumeSlider, *midiVolumeValue,
+        *masterVolumeTrack, *masterVolumeSlider, *masterVolumeValue, *timeLbl,
+        *playBtn, *playLbl, *melBtnLbl, *melodyMuteBtn, *diag, *fontLbl;
     std::vector<lv_obj_t *> before, after;
     lv_span_t *spSung, *spRest;
     lv_obj_t *cdRow;                                // v0.13.6 countdown dots (hidden outside pauses)
@@ -107,22 +111,33 @@ struct Player {
     lv_timer_t *timer;
     int line, syl;
     uint32_t lastSec;
-    bool dragging, volumeDragging, finished;
+    bool dragging, midiVolumeDragging, masterVolumeDragging, updatingVolumeControls, finished;
     bool plainMode, hasPlainLyrics;
 };
 Player P{};
 
 void syncVolumeControls()
 {
-    if (!P.volumeSlider) return;
-    const uint8_t volume = Karaoke::songVolume();
-    if (!P.volumeDragging && lv_slider_get_value(P.volumeSlider) != volume) {
-        lv_slider_set_value(P.volumeSlider, volume, LV_ANIM_OFF);
+    P.updatingVolumeControls = true;
+    if (P.midiVolumeSlider) {
+        const uint8_t volume = Karaoke::songVolume();
+        if (!P.midiVolumeDragging && lv_slider_get_value(P.midiVolumeSlider) != volume)
+            lv_slider_set_value(P.midiVolumeSlider, volume, LV_ANIM_OFF);
+        if (P.midiVolumeValue) {
+            const int shown = P.midiVolumeDragging ? lv_slider_get_value(P.midiVolumeSlider) : volume;
+            lv_label_set_text_fmt(P.midiVolumeValue, "MIDI %d%%", shown);
+        }
     }
-    if (P.volumeValue) {
-        const int shown = P.volumeDragging ? lv_slider_get_value(P.volumeSlider) : volume;
-        lv_label_set_text_fmt(P.volumeValue, LV_SYMBOL_AUDIO " %d%%", shown);
+    if (P.masterVolumeSlider) {
+        const uint8_t volume = Config::get().masterVol;
+        if (!P.masterVolumeDragging && lv_slider_get_value(P.masterVolumeSlider) != volume)
+            lv_slider_set_value(P.masterVolumeSlider, volume, LV_ANIM_OFF);
+        if (P.masterVolumeValue) {
+            const int shown = P.masterVolumeDragging ? lv_slider_get_value(P.masterVolumeSlider) : volume;
+            lv_label_set_text_fmt(P.masterVolumeValue, "MAST %d%%", shown);
+        }
     }
+    P.updatingVolumeControls = false;
 }
 
 void showPlayer();
@@ -1284,7 +1299,7 @@ void showPlayer()
     // The line block fills the available lyric area and stays centered around the active line.
     P.lyrics = lv_obj_create(scr);
     lv_obj_remove_style_all(P.lyrics);
-    lv_obj_set_pos(P.lyrics, l.inset, l.lyricsY);
+    lv_obj_set_pos(P.lyrics, l.lyricsX, l.lyricsY);
     lv_obj_set_size(P.lyrics, l.lyricsW, l.lyricsH);
     lv_obj_set_flex_flow(P.lyrics, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(P.lyrics, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -1347,7 +1362,7 @@ void showPlayer()
     P.slider = lv_slider_create(scr);
     const int32_t timeW = 124;
     lv_obj_set_size(P.slider, l.seekW, 8);
-    lv_obj_set_pos(P.slider, 2 * l.inset, l.seekY + l.seekH / 2 - 4);
+    lv_obj_set_pos(P.slider, l.seekX, l.seekY + l.seekH / 2 - 4);
     lv_slider_set_range(P.slider, 0, (int32_t)(song->lengthUs / 100000 > 0 ? song->lengthUs / 100000 : 1));
     lv_obj_set_style_bg_color(P.slider, Theme::c(Theme::LINE), LV_PART_MAIN);
     lv_obj_set_style_bg_color(P.slider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
@@ -1365,60 +1380,87 @@ void showPlayer()
     lv_obj_set_style_text_align(P.timeLbl, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_pos(P.timeLbl, l.timeX, l.seekY + (l.seekH - my_font_14.line_height) / 2);
 
-    P.volumeValue = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_set_width(P.volumeValue, l.volumeW);
-    lv_obj_set_style_text_align(P.volumeValue, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(P.volumeValue, l.volumeX, l.volumeLabelY);
-    P.volumeTrack = lv_obj_create(scr);
-    lv_obj_remove_style_all(P.volumeTrack);
-    lv_obj_set_size(P.volumeTrack, KaraokeLayout::VOLUME_TRACK_WIDTH, l.volumeH);
-    lv_obj_set_pos(P.volumeTrack, l.volumeX + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
-    lv_obj_set_style_radius(P.volumeTrack, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(P.volumeTrack, Theme::c(Theme::LINE), 0);
-    lv_obj_set_style_bg_opa(P.volumeTrack, LV_OPA_30, 0);
-    lv_obj_set_clickable(P.volumeTrack, false);
-    lv_obj_set_scrollable(P.volumeTrack, false);
-    P.volumeSlider = lv_slider_create(scr);
-    lv_obj_remove_style_all(P.volumeSlider);
-    lv_obj_set_size(P.volumeSlider, KaraokeLayout::VOLUME_TRACK_WIDTH, l.volumeH);
-    lv_obj_set_pos(P.volumeSlider, l.volumeX + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
-    lv_obj_set_ext_click_area(P.volumeSlider, (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH + 1) / 2);
-    lv_slider_set_orientation(P.volumeSlider, LV_SLIDER_ORIENTATION_VERTICAL);
-    lv_slider_set_range(P.volumeSlider, 0, 200);
-    lv_slider_set_value(P.volumeSlider, Karaoke::songVolume(), LV_ANIM_OFF);
-    lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_40, LV_PART_INDICATOR);
-    lv_obj_set_style_border_width(P.volumeSlider, 0, LV_PART_MAIN);
-    lv_obj_set_style_border_width(P.volumeSlider, 0, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(P.volumeSlider, Theme::c(Theme::TEXT), LV_PART_KNOB);
-    lv_obj_set_style_bg_opa(P.volumeSlider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_border_color(P.volumeSlider, Theme::c(Theme::ACCENT), LV_PART_KNOB);
-    lv_obj_set_style_border_width(P.volumeSlider, 2, LV_PART_KNOB);
-    lv_obj_set_style_radius(P.volumeSlider, 3, LV_PART_KNOB);
-    // LVGL derives the drawn knob from the slider width plus padding, not knob width/height styles.
-    lv_obj_set_style_pad_left(P.volumeSlider,
-        (KaraokeLayout::VOLUME_KNOB_WIDTH - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
-    lv_obj_set_style_pad_right(P.volumeSlider,
-        (KaraokeLayout::VOLUME_KNOB_WIDTH - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
-    lv_obj_set_style_pad_top(P.volumeSlider,
-        (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
-    lv_obj_set_style_pad_bottom(P.volumeSlider,
-        (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
-    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
-        P.volumeDragging = true;
-    }, LV_EVENT_PRESSED, nullptr);
-    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
-        syncVolumeControls();
-    }, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_add_event_cb(P.volumeSlider, [](lv_event_t *) {
-        if (P.volumeDragging)
-            Karaoke::setSongVolume((uint8_t)lv_slider_get_value(P.volumeSlider));
-        P.volumeDragging = false;
-    }, LV_EVENT_RELEASED, nullptr);
+    auto makeVolumeRail = [&](int32_t x, bool master) {
+        lv_obj_t *&value = master ? P.masterVolumeValue : P.midiVolumeValue;
+        lv_obj_t *&track = master ? P.masterVolumeTrack : P.midiVolumeTrack;
+        lv_obj_t *&volumeSlider = master ? P.masterVolumeSlider : P.midiVolumeSlider;
+        value = Theme::label(scr, "", &my_font_14, Theme::MUTED);
+        lv_obj_set_width(value, l.volumeW);
+        lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(value, x, l.volumeLabelY);
+        track = lv_obj_create(scr);
+        lv_obj_remove_style_all(track);
+        lv_obj_set_size(track, KaraokeLayout::VOLUME_TRACK_WIDTH, l.volumeH);
+        lv_obj_set_pos(track, x + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
+        lv_obj_set_style_radius(track, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(track, Theme::c(Theme::LINE), 0);
+        lv_obj_set_style_bg_opa(track, LV_OPA_30, 0);
+        lv_obj_set_clickable(track, false);
+        lv_obj_set_scrollable(track, false);
+        volumeSlider = lv_slider_create(scr);
+        lv_obj_remove_style_all(volumeSlider);
+        lv_obj_set_size(volumeSlider, KaraokeLayout::VOLUME_TRACK_WIDTH, l.volumeH);
+        lv_obj_set_pos(volumeSlider, x + (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, l.volumeSliderY);
+        lv_obj_set_ext_click_area(volumeSlider, (l.volumeW - KaraokeLayout::VOLUME_TRACK_WIDTH + 1) / 2);
+        lv_slider_set_orientation(volumeSlider, LV_SLIDER_ORIENTATION_VERTICAL);
+        lv_slider_set_range(volumeSlider, 0, master ? 100 : 200);
+        lv_slider_set_value(volumeSlider, master ? Config::get().masterVol : Karaoke::songVolume(), LV_ANIM_OFF);
+        lv_obj_set_style_bg_opa(volumeSlider, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(volumeSlider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(volumeSlider, LV_OPA_40, LV_PART_INDICATOR);
+        lv_obj_set_style_border_width(volumeSlider, 0, LV_PART_MAIN);
+        lv_obj_set_style_border_width(volumeSlider, 0, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(volumeSlider, Theme::c(Theme::TEXT), LV_PART_KNOB);
+        lv_obj_set_style_bg_opa(volumeSlider, LV_OPA_COVER, LV_PART_KNOB);
+        lv_obj_set_style_border_color(volumeSlider, Theme::c(Theme::ACCENT), LV_PART_KNOB);
+        lv_obj_set_style_border_width(volumeSlider, 2, LV_PART_KNOB);
+        lv_obj_set_style_radius(volumeSlider, 3, LV_PART_KNOB);
+        lv_obj_set_style_pad_left(volumeSlider,
+            (KaraokeLayout::VOLUME_KNOB_WIDTH - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+        lv_obj_set_style_pad_right(volumeSlider,
+            (KaraokeLayout::VOLUME_KNOB_WIDTH - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+        lv_obj_set_style_pad_top(volumeSlider,
+            (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+        lv_obj_set_style_pad_bottom(volumeSlider,
+            (KaraokeLayout::VOLUME_KNOB_HEIGHT - KaraokeLayout::VOLUME_TRACK_WIDTH) / 2, LV_PART_KNOB);
+        void *userData = reinterpret_cast<void *>(static_cast<intptr_t>(master));
+        lv_obj_add_event_cb(volumeSlider, [](lv_event_t *e) {
+            if ((intptr_t)lv_event_get_user_data(e))
+                P.masterVolumeDragging = true;
+            else
+                P.midiVolumeDragging = true;
+        }, LV_EVENT_PRESSED, userData);
+        lv_obj_add_event_cb(volumeSlider, [](lv_event_t *e) {
+            if (P.updatingVolumeControls) return;
+            if ((intptr_t)lv_event_get_user_data(e))
+                Audio::setMasterVolume((uint8_t)lv_slider_get_value(P.masterVolumeSlider));
+            syncVolumeControls();
+        }, LV_EVENT_VALUE_CHANGED, userData);
+        lv_obj_add_event_cb(volumeSlider, [](lv_event_t *e) {
+            if ((intptr_t)lv_event_get_user_data(e)) {
+                if (!P.masterVolumeDragging) return;
+                P.masterVolumeDragging = false;
+                const uint8_t previous = Config::get().masterVol;
+                Config::get().masterVol = (uint8_t)lv_slider_get_value(P.masterVolumeSlider);
+                Audio::setMasterVolume(Config::get().masterVol);
+                if (!Config::save()) {
+                    Config::get().masterVol = previous;
+                    Audio::setMasterVolume(previous);
+                    lv_slider_set_value(P.masterVolumeSlider, previous, LV_ANIM_OFF);
+                    msg(tr(Str::SET_SAVE_FAILED));
+                }
+            } else if (P.midiVolumeDragging) {
+                Karaoke::setSongVolume((uint8_t)lv_slider_get_value(P.midiVolumeSlider));
+                P.midiVolumeDragging = false;
+            }
+            syncVolumeControls();
+        }, LV_EVENT_RELEASED, userData);
+    };
+    makeVolumeRail(l.midiVolumeX, false);
+    makeVolumeRail(l.masterVolumeX, true);
     syncVolumeControls();
 
-    // Five primary controls fit both supported landscape formats without a second row.
+    // Six primary controls fit both supported landscape formats without a second row.
     const int32_t BW = l.bottomW, BH = l.buttonH, X0 = l.inset, DX = BW + l.gap, Y1 = l.bottomY;
     static uint32_t lastRow1[4] = {};
     ctlButton(scr, LV_SYMBOL_PREV, X0, Y1, BW, BH, Theme::LINE, [](lv_event_t *) {
@@ -1453,6 +1495,14 @@ void showPlayer()
         Karaoke::restart();
         updatePlayLabel(false);
         P.line = -3;
+    });
+    P.melodyMuteBtn = ctlButton(scr, Karaoke::melodyMuted() ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX,
+                                X0 + 5 * DX, Y1, BW, BH, Theme::LINE, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+        Karaoke::setMelodyMuted(!Karaoke::melodyMuted());
+        lv_label_set_text(lv_obj_get_child(P.melodyMuteBtn, 0),
+                          Karaoke::melodyMuted() ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
     });
 
     updateLyrics(Karaoke::view(), true);
