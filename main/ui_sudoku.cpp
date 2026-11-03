@@ -86,7 +86,12 @@ void hideHelp(lv_timer_t *timer)
 
 void showHelp(Str message, bool force = false)
 {
-    if (!s_help || (!force && !Config::get().sudokuHelpHints)) return;
+    if (!s_help) return;
+    if (!force && !Config::get().sudokuHelpHints) {
+        lv_obj_add_flag(s_help, LV_OBJ_FLAG_HIDDEN);
+        if (s_helpTimer) lv_timer_pause(s_helpTimer);
+        return;
+    }
     lv_label_set_text(s_help, tr(message));
     lv_obj_clear_flag(s_help, LV_OBJ_FLAG_HIDDEN);
     if (!s_helpTimer) s_helpTimer = lv_timer_create(hideHelp, 2200, s_help);
