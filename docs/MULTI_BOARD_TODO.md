@@ -19,6 +19,7 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 
 - [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
   siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
+  Väljaren visar en bekräftad funktion för att radera Sudoku-framsteg ur NVS.
   Färdiga siffror gråas ut, sifferbyten bekräftas och sparfel hindrar utgång;
   paustiden räknas upp till själva pausen. Kontroll markerar siffror som
   avviker från lösningen, och regelkonflikter kryssas direkt. Fasta givenceller
@@ -43,8 +44,14 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Nästa pusselblock läses automatiskt från `/sdcard/otr/sudoku/` när de
   inbyggda 100 pusslen per svårighet är klara. Väljaren räknar och visar alla
   giltiga poster i filerna; index cachas per filstorlek och ändringstid.
-  Ändrade stora filer kan ta flera minuter att indexera. Extreme accepterar
+  En popup meddelar när indexering behövs; räknaren visar fortfarande lösta
+  pussel av de första 100 under tiden. Ingen scan-task startas när inga
+  Sudoku-filer finns. Indexen ligger som `.sidx` på SD-kortet, inte i NVS;
+  nollställning av spelframsteg lämnar dem kvar. Extreme accepterar
   `extreme.txt` eller `diabolical.txt`.
+- [ ] Upprepa öppning av Sudoku på S3 utan extrafiler och kontrollera den
+  tidigare rapporterade omstarten; samla seriell startlogg/resetorsak om den
+  återkommer. Prova även popup, progressvisning och bekräftad nollställning.
 - [x] Sudokuens stående spelplan använder tillgänglig bredd. Tillbaka är en
   ikon i statusraden, där Sudoku och nivå/ban-/tidsinformation växlar. Hjälp
   visas tillfälligt vid funktionsbyte och kan stängas av i spelinställningarna.

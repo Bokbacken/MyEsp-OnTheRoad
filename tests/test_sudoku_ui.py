@@ -29,6 +29,10 @@ public:
   if(n!=data.size()) return false;
   memcpy(out,data.data(),n); return true;
  }
+ bool erase(const char *) {
+  if(fail) return false;
+  data.clear(); return true;
+ }
  bool setBlob(const char *, const void *value, size_t n) {
   if(fail) return false;
   auto *p=static_cast<const unsigned char *>(value); data.assign(p,p+n); return true;
@@ -364,6 +368,13 @@ int main() {
         settle();
         if(testBack) {
             assert(!UiSudoku::s_board && !UiSudoku::running());
+            assert(UiSudoku::s_listScreen && !MyNvs::data.empty());
+            UiSudoku::showResetDialog();
+            auto *resetBox=lv_obj_get_parent(UiSudoku::s_resetMessage);
+            assert(resetBox && lv_obj_get_child_count(resetBox)==3);
+            lv_obj_send_event(lv_obj_get_child(resetBox,2),LV_EVENT_CLICKED,nullptr);
+            settle();
+            assert(MyNvs::data.empty() && !UiSudoku::s_ready && UiSudoku::s_next[0]==0);
             continue;
         }
         assert(UiSudoku::s_game.puzzleIndex()==1 && UiSudoku::s_board && UiSudoku::running());

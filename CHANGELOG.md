@@ -30,7 +30,11 @@ a published GitHub Release.
   `/sdcard/otr/sudoku/`. The selector shows the total available count and
   accepts `extreme.txt` or `diabolical.txt` for Extreme. Valid counts and block
   offsets are cached by file size and modification time, so unchanged files
-  avoid rescanning; changed large files may take several minutes to index.
+  avoid rescanning; changed large files may take several minutes to index. A
+  popup explains long scans while the first-100 solved count remains visible.
+  No scan task is started if no SD puzzle files are present. A confirmation-
+  gated selector action clears only Sudoku's saved puzzle and solved counts
+  from NVS; it leaves SD puzzle files and `.sidx` caches untouched.
 - Make the Sudoku board use the full available portrait width, move Back to a
   header icon and alternate the header title with compact puzzle/time details.
   Brief contextual control hints can be disabled in Sudoku game settings.

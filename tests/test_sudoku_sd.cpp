@@ -28,6 +28,8 @@ Info info() { Info current{}; current.generation = 1; return current; }
 int main()
 {
     uint32_t counts[4] = {};
+    CHECK(SudokuSd::hasSources());
+    CHECK(SudokuSd::needsScanNotice());
     CHECK(SudokuSd::scan(counts));
     CHECK(counts[0] == 102);
     CHECK(counts[1] == 1);
@@ -40,6 +42,7 @@ int main()
     std::fclose(cache);
     CHECK(SudokuSd::scan(counts));
     CHECK(counts[0] == 102 && counts[1] == 1 && counts[3] == 1);
+    CHECK(!SudokuSd::needsScanNotice());
     CHECK(!SudokuSd::changed());
 
     char puzzles[Sudoku::BLOCK_SIZE][Sudoku::CELL_COUNT + 1]{};
@@ -59,8 +62,10 @@ int main()
     std::fprintf(easy, "fedcba654321 %s 4.0\n", Sudoku::detail::kPuzzleGivens[0][2]);
     std::fclose(easy);
     CHECK(SudokuSd::changed());
+    CHECK(SudokuSd::needsScanNotice());
     CHECK(SudokuSd::scan(counts));
     CHECK(counts[0] == 103);
+    CHECK(!SudokuSd::needsScanNotice());
     CHECK(SudokuSd::loadBlock(Sudoku::Difficulty::EASY, 1, puzzles, loaded));
     CHECK(loaded == 3);
     CHECK(std::strcmp(puzzles[2], Sudoku::detail::kPuzzleGivens[0][2]) == 0);
@@ -105,5 +110,15 @@ int main()
     CHECK(!SudokuSd::changed());
     CHECK(!SudokuSd::scan(counts));
     CHECK(!SudokuSd::loadBlock(Sudoku::Difficulty::EASY, 0, puzzles, loaded));
+    cardMounted = true;
+    const char *files[] = {"easy.txt", "medium.txt", "hard.txt", "extreme.txt", "diabolical.txt"};
+    for (const char *name : files) {
+        std::snprintf(path, sizeof(path), "%s/otr/sudoku/%s", SUDOKU_SD_ROOT, name);
+        std::remove(path);
+        std::snprintf(path, sizeof(path), "%s/otr/sudoku/%s.sidx", SUDOKU_SD_ROOT, name);
+        std::remove(path);
+    }
+    CHECK(!SudokuSd::hasSources());
+    CHECK(!SudokuSd::needsScanNotice());
     return 0;
 }

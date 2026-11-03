@@ -42,8 +42,10 @@ lv_obj_t *s_gameScreen = nullptr, *s_listScreen = nullptr;
 lv_timer_t *s_helpTimer = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
 lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr, *s_winNext = nullptr;
+lv_obj_t *s_resetMessage = nullptr;
 unsigned s_replaceCell = 0;
 uint8_t s_replaceDigit = 0;
+bool s_sdScanNoticePending = false;
 
 struct Save {
     uint32_t version = 2;
@@ -76,6 +78,7 @@ constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 
 void startNew(unsigned difficulty);
 void showWinPrompt();
+void show();
 
 void hideHelp(lv_timer_t *timer)
 {
@@ -173,13 +176,75 @@ void scanSdIfNeeded()
         s_sdScanReady.store(true, std::memory_order_release);
         return;
     }
+    if (!SudokuSd::hasSources()) {
+        s_sdScanReady.store(true, std::memory_order_release);
+        return;
+    }
     if (s_sdScanReady.load(std::memory_order_acquire) ||
         s_sdScanRunning.exchange(true, std::memory_order_acq_rel)) return;
+    s_sdScanNoticePending = SudokuSd::needsScanNotice();
     if (xTaskCreate(scanTask, "sudoku_sd", 4096, nullptr, 1, nullptr) != pdPASS) {
         s_sdScanRunning.store(false, std::memory_order_release);
         s_sdScanReady.store(true, std::memory_order_release);
+        s_sdScanNoticePending = false;
         lv_async_call(scanDone, nullptr);
     }
+}
+
+void showScanNotice()
+{
+    auto *shade = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(shade, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(shade, LV_OPA_80, 0);
+    auto *box = Theme::card(shade, UiMetrics::screenW() - 40, 220);
+    lv_obj_center(box);
+    auto *message = Theme::label(box, tr(Str::SUDOKU_SD_SCANNING), &my_font_14);
+    lv_obj_set_width(message, LV_PCT(100));
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    auto *ok = Theme::button(box, tr(Str::ADV_TALK_OK), 110, 40, Theme::ACCENT);
+    lv_obj_align(ok, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_add_event_cb(ok, [](lv_event_t *event) {
+        lv_obj_delete(static_cast<lv_obj_t *>(lv_event_get_user_data(event)));
+    }, LV_EVENT_CLICKED, shade);
+}
+
+void resetProgress(lv_event_t *event)
+{
+    auto *shade = static_cast<lv_obj_t *>(lv_event_get_user_data(event));
+    MyNvs::Handle h("sudoku", false);
+    if (!h || !h.erase("game") || !h.commit()) {
+        if (s_resetMessage && lv_obj_is_valid(s_resetMessage))
+            lv_label_set_text(s_resetMessage, tr(Str::SUDOKU_RESET_FAILED));
+        return;
+    }
+    memset(s_next, 0, sizeof(s_next));
+    s_ready = s_dirty = s_completedSaved = s_saveFailed = false;
+    s_checked = s_notes = s_erase = s_paused = false;
+    s_elapsed = 0;
+    s_resetMessage = nullptr;
+    lv_obj_delete(shade);
+    show();
+}
+
+void showResetDialog()
+{
+    auto *shade = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(shade, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(shade, LV_OPA_80, 0);
+    auto *box = Theme::card(shade, UiMetrics::screenW() - 40, 220);
+    lv_obj_center(box);
+    s_resetMessage = Theme::label(box, tr(Str::SUDOKU_RESET_CONFIRM), &my_font_14);
+    lv_obj_set_width(s_resetMessage, LV_PCT(100));
+    lv_label_set_long_mode(s_resetMessage, LV_LABEL_LONG_MODE_WRAP);
+    auto *cancel = Theme::button(box, tr(Str::BTN_CANCEL), 110, 40, Theme::MUTED);
+    lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_add_event_cb(cancel, [](lv_event_t *event) {
+        lv_obj_delete(static_cast<lv_obj_t *>(lv_event_get_user_data(event)));
+        s_resetMessage = nullptr;
+    }, LV_EVENT_CLICKED, shade);
+    auto *confirm = Theme::button(box, tr(Str::SUDOKU_RESET_PROGRESS), 140, 40, Theme::ACCENT);
+    lv_obj_align(confirm, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_add_event_cb(confirm, resetProgress, LV_EVENT_CLICKED, shade);
 }
 
 void cheerAnimation(void *object, int32_t rise)
@@ -350,8 +415,10 @@ bool restore()
     if (!startPuzzle(restored, data.difficulty, data.puzzle)) {
         ESP_LOGE("sudoku", "cannot restore puzzle");
         if (data.puzzle >= Sudoku::BLOCK_SIZE &&
-            (!BoardSd::mounted() || !s_sdScanReady.load(std::memory_order_acquire)))
+            (!BoardSd::mounted() || !s_sdScanReady.load(std::memory_order_acquire))) {
+            for (unsigned i = 0; i < 4; ++i) s_next[i] = data.next[i];
             return false;
+        }
         return true;
     }
     for (unsigned i = 0; i < 81; ++i) {
@@ -824,12 +891,8 @@ void show()
     }
     for (unsigned i = 0; i < 4; ++i) {
         char description[96];
-        if (s_sdScanReady.load(std::memory_order_acquire)) {
-            snprintf(description, sizeof(description), tr(Str::SUDOKU_PROGRESS),
-                     blockProgress(i), Sudoku::BLOCK_SIZE, available(i));
-        } else {
-            snprintf(description, sizeof(description), "%s", tr(Str::SUDOKU_SD_SCANNING));
-        }
+        snprintf(description, sizeof(description), tr(Str::SUDOKU_PROGRESS),
+                 blockProgress(i), Sudoku::BLOCK_SIZE, available(i));
         auto *b = Theme::menuCard(list, LV_PCT(100), tr(difficultyLabel(i)), description,
                                  nullptr, LV_SYMBOL_LIST, Theme::GOLD);
         if (s_next[i] >= available(i) ||
@@ -838,9 +901,17 @@ void show()
             lv_obj_add_state(b, LV_STATE_DISABLED);
         lv_obj_add_event_cb(b, start, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(i)));
     }
+    auto *reset = Theme::button(list, tr(Str::SUDOKU_RESET_PROGRESS), LV_PCT(100),
+                                UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_add_event_cb(reset, [](lv_event_t *) { showResetDialog(); },
+                        LV_EVENT_CLICKED, nullptr);
     auto *back = Theme::button(screen, tr(Str::BTN_BACK), 100, 34, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_add_event_cb(back, [](lv_event_t *) { UiYatzy::showMenu(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(screen);
+    if (s_sdScanNoticePending) {
+        s_sdScanNoticePending = false;
+        showScanNotice();
+    }
 }
 }  // namespace UiSudoku

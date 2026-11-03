@@ -33,6 +33,9 @@ are saved in NVS every 30 seconds, when pausing, leaving or finishing. Power
 loss can therefore discard the last 30 seconds; undo history is not persisted.
 Only one unfinished puzzle is saved, with confirmation before replacing it.
 Use **Continue saved puzzle** to resume after returning or restarting.
+**Reset progress** in the puzzle selector asks for confirmation, then removes
+the saved game and all four solved counts from Sudoku's NVS namespace. It does
+not erase other settings, puzzle files or SD index caches.
 Finishing unlocks the next puzzle in that difficulty. There is no hint solver
 or automatic candidate elimination.
 
@@ -81,11 +84,14 @@ Valid-record counts and block offsets are cached beside each source as an
 `.sidx` file. The cache is reused while the source file's size and modification
 time are unchanged; only changed or uncached files need a full scan. The
 generated `.sidx` files can be deleted safely and are rebuilt when needed.
-Checking large changed files can take several minutes, and the selector
-displays a notice while the index is checked. Puzzles are loaded one block of
-100 at a time as the player completes each block; no network access is used. If
-a source file is missing, that difficulty remains limited to its 100 bundled
-puzzles. The source files can be downloaded from [Grant McLean's Sudoku
+When a file needs a full scan, a popup explains that checking new or changed
+large files can take several minutes. The selector continues to show solved
+progress out of the first 100 while the scan runs; the available total updates
+when indexing finishes. With no source files present, no background scan task
+is started. Puzzles are loaded one block of 100 at a time as the player
+completes each block; no network access is used. If a source file is missing,
+that difficulty remains limited to its 100 bundled puzzles. The source files
+can be downloaded from [Grant McLean's Sudoku
 Exchange Puzzle Bank](https://github.com/grantm/sudoku-exchange-puzzle-bank).
 
 Future flash blocks can still be prepared offline:

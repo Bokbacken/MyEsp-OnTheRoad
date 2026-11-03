@@ -160,6 +160,34 @@ bool filesChanged()
     return false;
 }
 
+bool cachedIndexMatches(const char *sourcePath, uint64_t fileSize, int64_t modified)
+{
+    char path[400];
+    makeIndexPath(path, sourcePath);
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+
+    uint32_t magic = 0, version = 0, cachedCount = 0, offsetCount = 0;
+    uint64_t cachedSize = 0;
+    int64_t cachedModified = 0;
+    const bool valid = fread(&magic, sizeof(magic), 1, file) == 1 &&
+                       fread(&version, sizeof(version), 1, file) == 1 &&
+                       fread(&cachedSize, sizeof(cachedSize), 1, file) == 1 &&
+                       fread(&cachedModified, sizeof(cachedModified), 1, file) == 1 &&
+                       fread(&cachedCount, sizeof(cachedCount), 1, file) == 1 &&
+                       fread(&offsetCount, sizeof(offsetCount), 1, file) == 1;
+    fclose(file);
+    const uint64_t maxRecords = fileSize / (12 + 1 + Sudoku::CELL_COUNT + 1 + 1);
+    const uint64_t expectedOffsets =
+        (static_cast<uint64_t>(cachedCount) + Sudoku::BLOCK_SIZE - 1) / Sudoku::BLOCK_SIZE;
+    struct stat indexInfo{};
+    return valid && magic == kIndexMagic && version == kIndexVersion &&
+           cachedSize == fileSize && cachedModified == modified &&
+           cachedCount <= maxRecords && offsetCount == expectedOffsets &&
+           stat(path, &indexInfo) == 0 &&
+           static_cast<uint64_t>(indexInfo.st_size) == 32u + uint64_t(offsetCount) * sizeof(uint32_t);
+}
+
 void saveIndex(const char *sourcePath, uint64_t fileSize, int64_t modified,
                uint32_t puzzleCount, const std::vector<uint32_t> &offsets)
 {
@@ -208,6 +236,30 @@ bool nextLine(FILE *file, char line[kLineCapacity])
 bool changed()
 {
     return BoardSd::mounted() && filesChanged();
+}
+
+bool hasSources()
+{
+    for (unsigned difficulty = 0; difficulty < 4; ++difficulty) {
+        char path[96];
+        struct stat info{};
+        if (currentSource(difficulty, path, info)) return true;
+    }
+    return false;
+}
+
+bool needsScanNotice()
+{
+    for (unsigned difficulty = 0; difficulty < 4; ++difficulty) {
+        char path[96];
+        struct stat info{};
+        if (!currentSource(difficulty, path, info)) continue;
+        if (info.st_size < 0 ||
+            !cachedIndexMatches(path, static_cast<uint64_t>(info.st_size),
+                                static_cast<int64_t>(info.st_mtime)))
+            return true;
+    }
+    return false;
 }
 
 bool scan(uint32_t counts[4])
