@@ -191,9 +191,9 @@ void scanSdIfNeeded()
     } else if (needsNotice) s_sdScanNoticeRequired = true;
 }
 
-void showScanNotice()
+void showScanNotice(lv_obj_t *screen)
 {
-    auto *shade = lv_obj_create(lv_screen_active());
+    auto *shade = lv_obj_create(screen);
     lv_obj_set_size(shade, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_opa(shade, LV_OPA_80, 0);
     auto *box = Theme::card(shade, UiMetrics::screenW() - 40, 220);
@@ -907,6 +907,6 @@ void show()
     lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_add_event_cb(back, [](lv_event_t *) { UiYatzy::showMenu(); }, LV_EVENT_CLICKED, nullptr);
     Theme::loadScreen(screen);
-    if (s_sdScanNoticeRequired) showScanNotice();
+    if (s_sdScanNoticeRequired) showScanNotice(screen);
 }
 }  // namespace UiSudoku
