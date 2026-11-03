@@ -158,8 +158,8 @@ void scanTask(void *)
 void scanSdIfNeeded()
 {
     const BoardSd::Info info = BoardSd::info();
-    if (info.generation != s_sdGeneration &&
-        !s_sdScanRunning.load(std::memory_order_acquire)) {
+    if (!s_sdScanRunning.load(std::memory_order_acquire) &&
+        (info.generation != s_sdGeneration || (info.mounted && SudokuSd::changed()))) {
         s_sdGeneration = info.generation;
         for (auto &count : s_sdCounts) count = 0;
         s_sdBlockDifficulty = s_sdBlockNumber = UINT32_MAX;
@@ -823,13 +823,12 @@ void show()
         lv_obj_add_event_cb(resume, [](lv_event_t *) { play(); }, LV_EVENT_CLICKED, nullptr);
     }
     for (unsigned i = 0; i < 4; ++i) {
-        char description[64];
+        char description[96];
         if (s_sdScanReady.load(std::memory_order_acquire)) {
             snprintf(description, sizeof(description), tr(Str::SUDOKU_PROGRESS),
                      blockProgress(i), Sudoku::BLOCK_SIZE, available(i));
         } else {
-            snprintf(description, sizeof(description), tr(Str::SUDOKU_SD_SCANNING),
-                     blockProgress(i), Sudoku::BLOCK_SIZE);
+            snprintf(description, sizeof(description), "%s", tr(Str::SUDOKU_SD_SCANNING));
         }
         auto *b = Theme::menuCard(list, LV_PCT(100), tr(difficultyLabel(i)), description,
                                  nullptr, LV_SYMBOL_LIST, Theme::GOLD);

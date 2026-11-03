@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <vector>
+#include <sys/stat.h>
 
 #include "board_sd.h"
 
@@ -16,10 +17,20 @@ namespace {
 constexpr const char *kFiles[] = {"easy.txt", "medium.txt", "hard.txt", "extreme.txt"};
 constexpr const char *kLegacyExtremeFile = "diabolical.txt";
 constexpr unsigned kLineCapacity = 128;
+constexpr uint32_t kIndexMagic = 0x53445549;
+constexpr uint32_t kIndexVersion = 1;
 std::vector<uint32_t> s_blockOffsets[4];
 char s_paths[4][96]{};
 uint32_t s_indexGeneration = UINT32_MAX;
 bool s_indexReady = false;
+struct FileSignature {
+    char path[96]{};
+    uint64_t size = 0;
+    int64_t modified = 0;
+    bool present = false;
+};
+FileSignature s_signatures[4]{};
+bool s_signaturesReady = false;
 
 bool hexDigit(char c)
 {
@@ -59,6 +70,17 @@ void makePath(char path[96], unsigned difficulty, bool legacyExtreme = false)
     snprintf(path, 96, "%s/otr/sudoku/%s", SUDOKU_SD_ROOT, filename);
 }
 
+bool currentSource(unsigned difficulty, char path[96], struct stat &info)
+{
+    makePath(path, difficulty);
+    if (stat(path, &info) == 0) return true;
+    if (difficulty == static_cast<unsigned>(Sudoku::Difficulty::EXTREME)) {
+        makePath(path, difficulty, true);
+        if (stat(path, &info) == 0) return true;
+    }
+    return false;
+}
+
 FILE *openDifficulty(unsigned difficulty, char path[96])
 {
     makePath(path, difficulty);
@@ -68,6 +90,103 @@ FILE *openDifficulty(unsigned difficulty, char path[96])
         file = fopen(path, "rb");
     }
     return file;
+}
+
+void makeIndexPath(char path[400], const char *sourcePath)
+{
+    snprintf(path, 400, "%s.sidx", sourcePath);
+}
+
+bool loadIndex(const char *sourcePath, uint64_t fileSize, int64_t modified,
+               uint32_t &puzzleCount, std::vector<uint32_t> &offsets)
+{
+    char path[400];
+    makeIndexPath(path, sourcePath);
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+
+    uint32_t magic = 0, version = 0, cachedCount = 0, offsetCount = 0;
+    uint64_t cachedSize = 0;
+    int64_t cachedModified = 0;
+    bool valid = fread(&magic, sizeof(magic), 1, file) == 1 &&
+                 fread(&version, sizeof(version), 1, file) == 1 &&
+                 fread(&cachedSize, sizeof(cachedSize), 1, file) == 1 &&
+                 fread(&cachedModified, sizeof(cachedModified), 1, file) == 1 &&
+                 fread(&cachedCount, sizeof(cachedCount), 1, file) == 1 &&
+                 fread(&offsetCount, sizeof(offsetCount), 1, file) == 1;
+    const uint64_t maxRecords = fileSize / (12 + 1 + Sudoku::CELL_COUNT + 1 + 1);
+    const uint64_t expectedOffsets =
+        (static_cast<uint64_t>(cachedCount) + Sudoku::BLOCK_SIZE - 1) / Sudoku::BLOCK_SIZE;
+    if (!valid || magic != kIndexMagic || version != kIndexVersion ||
+        cachedSize != fileSize || cachedModified != modified ||
+        cachedCount > maxRecords || offsetCount > expectedOffsets ||
+        (fileSize <= UINT32_MAX && offsetCount != expectedOffsets)) {
+        fclose(file);
+        return false;
+    }
+
+    std::vector<uint32_t> cachedOffsets(offsetCount);
+    if (offsetCount && fread(cachedOffsets.data(), sizeof(uint32_t), offsetCount, file) != offsetCount)
+        valid = false;
+    if (valid && fgetc(file) != EOF) valid = false;
+    if (ferror(file)) valid = false;
+    fclose(file);
+    if (!valid) return false;
+
+    uint32_t previous = 0;
+    for (uint32_t i = 0; i < offsetCount; ++i) {
+        const uint32_t offset = cachedOffsets[i];
+        if (offset >= fileSize || (i && offset <= previous)) return false;
+        previous = offset;
+    }
+    puzzleCount = cachedCount;
+    offsets.swap(cachedOffsets);
+    return true;
+}
+
+bool filesChanged()
+{
+    if (!s_signaturesReady) return true;
+    for (unsigned difficulty = 0; difficulty < 4; ++difficulty) {
+        char path[96];
+        struct stat info{};
+        const bool present = currentSource(difficulty, path, info);
+        const FileSignature &signature = s_signatures[difficulty];
+        if (present != signature.present || strcmp(path, signature.path) != 0) return true;
+        if (present && (static_cast<uint64_t>(info.st_size) != signature.size ||
+                        static_cast<int64_t>(info.st_mtime) != signature.modified))
+            return true;
+    }
+    return false;
+}
+
+void saveIndex(const char *sourcePath, uint64_t fileSize, int64_t modified,
+               uint32_t puzzleCount, const std::vector<uint32_t> &offsets)
+{
+    char path[400], temporary[404];
+    makeIndexPath(path, sourcePath);
+    snprintf(temporary, sizeof(temporary), "%s.tmp", path);
+    remove(temporary);
+    FILE *file = fopen(temporary, "wb");
+    if (!file) return;
+
+    const uint32_t magic = kIndexMagic, version = kIndexVersion;
+    const uint32_t offsetCount = static_cast<uint32_t>(offsets.size());
+    bool ok = fwrite(&magic, sizeof(magic), 1, file) == 1 &&
+              fwrite(&version, sizeof(version), 1, file) == 1 &&
+              fwrite(&fileSize, sizeof(fileSize), 1, file) == 1 &&
+              fwrite(&modified, sizeof(modified), 1, file) == 1 &&
+              fwrite(&puzzleCount, sizeof(puzzleCount), 1, file) == 1 &&
+              fwrite(&offsetCount, sizeof(offsetCount), 1, file) == 1;
+    if (ok && offsetCount)
+        ok = fwrite(offsets.data(), sizeof(uint32_t), offsetCount, file) == offsetCount;
+    if (fflush(file) != 0) ok = false;
+    if (fclose(file) != 0) ok = false;
+    if (ok) {
+        remove(path);
+        if (rename(temporary, path) == 0) return;
+    }
+    remove(temporary);
 }
 
 bool nextLine(FILE *file, char line[kLineCapacity])
@@ -86,6 +205,11 @@ bool nextLine(FILE *file, char line[kLineCapacity])
 
 } // namespace
 
+bool changed()
+{
+    return BoardSd::mounted() && filesChanged();
+}
+
 bool scan(uint32_t counts[4])
 {
     if (!counts) return false;
@@ -100,6 +224,17 @@ bool scan(uint32_t counts[4])
     for (unsigned difficulty = 0; difficulty < 4; ++difficulty) {
         FILE *file = openDifficulty(difficulty, s_paths[difficulty]);
         if (!file) continue;
+        struct stat sourceInfo{};
+        const bool cacheable = stat(s_paths[difficulty], &sourceInfo) == 0 && sourceInfo.st_size >= 0;
+        const uint64_t fileSize = cacheable ? static_cast<uint64_t>(sourceInfo.st_size) : 0;
+        const int64_t modified = cacheable ? static_cast<int64_t>(sourceInfo.st_mtime) : 0;
+        if (cacheable &&
+            loadIndex(s_paths[difficulty], fileSize, modified, counts[difficulty],
+                      s_blockOffsets[difficulty])) {
+            fclose(file);
+            continue;
+        }
+
         long offset;
         while ((offset = ftell(file)) >= 0 && nextLine(file, line)) {
             if (parseRecord(line, puzzle) && counts[difficulty] != UINT32_MAX) {
@@ -109,8 +244,23 @@ bool scan(uint32_t counts[4])
                 ++counts[difficulty];
             }
         }
+        const bool readOk = !ferror(file);
         fclose(file);
+        struct stat afterInfo{};
+        if (cacheable && readOk && stat(s_paths[difficulty], &afterInfo) == 0 &&
+            static_cast<uint64_t>(afterInfo.st_size) == fileSize &&
+            static_cast<int64_t>(afterInfo.st_mtime) == modified)
+            saveIndex(s_paths[difficulty], fileSize, modified, counts[difficulty],
+                      s_blockOffsets[difficulty]);
     }
+    for (unsigned difficulty = 0; difficulty < 4; ++difficulty) {
+        FileSignature &signature = s_signatures[difficulty];
+        struct stat info{};
+        signature.present = currentSource(difficulty, signature.path, info);
+        signature.size = signature.present ? static_cast<uint64_t>(info.st_size) : 0;
+        signature.modified = signature.present ? static_cast<int64_t>(info.st_mtime) : 0;
+    }
+    s_signaturesReady = true;
     s_indexGeneration = BoardSd::info().generation;
     s_indexReady = true;
     return true;

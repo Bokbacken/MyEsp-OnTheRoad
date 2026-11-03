@@ -76,12 +76,17 @@ after the bundled block. Copy the original bank files into `/sdcard/otr/sudoku/`
 | Hard | `hard.txt` |
 | Extreme | `extreme.txt` or `diabolical.txt` |
 
-The selector scans valid records on the SD card and shows the total number of
-available puzzles (bundled plus SD). Puzzles are loaded one at a time as the
-player completes each block of 100; no network access is used. If a file is
-missing, that difficulty remains limited to its 100 bundled puzzles. The source
-files can be downloaded from [Grant McLean's Sudoku Exchange Puzzle
-Bank](https://github.com/grantm/sudoku-exchange-puzzle-bank).
+The selector shows the total number of available puzzles (bundled plus SD).
+Valid-record counts and block offsets are cached beside each source as an
+`.sidx` file. The cache is reused while the source file's size and modification
+time are unchanged; only changed or uncached files need a full scan. The
+generated `.sidx` files can be deleted safely and are rebuilt when needed.
+Checking large changed files can take several minutes, and the selector
+displays a notice while the index is checked. Puzzles are loaded one block of
+100 at a time as the player completes each block; no network access is used. If
+a source file is missing, that difficulty remains limited to its 100 bundled
+puzzles. The source files can be downloaded from [Grant McLean's Sudoku
+Exchange Puzzle Bank](https://github.com/grantm/sudoku-exchange-puzzle-bank).
 
 Future flash blocks can still be prepared offline:
 

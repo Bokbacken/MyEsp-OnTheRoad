@@ -28,7 +28,9 @@ a published GitHub Release.
 - Bundle 100 puzzles per difficulty from the public-domain Sudoku Exchange
   bank, then load additional puzzles from matching files under
   `/sdcard/otr/sudoku/`. The selector shows the total available count and
-  accepts `extreme.txt` or `diabolical.txt` for Extreme.
+  accepts `extreme.txt` or `diabolical.txt` for Extreme. Valid counts and block
+  offsets are cached by file size and modification time, so unchanged files
+  avoid rescanning; changed large files may take several minutes to index.
 - Make the Sudoku board use the full available portrait width, move Back to a
   header icon and alternate the header title with compact puzzle/time details.
   Brief contextual control hints can be disabled in Sudoku game settings.

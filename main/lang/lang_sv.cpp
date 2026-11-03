@@ -26,7 +26,7 @@ extern const Entry LANG_SV[] = {
     {Str::SUDOKU_NEXT, "Nästa pussel"},
     {Str::SUDOKU_RESUME, "Fortsätt sparat pussel"},
     {Str::SUDOKU_PROGRESS, "%u av %u lösta (%u tillgängliga)"},
-    {Str::SUDOKU_SD_SCANNING, "%u av %u lösta (läser SD-kort...)"},
+    {Str::SUDOKU_SD_SCANNING, "Ändrade filer kan ta minuter; oförändrade återanvänds"},
     {Str::SUDOKU_MODE_DIGIT, "Välj siffra och tryck sedan i en ruta"},
     {Str::SUDOKU_MODE_NOTES, "Anteckning: tryck i en ruta för att växla en kandidat"},
     {Str::SUDOKU_MODE_CHECK, "Kontroll: kryss visar regelbrott och fel svar"},

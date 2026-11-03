@@ -7,6 +7,7 @@
 namespace SudokuSd {
 
 bool scan(uint32_t counts[4]);
+bool changed();
 bool loadBlock(Sudoku::Difficulty difficulty, uint32_t block,
                char puzzles[Sudoku::BLOCK_SIZE][Sudoku::CELL_COUNT + 1], uint32_t &count);
 

@@ -26,7 +26,7 @@ extern const Entry LANG_EN[] = {
     {Str::SUDOKU_NEXT, "Next puzzle"},
     {Str::SUDOKU_RESUME, "Resume saved puzzle"},
     {Str::SUDOKU_PROGRESS, "%u of %u solved (%u available)"},
-    {Str::SUDOKU_SD_SCANNING, "%u of %u solved (reading SD card...)"},
+    {Str::SUDOKU_SD_SCANNING, "Changed files may take minutes; unchanged files are reused"},
     {Str::SUDOKU_MODE_DIGIT, "Select a digit, then tap a cell"},
     {Str::SUDOKU_MODE_NOTES, "Notes: tap a cell to toggle a candidate"},
     {Str::SUDOKU_MODE_CHECK, "Check: crosses mark conflicts and wrong answers"},

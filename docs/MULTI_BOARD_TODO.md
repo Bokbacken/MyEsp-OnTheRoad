@@ -42,7 +42,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   omstart på båda fysiska korten.
 - [x] Nästa pusselblock läses automatiskt från `/sdcard/otr/sudoku/` när de
   inbyggda 100 pusslen per svårighet är klara. Väljaren räknar och visar alla
-  giltiga poster i filerna; Extreme accepterar `extreme.txt` eller `diabolical.txt`.
+  giltiga poster i filerna; index cachas per filstorlek och ändringstid.
+  Ändrade stora filer kan ta flera minuter att indexera. Extreme accepterar
+  `extreme.txt` eller `diabolical.txt`.
 - [x] Sudokuens stående spelplan använder tillgänglig bredd. Tillbaka är en
   ikon i statusraden, där Sudoku och nivå/ban-/tidsinformation växlar. Hjälp
   visas tillfälligt vid funktionsbyte och kan stängas av i spelinställningarna.
