@@ -669,8 +669,9 @@ void play()
     const int buttonH = landscape ? 42 : (h <= 500 ? 30 : 40);
     const int controlsH = 3 * buttonH + 2 * gap;
     int side = landscape ? h - top - 8 : h - top - controlsH - gap - margin;
-    if (!landscape && side > w - 2 * margin) side = w - 2 * margin;
-    side = side / 9 * 9;
+    const int widthSide = (w - 2) / 9 * 9;
+    if (!landscape && side >= widthSide) side = widthSide;
+    else side = side / 9 * 9;
     const int controlsX = landscape ? margin + side + 10 : margin;
     const int controlsY = landscape ? top : top + side + gap;
     const int controlsW = landscape ? w - controlsX - margin : w - 2 * margin;
