@@ -29,6 +29,7 @@
 #palette { display:flex; flex-wrap:wrap; gap:.3rem; margin:.4rem 0; }
 #palette button { min-width:2.6rem; padding:.2rem .4rem; font-family:ui-monospace, Consolas, monospace; }
 #palette button.active { outline:2px solid var(--otr-accent, #2d6cdf); }
+#treasure-place.active { outline:2px solid var(--otr-accent, #2d6cdf); }
 .palette-symbol, .resource-preview { width:2rem; height:2rem; image-rendering:pixelated; object-fit:contain; vertical-align:middle; }
 .panel-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap:.8rem; margin-top:.8rem; }
 .panel-grid > div, .legend-form, .section-editors, .section-editors details { min-width:0; }
@@ -36,6 +37,11 @@
 .row-list { list-style:none; padding:0; margin:.3rem 0; }
 .row-list li { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.35rem 0; border-bottom:1px solid var(--otr-border, #888); }
 .row-list code { white-space:pre-wrap; overflow-wrap:anywhere; flex:1 1 100%; }
+#layer-list li { flex-wrap:nowrap; padding:.15rem 0; gap:.3rem; }
+#layer-list code { flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#layer-list button { flex:0 0 auto; width:auto; min-height:0; margin:0; padding:.12rem .45rem; line-height:1.2; }
+#draft-notice { white-space:pre-wrap; }
+#draft-notice.bad { color:var(--otr-red); }
 .row-list textarea { flex:1 1 100%; min-width:0; }
 .legend-form { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap:.5rem; align-items:end; }
 .legend-form label { margin:0; }
@@ -100,6 +106,7 @@
     <button id="save" type="button" disabled>Spara säkert</button>
   </div>
   <p id="status" class="muted" role="status" aria-live="polite">Öppna en äventyrsfil för att börja.</p>
+  <p id="draft-notice" role="status" aria-live="polite" hidden></p>
   <div id="modes" role="tablist">
     <button id="mode-map" type="button" class="secondary active" disabled>Kartvy</button>
     <button id="mode-text" type="button" class="secondary" disabled>Text</button>
@@ -113,6 +120,22 @@
       <button type="button" class="secondary" data-tool="pick" title="Klicka på en ruta för att välja dess glyf i paletten.">Plocka</button>
       <button type="button" class="secondary" data-tool="move" title="Dra en ruta till en ny position. Målrutan skrivs över.">Flytta</button>
       <button type="button" class="secondary" data-tool="dark" title="Dra en rektangel för att skapa eller ändra ett mörkt område.">Mörkt område</button>
+    </div>
+    <div class="legend-form" aria-label="Placera skatt">
+      <label>Skatt
+        <select id="treasure-item" disabled>
+          <option value="key">Nyckel</option><option value="gem">Juvel</option><option value="boat">Båt</option>
+          <option value="potion">Trolldryck</option><option value="heart">Hjärta</option><option value="suit">Dräkt</option>
+          <option value="life">Extraliv</option><option value="bomb3">Bomb 3</option><option value="bomb4">Bomb 4</option>
+          <option value="flash">Ficklampa</option><option value="pogo">Hoppstylta</option><option value="skates">Skridskor</option>
+          <option value="suction">Sugpropp</option>
+        </select>
+      </label>
+      <label>Antal / nivå
+        <select id="treasure-amount"></select>
+      </label>
+      <button id="treasure-place" type="button" class="secondary" aria-pressed="false" disabled>Placera skatter</button>
+      <span class="muted">Välj föremål och klicka på en eller flera kartrutor.</span>
     </div>
     <div id="display-modes" aria-label="Kartvisning">
       <button id="display-image" type="button" class="secondary active" title="Visa kartans symboler som bilder/ikoner.">Bildsymboler</button>
@@ -240,12 +263,12 @@
   </div>
 </div>
 <div class="card">
-  <p>Kartvyn ändrar bara kartrader, <code>@legend</code>, <code>@dark</code> och koordinater i
+  <p>Kartverktygen ändrar kartrader, <code>@legend</code>, <code>@dark</code>, skatter i <code>@treasures</code> och koordinater i
   <code>@plategroup</code>/<code>@gategroup</code>; kommentarer och syntax som editorn ännu inte känner till
   behålls när du öppnar och sparar. <strong>Spara säkert</strong> kontrollerar filen med samma parser,
   storyvalidering och kartmotor som firmware använder. Sparningen går via filhanterarens temporärfil
   och atomiska installation, och kräver admin-PIN om en sådan är inställd.</p>
-  <p class="muted">Destinationer, portaler, fiender, skatter och resursplaceringar redigeras ännu i textläget;
+  <p class="muted">Destinationer, portaler, fiender och resursplaceringar redigeras i textavsnitten;
   flyttar du en ruta som de pekar på fångar valideringen det vid sparning.
   Se <a href="/files">filhanteraren</a> eller <a href="https://github.com/Bokbacken/MyEsp-OnTheRoad/blob/main/docs/AUTHORING_ADVENTURES.md">författarguiden</a>.</p>
 </div>
@@ -256,9 +279,20 @@
 const $ = id => document.getElementById(id);
 const PIN_KEY = 'otr-admin-pin';
 let currentDirectory = '/otr/adventure';
-let opened = false;
-$('pin').value = sessionStorage.getItem(PIN_KEY) || '';
-$('pin').addEventListener('input', () => sessionStorage.setItem(PIN_KEY, $('pin').value));
+let opened = false, dirty = false, openedPath = '';
+const DRAFT_KEY = 'otr-adventure-editor-draft-v1';
+let restoringDraft = true;
+function draftNotice(message, bad = false) {
+  $('draft-notice').hidden = false;
+  $('draft-notice').textContent = message;
+  $('draft-notice').className = bad ? 'bad' : 'muted';
+}
+try { $('pin').value = sessionStorage.getItem(PIN_KEY) || ''; }
+catch (error) { draftNotice(`Webbläsarlagring är otillgänglig: ${error.message}. Kopiera texten före omladdning.`, true); }
+$('pin').addEventListener('input', () => {
+  try { sessionStorage.setItem(PIN_KEY, $('pin').value); }
+  catch (error) { draftNotice(`Kunde inte lagra PIN: ${error.message}.`, true); }
+});
 
 function setStatus(message, good = false) {
   $('status').textContent = message;
@@ -281,22 +315,32 @@ function updateSize() {
   $('save').disabled = !opened || bytes > 65536;
   $('validate').disabled = !opened || bytes > 65536;
 }
-async function openFile() {
+async function openFile(replacementConfirmed = false) {
   const path = editorPath();
+  if (!replacementConfirmed && !allowReplace()) return;
+  const before = $('source').value;
   const query = new URLSearchParams({root:'sd', path});
   const response = await fetch('/api/fs/download?' + query, {cache:'no-store'});
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || `Kunde inte öppna filen (${response.status}).`);
   }
+  const source = await response.text();
+  if ($('source').value !== before) throw new Error('Texten ändrades under hämtningen. Ingen text ersattes; öppna igen vid behov.');
   clearResourceImages();
-  $('source').value = await response.text();
+  $('source').value = source;
   $('source').disabled = false;
   opened = true;
+  dirty = false;
+  openedPath = path;
   updateSize();
   undoStack.length = 0;
   enterMapMode();
+  persistDraft();
   setStatus(`Öppnade ${path}`, true);
+}
+function allowReplace() {
+  return !opened || !dirty || confirm('Du har osparade ändringar. Öppna en fil och ersätta utkastet?');
 }
 async function validateSource() {
   const path = editorPath();
@@ -320,11 +364,15 @@ async function saveSource() {
   const result = await validateSource();
   if (!confirm(`Filen är giltig. Spara ${path} och ersätta befintlig fil om den finns?`)) return;
   const query = new URLSearchParams({root:'sd', path, overwrite:'1'});
+  const savedSource = $('source').value;
   const response = await fetch('/api/fs/upload?' + query, {
-    method:'POST', headers:{...pinHeaders(), 'Content-Type':'application/octet-stream'}, body:$('source').value
+    method:'POST', headers:{...pinHeaders(), 'Content-Type':'application/octet-stream'}, body:savedSource
   });
   const answer = await response.json().catch(() => ({}));
   if (!response.ok || !answer.ok) throw new Error(answer.error || `Sparningen misslyckades (${response.status}).`);
+  dirty = $('source').value !== savedSource;
+  openedPath = path;
+  persistDraft();
   setStatus(`Sparad och validerad · ${result.maps.length} karta/kartor: ${result.maps.join(', ')}`, true);
 }
 async function browse(directory = currentDirectory) {
@@ -366,7 +414,13 @@ async function browse(directory = currentDirectory) {
 function guarded(action) {
   Promise.resolve().then(action).catch(error => setStatus(error.message));
 }
-$('source').addEventListener('input', updateSize);
+$('source').addEventListener('input', () => {
+  dirty = true;
+  undoStack.length = 0;
+  $('undo').disabled = true;
+  updateSize();
+  persistDraft();
+});
 $('open').onclick = () => guarded(openFile);
 $('browse').onclick = () => guarded(() => browse());
 $('validate').onclick = () => guarded(checkSource);
@@ -374,6 +428,8 @@ $('save').onclick = () => guarded(saveSource);
 updateSize();
 
 async function createFile() {
+  if (!allowReplace()) return;
+  const before = $('source').value;
   const folder = $('nf-folder').value.trim(), file = $('nf-file').value.trim().replace(/\.adv$/i, '');
   const w = Number($('nf-w').value), h = Number($('nf-h').value);
   if (!window.AdvModel.validStem(folder) || !window.AdvModel.validStem(file)) throw new Error('Mapp och filnamn får bara innehålla A–Z, a–z, 0–9, _ och - (och inte saves, maps, bitmaps).');
@@ -390,9 +446,13 @@ async function createFile() {
   const answer = await up.json().catch(() => ({}));
   if (up.status === 409) throw new Error(`${path} finns redan. Öppna den i stället eller välj ett annat namn.`);
   if (!up.ok || !answer.ok) throw new Error(answer.error || `Skapandet misslyckades (${up.status}).`);
+  if ($('source').value !== before) {
+    setStatus(`Skapade ${path}, men öppnade inte filen eftersom utkastet ändrades under tiden.`, true);
+    return;
+  }
   $('path').value = path;
   $('new-panel').hidden = true;
-  await openFile();
+  await openFile(true);
   setStatus(`Skapade ${path}`, true);
 }
 $('new-toggle').onclick = () => { $('new-panel').hidden = !$('new-panel').hidden; };
@@ -431,7 +491,7 @@ const LEGEND_ART = {
   poison:{ground:'poison'}, swamp:{ground:'swamp'}, sharp_rocks:{ground:'sharp'},
   ice:{ground:'floor'}, belt:{ground:'floor'}, lever:{ground:'floor'}
 };
-let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null;
+let doc = null, mapId = 1, tool = 'paint', brush = '#', drag = null, treasurePlacement = false;
 let editingLegend = null;
 let displayMode = 'image', selectedGroupCells = [], selectedDarkIndex = null, editingDarkIndex = null;
 let revealLayers = false, selectedLayerCell = null;
@@ -441,6 +501,90 @@ const coloredSpriteCache = new Map();
 let resourceImageGeneration = 0;
 let cell = 22;
 const undoStack = [];
+
+function persistDraft() {
+  if (restoringDraft || !opened) return;
+  const source = $('source').value;
+  if (new TextEncoder().encode(source).length > 65536) {
+    draftNotice('Utkastet är större än 64 KiB och kan inte återställas efter omladdning. Kopiera texten nu; föregående återställningskopia är oförändrad.', true);
+    return;
+  }
+  const state = {
+    version:1, path:$('path').value, openedPath, source, dirty,
+    directory:currentDirectory, mode:mapMode() ? 'map' : 'text', mapId,
+    displayMode, zoom:$('zoom').value, tool, brush, revealLayers, treasurePlacement,
+    item:$('treasure-item').value, amount:$('treasure-amount').value,
+    scrollLeft:$('map-wrap').scrollLeft, scrollTop:$('map-wrap').scrollTop,
+    undo:undoStack.slice(-60)
+  };
+  // Keep the latest undo steps within a bounded storage budget; never truncate source.
+  let trimmed = false;
+  while (JSON.stringify(state.undo).length > 262144) { state.undo.shift(); trimmed = true; }
+  try {
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(state)); }
+    catch (error) {
+      if (!state.undo.length) throw error;
+      state.undo = [];
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(state));
+      trimmed = true;
+    }
+    if (trimmed) draftNotice('Utkastet är återställningssparat, men ångrahistoriken kortades på grund av lagringsgränsen.', true);
+  } catch (error) {
+    draftNotice(`Kunde inte lagra utkastet: ${error.message}. Texten finns kvar här men senaste ändringar kan förloras vid omladdning. Kopiera texten nu.`, true);
+  }
+}
+function restoreDraft() {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    if (!state || state.version !== 1 || typeof state.source !== 'string' ||
+        typeof state.path !== 'string' || new TextEncoder().encode(state.source).length > 65536)
+      throw new Error('Ogiltig återställningskopia');
+    $('path').value = state.path;
+    $('source').value = state.source;
+    $('source').disabled = false;
+    opened = true; dirty = state.dirty !== false;
+    openedPath = typeof state.openedPath === 'string' ? state.openedPath : state.path;
+    if (typeof state.directory === 'string') currentDirectory = state.directory;
+    mapId = Number.isInteger(state.mapId) ? state.mapId : 1;
+    displayMode = state.displayMode === 'text' ? 'text' : 'image';
+    $('display-image').classList.toggle('active', displayMode === 'image');
+    $('display-text').classList.toggle('active', displayMode === 'text');
+    if (['0', '6', '8', '12', '16', '24', '32'].includes(state.zoom)) $('zoom').value = state.zoom;
+    brush = typeof state.brush === 'string' && state.brush.length === 1 ? state.brush : '#';
+    setTool(['paint', 'erase', 'pick', 'move', 'dark'].includes(state.tool) ? state.tool : 'paint');
+    revealLayers = state.revealLayers === true;
+    $('reveal-layers').classList.toggle('active', revealLayers);
+    $('reveal-layers').setAttribute('aria-pressed', String(revealLayers));
+    if (M.TREASURE_ITEMS.includes(state.item)) $('treasure-item').value = state.item;
+    updateTreasureAmounts();
+    if ([...$('treasure-amount').options].some(option => option.value === state.amount))
+      $('treasure-amount').value = state.amount;
+    if (state.mode === 'map') enterMapMode();
+    else showMode(false);
+    if (mapMode()) {
+      if (Array.isArray(state.undo)) {
+        for (const lines of state.undo.slice(-60)) {
+          if (!Array.isArray(lines) || !lines.every(line => typeof line === 'string') ||
+              new TextEncoder().encode(lines.join('\n')).length > 65536) throw new Error('Ogiltig ångrahistorik');
+          undoStack.push(lines);
+        }
+      }
+      $('undo').disabled = !undoStack.length;
+      setTreasurePlacement(state.treasurePlacement === true);
+      $('map-wrap').scrollLeft = Number(state.scrollLeft) || 0;
+      $('map-wrap').scrollTop = Number(state.scrollTop) || 0;
+    }
+    updateSize();
+    draftNotice(`Återställde flikens ${dirty ? 'osparade ' : ''}utkast (${openedPath}). Ingen fil hämtades från SD-kortet. Spara säkert för att skriva till SD.`);
+  } catch (error) {
+    draftNotice(`Kunde inte återställa hela utkastet: ${error.message}. Ingen fil hämtades från SD-kortet. Kontrollera och kopiera eventuell återställd text.`, true);
+  } finally {
+    restoringDraft = false;
+    if (opened) updateSize();
+  }
+}
 
 function spriteAsset(name) {
   let entry = spriteCache.get(name);
@@ -643,13 +787,16 @@ function commit(change) {
   snapshot();
   try { change(); } catch (error) { undoStack.pop(); $('undo').disabled = !undoStack.length; setInfo(error.message, true); return false; }
   $('source').value = M.serialize(doc);
+  dirty = true;
   updateSize();
   setInfo('');
   renderAll();
+  persistDraft();
   return true;
 }
 function setInfo(message, bad = false) { $('map-info').textContent = message; $('map-info').style.color = bad ? 'var(--otr-red)' : ''; }
 function enterMapMode() {
+  setTreasurePlacement(false);
   try {
     doc = M.parse($('source').value);
     const ids = M.mapIds(doc);
@@ -667,6 +814,7 @@ function enterMapMode() {
   }
   showMode(true);
   renderAll();
+  persistDraft();
 }
 function showMode(map) {
   $('map-panel').hidden = !map;
@@ -677,15 +825,20 @@ function showMode(map) {
   $('undo').hidden = !map;
 }
 function enterTextMode() {
+  setTreasurePlacement(false);
   if (mapMode() && doc) $('source').value = M.serialize(doc);
   undoStack.length = 0;
   $('undo').disabled = true;
   cancelLegendEdit();
   showMode(false);
   updateSize();
+  persistDraft();
 }
 function renderAll() {
   if (!doc) return;
+  $('treasure-item').disabled = false;
+  $('treasure-place').disabled = false;
+  updateTreasureAmounts();
   renderTabs(); renderPalette(); renderLegend(); renderDark(); renderGroups(); renderSectionEditors(); renderResourceImages(); drawMap();
   renderLayers();
   const grid = M.getGrid(doc, mapId);
@@ -706,7 +859,7 @@ function renderTabs() {
     b.onclick = () => {
       if (editingLegend && editingLegend.id !== id) cancelLegendEdit();
       if (mapId !== id) { selectedGroupCells = []; selectedDarkIndex = editingDarkIndex = null; }
-      mapId = id; selectedLayerCell = null; setInfo(''); renderAll();
+      mapId = id; selectedLayerCell = null; setInfo(''); renderAll(); persistDraft();
     };
     box.append(b);
   }
@@ -776,8 +929,41 @@ function renderResourceImages() {
   }
 }
 function setTool(next) {
+  setTreasurePlacement(false);
   tool = next;
   document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('active', b.dataset.tool === next));
+  persistDraft();
+}
+function setTreasurePlacement(enabled) {
+  drag = null;
+  treasurePlacement = Boolean(enabled) && Boolean(doc);
+  const button = $('treasure-place');
+  button.classList.toggle('active', treasurePlacement);
+  button.setAttribute('aria-pressed', String(treasurePlacement));
+  button.textContent = treasurePlacement ? 'Avsluta placering' : 'Placera skatter';
+  selectedLayerCell = null;
+  if (doc) { renderLayers(); drawMap(); }
+  if (treasurePlacement) {
+    setInfo('Placera skatter: klicka på en eller flera rutor. Klicka på knappen igen för att avsluta.');
+  }
+  persistDraft();
+}
+function updateTreasureAmounts() {
+  const item = $('treasure-item').value;
+  const amount = $('treasure-amount');
+  const previous = amount.value;
+  const values = item === 'flash' || item === 'pogo'
+    ? [['1', '1'], ['2', '2'], ['3', '3']]
+    : item === 'potion' || item === 'heart'
+      ? Array.from({length: 256}, (_, i) => [String(i), String(i)])
+      : [['1', '1']];
+  amount.replaceChildren(...values.map(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value; option.textContent = label;
+    return option;
+  }));
+  amount.value = values.some(([value]) => value === previous) ? previous : '1';
+  amount.disabled = !doc || !['flash', 'pogo', 'potion', 'heart'].includes(item);
 }
 function legendLabel(def) {
   return def.value;
@@ -933,7 +1119,7 @@ function syncSectionCreator() {
       quests:'Deklarera uppdrag innan dialog hänvisar till dem.',
       resources:'Resursrader kan ha ett eget PNG-filnamn i äventyrets bitmaps/-mapp.',
       legend:'Legendglyfer definieras också i kartvyns legendformulär.',
-      treasures:'Skattkoordinater anges i textläget och påverkas inte av kartflytt.',
+      treasures:'Placera och ta bort skatter med kartvyns skattverktyg, eller ändra raderna här. Kartflytt ändrar inte skattkoordinater.',
       enemies:'Fiendeplaceringar anges i textläget och påverkas inte av kartflytt.',
       dark:'Mörka områden redigeras enklare med kartvyns rektangelverktyg.',
       timedgate:'Tidsgrindens grupp och rutor behöver matcha kartan.',
@@ -976,16 +1162,18 @@ function addSectionFromForm() {
     }
 }
 function renderLayers() {
-  $('layer-panel').hidden = !revealLayers;
+  const visible = revealLayers || treasurePlacement;
+  $('layer-panel').hidden = !visible;
   const list = $('layer-list');
   list.replaceChildren();
-  if (!revealLayers) return;
+  if (!visible || !doc) return;
   const {layers, errors} = M.coordinateLayers(doc, mapId);
   for (const layer of layers) {
     const li = document.createElement('li');
     const label = document.createElement('code');
     const base = M.getGrid(doc, mapId)[layer.y][layer.x];
     label.textContent = `${layer.x},${layer.y}: ruta ${base} · ${layer.label} (rad ${layer.line})`;
+    label.title = label.textContent;
     const show = document.createElement('button');
     show.type = 'button'; show.className = 'secondary'; show.textContent = 'Visa';
     show.onclick = () => {
@@ -993,7 +1181,20 @@ function renderLayers() {
       $('map-wrap').scrollTo({left: Math.max(0, layer.x * cell - $('map-wrap').clientWidth / 2),
         top: Math.max(0, layer.y * cell - $('map-wrap').clientHeight / 2)});
     };
-    li.append(label, show); list.append(li);
+    li.append(label, show);
+    if (layer.kind === 'treasures') {
+      const remove = document.createElement('button');
+      remove.type = 'button'; remove.className = 'secondary'; remove.textContent = 'Ta bort';
+      remove.setAttribute('aria-label', `Ta bort ${layer.label} på ${layer.x},${layer.y}`);
+      remove.onclick = () => {
+        if (commit(() => M.removeTreasure(doc, mapId, layer.line))) {
+          selectedLayerCell = null;
+          drawMap();
+        }
+      };
+      li.append(remove);
+    }
+    list.append(li);
   }
   for (const error of errors) {
     const li = document.createElement('li'); li.className = 'bad'; li.textContent = error;
@@ -1039,7 +1240,7 @@ function drawMap() {
     const w = Math.abs(r.x2 - r.x1) + 1, h = Math.abs(r.y2 - r.y1) + 1;
     ctx.fillRect(x * cell, y * cell, w * cell, h * cell); ctx.strokeRect(x * cell + 1, y * cell + 1, w * cell - 2, h * cell - 2);
   }
-  if (revealLayers) {
+  if (revealLayers || treasurePlacement) {
     const counts = new Map();
     for (const layer of M.coordinateLayers(doc, mapId).layers) {
       const key = `${layer.x},${layer.y}`;
@@ -1101,6 +1302,18 @@ canvas.addEventListener('pointerdown', event => {
   if (!doc) return;
   canvas.setPointerCapture(event.pointerId);
   const pos = cellAt(event);
+  if (treasurePlacement) {
+    const bounds = canvas.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX >= bounds.right ||
+        event.clientY < bounds.top || event.clientY >= bounds.bottom) {
+      setInfo('Rutan ligger utanför kartan.', true);
+      return;
+    }
+    const amount = Number($('treasure-amount').value);
+    if (commit(() => M.addTreasure(doc, mapId, pos.x, pos.y, $('treasure-item').value, amount)))
+      setInfo('Skatt placerad. Klicka på fler rutor eller avsluta placeringsläget.');
+    return;
+  }
   const grid = M.getGrid(doc, mapId);
   const glyph = grid[pos.y][pos.x];
   if (tool === 'pick') {
@@ -1149,6 +1362,10 @@ canvas.addEventListener('pointerup', finishDrag);
 canvas.addEventListener('pointercancel', () => { drag = null; if (doc) drawMap(); });
 
 document.querySelectorAll('#tools button').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+$('treasure-item').onchange = () => { updateTreasureAmounts(); persistDraft(); };
+$('treasure-amount').onchange = persistDraft;
+$('treasure-place').onclick = () => setTreasurePlacement(!treasurePlacement);
+updateTreasureAmounts();
 $('mode-map').onclick = () => enterMapMode();
 $('mode-text').onclick = () => enterTextMode();
 $('display-image').onclick = () => {
@@ -1164,8 +1381,10 @@ $('undo').onclick = () => {
   doc.lines = undoStack.pop();
   $('undo').disabled = !undoStack.length;
   $('source').value = M.serialize(doc);
+  dirty = true;
   updateSize();
   renderAll();
+  persistDraft();
 };
 function legendForm() {
   return {kind: $('lg-kind').value, group: $('lg-group').value.trim(), color: $('lg-color').value, dir: $('lg-dir').value};
@@ -1228,12 +1447,13 @@ $('rs-apply').onclick = () => {
   if ((w < old[0].length || h < old.length) && !confirm('Rutor utanför den nya storleken tas bort. Fortsätt?')) return;
   commit(() => M.resizeMap(doc, mapId, w, h, $('rs-fill').value));
 };
-$('zoom').onchange = () => { if (doc) drawMap(); };
+$('zoom').onchange = () => { if (doc) drawMap(); persistDraft(); };
 $('reveal-layers').onclick = () => {
   revealLayers = !revealLayers; selectedLayerCell = null;
   $('reveal-layers').setAttribute('aria-pressed', String(revealLayers));
   $('reveal-layers').classList.toggle('active', revealLayers);
   if (doc) { renderLayers(); drawMap(); }
+  persistDraft();
 };
 window.addEventListener('resize', () => { if (doc && mapMode() && !$('zoom').value) drawMap(); });
 $('section-tag').onchange = syncSectionCreator;
@@ -1246,6 +1466,13 @@ $('am-add').onclick = () => {
 };
 syncLegendForm();
 syncSectionCreator();
+restoreDraft();
+// Persist user actions, not rendering or asynchronous sprite redraws.
+document.addEventListener('input', event => { if (event.target.id !== 'pin') persistDraft(); });
+document.addEventListener('change', event => { if (event.target.id !== 'pin') persistDraft(); });
+document.addEventListener('click', () => persistDraft());
+$('map-wrap').addEventListener('scroll', persistDraft);
+window.addEventListener('pagehide', persistDraft);
 </script>
 </body>
 </html>

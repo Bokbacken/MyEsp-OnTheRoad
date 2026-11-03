@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <new>
 
 #include "cJSON.h"
 #include "dice_cup.h"
@@ -71,6 +72,7 @@ struct RemotePlayer {
 struct RemoteGame {
     uint32_t version;
     uint32_t revision;
+    uint32_t resultId;
     bool connected;
     bool joined;
     bool needsJoin;
@@ -78,6 +80,7 @@ struct RemoteGame {
     bool active;
     bool finished;
     bool rolling;
+    bool resultPhase;
     bool hasRolled;
     bool canRoll;
     int you;
@@ -93,6 +96,7 @@ struct RemoteGame {
     RemoteCategory categories[REMOTE_CATEGORY_CAP];
     int playerCount;
     RemotePlayer players[YATZY_MAX_PLAYERS];
+    YatzyGame game;
     char gameName[NAME_CAP];
     char sessionId[17];
     char status[96];
@@ -138,6 +142,7 @@ static lv_obj_t *s_remoteCupCount = nullptr;
 static lv_obj_t *s_remoteCupHint = nullptr;
 static lv_obj_t *s_remoteCupChoose = nullptr;
 static uint32_t s_remoteRenderedRevision = UINT32_MAX;
+static bool s_remoteNativeShown = false;
 static lv_timer_t *s_remoteDiceTimer = nullptr;
 static int s_remoteLastChoiceId = -1;
 static uint32_t s_remoteLastChoiceMs = 0;
@@ -184,6 +189,7 @@ static bool startRemoteGame(const char *pin);
 static void renderRemoteDice(const RemoteGame &state);
 static void closeRemoteCup();
 static void remoteCupTick(lv_timer_t *timer);
+static void remoteYatzyAction(UiYatzy::RemoteCommand command, int arg);
 
 static esp_err_t receiveHttp(esp_http_client_event_t *event)
 {
@@ -273,19 +279,38 @@ static void sendRemoteCommand(const char *cmd, int arg = -1)
                          strcmp(cmd, "hold") == 0 ? MultiplayerProtocol::canRemoteHold(actions) &&
                                                        arg >= 0 && arg < state.diceCount :
                          strcmp(cmd, "choose") == 0 ? MultiplayerProtocol::canRemoteChoose(actions, categoryAvailable) :
+                         strcmp(cmd, "result_shown") == 0 ? state.joined && state.active &&
+                             !state.rolling && state.you == state.current && arg > 0 &&
+                             state.resultId == (uint32_t)arg :
                          false;
-    if (!allowed || !state.connected) return;
-    char message[48];
+    if (!allowed || !state.connected ||
+        (state.resultId && strcmp(cmd, "result_shown") != 0)) return;
+    char message[80];
     int len;
     if (strcmp(cmd, "hold") == 0) len = snprintf(message, sizeof(message), "{\"cmd\":\"hold\",\"die\":%d}", arg);
     else if (strcmp(cmd, "choose") == 0) len = snprintf(message, sizeof(message), "{\"cmd\":\"choose\",\"cat\":%d}", arg);
-    else len = snprintf(message, sizeof(message), "{\"cmd\":\"roll\"}");
+    else if (strcmp(cmd, "result_shown") == 0)
+        len = snprintf(message, sizeof(message), "{\"cmd\":\"result_shown\",\"roll_result_id\":%d}", arg);
+    else len = snprintf(message, sizeof(message), "{\"cmd\":\"roll\",\"reveal_first\":true}");
     if (len > 0 && (size_t)len < sizeof(message)) {
         esp_websocket_client_handle_t client;
         portENTER_CRITICAL(&s_remoteMux);
         client = s_remoteClient;
         portEXIT_CRITICAL(&s_remoteMux);
-        if (client) esp_websocket_client_send_text(client, message, len, pdMS_TO_TICKS(1000));
+        if (!client || esp_websocket_client_send_text(client, message, len, pdMS_TO_TICKS(1000)) != len) {
+            ESP_LOGW(TAG, "remote command could not be sent");
+            remoteStatus(tr(Str::MULTI_REMOTE_DISCONNECTED));
+        }
+    }
+}
+
+static void remoteYatzyAction(UiYatzy::RemoteCommand command, int arg)
+{
+    switch (command) {
+    case UiYatzy::RemoteCommand::HOLD: sendRemoteCommand("hold", arg); break;
+    case UiYatzy::RemoteCommand::ROLL: sendRemoteCommand("roll"); break;
+    case UiYatzy::RemoteCommand::CHOOSE: sendRemoteCommand("choose", arg); break;
+    case UiYatzy::RemoteCommand::RESULT_SHOWN: sendRemoteCommand("result_shown", arg); break;
     }
 }
 
@@ -314,38 +339,66 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
     const cJSON *type = cJSON_GetObjectItemCaseSensitive(json, "game_type");
     const cJSON *joined = cJSON_GetObjectItemCaseSensitive(json, "joined");
     const cJSON *you = cJSON_GetObjectItemCaseSensitive(json, "you");
+    const cJSON *variant = cJSON_GetObjectItemCaseSensitive(json, "variant");
+    const cJSON *mode = cJSON_GetObjectItemCaseSensitive(json, "mode");
+    const cJSON *savedRollsRule = cJSON_GetObjectItemCaseSensitive(json, "saved_rolls_rule");
     if (!cJSON_IsString(session) ||
         !MultiplayerProtocol::sameSession(expectedSession, session->valuestring) ||
         !cJSON_IsString(type) || strcmp(type->valuestring, "yatzy") != 0 ||
-        !cJSON_IsTrue(joined) || !cJSON_IsNumber(you) || you->valueint != expectedSeat) return false;
+        !cJSON_IsTrue(joined) || !cJSON_IsNumber(you) || you->valueint != expectedSeat ||
+        !cJSON_IsString(variant)) return false;
 
-    RemoteGame next = {};
+    RemoteGame &next = out;
+    const YatzyVariant gameVariant = strcmp(variant->valuestring, "maxi") == 0 ?
+                                    YatzyVariant::MAXI : YatzyVariant::STANDARD;
+    if (strcmp(variant->valuestring, "maxi") != 0 &&
+        strcmp(variant->valuestring, "standard") != 0) return false;
+    if (mode && !cJSON_IsString(mode)) return false;
+    const YatzyMode gameMode = cJSON_IsString(mode) &&
+                               strcmp(mode->valuestring, "ordered") == 0 ?
+                               YatzyMode::ORDERED : YatzyMode::NORMAL;
+    if (cJSON_IsString(mode) && strcmp(mode->valuestring, "ordered") != 0 &&
+        strcmp(mode->valuestring, "normal") != 0) return false;
+    if (savedRollsRule && !cJSON_IsBool(savedRollsRule)) return false;
+    const bool savedRule = cJSON_IsBool(savedRollsRule) ?
+                           cJSON_IsTrue(savedRollsRule) : gameVariant == YatzyVariant::MAXI;
     next.joined = true;
     next.you = you->valueint;
     next.active = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(json, "active"));
     next.finished = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(json, "finished"));
     next.rolling = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(json, "rolling"));
+    next.resultPhase = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(json, "choosing"));
     next.hasRolled = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(json, "has_rolled"));
     next.canRoll = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(json, "can_roll"));
     const cJSON *current = cJSON_GetObjectItemCaseSensitive(json, "current");
     const cJSON *round = cJSON_GetObjectItemCaseSensitive(json, "round");
     const cJSON *rounds = cJSON_GetObjectItemCaseSensitive(json, "rounds");
     const cJSON *rollsLeft = cJSON_GetObjectItemCaseSensitive(json, "rolls_left");
+    const cJSON *rollsUsed = cJSON_GetObjectItemCaseSensitive(json, "rolls_used");
     const cJSON *version = cJSON_GetObjectItemCaseSensitive(json, "version");
     const cJSON *dice = cJSON_GetObjectItemCaseSensitive(json, "dice");
     const cJSON *held = cJSON_GetObjectItemCaseSensitive(json, "held");
     if (!next.active || !cJSON_IsNumber(current) || !cJSON_IsNumber(round) ||
         !cJSON_IsNumber(rounds) || !cJSON_IsNumber(rollsLeft) ||
-        !cJSON_IsNumber(version) || !cJSON_IsArray(dice) || !cJSON_IsArray(held)) return false;
+        !cJSON_IsNumber(rollsUsed) || !cJSON_IsNumber(version) ||
+        !cJSON_IsArray(dice) || !cJSON_IsArray(held)) return false;
     next.current = current->valueint;
     next.round = round->valueint;
     next.rounds = rounds->valueint;
     next.rollsLeft = rollsLeft->valueint;
+    const int rollsUsedValue = rollsUsed->valueint;
     next.version = (uint32_t)version->valuedouble;
+    const cJSON *resultId = cJSON_GetObjectItemCaseSensitive(json, "roll_result_id");
+    if (resultId) {
+        if (!cJSON_IsNumber(resultId) || resultId->valueint <= 0 ||
+            resultId->valuedouble != resultId->valueint || next.rolling ||
+            next.current != next.you) return false;
+        next.resultId = (uint32_t)resultId->valueint;
+    }
     copyJsonString(json, "name", next.gameName, sizeof(next.gameName));
     strlcpy(next.sessionId, session->valuestring, sizeof(next.sessionId));
     next.diceCount = cJSON_GetArraySize(dice);
-    if (next.diceCount < 1 || next.diceCount > YATZY_MAX_DICE ||
+    if (next.diceCount != Yatzy::diceCount(gameVariant) ||
         cJSON_GetArraySize(held) != next.diceCount) return false;
     for (int i = 0; i < next.diceCount; i++) {
         const cJSON *face = cJSON_GetArrayItem(dice, i);
@@ -355,6 +408,18 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
         next.dice[i] = (uint8_t)face->valueint;
         next.held[i] = cJSON_IsTrue(isHeld);
     }
+    YatzySnapshot snapshot{};
+    snapshot.variant = gameVariant;
+    snapshot.mode = gameMode;
+    snapshot.savedRollsRule = savedRule;
+    snapshot.started = true;
+    snapshot.finished = next.finished;
+    snapshot.currentPlayer = next.current;
+    snapshot.round = next.round;
+    snapshot.rollsUsed = rollsUsedValue;
+    snapshot.rollsLeft = next.rollsLeft;
+    memcpy(snapshot.dice, next.dice, sizeof(snapshot.dice));
+    memcpy(snapshot.held, next.held, sizeof(snapshot.held));
     if (next.rolling) {
         const cJSON *rollMask = cJSON_GetObjectItemCaseSensitive(json, "roll_mask");
         if (cJSON_IsArray(rollMask) && cJSON_GetArraySize(rollMask) == next.diceCount) {
@@ -369,29 +434,36 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
         }
     }
     const cJSON *categories = cJSON_GetObjectItemCaseSensitive(json, "categories");
-    if (cJSON_IsArray(categories)) {
-        const cJSON *category;
-        cJSON_ArrayForEach(category, categories) {
-            if (next.categoryCount >= REMOTE_CATEGORY_CAP) break;
-            const cJSON *id = cJSON_GetObjectItemCaseSensitive(category, "id");
-            const cJSON *potential = cJSON_GetObjectItemCaseSensitive(category, "potential");
-            const cJSON *name = cJSON_GetObjectItemCaseSensitive(category, "name");
-            if (!cJSON_IsNumber(id) || id->valueint < 0 || id->valueint > UINT8_MAX ||
-                !cJSON_IsString(name)) continue;
-            RemoteCategory &item = next.categories[next.categoryCount++];
-            item.id = id->valueint;
-            item.available = cJSON_IsNumber(potential);
-            item.potential = item.available ? potential->valueint : 0;
-            strlcpy(item.name, name->valuestring, sizeof(item.name));
-        }
+    int expectedCategoryCount = 0;
+    const YatzyCategory *expectedCategories = Yatzy::categories(gameVariant, expectedCategoryCount);
+    if (!cJSON_IsArray(categories) || expectedCategoryCount > REMOTE_CATEGORY_CAP ||
+        cJSON_GetArraySize(categories) != expectedCategoryCount ||
+        next.rounds != expectedCategoryCount) return false;
+    for (int i = 0; i < expectedCategoryCount; i++) {
+        const cJSON *category = cJSON_GetArrayItem(categories, i);
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(category, "id");
+        const cJSON *potential = cJSON_GetObjectItemCaseSensitive(category, "potential");
+        const cJSON *name = cJSON_GetObjectItemCaseSensitive(category, "name");
+        if (!cJSON_IsNumber(id) || id->valueint != (int)expectedCategories[i] ||
+            !cJSON_IsString(name) || (potential && !cJSON_IsNumber(potential))) return false;
+        RemoteCategory &item = next.categories[next.categoryCount++];
+        item.id = id->valueint;
+        item.available = cJSON_IsNumber(potential);
+        item.potential = item.available ? potential->valueint : 0;
+        strlcpy(item.name, name->valuestring, sizeof(item.name));
     }
     const cJSON *players = cJSON_GetObjectItemCaseSensitive(json, "players");
-    if (!cJSON_IsArray(players)) return false;
+    if (!cJSON_IsArray(players) || cJSON_GetArraySize(players) < 1 ||
+        cJSON_GetArraySize(players) > YATZY_MAX_PLAYERS) return false;
+    next.game.reset(gameVariant, gameMode, savedRule);
     const cJSON *player;
     cJSON_ArrayForEach(player, players) {
         if (next.playerCount >= YATZY_MAX_PLAYERS) break;
-        RemotePlayer &item = next.players[next.playerCount++];
+        const int playerIndex = next.playerCount++;
+        RemotePlayer &item = next.players[playerIndex];
         copyJsonString(player, "name", item.name, sizeof(item.name));
+        if (!item.name[0] || !next.game.addPlayer(item.name)) return false;
+        snapshot.players[playerIndex] = next.game.player(playerIndex);
         const cJSON *upper = cJSON_GetObjectItemCaseSensitive(player, "upper");
         const cJSON *bonus = cJSON_GetObjectItemCaseSensitive(player, "bonus");
         const cJSON *total = cJSON_GetObjectItemCaseSensitive(player, "total");
@@ -403,11 +475,21 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
         item.upper = item.hasUpper ? upper->valueint : 0;
         item.bonus = item.hasBonus ? bonus->valueint : 0;
         item.total = total->valueint;
+        const cJSON *saved = cJSON_GetObjectItemCaseSensitive(player, "saved_rolls");
+        if (saved && (!cJSON_IsNumber(saved) || saved->valueint < 0 ||
+                      saved->valueint > UINT8_MAX)) return false;
+        snapshot.players[playerIndex].savedRolls = cJSON_IsNumber(saved) ?
+                                                  (uint8_t)saved->valueint : 0;
         for (int i = 0; i < next.categoryCount; i++) {
             const cJSON *score = cJSON_GetArrayItem(scores, i);
             if (cJSON_IsNumber(score)) {
+                if (score->valueint < 0 || score->valueint > 1000 ||
+                    next.categories[i].id < 0 ||
+                    next.categories[i].id >= YATZY_CATEGORY_COUNT) return false;
                 next.categories[i].playerScores[next.playerCount - 1] = score->valueint;
                 next.categories[i].scoreSet[next.playerCount - 1] = true;
+                snapshot.players[playerIndex].scores[next.categories[i].id] =
+                    (int16_t)score->valueint;
             } else if (!cJSON_IsNull(score)) {
                 return false;
             }
@@ -415,7 +497,8 @@ static bool readRemoteState(const cJSON *json, RemoteGame &out,
     }
     if (next.you < 0 || next.you >= next.playerCount || next.current < 0 ||
         next.current >= next.playerCount) return false;
-    out = next;
+    snapshot.playerCount = next.playerCount;
+    if (!next.game.restoreSnapshot(snapshot)) return false;
     return true;
 }
 
@@ -457,14 +540,18 @@ static void handleRemoteMessage(const char *text)
         if (decision == MultiplayerProtocol::RemoteStateDecision::RequireFreshJoin) {
             remoteStatus(tr(Str::MULTI_SESSION_CHANGED), true);
         } else if (decision == MultiplayerProtocol::RemoteStateDecision::ApplySnapshot) {
-            RemoteGame next = {};
-            if (readRemoteState(json, next, expectedSession, expectedSeat)) {
+            RemoteGame *next = new (std::nothrow) RemoteGame{};
+            if (next && readRemoteState(json, *next, expectedSession, expectedSeat)) {
                 portENTER_CRITICAL(&s_remoteMux);
-                next.connected = s_remote.connected;
-                next.revision = s_remote.revision + 1;
-                s_remote = next;
+                next->connected = s_remote.connected;
+                next->revision = s_remote.revision + 1;
+                s_remote = *next;
                 portEXIT_CRITICAL(&s_remoteMux);
+            } else {
+                ESP_LOGW(TAG, "remote snapshot rejected or allocation failed");
+                remoteStatus(tr(Str::MULTI_NOT_READY), true);
             }
+            delete next;
         }
     } else if (cJSON_IsString(type) && strcmp(type->valuestring, "error") == 0) {
         const cJSON *code = cJSON_GetObjectItemCaseSensitive(json, "error");
@@ -856,7 +943,7 @@ static void stopRemoteClient()
         esp_websocket_client_destroy(client);
     }
     portENTER_CRITICAL(&s_remoteMux);
-    memset(&s_remote, 0, sizeof(s_remote));
+    s_remote = RemoteGame{};
     memset(s_remotePin, 0, sizeof(s_remotePin));
     memset(s_remoteSession, 0, sizeof(s_remoteSession));
     memset(s_remoteUri, 0, sizeof(s_remoteUri));
@@ -865,16 +952,12 @@ static void stopRemoteClient()
     memset(&s_remoteHost, 0, sizeof(s_remoteHost));
     s_remoteSeat = -1;
     portEXIT_CRITICAL(&s_remoteMux);
+    s_remoteNativeShown = false;
 }
 
 static void leaveRemoteEvent(lv_event_t *)
 {
-    if (s_timer) {
-        lv_timer_delete(s_timer);
-        s_timer = nullptr;
-    }
-    stopRemoteClient();
-    show();
+    leaveRemote();
 }
 
 static void placeRemoteCup()
@@ -1357,10 +1440,59 @@ static void renderRemote()
     renderRemoteScorecard(state);
 }
 
+static UiYatzy::RemoteState nativeRemoteState(const RemoteGame &state)
+{
+    UiYatzy::RemoteState view = {};
+    view.game = state.game;
+    view.connected = state.connected;
+    view.joined = state.joined;
+    view.active = state.active;
+    view.rolling = state.rolling;
+    view.resultPhase = state.resultPhase;
+    view.you = state.you;
+    view.revision = state.revision;
+    view.resultId = state.resultId;
+    for (int i = 0; i < state.diceCount; i++)
+        if (state.rollMask[i]) view.rollMask |= (uint8_t)(1u << i);
+
+    if (state.terminal && state.status[0]) {
+        strlcpy(view.status, state.status, sizeof(view.status));
+    } else if (!state.connected) {
+        strlcpy(view.status, tr(Str::MULTI_REMOTE_DISCONNECTED), sizeof(view.status));
+    } else if (!state.joined) {
+        strlcpy(view.status, state.status[0] ? state.status : tr(Str::MULTI_REMOTE_CONNECTING),
+                sizeof(view.status));
+    } else if (state.finished) {
+        strlcpy(view.status, tr(Str::MULTI_REMOTE_FINISHED), sizeof(view.status));
+    } else if (state.you == state.current && state.active) {
+        snprintf(view.status, sizeof(view.status), tr(Str::MULTI_REMOTE_TURN_FMT),
+                 state.players[state.you].name);
+    } else {
+        snprintf(view.status, sizeof(view.status), tr(Str::MULTI_REMOTE_WAIT_FMT),
+                 state.players[state.current].name);
+    }
+    return view;
+}
+
 static void pollRemote(lv_timer_t *)
 {
     sendRemoteJoin();
-    renderRemote();
+    RemoteGame state;
+    portENTER_CRITICAL(&s_remoteMux);
+    state = s_remote;
+    portEXIT_CRITICAL(&s_remoteMux);
+    if (!s_remoteNativeShown && state.joined && state.game.playerCount() > 0) {
+        if (s_remoteDiceTimer) {
+            lv_timer_delete(s_remoteDiceTimer);
+            s_remoteDiceTimer = nullptr;
+        }
+        s_remoteNativeShown = true;
+        UiYatzy::showRemoteGame(nativeRemoteState(state), remoteYatzyAction);
+    } else if (s_remoteNativeShown) {
+        UiYatzy::updateRemoteGame(nativeRemoteState(state));
+    } else {
+        renderRemote();
+    }
 }
 
 static void showRemoteGame()
@@ -1637,7 +1769,7 @@ static bool startRemoteGame(const char *pin)
     }
 
     portENTER_CRITICAL(&s_remoteMux);
-    memset(&s_remote, 0, sizeof(s_remote));
+    s_remote = RemoteGame{};
     s_remote.needsJoin = true;
     s_remoteClient = client;
     s_remoteHost = host;
@@ -1645,6 +1777,7 @@ static bool startRemoteGame(const char *pin)
     strlcpy(s_remoteSession, host.sessionId, sizeof(s_remoteSession));
     strlcpy(s_remotePin, pin, sizeof(s_remotePin));
     portEXIT_CRITICAL(&s_remoteMux);
+    s_remoteNativeShown = false;
 
     const esp_err_t registerResult =
         esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, remoteWsEvent, nullptr);
@@ -1738,6 +1871,17 @@ void show()
 
     s_timer = lv_timer_create(pollScan, 200, nullptr);
     Theme::loadScreen(screen);
+}
+
+void leaveRemote()
+{
+    if (s_timer) {
+        lv_timer_delete(s_timer);
+        s_timer = nullptr;
+    }
+    stopRemoteClient();
+    UiYatzy::endRemoteGame();
+    show();
 }
 
 }  // namespace UiMultiplayer

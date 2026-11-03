@@ -15,6 +15,32 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Native Yatzy och skatteditor, v0.24.4–0.24.6
+
+- [x] ESP-klienter använder den inbyggda Yatzy-vyn; värden är ensam
+  regelauktoritet. Skatter placeras via föremål/mängd och kartklick.
+- [x] Ägaren har provat S3 som värd och P4 som klient samt skatteditorn
+  (2026-11-03). Rapporterat problem: värden avslöjar kastet före klienten.
+- [x] Ägaren bekräftar editorn och visningsordningens princip i v0.24.5.
+  Värdens tärningar stannade dock på provisoriska sidor under väntan.
+  v0.24.6 låter kastade tärningar fortsätta snurra/byta sida tills grinden
+  släpper; hållna tärningar står still. Fysisk omprovning återstår.
+- [x] v0.24.5 inför privat resultat till kastande klient och bekräftelse
+  efter rendering innan värd/övriga visare avslöjar slutvärdena.
+  Avbrott/femsekunderstimeout släpper väntan med loggad varning.
+- [x] Kompakta skattlistor med Visa/Ta bort och ångra. Placeringslistan
+  stängs med placeringsläget; separat visning av dolda lager bevaras.
+- [x] Sessionsutkast i webbläsarfliken återställer osparad källa,
+  redigeringsläge, karta, verktyg och skattval efter refresh. Lagringsfel
+  visas; återställning skriver inte över SD-filen.
+- [ ] Prova visningsordningen med S3/P4 som värd i båda riktningarna,
+  blandad browser, olika animationsinställningar och avbrott under kast.
+- [ ] Prova kompakt lista, radering/ångra och refresh med osparad källa i
+  både kart- och textläge mot enhetens webbserver.
+- [ ] Beständig matchhistorik och uttrycklig koppling mellan lokala
+  spelarprofiler på olika enheter. Samma namn/id är inte en global identitet;
+  använd match-id för att undvika dubbel historik vid återanslutning.
+
 ### Webbjusteringar, v0.24.1
 
 - [x] Karaokens anslutningsknapp centreras under textrutan. Låtväljaren
@@ -740,9 +766,11 @@ rekommendation innan kod skrivs.
      WebSocket-`state`/`joined`. Ett `join` med ID avvisas om sessionen ändrats
      eller platsen inte längre är en ledig webbplats; äldre browser-`join`
      utan ID är oförändrad.
-   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och touch-vy.
-     Snapshot, tur, tärningar, möjliga kategorier och poäng kommer från
-     värden; ESP-klienten skickar bara tillåtna `hold`, `roll` och `choose`.
+   - [x] ESP-klient med värd-/platsval, maskerad PIN-inmatning och den vanliga
+     inbyggda Yatzy-skärmen. Snapshot, tur, tärningar och poäng kommer från
+     värden; klientens Yatzy-kontroller skickar bara `hold`, `roll` och
+     `choose`, och vänteläget blockerar input när någon annan har tur.
+     Webbläsarens `/play`-gränssnitt behålls.
    - [x] Återanslutning använder endast vald värd, sessions-ID och plats.
      Bytt session eller upptagen plats stoppar anslutningen och kräver en ny
      join. PIN skrivs inte i loggar och browser-join utan sessions-ID fungerar
@@ -750,8 +778,9 @@ rekommendation innan kod skrivs.
    - [x] CI-run 41051798946 bygger ESP32-C6-host, S3 och P4; S3-jobbets
      automatiska hostkontroller passerar. ESP-IDF saknas lokalt, så targetbyggen
      görs i CI.
-   - [ ] Komplettera fysisk verifiering av återanslutning och båda
-     värd-/klientriktningarna enligt checklistorna nedan.
+   - [ ] Komplettera fysisk verifiering av den gemensamma Yatzy-skärmen,
+     återanslutning och båda värd-/klientriktningarna enligt checklistorna
+     nedan.
    - [x] **Hårdvara, ägarrapport:** discovery hittar andra enheter och visar
      deras aktiva spel. Detta är inte ett speltest.
    - [x] **Hårdvara, ägarrapport 2026-10-30:** S3 som värd och P4 som klient:

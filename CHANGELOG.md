@@ -8,6 +8,46 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.6 (unreleased)
+
+- Keep the host's thrown dice rotating and changing faces while waiting for
+  the throwing ESP to acknowledge its displayed result. Held dice stay still;
+  final faces are revealed only when the existing acknowledgement/disconnect/
+  timeout gate releases. Previously the host paused on temporary faces.
+- Owner confirms the editor improvements and the result-first principle work
+  in v0.24.5; this animation follow-up still needs physical verification.
+
+## v0.24.5 (unreleased)
+
+- Native remote Yatzy rolls reveal their completed dice on the throwing
+  client's display before the host, spectators or public HTTP state.
+  Session-/seat-bound acknowledgements release the result after rendering;
+  disconnect or a five-second timeout releases a stalled reveal with a warning.
+  Browser-initiated rolls retain their existing behavior. Update both ESPs.
+- Compact coordinate-layer rows include inline Show/Delete controls for
+  treasures, with undo. Ending placement hides its list unless hidden layers
+  were independently enabled.
+- The adventure editor automatically restores per-tab drafts after refresh,
+  including unsaved source, map/view/tool selections, treasure settings and
+  bounded undo. Recovery does not fetch or overwrite the draft from SD;
+  unavailable browser storage is reported visibly.
+- Owner reports the initial native Yatzy/editor version looks good, but
+  observed the host revealing a remote roll early. Physical verification
+  of these follow-up changes remains pending.
+
+## v0.24.4 (unreleased)
+
+- ESP players joining a hosted Yatzy game now use the native Yatzy screen,
+  dice/cup and score table. The host remains authoritative; other players'
+  turns and connection loss block input. Periodic snapshots preserve local
+  category selection. Browser play remains compatible and unchanged.
+- Place `@treasures` directly in the adventure map editor: select an item
+  and amount/level, enable placement and click multiple cells. Placements
+  support undo, reveal hidden layers, retain comments/map scope and reject
+  duplicate coordinates, mechanism cells and the 48-treasure limit.
+- Includes v0.24.3 daily power logs. Physical S3/P4 mixed-device/browser
+  play, reconnect and editor save/reload verification remain pending.
+
 ## v0.24.3 (unreleased)
 
 - Deliver daily UTC power-history files (`power-YYYYMMDD.csv`) instead of the

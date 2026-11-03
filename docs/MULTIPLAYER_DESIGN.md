@@ -42,8 +42,11 @@ kan avvisa inkompatibla värdar innan de reserverar en plats.
 3. Spelaren väljer värd, skriver sitt spelarnamn/PIN och väljer eller får en
    ledig plats. PIN skickas endast över WebSocket till värden och aldrig via
    mDNS.
-4. Enheten visar den vanliga Yatzy-snapshoten och skickar befintliga
-   WebSocket-kommandon. Värden validerar alltid plats, tur och spelregel.
+4. En ESP-klient använder spelets vanliga inbyggda Yatzy-skärm, driven av
+   värdens snapshot. När någon annan har tur visas ett vänteläge över skärmen;
+   när den valda platsen får tur aktiveras de vanliga tärningarna, tabellen och
+   kontrollerna. Kommandon skickas bara till värden, som validerar plats, tur
+   och spelregel. Webbläsarens `/play`-gränssnitt ändras inte.
 
 ## Säkerhet
 
@@ -62,6 +65,42 @@ Om värdens session-ID ändrats eller platsen tilldelats någon annan ska klient
 visa att den måste gå med på nytt i stället för att skicka gamla kommandon.
 Värdbyte är manuellt; klienten återupptar aldrig ett gammalt spel på en annan
 värd automatiskt.
+
+## Kastets visningsordning
+
+Från v0.24.5 skickar ESP-klienten `roll` med `reveal_first:true`. Värden
+beräknar fortfarande kastet och animerar det, men visar inte de nya slutvärdena.
+När värdens animation är klar skickas det färdiga kastet först till den
+kastande platsens WebSocket, med ett `roll_result_id`. Övriga klienter och
+`/api/game` behåller före-kast-snapshoten med `rolling:true`.
+
+Klienten stannar sina tärningar, renderar slutvärdena och bekräftar
+`result_shown` med samma id. Först därefter släpper värden resultatet till sin
+egen skärm och övriga visare. Klientens nästa spelkommando väntar på denna
+publika uppdatering. Bekräftelsen valideras mot plats, spelsession och kast-id;
+gamla eller andra spelares bekräftelser accepteras inte. Klienten kan upprepa
+en bekräftelse utan dubbel effekt. Avbruten anslutning eller fem sekunder utan
+bekräftelse släpper väntan med loggad varning, så matchen inte fastnar.
+Vanliga browserkast använder inte denna bekräftelse och fungerar som tidigare.
+Från v0.24.6 fortsätter värdens kastade tärningar att snurra och byta
+provisoriska sidor under väntan; hållna tärningar påverkas inte. Inget
+provisoriskt stillastående kast ska visas före det riktiga slutresultatet.
+Uppdatera både värd och ESP-klient för denna ordningsgaranti.
+
+## Spelaridentitet och historik
+
+Idag synkroniseras den pågående matchen och dess slutprotokoll, inte
+spelarregister eller beständig matchhistorik. Spelar-id är lokala för respektive
+enhet; samma namn eller samma numeriska id på S3 och P4 betyder inte att
+registren är sammankopplade. Beständig Yatzy-matchhistorik är ännu inte
+implementerad; reserverade spelar-id i spellistan är förberedelse, inte
+historiksynk.
+
+Ett separat framtida steg behöver en uttrycklig koppling mellan spelarprofiler
+på olika enheter (inte automatisk sammanslagning på namn), beständiga match-id
+för deduplicering och återhämtning efter frånkoppling. Värdens färdiga
+matchprotokoll bör vara källan; lokal klient ska inte bokföra samma match igen
+vid återanslutning. Detta är dokumenterat behov, inte implementerat stöd.
 
 ## Stegordning
 
@@ -90,9 +129,27 @@ sparas bara temporärt i minnet för återanslutning och skrivs inte i loggar.
 `join` utan sessions-ID behåller browserkompatibiliteten.
 Targetbyggen är verifierade i CI-run 41051798946 för C6-host, S3 och P4;
 S3-jobbets automatiska hostkontroller passerar. Ägaren bekräftar 2026-10-30
-att spel mellan enheterna och webben fungerar och att Spela tillsammans är i
-fungerande skick efter fjärrvyns förbättringar. Fjärrvyn återanvänder
-originalspelets tärnings-/bägarutseende och har ett separat bo för hållna
-tärningar, kastanimation utan gamla kastvärden och dubbeltryck för poängval.
-Återanslutning och fullständig verifiering av båda värd-/klientriktningarna
+att spel mellan enheterna och webben fungerar med den tidigare touch-vyn.
+Klienten använder nu samma Yatzy-skärm och poängtabell som lokalt spel, men
+spelets tillstånd och alla kast/poängval kommer från värden. För att återskapa
+den inbyggda poängtabellen innehåller snapshoten även variant, spelläge och
+regeln för sparade kast; browserklienter påverkas inte. Fysisk verifiering av
+den gemensamma skärmen, återanslutning och båda värd-/klientriktningarna
 återstår enligt hårdvarumatrisen i TODO-dokumentet.
+
+## Prova v0.24.6
+
+Uppdatera både värd och ESP-klient till testversionen. På värden väljer du
+Yatzy/Maxi/Midi och spelare; markera fjärrspelarnas platser för webb och ge dem
+personliga PIN-koder. Starta spelet. På den andra enheten öppnar du **Spela
+tillsammans**, väljer värd och plats och anger spelarens PIN. ESP-klienten
+ska nu visa samma inbyggda Yatzy-vy som vid lokalt spel, inte den äldre
+förenklade fjärrvyn. En tredje spelare kan använda `/play` i webbläsaren.
+
+Kontrollera kast med bägare/knapp, håll/släpp tärningar, poängval, växling mellan
+tur och vänteläge, färdig poängtabell samt frånkoppling/återanslutning. Prova
+också Maxi och spel i ordning. Värden är enda auktoritet; klientens beräknade
+poängförslag är visning, inte ett eget spel eller lokalt utförda kast.
+Kontrollera särskilt att kastande ESP ser sina stillastående slutvärden före
+värden och en tredje visare. Prova S3/P4 i båda riktningarna, olika
+animationsinställningar, nätfördröjning och frånkoppling under kastet.

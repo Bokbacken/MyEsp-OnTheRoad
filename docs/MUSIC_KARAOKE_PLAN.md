@@ -30,13 +30,16 @@ tionde sekund och när fliken åter visas. Vid första besöket utan cache
 hämtas namnet från enheten; vid kontaktfel visas det tillgängliga namnet
 och en varning. Om sessionslagring blockeras fungerar livehämtningen ändå.
 
-### Karaokevolym och batteristatus
+### Mastervolym och låtens MIDI-volym
 
-Volymreglaget använder befintliga `Karaoke::setVolume()` / `Audio::setExternalVolume()` och påverkar den
-gemensamma externa karaoke-syntutgången (alla MIDI-kanaler tillsammans), inte en analog förstärkargain.
-Det bevarar kanalernas relativa mix och ändrar inte GPIO1:ans förstärkar-enable, mute eller sound-on-policy.
-Mixerns befintliga volymkurva går upp till 2×; SoundFont-renderingen har redan -14 dB headroom. Reglaget
-och inställningspanelens stegreglage delar samma värde, som sparas till NVS efter släpp/debounce.
+Mastervolymen styr ES8311-DAC:en och gäller allt lokalt ljud. Den är separat från sound-on-knappen,
+som även styr förstärkarens enable. Låtens MIDI-volym är ett per-låt syntpåslag (0–200 %, 100 % =
+oförstärkt) i `karaoke.reg`; den påverkar inte ljudeffekter eller bakgrundsmusik. Höga MIDI-nivåer
+kan klippa när flera toner summeras. Båda volymreglagen finns på uppspelningsskärmen: MIDI till
+vänster och master till höger. Melodispåret kan snabbt tystas med knappen efter stopp:
+en sjungande profil med noter, överlagrad med röd cirkel och snedstreck när melodin är av.
+På den mindre 480×320-layouten är reglagen en tredjedel smalare och ligger vid skärmkanterna;
+värdena visas som procent utan rubrik. Höjden och 800×480-layouten är oförändrade.
 
 Batteriindikeringen kan bara visa spänning efter att både ADC-fabriks/eFuse-kalibrering finns och användaren
 har sparat en engångsskala från en multimetermätning. GPIO8:s spänningsdelare är inte verifierad; utan
@@ -300,9 +303,9 @@ Textfil på SD: **`/otr/karaoke/karaoke.reg`** (firmware-sökväg
 inte bara när en MIDI-fil laddas upp eller öppnas, och kan redigeras för hand:
 
 ```
-# OnTheRoad karaoke registry: crc32 size melody(-1..15) transpose tempo% [sf2=font] name
+# OnTheRoad karaoke registry: crc32 size melody transpose tempo [settings] name
 8c5c36ba 51234 2 0 100 Abba_Another town.mid
-1f00aa12 40960 -1 -2 95 sf2=Florestan%20Basic.sf2 Ainbusk Singers_Älska mej.mid
+1f00aa12 40960 -1 -2 95 sf2=Florestan%20Basic.sf2 mute=1 volume=140 Ainbusk Singers_Älska mej.mid
 ```
 
 - v0.13.1: valfri token `sf2=<filnamn>` (ljudbank för låten i `/otr/sf2`, mellanslag som `%20`, `%` som `%25`).
@@ -310,6 +313,7 @@ inte bara när en MIDI-fil laddas upp eller öppnas, och kan redigeras för hand
 
 - Nyckel = CRC32 + filstorlek, så inställningarna följer med om filen byter namn. Namnet är bara information.
 - `melody` -1 = automatisk detektering, 0–15 = vald kanal (visas som kanal 1–16 i UI). Trumkanalen kan inte väljas.
+- Valfria `mute=1` och `volume=0..200` sparar meloditystnad respektive låtens syntgain; 100 % är oförstärkt.
 - En rad skrivs när man ändrar något för låten. Skrivningen går via en tmp-fil och rename.
   En misslyckad skrivning loggas och den tidigare registerfilen bevaras.
 

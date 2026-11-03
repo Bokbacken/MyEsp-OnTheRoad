@@ -40,6 +40,7 @@ void defaults(AppConfig &c)
     c.throwMode = 0;
     c.advMode = 0;
     c.soundOn = true;
+    c.masterVol = 100;
     c.sfxVol = 60;
     c.musicOn = true;
     c.musicVol = 25;
@@ -54,7 +55,6 @@ void defaults(AppConfig &c)
     c.karaChoLvl = 50;
     c.karaVoices = 96;
     c.karaWebStream = 1;
-    c.karaVolume = 70;
     c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     c.batteryFullMv = BatteryMath::BATTERY_FULL_DEFAULT_MV;
     c.sudokuDeadZone = SUDOKU_DEAD_ZONE_DEFAULT;
@@ -95,6 +95,7 @@ void begin()
             g_cfg.advMode = p.getU8("adv_mode", 0) > 1 ? 0 : p.getU8("adv_mode", 0);
             g_cfg.rotation = p.getU16("rotation", 0) == 180 ? 180 : 0;
             g_cfg.soundOn = p.getBool("snd_on", g_cfg.soundOn);
+            g_cfg.masterVol = p.getU8("master_vol", g_cfg.masterVol);
             g_cfg.sfxVol = p.getU8("sfx_vol", g_cfg.sfxVol);
             g_cfg.musicOn = p.getBool("mus_on", g_cfg.musicOn);
             g_cfg.musicVol = p.getU8("mus_vol", g_cfg.musicVol);
@@ -115,7 +116,6 @@ void begin()
                 migrateKaraVoices = true;
             }
             g_cfg.karaWebStream = p.getU8("kara_webstream", g_cfg.karaWebStream) ? 1 : 0;
-            g_cfg.karaVolume = p.getU8("kara_vol", g_cfg.karaVolume);
             g_cfg.batteryScalePermille = p.getU16("bat_scale", g_cfg.batteryScalePermille);
             g_cfg.batteryFullMv = p.getU16("bat_full", BatteryMath::BATTERY_FULL_DEFAULT_MV);
             g_cfg.sudokuDeadZone = p.getU8("sud_dz", g_cfg.sudokuDeadZone);
@@ -167,6 +167,7 @@ bool save()
     ok &= p.setU8("adv_mode", g_cfg.advMode);
     ok &= p.setU16("rotation", g_cfg.rotation == 180 ? 180 : 0);
     ok &= p.setBool("snd_on", g_cfg.soundOn);
+    ok &= p.setU8("master_vol", g_cfg.masterVol);
     ok &= p.setU8("sfx_vol", g_cfg.sfxVol);
     ok &= p.setBool("mus_on", g_cfg.musicOn);
     ok &= p.setU8("mus_vol", g_cfg.musicVol);
@@ -185,7 +186,6 @@ bool save()
     ok &= p.setU8("kara_voices", g_cfg.karaVoices);
     ok &= p.setU8("kara_vver", KARA_VOICE_SCHEMA);
     ok &= p.setU8("kara_webstream", g_cfg.karaWebStream);
-    ok &= p.setU8("kara_vol", g_cfg.karaVolume);
     ok &= p.setU16("bat_scale", g_cfg.batteryScalePermille);
     ok &= p.setU16("bat_full", g_cfg.batteryFullMv);
     ok &= p.setU8("sud_dz", g_cfg.sudokuDeadZone);
@@ -313,6 +313,7 @@ void sanitize(AppConfig &c)
     }
     if (c.textSize >= TEXT_SIZE_COUNT) c.textSize = TEXT_SIZE_DEFAULT;
     if (c.sfxVol > 100) c.sfxVol = 100;
+    if (c.masterVol > 100) c.masterVol = 100;
     if (c.musicVol > 100) c.musicVol = 100;
     c.joyZones = MySys::clamp<uint8_t>(c.joyZones, 1, 4);
     c.joySlowMs = MySys::clamp<uint16_t>(c.joySlowMs, JOY_MS_MIN, JOY_MS_MAX);
@@ -327,7 +328,6 @@ void sanitize(AppConfig &c)
     if (c.karaChoLvl > 100) c.karaChoLvl = 50;
     if (!validKaraVoices(c.karaVoices)) c.karaVoices = 96;
     c.karaWebStream = c.karaWebStream ? 1 : 0;
-    if (c.karaVolume > 100) c.karaVolume = 70;
     c.batteryScalePermille = BatteryMath::sanitizeScale(c.batteryScalePermille);
     if (!c.batteryScalePermille) c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     c.batteryFullMv = BatteryMath::sanitizeFullVoltage(c.batteryFullMv);

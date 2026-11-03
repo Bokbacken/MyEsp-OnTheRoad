@@ -408,10 +408,10 @@ static cJSON *configJson()
     cJSON_AddNumberToObject(o, "rotation", c.rotation);
     cJSON_AddStringToObject(o, "lang", c.lang);
     cJSON_AddBoolToObject(o, "sound_on", c.soundOn);
+    cJSON_AddNumberToObject(o, "master_vol", c.masterVol);
     cJSON_AddNumberToObject(o, "sfx_vol", c.sfxVol);
     cJSON_AddBoolToObject(o, "music_on", c.musicOn);
     cJSON_AddNumberToObject(o, "music_vol", c.musicVol);
-    cJSON_AddNumberToObject(o, "kara_volume", c.karaVolume);
     cJSON_AddNumberToObject(o, "battery_scale_permille", c.batteryScalePermille);
     cJSON_AddNumberToObject(o, "battery_full_mv", c.batteryFullMv);
     cJSON_AddNumberToObject(o, "joy_zones", c.joyZones);
@@ -458,8 +458,8 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.rotation = (uint16_t)v;
     }
     if (q.getInt("sfx_vol", 0, 100, v, bad)) next.sfxVol = (uint8_t)v;
+    if (q.getInt("master_vol", 0, 100, v, bad)) next.masterVol = (uint8_t)v;
     if (q.getInt("music_vol", 0, 100, v, bad)) next.musicVol = (uint8_t)v;
-    if (q.getInt("kara_volume", 0, 100, v, bad)) next.karaVolume = (uint8_t)v;
     if (q.getInt("battery_scale_permille", 0, BatteryMath::SCALE_MAX_PERMILLE, v, bad)) {
         if (!BatteryMath::validScale(static_cast<uint16_t>(v))) bad = true;
         else next.batteryScalePermille = static_cast<uint16_t>(v);
@@ -871,6 +871,8 @@ static cJSON *gameJson(const GameLive::Snapshot &snap)
         cJSON_AddBoolToObject(o, "choosing", s->resultPhase);
         cJSON_AddBoolToObject(o, "finished", g.finished());
         cJSON_AddStringToObject(o, "variant", var == YatzyVariant::MAXI ? "maxi" : "standard");
+        cJSON_AddStringToObject(o, "mode", g.mode() == YatzyMode::ORDERED ? "ordered" : "normal");
+        cJSON_AddBoolToObject(o, "saved_rolls_rule", g.savedRollsRule());
         cJSON_AddStringToObject(o, "name", trVariant(var, g.mode(), g.savedRollsRule()));
         cJSON_AddNumberToObject(o, "round", g.round());
         cJSON_AddNumberToObject(o, "rounds", g.totalRounds());
@@ -987,6 +989,8 @@ static esp_err_t handleAdventure(httpd_req_t *r)
 //   {"cmd":"join"}                           watch only (spectator, no PIN)
 //   {"cmd":"hold","die":N}                   toggle hold of die N (0-based)
 //   {"cmd":"roll"}                           roll the free dice (the console animates the throw)
+//   {"cmd":"roll","reveal_first":true}        native client must display the result before spectators
+//   {"cmd":"result_shown","roll_result_id":N} acknowledge the privately offered result after rendering
 //   {"cmd":"choose","cat":ID}                write the box with category id ID (see "categories"), Yatzy
 //   {"cmd":"bank"}                           v0.6.0 Pig / Farkle: bank the turn total
 //   {"cmd":"end"}                            v0.6.0 Ship/Captain/Crew: save the cargo, end the turn
@@ -1125,27 +1129,25 @@ static void wsBroadcastWork(void *)
     for (const WsClient &c : s_ws) any |= c.fd >= 0 && (newVersion || c.fresh);
     if (!any) return;
     s_wsSentVersion = s_wsSnap->version;
-    cJSON *o = gameJson(*s_wsSnap);
-    char *base = cJSON_PrintUnformatted(o);
-    cJSON_Delete(o);
-    if (!base || base[0] != '{') {
-        if (base) cJSON_free(base);
-        return;
-    }
-    const size_t cap = strlen(base) + 64;
-    char *msg = (char *)psAlloc(cap);
-    if (msg) {
-        for (WsClient &c : s_ws) {
-            if (c.fd < 0 || !(newVersion || c.fresh)) continue;
-            c.fresh = false;
-            // {"type":"state","you":n,"joined":b, + the rest of the game object
-            snprintf(msg, cap, "{\"type\":\"state\",\"you\":%d,\"joined\":%s,%s", c.joined ? c.seat : -1,
-                     c.joined ? "true" : "false", base + 1);
-            wsSendText(c.fd, msg);
+    for (WsClient &c : s_ws) {
+        if (c.fd < 0 || !(newVersion || c.fresh)) continue;
+        const uint32_t resultId = GameLive::getForSeat(*s_wsSnap, c.joined ? c.seat : -1, c.session);
+        cJSON *o = gameJson(*s_wsSnap);
+        cJSON_AddStringToObject(o, "type", "state");
+        cJSON_AddNumberToObject(o, "you", c.joined ? c.seat : -1);
+        cJSON_AddBoolToObject(o, "joined", c.joined);
+        if (resultId) cJSON_AddNumberToObject(o, "roll_result_id", resultId);
+        char *msg = cJSON_PrintUnformatted(o);
+        cJSON_Delete(o);
+        if (!msg) {
+            ESP_LOGW(TAG, "could not allocate game state frame");
+            c.fresh = true;
+            continue;
         }
-        free(msg);
+        c.fresh = false;
+        wsSendText(c.fd, msg);
+        cJSON_free(msg);
     }
-    cJSON_free(base);
 }
 
 static void wsQueueBroadcast()
@@ -1299,6 +1301,16 @@ static void wsHandleText(int fd, const char *txt)
             wsPublishConnections();
             wsQueueBroadcast();
         }
+    } else if (strcmp(cmd, "result_shown") == 0) {
+        const cJSON *token = cJSON_GetObjectItemCaseSensitive(j, "roll_result_id");
+        if (!c->joined || c->seat < 0 || c->session != s->session || !s->active) {
+            wsSendError(fd, "join", Str::WEB_ERR_WS_JOIN);
+        } else if (!cJSON_IsNumber(token) || token->valuedouble != token->valueint || token->valueint <= 0) {
+            wsSendError(fd, "cmd", Str::WEB_ERR_WS_CMD);
+        } else if (!GameLive::acknowledgeRollResult(c->seat, c->session, (uint32_t)token->valueint)) {
+            // A retry can cross the public reveal in flight; never turn that into a UI error.
+            ESP_LOGW(TAG, "ignored stale or mismatched roll display acknowledgement");
+        }
     } else if (strcmp(cmd, "hold") == 0 || strcmp(cmd, "roll") == 0 || strcmp(cmd, "choose") == 0 ||
                strcmp(cmd, "bank") == 0 || strcmp(cmd, "end") == 0) {
         if (!c->joined || c->seat < 0 || c->session != s->session || !s->active) {
@@ -1325,6 +1337,10 @@ static void wsHandleText(int fd, const char *txt)
                 ok = ok && cJSON_IsNumber(jd) && jd->valueint >= 0 && jd->valueint < (int)YatzyCategory::COUNT;
                 gc.type = GameLive::CmdType::CHOOSE;
                 gc.arg = ok ? (int8_t)jd->valueint : 0;
+            } else {
+                const cJSON *first = cJSON_GetObjectItemCaseSensitive(j, "reveal_first");
+                ok = !first || (cJSON_IsBool(first) && s->gameType == GameType::YATZY);
+                gc.arg = cJSON_IsTrue(first) ? 1 : 0;
             }
             if (!ok || !GameLive::pushCmd(gc)) wsSendError(fd, "cmd", Str::WEB_ERR_WS_CMD);
         }

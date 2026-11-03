@@ -2,4 +2,5 @@
 
 namespace UiMultiplayer {
 void show();
+void leaveRemote();
 }

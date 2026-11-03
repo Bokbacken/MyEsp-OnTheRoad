@@ -24,6 +24,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "game_yatzy.h"
 
 namespace UiYatzy {
 struct CupVisual {
@@ -32,8 +33,27 @@ struct CupVisual {
     lv_obj_t *bottom;
 };
 
+enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE, RESULT_SHOWN };
+struct RemoteState {
+    YatzyGame game;
+    bool connected;
+    bool joined;
+    bool active;
+    bool rolling;
+    bool resultPhase;
+    uint8_t rollMask;
+    int you;
+    uint32_t revision;
+    uint32_t resultId;
+    char status[96];
+};
+using RemoteCommandCallback = void (*)(RemoteCommand command, int arg);
+
 const void *faceSprite(int32_t size, int face);
 CupVisual createCupVisual(lv_obj_t *parent, int32_t diameter);
 void showMenu();
 void showPlayerCenter();
+void showRemoteGame(const RemoteState &state, RemoteCommandCallback command);
+void updateRemoteGame(const RemoteState &state);
+void endRemoteGame();
 }

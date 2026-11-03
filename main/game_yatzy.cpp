@@ -276,6 +276,60 @@ void YatzyGame::setRng(YatzyDieRng rng, void *ctx)
     rngCtx_ = ctx;
 }
 
+bool YatzyGame::restoreSnapshot(const YatzySnapshot &snapshot)
+{
+    if (snapshot.variant != YatzyVariant::STANDARD && snapshot.variant != YatzyVariant::MAXI)
+        return false;
+    if (snapshot.mode != YatzyMode::NORMAL && snapshot.mode != YatzyMode::ORDERED)
+        return false;
+    if (!snapshot.started || snapshot.playerCount < 1 ||
+        snapshot.playerCount > YATZY_MAX_PLAYERS ||
+        snapshot.currentPlayer < 0 || snapshot.currentPlayer >= snapshot.playerCount)
+        return false;
+
+    int categoryCount = 0;
+    Yatzy::categories(snapshot.variant, categoryCount);
+    const int rounds = categoryCount;
+    if (snapshot.round < 1 || snapshot.round > rounds + 1 ||
+        snapshot.rollsUsed < 0 || snapshot.rollsUsed > UINT8_MAX ||
+        snapshot.rollsLeft < 0 || snapshot.rollsLeft > UINT8_MAX ||
+        (!snapshot.finished &&
+         snapshot.rollsUsed + snapshot.rollsLeft < YATZY_ROLLS_PER_TURN) ||
+        snapshot.rollsUsed + snapshot.rollsLeft > UINT8_MAX ||
+        snapshot.finished != (snapshot.round > rounds) ||
+        (snapshot.finished && (snapshot.rollsUsed != 0 || snapshot.rollsLeft != 0)))
+        return false;
+
+    for (int p = 0; p < snapshot.playerCount; p++) {
+        if (!snapshot.players[p].name[0] ||
+            !memchr(snapshot.players[p].name, '\0', YATZY_NAME_CAP)) return false;
+        for (int c = 0; c < YATZY_CATEGORY_COUNT; c++) {
+            const int16_t score = snapshot.players[p].scores[c];
+            if (score < YATZY_EMPTY || score > 1000) return false;
+            if (score != YATZY_EMPTY && !Yatzy::usesCategory(snapshot.variant, (YatzyCategory)c))
+                return false;
+        }
+    }
+    for (int i = 0; i < Yatzy::diceCount(snapshot.variant); i++) {
+        if (snapshot.dice[i] > 6) return false;
+        if (snapshot.held[i] && snapshot.rollsUsed == 0 && !snapshot.finished) return false;
+    }
+    variant_ = snapshot.variant;
+    mode_ = snapshot.mode;
+    savedRollsRule_ = snapshot.savedRollsRule;
+    started_ = true;
+    finished_ = snapshot.finished;
+    playerCount_ = snapshot.playerCount;
+    current_ = snapshot.currentPlayer;
+    round_ = snapshot.round;
+    rollsUsed_ = snapshot.rollsUsed;
+    turnRollBudget_ = snapshot.rollsUsed + snapshot.rollsLeft;
+    memcpy(players_, snapshot.players, sizeof(players_));
+    memcpy(dice_, snapshot.dice, sizeof(dice_));
+    memcpy(held_, snapshot.held, sizeof(held_));
+    return true;
+}
+
 void YatzyGame::beginTurn()
 {
     rollsUsed_ = 0;

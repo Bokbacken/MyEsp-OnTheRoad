@@ -291,7 +291,7 @@ extern "C" void app_main(void)
     {
         const bool audioOk = Audio::begin(Touch::bus());
         Audio::setVolumes(cfg.soundOn, cfg.sfxVol, cfg.musicOn, cfg.musicVol);
-        Karaoke::setVolume(cfg.karaVolume);
+        Audio::setMasterVolume(cfg.masterVol);
         ESP_LOGI(TAG, "audio %s", audioOk ? "ok" : "not available");
     }
     UiBoot::setProgress(50);

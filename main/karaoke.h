@@ -136,8 +136,8 @@ int melody();
 bool melodyFromRegister();      // Current melody came from the register (user choice)
 void setMelodyMuted(bool m);    // Sing the melody yourself
 bool melodyMuted();
-void setVolume(uint8_t v);      // 0..100; session changes update config RAM, caller persists after debounce
-uint8_t volume();
+uint8_t songVolume();         // Per-song MIDI gain (0..200); 100 is unity.
+void setSongVolume(uint8_t v);
 
 // v0.13.6: countdown dots in pauses >= COUNTDOWN_GAP_MS (max COUNTDOWN_MAX dots), see
 // KaraStream::countdownAt - shared by the device screen and the web stream

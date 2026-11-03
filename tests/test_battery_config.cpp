@@ -26,7 +26,7 @@ int main()
     Config::defaults(defaults);
     CHECK(defaults.batteryScalePermille == defaultScale);
     CHECK(defaults.batteryFullMv == 4200);
-    CHECK(defaults.karaVolume == 70);
+    CHECK(defaults.masterVol == 100);
     CHECK(defaults.karaVoices == 96);
     for (uint8_t voices : KARA_VOICE_OPTIONS) CHECK(Config::validKaraVoices(voices));
     CHECK(!Config::validKaraVoices(16) && !Config::validKaraVoices(193));
@@ -40,7 +40,7 @@ int main()
     Config::begin();
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
-    CHECK(Config::get().karaVolume == 70);
+    CHECK(Config::get().masterVol == 100);
     CHECK(Config::get().sudokuDeadZone == SUDOKU_DEAD_ZONE_DEFAULT);
     CHECK(Config::get().sudokuHelpHints);
 
@@ -91,11 +91,11 @@ int main()
 
     // Older schema-1 configurations have no new keys and keep the safe defaults.
     TestNvs::numbers["schema"] = 1;
-    TestNvs::numbers["kara_vol"] = 63;
+    TestNvs::numbers["kara_vol"] = 63;   // Legacy Karaoke-only level is ignored.
     Config::begin();
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
-    CHECK(Config::get().karaVolume == 63);
+    CHECK(Config::get().masterVol == 100);
     CHECK(Config::get().screenOffSeconds == 0);
     CHECK(!Config::get().ecoSleep && !Config::get().powerLog);
     CHECK(Config::get().menuAnimations);
@@ -146,23 +146,23 @@ int main()
     CHECK(Config::get().batteryScalePermille == 4000);
     TestNvs::numbers["bat_scale"] = 12001;
     TestNvs::numbers["bat_full"] = 3899;
-    TestNvs::numbers["kara_vol"] = 255;
+    TestNvs::numbers["master_vol"] = 255;
     Config::begin();
     CHECK(Config::get().batteryScalePermille == defaultScale);
     CHECK(Config::get().batteryFullMv == 4200);
-    CHECK(Config::get().karaVolume == 70);
+    CHECK(Config::get().masterVol == 100);
 
     Config::get().batteryScalePermille = 5000;
     Config::get().batteryFullMv = 4150;
-    Config::get().karaVolume = 42;
+    Config::get().masterVol = 42;
     CHECK(Config::save());
     CHECK(TestNvs::numbers["bat_scale"] == 5000);
     CHECK(TestNvs::numbers["bat_full"] == 4150);
-    CHECK(TestNvs::numbers["kara_vol"] == 42);
+    CHECK(TestNvs::numbers["master_vol"] == 42);
     Config::begin();
     CHECK(Config::get().batteryScalePermille == 5000);
     CHECK(Config::get().batteryFullMv == 4150);
-    CHECK(Config::get().karaVolume == 42);
+    CHECK(Config::get().masterVol == 42);
     Config::get().batteryScalePermille = 0;
     CHECK(Config::save());
     CHECK(Config::get().batteryScalePermille == defaultScale);

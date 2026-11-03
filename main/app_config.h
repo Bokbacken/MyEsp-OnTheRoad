@@ -38,6 +38,7 @@ struct AppConfig {
     uint16_t rotation;       // Display rotation in degrees: 0 (USB down, default) or 180 (v0.5.6)
     // v0.9.0: sound (ES8311)
     bool soundOn;            // Master switch (default on)
+    uint8_t masterVol;       // Hardware DAC master volume 0..100 (default 100)
     uint8_t sfxVol;          // Effects volume 0..100 (default 60)
     bool musicOn;            // Background music (default on)
     uint8_t musicVol;        // Music volume 0..100 (default 25)
@@ -60,8 +61,6 @@ struct AppConfig {
     // v0.13.5: web karaoke stream /ws/karaoke (default 1; NVS "kara_webstream", no UI). 0 = the
     // endpoint is never registered (limited bandwidth)
     uint8_t karaWebStream;
-    // Karaoke master synth output (0..100); not the amplifier enable or game/SFX level.
-    uint8_t karaVolume;
     // Battery divider calibration: battery mV / ADC mV in permille; 0 = not calibrated.
     uint16_t batteryScalePermille;
     // Approximate battery-full point for the generic LiPo percentage curve (mV).

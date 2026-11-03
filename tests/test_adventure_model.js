@@ -45,6 +45,58 @@ assert.equal(M.coordinateLayers(layered, 2).errors.length, 3);
 assert.equal(M.serialize(layered), layeredText);
 assert.equal(M.getGrid(layered, 1)[0], 'S.R.');
 
+const treasureEdit = M.parse('@map\nS....\n@map 2\nS....\n@treasures\n# behåll kommentaren\n');
+M.addTreasure(treasureEdit, 1, 1, 0, 'potion', 4);
+M.addTreasure(treasureEdit, 2, 2, 0, 'flash', 0);
+assert.ok(treasureEdit.lines.includes('1 0 potion 4'));
+assert.ok(treasureEdit.lines.includes('map=2: 2 0 flash 0'));
+assert.ok(treasureEdit.lines.includes('# behåll kommentaren'));
+assert.deepEqual(M.coordinateLayers(treasureEdit, 1).layers.map(l => [l.x, l.y, l.kind, l.sprite]), [[1, 0, 'treasures', 'potion']]);
+assert.deepEqual(M.coordinateLayers(treasureEdit, 2).layers.map(l => [l.x, l.y, l.kind, l.sprite]), [[2, 0, 'treasures', 'flash']]);
+assert.throws(() => M.addTreasure(treasureEdit, 1, 1, 0, 'gem'), /redan en skatt/);
+assert.throws(() => M.addTreasure(treasureEdit, 1, 2, 0, 'unknown'), /giltigt skatteföremål/);
+assert.throws(() => M.addTreasure(treasureEdit, 1, 2, 0, 'gem', 256), /0–255/);
+assert.throws(() => M.addTreasure(treasureEdit, 1, 5, 0, 'gem'), /utanför/);
+assert.throws(() => M.addTreasure(treasureEdit, 1, 1.5, 0, 'gem'), /heltal/);
+assert.throws(() => M.addTreasure(treasureEdit, 9, 1, 0, 'gem'), /finns inte/);
+assert.throws(() => M.addTreasure(treasureEdit, 1, 2, 0, 'gem', -1), /0–255/);
+const scopedTreasure = M.parse('@map\nS...\n@map 2\nS...\n@treasures map=2\nmap=1: 1 0 gem # keep\n2 0 pogo 3\n@about\ntitle.sv: Keep\n');
+M.addTreasure(scopedTreasure, 2, 3, 0, 'heart', 255);
+assert.ok(M.serialize(scopedTreasure).includes('2 0 pogo 3\n3 0 heart 255\n@about'));
+assert.ok(scopedTreasure.lines.includes('map=1: 1 0 gem # keep'));
+const unchangedTreasure = M.serialize(scopedTreasure);
+assert.throws(() => M.addTreasure(scopedTreasure, 1, 1, 0, 'gem'), /redan en skatt/);
+assert.equal(M.serialize(scopedTreasure), unchangedTreasure);
+const deleteDoc = M.parse(unchangedTreasure.replace(/\n/g, '\r\n'));
+const ownTreasure = M.coordinateLayers(deleteDoc, 1).layers[0];
+assert.throws(() => M.removeTreasure(deleteDoc, 2, ownTreasure.line), /valda kartan/);
+assert.throws(() => M.removeTreasure(deleteDoc, 9, ownTreasure.line), /finns inte/);
+assert.throws(() => M.removeTreasure(deleteDoc, 1, 1), /valda kartan/);
+assert.equal(M.serialize(deleteDoc), unchangedTreasure.replace(/\n/g, '\r\n'));
+M.removeTreasure(deleteDoc, 1, ownTreasure.line);
+assert.ok(deleteDoc.lines.includes('# keep'), 'inline comment survives deletion');
+assert.equal(M.coordinateLayers(deleteDoc, 1).layers.length, 0);
+assert.equal(M.coordinateLayers(deleteDoc, 2).layers.length, 2, 'header scope and prefix scope are independent');
+const otherTreasure = M.coordinateLayers(deleteDoc, 2).layers[0];
+M.removeTreasure(deleteDoc, 2, otherTreasure.line);
+assert.ok(!deleteDoc.lines.includes('2 0 pogo 3'));
+assert.ok(M.serialize(deleteDoc).endsWith('@about\r\ntitle.sv: Keep\r\n'));
+const commentedScope = M.parse('@map\nS...\n@map 2\nS...\n@treasures # example map=2\n1 0 gem\n');
+assert.equal(M.coordinateLayers(commentedScope, 1).layers.length, 1);
+assert.throws(() => M.removeTreasure(commentedScope, 2, 6), /valda kartan/);
+M.addTreasure(commentedScope, 2, 2, 0, 'gem');
+assert.ok(commentedScope.lines.includes('map=2: 2 0 gem 1'));
+M.removeTreasure(commentedScope, 1, 6);
+assert.ok(commentedScope.lines.includes('@treasures # example map=2'));
+const unsectionedTreasure = M.parse('@map\nS.\n@map 2\nS.\n');
+M.addTreasure(unsectionedTreasure, 2, 1, 0, 'gem');
+assert.ok(unsectionedTreasure.lines.includes('@treasures map=2'));
+assert.ok(unsectionedTreasure.lines.includes('1 0 gem 1'));
+const treasureOnMechanism = M.parse('@map\nSp.\n@legend\np = plate red\n');
+assert.throws(() => M.addTreasure(treasureOnMechanism, 1, 1, 0, 'gem'), /platta, grind eller spak/);
+const fullTreasure = M.parse(`@map\nS${'.'.repeat(48)}\n@treasures\n${Array.from({length: 48}, (_, i) => `${i} 0 gem`).join('\n')}\n`);
+assert.throws(() => M.addTreasure(fullTreasure, 1, 48, 0, 'gem'), /högst 48 skatter/);
+
 const SRC = [
   '# kommentar', '@meta', 'id: t', '', '@map', '#####', '#S.p#', '#.o=#', '#####', '# fri kommentar',
   '@legend', 'g = gate 2  # kommentar', '@plategroup 1: 1,2 2,1', '@gategroup 1: 3,2',

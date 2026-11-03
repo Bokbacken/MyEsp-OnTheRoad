@@ -147,6 +147,8 @@
   <fieldset>
     <legend>Ljud</legend>
     <label class="check"><input type="checkbox" id="sound_on" name="sound_on"> Ljud på</label>
+    <label for="master_vol">Mastervolym: <b id="master-val">–</b> %</label>
+    <input type="range" id="master_vol" name="master_vol" min="0" max="100" step="1">
     <label for="sfx_vol">Effektvolym: <b id="sfx-val">–</b> %</label>
     <input type="range" id="sfx_vol" name="sfx_vol" min="0" max="100" step="5">
     <label class="check"><input type="checkbox" id="music_on" name="music_on"> Bakgrundsmusik</label>
@@ -303,6 +305,7 @@ function bindRange(id, out) {
 const updB = bindRange('brightness', 'brightness-val');
 const updL = bindRange('led_brightness', 'led-val');
 const updA = bindRange('roll_anim_ms', 'anim-val');
+const updMaster = bindRange('master_vol', 'master-val');
 const updSfx = bindRange('sfx_vol', 'sfx-val');
 const updMus = bindRange('music_vol', 'music-val');
 const updZ = bindRange('joy_zones', 'zones-val');
@@ -353,6 +356,7 @@ function fill(c) {
   $('hostname').value = c.hostname;
   if (c.sound_on !== undefined) {
     $('sound_on').checked = c.sound_on; $('music_on').checked = c.music_on;
+    if (c.master_vol !== undefined) { $('master_vol').value = c.master_vol; updMaster(); }
     $('sfx_vol').value = c.sfx_vol; updSfx(); $('music_vol').value = c.music_vol; updMus();
     $('joy_zones').value = c.joy_zones; updZ(); $('joy_slow_ms').value = c.joy_slow_ms; updSl();
     $('joy_fast_ms').value = c.joy_fast_ms; updFa(); $('joy_hold_ms').value = c.joy_hold_ms; updH();
@@ -595,6 +599,7 @@ $('cfg-form').addEventListener('submit', async e => {
     maxi_saved_rolls: $('maxi_saved_rolls').checked ? '1' : '0',
     throw_mode: $('throw_mode').value,
     sound_on: $('sound_on').checked ? '1' : '0',
+    master_vol: $('master_vol').value,
     sfx_vol: $('sfx_vol').value,
     music_on: $('music_on').checked ? '1' : '0',
     music_vol: $('music_vol').value,
