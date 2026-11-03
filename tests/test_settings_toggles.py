@@ -16,6 +16,10 @@ assert "Theme::button(header, LV_SYMBOL_LEFT" in settings_home
 assert "UiYatzy::showMenu()" in settings_home
 assert "if (page != Page::USER)" in source and "if (page != Page::GAME)" in source
 assert "showPage(Page::ADMIN)" in source and "UiNumpad::MAX_PIN_LENGTH" in source
+game_sudoku = source[source.index("lv_obj_t *sudoku = Theme::card"):
+                     source.index("lv_obj_t *clk = Theme::card", source.index("lv_obj_t *sudoku = Theme::card"))]
+assert "SUDOKU_RESET_PROGRESS" in game_sudoku
+assert "UiSudoku::confirmResetProgress()" in game_sudoku
 assert source.index("SCREEN_TIMEOUT"), "user screen timeout control must remain available"
 assert "Theme::button(powerAdmin, tr(Str::SCREEN_SLEEP_NOW)" in source
 assert "VAR_MIDI_ORDER" in source

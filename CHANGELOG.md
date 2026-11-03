@@ -8,6 +8,45 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.0 (unreleased)
+
+- Native Sudoku under Pastimes, with digit-first entry, positional pencil
+  notes, undo/redo, erase, pause, elapsed time and saved progress. Checking
+  marks entered digits that differ from the solution with red crosses and
+  ignores notes; rule conflicts are crossed immediately. Fixed clues ignore
+  taps, and the per-cell inactive border is adjustable from 0 to 8 px
+  (default 2) in Sudoku's Game settings, with a red live illustration.
+  The model separately detects row, column and box conflicts.
+  Completed keypad digits gray
+  out, replacing an entered digit requires confirmation, pause includes the
+  pending elapsed interval, and a failed save keeps the game open for retry.
+  Tapping the selected digit in a filled cell toggles it off; a randomized
+  animated cheer appears for 3.7 seconds when the puzzle is solved, followed by
+  Back/Next choices in that order. Undo/redo use curved arrows. Notes matching a
+  newly placed digit are removed from peer cells; larger puzzle status appears
+  above the board.
+- Bundle 100 puzzles per difficulty from the public-domain Sudoku Exchange
+  bank, then load additional puzzles from matching files under
+  `/sdcard/otr/sudoku/`. The selector shows the total available count and
+  accepts `extreme.txt` or `diabolical.txt` for Extreme. Valid counts and block
+  offsets are cached by file size and modification time, so unchanged files
+  avoid rescanning; changed large files may take several minutes to index. A
+  popup appears for new or changed files and stays until acknowledged, while
+  the first-100 solved count remains visible.
+  No scan task is started if no SD puzzle files are present. A confirmation-
+  gated action in Sudoku's Game settings clears only its saved puzzle and solved
+  counts from NVS; it leaves SD puzzle files and `.sidx` caches untouched.
+- Make the Sudoku board use the full available portrait width, move Back to a
+  header icon and alternate the header title with compact puzzle/time details.
+  Brief contextual control hints can be disabled in Sudoku game settings.
+- Add an animated mini-Sudoku home icon, controlled by the existing menu
+  animation setting. Yatzy multiplayer behaviour is unchanged.
+- Make the app/C6 OTA file pickers larger, with a highlighted drop area and
+  larger native file-selection button.
+- Log the first valid battery-voltage reading after boot immediately, then
+  retain the five-minute cadence. SD power-history intervals are unchanged.
+- Physical S3/P4 touch-layout verification remains pending.
+
 ## v0.23.24 (unreleased)
 
 - Home-screen artwork animates a rolling die, village walker and musical

@@ -34,6 +34,7 @@ namespace MySys { inline uint32_t now=0; inline uint32_t millis() { return now; 
 namespace MyOta { inline bool updating=false; inline bool busy() { return updating; } }
 namespace Karaoke { inline bool songPlaying=false; inline bool playing() { return songPlaying; } }
 namespace GameLive { inline bool gameRunning=false; inline bool running() { return gameRunning; } }
+namespace UiSudoku { inline bool gameRunning=false; inline bool running() { return gameRunning; } }
 namespace AdvLive { inline bool adventure=false; inline bool active() { return adventure; } }
 namespace AppWebFiles { inline bool transferring=false; inline bool busy() { return transferring; } }
 namespace Audio { inline bool idle=false, musicPaused=false; inline void setSleeping(bool enabled) { idle=enabled; }
@@ -190,6 +191,10 @@ int main() {
     UiScreenPower::sleepNow();
     assert(!UiScreenPower::ecoSleeping()); // Running dice game is protected.
     GameLive::gameRunning=false;
+    UiSudoku::gameRunning=true;
+    UiScreenPower::sleepNow();
+    assert(!UiScreenPower::ecoSleeping()); // Sudoku uses the same active-game protection.
+    UiSudoku::gameRunning=false;
     AdvLive::adventure=true;
     UiScreenPower::sleepNow();
     assert(!UiScreenPower::ecoSleeping());

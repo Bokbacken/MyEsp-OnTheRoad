@@ -16,6 +16,7 @@ enum class Icon : uint8_t {
     PIG_TWO,
     FARKLE,
     SHIP_CAPTAIN_CREW,
+    SUDOKU,
     COUNT
 };
 
@@ -24,6 +25,6 @@ constexpr uint8_t ANIMATION_FRAMES = 8;
 const lv_image_dsc_t *animationFrame(Icon icon, uint8_t frame);
 using AnimationEnabled = bool (*)();
 bool animateHome(lv_obj_t *screen, lv_obj_t *dice, lv_obj_t *adventure, lv_obj_t *karaoke,
-                 AnimationEnabled enabled);
+                 AnimationEnabled enabled, lv_obj_t *sudoku = nullptr);
 
 }  // namespace MenuArt

@@ -17,7 +17,7 @@ assert "Theme::menuCard" in menu_card
 assert "MenuArt::image(art)" in menu_card
 assert "lv_obj_set_flex_grow" not in menu_card
 home_menu = source[source.index("void showMenu()"):source.index("void showPlayerCenter()")]
-assert home_menu.count("Theme::menuCard") == 2 and "menuListCard(" in home_menu
+assert home_menu.count("Theme::menuCard") == 4 and "menuListCard(" in home_menu
 assert "lv_obj_set_flex_grow" not in home_menu
 player_center_start = source.index("\nvoid showPlayerCenter()\n{")
 player_center = source[player_center_start:source.index("\nstatic void showDiceGames()\n{", player_center_start)]
@@ -617,7 +617,7 @@ static void checkHomeAnimations() {
     auto *previous = lv_screen_active();
     for (int cycle = 0; cycle < 4; ++cycle) {
         auto *screen = Theme::screen();
-        lv_obj_t *pictures[3];
+        lv_obj_t *pictures[4];
         for (int i = 0; i < 3; ++i) {
             const auto icon = static_cast<MenuArt::Icon>(i);
             pictures[i] = lv_image_create(screen);
@@ -632,17 +632,28 @@ static void checkHomeAnimations() {
             }
             assert(MenuArt::animationFrame(icon, MenuArt::ANIMATION_FRAMES) == first);
         }
+        pictures[3] = lv_image_create(screen);
+        lv_image_set_src(pictures[3], MenuArt::image(MenuArt::Icon::SUDOKU));
+        const auto *sudokuFirst = MenuArt::animationFrame(MenuArt::Icon::SUDOKU, 0);
+        const auto *sudokuLast = MenuArt::animationFrame(MenuArt::Icon::SUDOKU, 7);
+        assert(memcmp(sudokuFirst->data, sudokuLast->data, sudokuFirst->data_size) != 0);
+        for (int i = int(MenuArt::Icon::YATZY); i < int(MenuArt::Icon::SUDOKU); ++i) {
+            const auto icon = static_cast<MenuArt::Icon>(i);
+            assert(MenuArt::animationFrame(icon, 3) == MenuArt::image(icon));
+        }
         assert(MenuArt::animateHome(screen, pictures[0], pictures[1], pictures[2],
-            [] { return menuAnimationOn && !menuScreenSleeping; }));
+            [] { return menuAnimationOn && !menuScreenSleeping; }, pictures[3]));
         lv_screen_load(screen);
         menuAnimationOn = true;
         settle();
+        assert(lv_image_get_src(pictures[3]) == MenuArt::animationFrame(MenuArt::Icon::SUDOKU, 0));
         for (int i = 0; i < 3; ++i)
             assert(lv_image_get_src(pictures[i]) == MenuArt::animationFrame(static_cast<MenuArt::Icon>(i), 0));
         settle();
         assert(lv_image_get_src(pictures[0]) == MenuArt::animationFrame(MenuArt::Icon::DICE, 1));
         menuScreenSleeping = true;
         settle();
+        assert(lv_image_get_src(pictures[3]) == MenuArt::image(MenuArt::Icon::SUDOKU));
         for (int i = 0; i < 3; ++i)
             assert(lv_image_get_src(pictures[i]) == MenuArt::image(static_cast<MenuArt::Icon>(i)));
         settle();

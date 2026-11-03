@@ -24,6 +24,7 @@
 #include "my_wifi.h"
 #include "ui_adventure.h"
 #include "ui_karaoke.h"
+#include "ui_sudoku.h"
 #include "ui_multiplayer.h"
 #include "ui_clock.h"
 #include "ui_numpad.h"
@@ -177,7 +178,7 @@ void showMenu()
     lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
     UiClock::attachLabel(clk, true);
 
-    // Keep the landing page focused on the three game families available today.
+    // Keep the landing page focused on the available game families.
     const int32_t top = UiMetrics::headerH();
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
@@ -200,11 +201,28 @@ void showMenu()
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *pastimes = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_PASTIMES),
+                                        tr(Str::SUDOKU_SUBTITLE), MenuArt::image(MenuArt::Icon::SUDOKU),
+                                        LV_SYMBOL_LIST, Theme::TEAL);
+    lv_obj_add_event_cb(pastimes, [](lv_event_t *) {
+        auto *page = Theme::screen();
+        Theme::header(page, tr(Str::MENU_PASTIMES));
+        auto *sudoku = Theme::menuCard(page, UiMetrics::screenW() - 20, tr(Str::SUDOKU_TITLE),
+                                      tr(Str::SUDOKU_SUBTITLE), MenuArt::image(MenuArt::Icon::SUDOKU),
+                                      LV_SYMBOL_LIST, Theme::TEAL);
+        lv_obj_set_pos(sudoku, 10, UiMetrics::headerH());
+        lv_obj_add_event_cb(sudoku, [](lv_event_t *) { UiSudoku::show(); }, LV_EVENT_CLICKED, nullptr);
+        auto *back = Theme::button(page, tr(Str::BTN_BACK), 110, 40, Theme::MUTED);
+        lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -8);
+        lv_obj_add_event_cb(back, [](lv_event_t *) { showMenu(); }, LV_EVENT_CLICKED, nullptr);
+        Theme::loadScreen(page);
+    }, LV_EVENT_CLICKED, nullptr);
     if (!MenuArt::animateHome(scr,
             lv_obj_get_child(lv_obj_get_child(dice, 0), 0),
             lv_obj_get_child(lv_obj_get_child(adv, 0), 0),
             lv_obj_get_child(lv_obj_get_child(kara, 0), 0),
-            [] { return Config::get().menuAnimations && !Backlight::sleeping(); }))
+            [] { return Config::get().menuAnimations && !Backlight::sleeping(); },
+            lv_obj_get_child(lv_obj_get_child(pastimes, 0), 0)))
         ESP_LOGE("menu", "could not allocate home animation timer");
     lv_obj_t *foot = Theme::label(scr, FW_NAME " v" FW_VERSION, &my_font_14, Theme::LINE);
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -6);

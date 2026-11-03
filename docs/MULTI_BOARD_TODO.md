@@ -15,6 +15,49 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Sudoku, OTA-filval och bootbatteri, v0.24.0
+
+- [x] Inbyggt Sudoku med fyra svårigheter och 100 offlinepussel per svårighet,
+  siffer-/anteckningsläge, ångra/gör om, kontroll, paus och sparning i NVS.
+  Spelinställningarna har en bekräftad funktion för att radera
+  Sudoku-framsteg ur NVS.
+  Färdiga siffror gråas ut, sifferbyten bekräftas och sparfel hindrar utgång;
+  paustiden räknas upp till själva pausen. Kontroll markerar siffror som
+  avviker från lösningen, och regelkonflikter kryssas direkt. Fasta givenceller
+  ignorerar tryck; dödzonen kan ställas 0–8 px per kant i Sudoku-inställningarna
+  (standard 2) med en rödmarkerad illustration. Motorn upptäcker regelbrott
+  i rad, kolumn och ruta. Tryck på
+  samma valda siffra växlar den i rutan; konfliktanteckningar tas bort,
+  statusraden ligger ovanför brädet och lösning följs av val för nästa eller
+  tillbaka. Slumpad uppmuntran visas 3,7 sekunder före valet, och Tillbaka står
+  till vänster om Nästa. Ångra/gör om visas med böjda pilar.
+- [x] Animerad mini-Sudoku på startsidan under Tidsfördriv; samma på/av-val
+  som övriga menyikoner. Yatzy-synkroniseringen är inte ändrad.
+- [x] Större filval för app-/C6-OTA och första giltiga batterispänningen
+  loggas direkt efter boot, därefter som tidigare var femte minut.
+- [x] Värdtester kontrollerar alla 400 pussels unika lösning samt riktig
+  LVGL-layout/interaktion, sparning och återställning i svenska/engelska,
+  flera textstorlekar och S3/P4:s stående/liggande upplösningar.
+- [x] Firmwarebyggen för S3/P4 och LVGL-värdtester är gröna i PR #51,
+  Actions-körning 41492735344. Firmwareartefakter är uppladdade som v0.24.0.
+- [ ] Prova touch, läsbarhet, röda felkryss, paus och återställning efter
+  omstart på båda fysiska korten.
+- [x] Nästa pusselblock läses automatiskt från `/sdcard/otr/sudoku/` när de
+  inbyggda 100 pusslen per svårighet är klara. Väljaren räknar och visar alla
+  giltiga poster i filerna; index cachas per filstorlek och ändringstid.
+  En popup visas för nya eller ändrade filer och ligger kvar tills användaren
+  trycker OK; räknaren visar fortfarande lösta pussel av de första 100 under
+  tiden. Ingen scan-task startas när inga Sudoku-filer finns. Indexen ligger som
+  `.sidx` på SD-kortet, inte i NVS; nollställning av spelframsteg lämnar dem
+  kvar. Extreme accepterar
+  `extreme.txt` eller `diabolical.txt`.
+- [ ] Upprepa öppning av Sudoku på S3 utan extrafiler och kontrollera den
+  tidigare rapporterade omstarten; samla seriell startlogg/resetorsak om den
+  återkommer. Prova även popup, progressvisning och bekräftad nollställning.
+- [x] Sudokuens stående spelplan använder tillgänglig bredd. Tillbaka är en
+  ikon i statusraden, där Sudoku och nivå/ban-/tidsinformation växlar. Hjälp
+  visas tillfälligt vid funktionsbyte och kan stängas av i spelinställningarna.
+
 ### CI-byggurval
 
 - [x] Byggvillkor i `build.yaml`: dokumentändringar hoppar över firmwarejobb,

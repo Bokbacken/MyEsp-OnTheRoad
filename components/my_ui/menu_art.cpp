@@ -102,6 +102,35 @@ constexpr void drawAdventure(Pixels &out, bool withCharacter = true)
     }
 }
 
+constexpr void drawSudoku(Pixels &out, int frame)
+{
+    rect(out, 1, 1, 30, 30, INK);
+    rect(out, 2, 2, 28, 28, DIE);
+    for (int i = 1; i < 3; ++i) {
+        rect(out, 1 + i * 10, 1, 1, 30, INK);
+        rect(out, 1, 1 + i * 10, 30, 1, INK);
+    }
+    // A pencil mark in the first cell grows into a full digit.
+    if (frame < 3) {
+        rect(out, 3, 3, 1, 3, BLUE);
+        rect(out, 6, 3, 2, 1, BLUE);
+        rect(out, 7, 4, 1, 2, BLUE);
+    } else rect(out, 5, 3, 2, 6, BLUE);
+    if (frame >= 2) {
+        rect(out, 15, 13, 5, 1, INK);
+        rect(out, 19, 14, 1, 2, INK);
+        rect(out, 15, 16, 5, 1, INK);
+        rect(out, 15, 17, 1, 2, INK);
+        rect(out, 15, 19, 5, 1, INK);
+    }
+    if (frame >= 5) {
+        rect(out, 24, 23, 5, 1, GREEN);
+        rect(out, 28, 24, 1, 5, GREEN);
+        rect(out, 24, 26, 5, 1, GREEN);
+        rect(out, 24, 29, 5, 1, GREEN);
+    }
+}
+
 constexpr Pixels render(Icon icon)
 {
     Pixels out{};
@@ -153,6 +182,9 @@ constexpr Pixels render(Icon icon)
         die(out, 4, 20, 10, 3, GOLD);
         die(out, 18, 20, 10, 5, RED);
         break;
+    case Icon::SUDOKU:
+        drawSudoku(out, 7);
+        break;
     case Icon::COUNT:
         break;
     }
@@ -164,7 +196,7 @@ constexpr std::array<Pixels, ICON_COUNT> PIXELS = {
     render(Icon::DICE), render(Icon::ADVENTURE), render(Icon::KARAOKE),
     render(Icon::YATZY), render(Icon::MIDI), render(Icon::MAXI),
     render(Icon::PIG), render(Icon::PIG_TWO), render(Icon::FARKLE),
-    render(Icon::SHIP_CAPTAIN_CREW)
+    render(Icon::SHIP_CAPTAIN_CREW), render(Icon::SUDOKU)
 };
 
 constexpr Pixels renderFrame(Icon icon, int frame)
@@ -191,6 +223,8 @@ constexpr Pixels renderFrame(Icon icon, int frame)
         rect(out, x - 1, 25, 3, 4, PURPLE);
         rect(out, x - 2, 29, 2, frame % 2 ? 1 : 3, INK);
         rect(out, x + 1, 29, 2, frame % 2 ? 3 : 1, INK);
+    } else if (icon == Icon::SUDOKU) {
+        drawSudoku(out, frame);
     } else if (icon == Icon::KARAOKE) {
         Pixels source{};
         drawNotes(source);
@@ -211,13 +245,13 @@ constexpr auto makeFrames(Icon icon)
     return frames;
 }
 
-constexpr std::array<std::array<Pixels, ANIMATION_FRAMES>, 3> FRAMES = {
-    makeFrames(Icon::DICE), makeFrames(Icon::ADVENTURE), makeFrames(Icon::KARAOKE)
+constexpr std::array<std::array<Pixels, ANIMATION_FRAMES>, 4> FRAMES = {
+    makeFrames(Icon::DICE), makeFrames(Icon::ADVENTURE), makeFrames(Icon::KARAOKE), makeFrames(Icon::SUDOKU)
 };
 
 struct HomeAnimation {
     lv_obj_t *screen;
-    lv_obj_t *pictures[3];
+    lv_obj_t *pictures[4];
     AnimationEnabled enabled;
     uint8_t frame = 0;
     bool moving = false;
@@ -230,8 +264,9 @@ void homeTick(lv_timer_t *timer)
     const bool moving = state->enabled();
     if (!moving && !state->moving) return;
     state->moving = moving;
-    for (int i = 0; i < 3; ++i) {
-        const Icon icon = static_cast<Icon>(i);
+    for (int i = 0; i < 4; ++i) {
+        if (!state->pictures[i]) continue;
+        const Icon icon = i == 3 ? Icon::SUDOKU : static_cast<Icon>(i);
         lv_image_set_src(state->pictures[i], moving ? animationFrame(icon, state->frame) : image(icon));
     }
     if (moving) state->frame = (state->frame + 1) % ANIMATION_FRAMES;
@@ -242,10 +277,11 @@ void homeTick(lv_timer_t *timer)
 
 const lv_image_dsc_t *animationFrame(Icon icon, uint8_t frame)
 {
-    const auto index = static_cast<std::size_t>(icon);
+    if (icon != Icon::SUDOKU && icon > Icon::KARAOKE) return image(icon);
+    const auto index = icon == Icon::SUDOKU ? 3 : static_cast<std::size_t>(icon);
     if (index >= FRAMES.size()) return image(icon);
     static const auto descriptors = [] {
-        std::array<std::array<lv_image_dsc_t, ANIMATION_FRAMES>, 3> result{};
+        std::array<std::array<lv_image_dsc_t, ANIMATION_FRAMES>, 4> result{};
         for (std::size_t i = 0; i < result.size(); ++i)
             for (int f = 0; f < ANIMATION_FRAMES; ++f) {
                 auto &d = result[i][f];
@@ -263,9 +299,9 @@ const lv_image_dsc_t *animationFrame(Icon icon, uint8_t frame)
 }
 
 bool animateHome(lv_obj_t *screen, lv_obj_t *dice, lv_obj_t *adventure, lv_obj_t *karaoke,
-                 AnimationEnabled enabled)
+                 AnimationEnabled enabled, lv_obj_t *sudoku)
 {
-    auto *state = new (std::nothrow) HomeAnimation{screen, {dice, adventure, karaoke}, enabled};
+    auto *state = new (std::nothrow) HomeAnimation{screen, {dice, adventure, karaoke, sudoku}, enabled};
     if (!state) return false;
     lv_timer_t *timer = lv_timer_create(homeTick, 200, state);
     if (!timer) {

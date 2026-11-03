@@ -80,6 +80,12 @@ int main()
     CHECK(!BatteryMath::batteryLogDue(true, BatteryMath::LOG_INTERVAL_MS - 1, 0));
     CHECK(BatteryMath::batteryLogDue(true, BatteryMath::LOG_INTERVAL_MS, 0));
     CHECK(BatteryMath::batteryLogDue(true, 200000, UINT32_MAX - 100000));
+    const uint32_t bootTime = 5000;
+    const uint32_t initialBatteryLog = bootTime - BatteryMath::LOG_INTERVAL_MS;
+    CHECK(BatteryMath::batteryLogDue(true, bootTime, initialBatteryLog));
+    CHECK(!BatteryMath::batteryLogDue(false, bootTime, initialBatteryLog));
+    CHECK(BatteryMath::batteryLogDue(true, bootTime + 10000, initialBatteryLog));
+    CHECK(!BatteryMath::batteryLogDue(true, bootTime + 10000, bootTime));
 
     std::printf("Battery math: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

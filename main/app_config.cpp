@@ -57,6 +57,8 @@ void defaults(AppConfig &c)
     c.karaVolume = 70;
     c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     c.batteryFullMv = BatteryMath::BATTERY_FULL_DEFAULT_MV;
+    c.sudokuDeadZone = SUDOKU_DEAD_ZONE_DEFAULT;
+    c.sudokuHelpHints = true;
     strcpy(c.tz, DEFAULT_TZ);
     strcpy(c.lang, "sv");
 }
@@ -116,6 +118,8 @@ void begin()
             g_cfg.karaVolume = p.getU8("kara_vol", g_cfg.karaVolume);
             g_cfg.batteryScalePermille = p.getU16("bat_scale", g_cfg.batteryScalePermille);
             g_cfg.batteryFullMv = p.getU16("bat_full", BatteryMath::BATTERY_FULL_DEFAULT_MV);
+            g_cfg.sudokuDeadZone = p.getU8("sud_dz", g_cfg.sudokuDeadZone);
+            g_cfg.sudokuHelpHints = p.getBool("sud_help", g_cfg.sudokuHelpHints);
             // v0.10.0: the walking speed was halved. Settings saved by v0.9.0 with the
             // old defaults (150/75 ms) are upgraded; customised values are kept.
             if (p.getU8("joy_ver", 1) < 2 && g_cfg.joySlowMs == 150 && g_cfg.joyFastMs == 75) {
@@ -184,6 +188,8 @@ bool save()
     ok &= p.setU8("kara_vol", g_cfg.karaVolume);
     ok &= p.setU16("bat_scale", g_cfg.batteryScalePermille);
     ok &= p.setU16("bat_full", g_cfg.batteryFullMv);
+    ok &= p.setU8("sud_dz", g_cfg.sudokuDeadZone);
+    ok &= p.setBool("sud_help", g_cfg.sudokuHelpHints);
     return p.commit() && ok;
 }
 
@@ -325,6 +331,7 @@ void sanitize(AppConfig &c)
     c.batteryScalePermille = BatteryMath::sanitizeScale(c.batteryScalePermille);
     if (!c.batteryScalePermille) c.batteryScalePermille = BAT_DEFAULT_SCALE_PERMILLE;
     c.batteryFullMv = BatteryMath::sanitizeFullVoltage(c.batteryFullMv);
+    c.sudokuDeadZone = MySys::clamp<uint8_t>(c.sudokuDeadZone, SUDOKU_DEAD_ZONE_MIN, SUDOKU_DEAD_ZONE_MAX);
     c.karaFont[sizeof(c.karaFont) - 1] = 0;
 }
 
