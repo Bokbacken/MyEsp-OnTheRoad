@@ -12,12 +12,19 @@ Ett abrupt strömavbrott eller en krasch tappar det ännu osparade intervallet.
 
 ## Filer och innehåll
 
-Filerna ligger i `/sdcard/otr/power/power-00.csv` till `power-15.csv`
-och kan laddas ned via filhanteraren. Vid varje boot väljs boot-numret
-modulo 16 som startfil. Den filen ersätts vid första posten för den nya
-körningen. Vid 1 MiB roteras till nästa fil, som också ersätts.
-Detta begränsar historiken till högst 16 MiB; det är inte 16 kalenderdagars
-garanterad retention. Boot-numret och drifttiden anger ordningen när UTC är fel.
+Från v0.24.3 ligger filerna i `/sdcard/otr/power/power-ÅÅÅÅMMDD.csv`
+och kan laddas ned via filhanteraren. Datumet är UTC; första posten efter
+midnatt öppnar nästa dags fil. Ett femminutersintervall över midnatt hamnar
+i filen för dagen då intervallet avslutas. Om tiden inte är säker används
+`power-bootNNNNNNNN.csv` tills säker UTC-tid finns. Befintliga dagsfiler
+fortsätter fyllas på efter omstart; de skrivs inte över.
+
+Högst 150 power-loggfiler behålls. När en ny fil behövs vid gränsen raderas
+filen med äldst ändringstid först. Äldre `power-NN.csv`-filer räknas också
+in i gränsen, men döps inte om och kan därför ligga kvar efter uppdateringen.
+Det finns ingen separat storleksgräns per fil eller totalt; 150 filer är inte
+en garanti om 150 dagars historik. Andra filer och kataloger lämnas orörda.
+Fel vid katalogläsning, gallring eller skrivning ger en tappad post och loggas.
 
 CSV-schema 1 innehåller:
 

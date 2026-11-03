@@ -10,11 +10,15 @@ STUB = r'''
 #include "power_history.h"
 #include "power_interval.h"
 #include "power_io.h"
+#include <algorithm>
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <stdexcept>
 #include <string>
+#include <time.h>
 #include <vector>
 #include <sys/stat.h>
 using esp_err_t = int;
@@ -22,12 +26,13 @@ constexpr int pdPASS=1;
 #define pdMS_TO_TICKS(n) (n)
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
-#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGE(tag, ...) do { if (false) std::fprintf(stderr, __VA_ARGS__); } while (0)
 using portMUX_TYPE = int;
 #define portMUX_INITIALIZER_UNLOCKED 0
 #define portENTER_CRITICAL(p) ((void)(p))
 #define portEXIT_CRITICAL(p) ((void)(p))
 uint32_t nowMs=0;
+int64_t baseEpoch=0;
 void (*worker)(void *)=nullptr;
 inline int xTaskCreate(void (*f)(void *), const char *, int, void *, int, void *) { worker=f; return pdPASS; }
 inline void vTaskDelay(int ms) {
@@ -40,7 +45,7 @@ namespace MySys { inline uint32_t millis() { return nowMs; } }
 namespace MyDiag { inline uint32_t bootCount() { return 18; } }
 inline int esp_reset_reason() { return 3; }
 namespace MyTime {
-inline int64_t now() { return 1793500000+nowMs/1000; }
+inline int64_t now() { return baseEpoch+nowMs/1000; }
 inline unsigned source() { return 4; }
 inline bool certain() { return true; }
 }
@@ -96,17 +101,67 @@ namespace PowerIo {
 inline Counts counts() { return {nowMs*2, nowMs*3, nowMs*4, nowMs*5}; }
 }
 std::vector<std::string> output;
-inline FILE *openHistory(const char *p, const char *) {
-    assert(std::string(p)=="/sdcard/otr/power/power-02.csv"); return reinterpret_cast<FILE *>(1);
+std::vector<std::string> files, removedFiles, openedPaths;
+size_t directoryIndex=0;
+bool failList=false, failRead=false, failStat=false, failRemove=false, failOpen=false;
+std::string directoryName, emptyName;
+inline std::string historyBasename(const char *path) {
+    const char *slash=strrchr(path, '/');
+    return slash ? slash+1 : path;
+}
+inline DIR *openHistoryDir(const char *path) {
+    assert(std::string(path)=="/sdcard/otr/power");
+    if (failList) { errno=EIO; return nullptr; }
+    directoryIndex=0;
+    return reinterpret_cast<DIR *>(1);
+}
+inline struct dirent *readHistoryDir(DIR *) {
+    static struct dirent entry{};
+    if (failRead) { errno=EIO; return nullptr; }
+    if (directoryIndex>=files.size()) return nullptr;
+    std::memset(&entry, 0, sizeof(entry));
+    std::snprintf(entry.d_name, sizeof(entry.d_name), "%s", files[directoryIndex++].c_str());
+    return &entry;
+}
+inline int closeHistoryDir(DIR *) { return 0; }
+inline int statHistory(const char *path, struct stat *s) {
+    const auto name=historyBasename(path);
+    if (failStat) { errno=EIO; return -1; }
+    auto it=std::find(files.begin(), files.end(), name);
+    if (it==files.end()) { errno=ENOENT; return -1; }
+    s->st_mode=name==directoryName ? S_IFDIR : S_IFREG;
+    s->st_size=name==emptyName ? 0 : 2*1024*1024;
+    s->st_mtime=std::distance(files.begin(), it);
+    return 0;
+}
+inline int removeHistory(const char *path) {
+    if (failRemove) { errno=EIO; return -1; }
+    const auto name=historyBasename(path);
+    auto it=std::find(files.begin(), files.end(), name);
+    if (it==files.end()) { errno=ENOENT; return -1; }
+    removedFiles.push_back(name);
+    files.erase(it);
+    return 0;
+}
+inline FILE *openHistory(const char *p, const char *mode) {
+    assert(std::string(mode)=="a");
+    if (failOpen) { errno=EIO; return nullptr; }
+    openedPaths.emplace_back(p);
+    const auto name=historyBasename(p);
+    if (std::find(files.begin(), files.end(), name)==files.end()) files.push_back(name);
+    return reinterpret_cast<FILE *>(1);
 }
 inline int writeHistory(const char *s, FILE *) {
     output.emplace_back(s); return 0;
 }
 inline int closeHistory(FILE *) { return nowMs==601000 ? -1 : 0; }
-inline int statHistory(const char *, struct stat *s) { s->st_size=2000; return 0; }
 #define fopen openHistory
 #define fputs writeHistory
 #define fclose closeHistory
+#define opendir openHistoryDir
+#define readdir readHistoryDir
+#define closedir closeHistoryDir
+#define remove removeHistory
 #define stat(...) statHistory(__VA_ARGS__)
 #define FW_VERSION "test"
 '''
@@ -119,11 +174,26 @@ std::vector<std::string> fields(const std::string &line) {
     return out;
 }
 int main() {
+    struct tm start{};
+    start.tm_year=126; start.tm_mon=10; start.tm_mday=2; start.tm_hour=23; start.tm_min=54;
+    baseEpoch=timegm(&start);
+    for (unsigned i=0; i<150; ++i) {
+        char name[32];
+        std::snprintf(name, sizeof(name), "power-%08u.csv", 20260101+i);
+        files.emplace_back(name);
+    }
     assert(PowerHistory::begin() && worker);
     try { worker(nullptr); } catch (const std::runtime_error &) {}
     auto s=PowerHistory::status();
     assert(s.running && s.written==2 && s.dropped==1);
-    assert(output.size()==4); // header plus three intervals, one close failure
+    assert(output.size()==5); // two daily headers, three intervals, one close failure
+    assert(openedPaths.size()==3);
+    assert(openedPaths[0].find("power-20261102.csv")!=std::string::npos);
+    assert(openedPaths[1].find("power-20261103.csv")!=std::string::npos);
+    assert(openedPaths[2].find("power-20261103.csv")!=std::string::npos);
+    assert(files.size()==150 && removedFiles.size()==2);
+    assert(removedFiles[0]=="power-20260101.csv");
+    assert(removedFiles[1]=="power-20260102.csv");
     auto header=fields(output[0]), row=fields(output[1]);
     assert(header.size()==40 && row.size()==header.size());
     assert(row[8]=="301000" && row[9]=="300000"); // first row after exactly five enabled minutes
@@ -131,9 +201,80 @@ int main() {
     assert(row[15]=="100000" && row[16]=="26" && row[17]=="100000" && row[22]=="200000");
     assert(row[30]=="600000" && row[31]=="900000");
     assert(row[34]=="64000" && row[35]=="32000" && row[38]=="25.50");
-    auto partial=fields(output[3]);
+    auto partial=fields(output[4]);
     assert(partial.size()==40 && partial[9]=="1000" && partial[39]=="1");
-    puts("Power history: exact five-minute CSV, durations, IO deltas, partial flush and dropped rows passed");
+
+    char path[64];
+    assert(PowerHistory::makePath(path, sizeof(path), baseEpoch, false));
+    assert(std::string(path)=="/sdcard/otr/power/power-boot00000018.csv");
+    assert(PowerHistory::makePath(path, sizeof(path), 0, true));
+    assert(std::string(path)=="/sdcard/otr/power/power-boot00000018.csv");
+    assert(PowerHistory::makePath(path, sizeof(path), baseEpoch, true));
+    assert(std::string(path)=="/sdcard/otr/power/power-20261102.csv");
+    assert(!PowerHistory::makePath(path, 8, baseEpoch, true));
+
+    for (const char *name : {"power-00.csv", "power-20261102.csv",
+                            "power-boot00000018.csv", "power-boot4294967295.csv"})
+        assert(PowerHistory::isPowerFile(name));
+    for (const char *name : {"notes.csv", "power-notes.csv", "power-1.csv",
+                            "power-20261102.csv.bak", "power-bootBAD00018.csv"})
+        assert(!PowerHistory::isPowerFile(name));
+
+    files={"power-20261102.csv"};
+    output.clear(); openedPaths.clear(); removedFiles.clear();
+    assert(PowerHistory::append("continued\n", baseEpoch, true));
+    assert(output.size()==1 && output[0]=="continued\n");
+    assert(files.size()==1 && removedFiles.empty()); // No truncation or duplicate header after restart.
+    emptyName=files[0];
+    output.clear();
+    assert(PowerHistory::append("empty\n", baseEpoch, true));
+    assert(output.size()==2 && output[0]==PowerHistory::HEADER);
+    emptyName.clear();
+
+    files.clear(); output.clear();
+    assert(PowerHistory::append("uncertain\n", baseEpoch, false));
+    assert(openedPaths.back()=="/sdcard/otr/power/power-boot00000018.csv");
+    assert(PowerHistory::append("certain\n", baseEpoch, true));
+    assert(openedPaths.back()=="/sdcard/otr/power/power-20261102.csv");
+    assert(files.size()==2 && output.size()==4);
+
+    files={"power-00.csv", "notes.csv", "power-notes.csv", "power-20200101.csv"};
+    directoryName="power-20200101.csv";
+    for (unsigned i=1; i<150; ++i) {
+        char name[32];
+        std::snprintf(name, sizeof(name), "power-boot%08u.csv", i);
+        files.emplace_back(name);
+    }
+    removedFiles.clear();
+    assert(PowerHistory::append("pruned\n", baseEpoch, true));
+    assert(removedFiles.size()==1 && removedFiles[0]=="power-00.csv");
+    assert(files.size()==153); // 150 logs, two unrelated files, one directory.
+    assert(std::find(files.begin(), files.end(), directoryName)!=files.end());
+    directoryName.clear();
+
+    files.clear();
+    const auto writes=openedPaths.size();
+    const auto dropped=PowerHistory::status().dropped;
+    failList=true;
+    assert(!PowerHistory::append("list failure\n", baseEpoch, true));
+    failList=false; failRead=true;
+    assert(!PowerHistory::append("read failure\n", baseEpoch, true));
+    failRead=false; failStat=true;
+    assert(!PowerHistory::append("stat failure\n", baseEpoch, true));
+    failStat=false; failOpen=true;
+    assert(!PowerHistory::append("open failure\n", baseEpoch, true));
+    failOpen=false;
+    for (unsigned i=0; i<150; ++i) {
+        char name[32];
+        std::snprintf(name, sizeof(name), "power-boot%08u.csv", i);
+        files.emplace_back(name);
+    }
+    failRemove=true;
+    assert(!PowerHistory::append("prune failure\n", baseEpoch, true));
+    failRemove=false;
+    assert(files.size()==150 && openedPaths.size()==writes);
+    assert(PowerHistory::status().dropped==dropped+5);
+    puts("Power history: daily files, 150-file retention, CSV metrics, partial flush and dropped rows passed");
 }
 '''
 

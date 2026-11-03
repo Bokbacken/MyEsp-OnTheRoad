@@ -522,6 +522,11 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   Ägaren rapporterar (2026-11-01) att SD-loggningen är igång och att
   CSV-filerna ser bra ut; analys av en längre körning återstår.
   Se [mätfält och begränsningar](POWER_HISTORY.md).
+- [x] v0.24.3: ersätt power-loggens 16-filsring med UTC-dagsfiler,
+  bootfil vid osäker tid och gallring till högst 150 matchande loggfiler
+  när en ny fil skapas. Behåll CSV-schema och femminutersintervall.
+- [ ] Hårdvaruverifiera v0.24.3 på S3/P4: samma dagsfil efter omstart,
+  osäker tid → säker tid, UTC-midnatt och gallring av äldre loggar.
 - [ ] Hårdvarutesta v0.23.16:s valbara viloläge på S3/P4: Wi-Fi och
   I2S/förstärkare stoppas endast utan spel/överföring, touch återställer
   inställningar/nätverk och SD-historiken fortsätter. Jämför urladdning;
