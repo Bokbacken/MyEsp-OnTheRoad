@@ -18,6 +18,7 @@
 | Flash | 16 MB QSPI flash, N16 |
 | PSRAM | 8 MB OPI/octal PSRAM, R8 |
 | Display | 3.5-inch IPS TFT, native portrait 320 × 480 |
+| Active display area | Approximately 49.312 × 73.968 mm; about 154 µm pixel pitch / 165 PPI, **derived from owner-reported pixel pitch, not independently measured** |
 | Pixel format | RGB565, 65K colors |
 | Display/touch controller | Sitronix ST77922 TDDI |
 | Display interface | QSPI/quad SPI |

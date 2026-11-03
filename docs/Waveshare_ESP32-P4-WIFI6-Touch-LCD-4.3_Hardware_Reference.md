@@ -20,6 +20,7 @@
 | PSRAM | 32 MB PSRAM stacked in the chip package |
 | Internal memory | 128 KB HP ROM, 16 KB LP ROM, 768 KB HP L2MEM, 32 KB LP SRAM, 8 KB TCM |
 | Display | 4.3-inch IPS TFT, native portrait 480 × 800 |
+| Active display area | Approximately 56.208 × 93.680 mm; about 117 µm pixel pitch / 217 PPI, **derived from owner-reported pixel pitch, not independently measured** |
 | Pixel format | RGB (true-color); 500 cd/m², 1000:1 contrast, 160° viewing angle |
 | Display driver IC | Sitronix ST7701 |
 | Display interface | MIPI-DSI, 2-lane |

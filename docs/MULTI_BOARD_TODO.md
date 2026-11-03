@@ -118,6 +118,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 
 Fler kort ska kunna läggas till genom en ny profil, egna `board_*`-filer och
 en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
+Profilkonvention, fysisk skärmgeometri, fakta-/verifieringsstatus och
+tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
+[hardware profile model](HARDWARE_PROFILE_MODEL.md).
 
 ### Verifierade fakta om P4-kortet (2026-10-29)
 
@@ -599,8 +602,10 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
 
 1. Lägg till ett ID och en rad i `HwProfile::Info` (`main/hw_profile.h/.cpp`):
    namn, upplösning, periferikapacitet, flash/PSRAM, SoundFont-reserv och
-   resamplingsstandard. Applikationskod ska fråga profilen om kapacitet i stället
-   för att sprida kortvillkor.
+   resamplingsstandard. Ange även aktiv fysisk displayyta i µm (eller noll om
+   okänd) när källa/mätning finns. Härled pixelpitch/PPI ur upplösning och yta;
+   duplicera inte härledda värden. Applikationskod ska fråga profilen om
+   kapacitet i stället för att sprida kortvillkor.
 2. Lägg kortets GPIO- och busskarta i `main/board_pins_<id>.h`, välj den via
    `main/board_pins.h` och håll kortdrivrutinerna bakom de gemensamma
    `board_*.h`-API:erna.
@@ -617,6 +622,34 @@ en sdkconfig-overlay, utan ändringar i spel/UI-logiken.
    `boards/<id>/board.h` och generera/validera profil- och konfigurationsdelarna
    från den filen. Flytta inte byggval till generering innan CI kan bevisa att
    genererade filer motsvarar targeten.
+7. För varje fysiskt kort, uppdatera en separat läsbar hardware reference med
+   revision, skärm/touch, knappar och icke-GPIO-kontroller, ljudkedja, ström,
+   batteri, radio, lagring och kontakter. Märk källa och status för varje
+   icke-trivialt värde. Lägg inte till `ButtonInfo` eller andra generella
+   komponentlistor i C++ förrän gemensam firmwarelogik behöver dem.
+
+### Etablerad modell och första fysiska UI-mått
+
+- [x] Fortsätt med den typade C++ `HwProfile::Info` som enda byggtidskälla;
+  behåll en mänskligt läsbar hårdvarureferens per kort. Se
+  [`docs/HARDWARE_PROFILE_MODEL.md`](HARDWARE_PROFILE_MODEL.md) för gränser,
+  utökningsregler och jämförelse med Device Tree/TOML/BSP.
+- [x] Lägg till uppskattad aktiv displayyta i µm för S3/P4 och härled
+  pixelpitch samt horisontell/vertikal PPI; värdena är ägarens pitchuppgifter,
+  inte oberoende panelmätningar.
+- [x] Lägg till hostassertioner för båda profilernas pixelpitch/PPI och
+  ungefärlig fysisk storlek på 24 px S3 respektive 32 px P4.
+- [x] S3/P4-firmware och hosttester gröna i PR #53, Actions-körning
+  41641170780; artefakter byggda som v0.24.2.
+- [ ] Verifiera aktiva displaymått mot datablad eller noggrann fysisk mätning
+  innan fysisk UI-skalning. Ännu inga `ButtonInfo`/`AudioInfo` structs:
+  nuvarande pinnamn och referenser räcker tills gemensam kod konsumerar
+  semantik som BOOT, RESET, POWER eller skillnader i ljudkedjan.
+- [ ] Vid framtida home-assistant HMI eller annat repo: ta med dokumentets
+  hårdvaruinventering, faktakällor, osäkerhetsstatus, fysisk storlek kontra
+  upplösning, kontroll- och power-path samt profiltestmatris. Återanvänd
+  konceptet och gränserna, inte projektspecifika GPIO-värden eller
+  ESP-IDF-profiler.
 
 **Rekommendation – hybridgränser:** härled tillgänglig budget från faktiskt
 ledigt/största PSRAM-block och flashpartitionernas storlek vid körning. Profilen

@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.2 (unreleased)
+
+- Record estimated active panel dimensions in the typed hardware profile and
+  derive pixel pitch and axis PPI from the profile's logical resolution.
+  Values are based on owner-reported pixel pitch, not independent
+  measurements; the UI still scales from logical resolution.
+- Document the reusable profile/evidence convention, physical display metrics,
+  button/audio modeling thresholds and future cross-project hardware inventory.
+
 ## v0.24.1 (unreleased)
 
 - Center the web Karaoke connection button beneath the lyric panel and let
