@@ -134,6 +134,8 @@ jobs:
           python3 tests/test_nvs_backup.py
           node tests/test_nvs_web.js
           node tests/test_karaoke_web.js
+          node tests/test_karaoke_picker.js
+          python3 tests/test_karaoke_settings.py
           python3 tests/test_karaoke_book.py
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py

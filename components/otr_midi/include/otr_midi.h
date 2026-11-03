@@ -116,6 +116,7 @@ struct RegEntry {
 
 struct SongKey {
     uint32_t crc = 0, size = 0;
+    std::string path;   // Relative path hint for the web picker; identity remains CRC + size.
 };
 
 struct Playlist {
@@ -135,7 +136,9 @@ public:
     uint16_t createPlaylist(const char *name);
     bool renamePlaylist(uint16_t id, const char *name);
     bool deletePlaylist(uint16_t id);
-    bool setPlaylistSong(uint16_t id, uint32_t crc, uint32_t size, bool included);
+    bool setPlaylistSong(uint16_t id, uint32_t crc, uint32_t size, bool included, const char *path = "");
+    bool movePlaylistSong(uint16_t id, uint32_t crc, uint32_t size, int direction);
+    void rememberSongPath(uint32_t crc, uint32_t size, const char *path);
     bool hasPlaylistSong(uint16_t id, uint32_t crc, uint32_t size) const;
     bool setFavorite(uint16_t playerId, uint32_t crc, uint32_t size, bool favorite);
     bool isFavorite(uint16_t playerId, uint32_t crc, uint32_t size) const;

@@ -345,6 +345,35 @@ static void testPlaylistsAndFavorites()
     CHECK(restored.setPlaylistSong(playlist, 0x1234, 321, false));
     CHECK(!restored.hasPlaylistSong(playlist, 0x1234, 321));
     CHECK(restored.deletePlaylist(playlist) && !restored.deletePlaylist(playlist));
+    const uint16_t ordered = restored.createPlaylist("Ordered");
+    CHECK(restored.setPlaylistSong(ordered, 1, 10, true, "Pop/Artist_A song %.kar"));
+    CHECK(restored.setPlaylistSong(ordered, 2, 20, true, "Rock/Other song.kar"));
+    CHECK(restored.movePlaylistSong(ordered, 2, 20, -1));
+    CHECK(!restored.movePlaylistSong(ordered, 2, 20, -1));
+    Registry paths;
+    paths.load(restored.save());
+    CHECK(paths.playlists()[0].songs[0].crc == 2);
+    CHECK(paths.playlists()[0].songs[1].path == "Pop/Artist_A song %.kar");
+    paths.rememberSongPath(1, 10, "Moved/A song.kar");
+    CHECK(paths.playlists()[0].songs[1].path == "Moved/A song.kar");
+    CHECK(paths.setPlaylistSong(ordered, 1, 10, true, "Another.kar"));
+    CHECK(paths.playlists()[0].songs.size() == 2);
+    CHECK(paths.playlists()[0].songs[1].path == "Another.kar");
+    CHECK(paths.movePlaylistSong(ordered, 2, 20, 1));
+    CHECK(!paths.movePlaylistSong(ordered, 2, 20, 2));
+    CHECK(!paths.setPlaylistSong(ordered, 3, 30, true, "bad\npath.kar"));
+    Registry legacyLists;
+    legacyLists.load("#playlist 1 Old\n#playlist-song 1 00000001 10\n");
+    CHECK(legacyLists.hasPlaylistSong(1, 1, 10) && legacyLists.playlists()[0].songs[0].path.empty());
+    Registry bounded;
+    for (unsigned i = 0; i < 32; i++) {
+        char name[16]; snprintf(name, sizeof(name), "List %u", i);
+        CHECK(bounded.createPlaylist(name) != 0);
+    }
+    CHECK(bounded.createPlaylist("Over limit") == 0);
+    for (unsigned i = 0; i < 500; i++) CHECK(bounded.setPlaylistSong(1, i, 1, true, "Song.kar"));
+    CHECK(!bounded.setPlaylistSong(1, 501, 1, true, "Song.kar"));
+    CHECK(bounded.setPlaylistSong(1, 0, 1, true, "Renamed.kar"));
 }
 
 static void testPlayer()

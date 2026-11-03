@@ -8,6 +8,25 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.7 (unreleased)
+
+- Web song picker: create, rename and delete playlists; add/remove songs and
+  change their order. Songs are started individually, not automatically queued.
+  Choose and explicitly save a SoundFont per song without changing the global bank.
+- Song tempo, key, melody channel/mute, MIDI gain and SoundFont are now previews:
+  save/revert from the device song menu, or decide when leaving/changing songs.
+  The web picker also exposes Save/Discard for the open song. Hardware master
+  volume remains global and is still saved immediately.
+- Registry writes are serialized and installed atomically; failed writes keep the
+  previous saved state and leave the draft available for retry. Existing entries,
+  playlists and favorites remain readable; optional playlist paths help the web
+  picker resolve songs without hashing the entire library.
+- Letter jumps reuse the current browser view instead of allocating another full
+  song-index vector and rebuilding it. Log lines identify the selected sort key,
+  entry and page. Host coverage includes 1,521 songs, visible targets, S3/P4,
+  both landscape rotations and SV/EN. The owner's S3 failure was not reproduced
+  on the host; physical retesting is still required.
+
 ## v0.24.6 (unreleased)
 
 - Keep the host's thrown dice rotating and changing faces while waiting for

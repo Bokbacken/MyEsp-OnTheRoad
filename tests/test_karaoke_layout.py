@@ -117,8 +117,8 @@ Err fontError() { return Err::NO_MEMORY; }
 const char *fontName() { return Config::get().karaFont; }
 const char *defaultFont() { return Config::get().karaFont; }
 @SET_DEFAULT_FONT@
-const char *songFont() { return ""; }
-void setSongFont(const char *) { assert(false && "No player bank control"); }
+const char *songFont() { return BankChoice::s_songSf2.c_str(); }
+void setSongFont(const char *name) { BankChoice::s_songSf2 = name; }
 bool fontWanted() { return false; }
 void ensureFont(bool) { ++ensures; }
 void startLoadFont() { ++ensures; }
@@ -143,6 +143,11 @@ bool melodyMuted() { return muted; }
 void setMelodyMuted(bool b) { muted = b; }
 uint8_t songVolume() { return (uint8_t)vol; }
 void setSongVolume(uint8_t v) { vol = v; }
+static bool dirty;
+static int songSaves, songDiscards;
+bool songSettingsDirty() { return dirty; }
+Err saveSongSettings() { ++songSaves; dirty = false; return Err::OK; }
+Err discardSongSettings() { ++songDiscards; dirty = false; return Err::OK; }
 void setVoiceLimit(uint8_t v) { Config::get().karaVoices = v; }
 bool takeTransposeRejected() { bool r = rejectTranspose; rejectTranspose = false; return r; }
 bool takeOverloadStopped() { return false; }
@@ -432,7 +437,7 @@ static void checkPlayer() {
     click(button(P.scr, LV_SYMBOL_LIST));
     auto *body = sheetBody();
     assert(hit(P.playBtn) != P.playBtn);
-    assert(hit(button(P.scr, LV_SYMBOL_LIST)) == s_sheet); // Backdrop blocks header taps too
+    assert(hit(button(P.scr, LV_SYMBOL_LIST)) != button(P.scr, LV_SYMBOL_LIST));
     for (unsigned i=0; i<lv_obj_get_child_count(body); ++i) fitsText(lv_obj_get_child(body, i));
     const bool muted = Karaoke::melodyMuted();
     click(button(s_sheet, tr(muted ? Str::KARA_MELODY_OFF : Str::KARA_MELODY_ON)));
@@ -519,6 +524,39 @@ static void checkPlainSheet() {
     Karaoke::plain.clear();
     showPlayer(); settle();
 }
+static void checkSongDecisions() {
+    Karaoke::dirty = true;
+    const int closes = Karaoke::closes, saves = Karaoke::songSaves;
+    click(button(P.scr, LV_SYMBOL_LEFT));
+    auto *save = button(lv_layer_top(), tr(Str::BTN_SAVE));
+    assert(save && Karaoke::isOpen() && Karaoke::closes == closes);
+    auto *dialog = lv_obj_get_parent(lv_obj_get_parent(save));
+    inside(dialog, lv_layer_top());
+    click(lv_obj_get_child(lv_msgbox_get_header(dialog), -1)); // Cancel keeps the song and draft.
+    assert(Karaoke::isOpen() && Karaoke::dirty && Karaoke::songSaves == saves);
+    click(button(P.scr, LV_SYMBOL_LEFT));
+    click(button(lv_layer_top(), tr(Str::BTN_SAVE)));
+    assert(!Karaoke::isOpen() && !Karaoke::dirty && Karaoke::songSaves == saves + 1);
+    openEntry(s_firstSong); settle();
+    Karaoke::dirty = true;
+    click(button(P.scr, LV_SYMBOL_LEFT));
+    click(button(lv_layer_top(), tr(Str::KARA_DISCARD)));
+    assert(!Karaoke::isOpen() && Karaoke::songSaves == saves + 1);
+    Karaoke::dirty = false;
+    openEntry(s_firstSong); settle();
+    click(button(P.scr, LV_SYMBOL_LIST));
+    click(button(s_sheet, tr(Str::KARA_SAVE_SONG)));
+    assert(!s_sheet && Karaoke::songSaves == saves + 2);
+    const std::string defaultBank = Karaoke::defaultFont();
+    click(button(P.scr, LV_SYMBOL_LIST));
+    click(button(s_sheet, tr(Str::KARA_FONT_SONG)));
+    auto *body = sheetBody();
+    auto *fonts = lv_obj_get_child(body, -1);
+    click(lv_obj_get_child(fonts, 1));
+    assert(!s_sheet && std::string(Karaoke::songFont()).find("Åäö") != std::string::npos);
+    assert(defaultBank == Karaoke::defaultFont() && Karaoke::songSaves == saves + 2);
+    Karaoke::setSongFont("");
+}
 int main(int argc, char **) {
     lv_init();
     Theme::setBatteryIndicatorReader(sampleBatteryIndicator);
@@ -541,6 +579,34 @@ int main(int argc, char **) {
             lv_display_set_resolution(display, size.x, size.y);
             Lang::setLang(language);
             Config::get().soundOn = true; Config::get().karaFlip = flip;
+            Karaoke::library.clear();
+            for (int i = 0; i < 1521; ++i) {
+                char path[80], artist[40];
+                snprintf(artist, sizeof(artist), "%c Artist %04d", 'A' + i % 26, i);
+                snprintf(path, sizeof(path), "Collection/%s_Title.kar", artist);
+                assert(Karaoke::library.add(path, "Title", artist, 100));
+            }
+            Karaoke::library.sort();
+            Karaoke::opened = false;
+            s_mode = ListMode::ROOT; s_dir.clear(); s_page = 0;
+            UiKaraoke::show(); settle();
+            openEntry(0); settle(); // All songs, with folders above the song entries.
+            assert(s_entries.size() - s_firstSong == 1521);
+            for (int index : {5, 1, 8, 3, 0, 11}) {
+                auto *keyButton = lv_obj_get_child(s_jumpCol, index);
+                lv_obj_scroll_to_view(keyButton, LV_ANIM_OFF); settle();
+                assert(hit(keyButton) == keyButton);
+                click(keyButton);
+                size_t expected = s_firstSong;
+                while (expected + 1 < s_entries.size() &&
+                       Karaoke::library.rank(s_entries[expected].idx) < JUMP[index].rank) ++expected;
+                assert(s_page == expected / PAGE);
+                auto *target = lv_obj_get_child(s_list, 1 + (int)(expected % PAGE));
+                assert(lv_obj_has_class(target, &lv_button_class));
+                inside(target, s_list);
+                assert(lv_obj_get_child_count(s_list) <= PAGE + 2);
+            }
+            goUp(); // Return to root before replacing the library.
             Karaoke::library.clear();
             for (int i = 0; i < 90; ++i) {
                 char path[80]; snprintf(path,sizeof(path),"Test %03d.kar",i);
@@ -590,6 +656,7 @@ int main(int argc, char **) {
             openEntry(s_firstSong); settle();
             assert(Karaoke::usedBank == Karaoke::defaultFont());
             checkPlayer();
+            checkSongDecisions();
             checkPlainSheet();
             assert(s_entries.capacity() == 0); // Old list screen and its UI-only view are gone
             click(button(P.scr,LV_SYMBOL_LEFT)); assert(!Karaoke::isOpen());

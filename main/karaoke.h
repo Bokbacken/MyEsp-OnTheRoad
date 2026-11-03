@@ -25,7 +25,7 @@ enum class Err : uint8_t {
     OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED,
     SONG_TOO_BIG,  // v0.13.2: the song needs more sample data than fits, even with one velocity layer
     BUSY,          // v0.13.7: a sound bank is loading (web openByPath), try again shortly
-    LYRICS_BAD, LYRICS_TOO_BIG
+    LYRICS_BAD, LYRICS_TOO_BIG, SAVE_FAILED, UNSAVED, BAD_INPUT
 };
 
 struct SongFile {
@@ -89,7 +89,7 @@ const char *defaultFont();      // Config::karaFont ("" = automatic)
 void setDefaultFont(const char *name);   // Saved in NVS; "" = automatic
 void setVoiceLimit(uint8_t voices);      // Saved globally; applies immediately
 const char *songFont();         // Per-song font of the open song ("" = use the default)
-void setSongFont(const char *name);      // Saved in the register; "" = use the default
+void setSongFont(const char *name);      // Preview; "" = use the default. Save explicitly below.
 void unloadFont();              // Frees the PSRAM (leaving the karaoke menu)
 int loadPct();                  // Progress of the running load (0..100)
 struct FontInfo {
@@ -120,9 +120,9 @@ void play(bool on);
 bool playing();
 void restart();
 void seekRel(int ms);
-void setTempo(int pct);         // 50..150, saved in the register
+void setTempo(int pct);         // 50..150, preview until saveSongSettings()
 int tempo();
-// -12..12, saved in the register. With a selectively loaded bank the song's samples are loaded
+// -12..12, preview until saveSongSettings(). With a selectively loaded bank the song's samples are loaded
 // again for the new keys (state LOADING, then the song continues); if they do not fit, the
 // previous transpose stays and takeTransposeRejected() returns true once.
 void setTranspose(int semis);
@@ -131,13 +131,29 @@ bool takeTransposeRejected();
 // Playback was stopped because the SoundFont/voice count was too heavy for this hardware
 // (see kara_overload.h); returns true once.
 bool takeOverloadStopped();
-void setMelody(int ch);         // -1..15, saved in the register (overrides the detection)
+void setMelody(int ch);         // -1..15, preview (overrides the detection)
 int melody();
 bool melodyFromRegister();      // Current melody came from the register (user choice)
 void setMelodyMuted(bool m);    // Sing the melody yourself
 bool melodyMuted();
 uint8_t songVolume();         // Per-song MIDI gain (0..200); 100 is unity.
 void setSongVolume(uint8_t v);
+
+bool songSettingsDirty();
+Err saveSongSettings();
+Err discardSongSettings();
+// Registry operations serialize atomic SD writes without holding the audio mixer mutex.
+struct PlaylistView {
+    uint16_t id;
+    std::string name;
+    size_t count;
+    std::vector<Midi::SongKey> songs;
+};
+Err playlists(std::vector<PlaylistView> &out, uint16_t detailId = 0, size_t offset = 0);
+Err editPlaylist(const char *action, uint16_t &id, const char *name,
+                 const char *path, uint32_t crc, uint32_t size);
+Err songFontByPath(const char *path, std::string &font);
+Err saveSongFontByPath(const char *path, const char *font);
 
 // v0.13.6: countdown dots in pauses >= COUNTDOWN_GAP_MS (max COUNTDOWN_MAX dots), see
 // KaraStream::countdownAt - shared by the device screen and the web stream
