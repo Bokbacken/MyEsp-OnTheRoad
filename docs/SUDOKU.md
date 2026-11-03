@@ -45,7 +45,9 @@ back icon is in the game header; its title alternates between Sudoku and the
 current difficulty, puzzle number and time. The animated home icon is a
 miniature grid where a pencil note becomes a digit and other digits appear. It
 follows the existing Administration animation setting.
-Hardware touch/appearance checks on both boards remain pending.
+The owner reports that Sudoku works well (2026-11-03). The report does not
+identify individual boards or test scenarios; separate S3/P4 touch, restart
+and SD-file checks remain open in the multi-board checklist.
 
 ## Model
 

@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.1 (unreleased)
+
+- Center the web Karaoke connection button beneath the lyric panel and let
+  the song picker use the same responsive content width as the other pages.
+  Mobile padding now shares the header gutter, avoiding horizontal overflow.
+- Reuse the last known device name within the browser tab before painting
+  page headers and titles. Live status still refreshes the name; failed
+  requests show a connection warning rather than leaving the brand hidden.
+- The owner reports that Sudoku works well (2026-11-03); specific board and
+  restart/SD scenarios were not identified, so those checks remain open.
+
 ## v0.24.0 (unreleased)
 
 - Native Sudoku under Pastimes, with digit-first entry, positional pencil

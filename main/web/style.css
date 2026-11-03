@@ -66,6 +66,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .otr-project { font-size: 1.1rem; font-weight: 700; letter-spacing: .02em; line-height: 1.1; overflow-wrap: anywhere; min-width: 0; }
 .otr-project small { display: block; color: var(--otr-muted); font-size: .8rem; font-weight: 500; letter-spacing: .02em; }
+.otr-name-pending .otr-project { visibility: hidden; }
 .otr-wifi {
   margin-left: auto;
   display: inline-flex; align-items: center; gap: .45rem;
@@ -313,7 +314,7 @@ button.bank-btn:disabled, button.end-btn:disabled { cursor: not-allowed; filter:
 .score td.scc-live { color: var(--otr-gold, #ffd45c); font-style: italic; }
 
 @media (max-width: 700px) {
-  body { padding: .6rem .6rem 2rem; font-size: 15px; }
+  body { padding: .6rem var(--otr-page-gutter) 2rem; font-size: 15px; }
   .otr-project { font-size: 1rem; }
   .otr-wifi { font-size: .75rem; }
   nav.otr-nav { gap: .2rem; }

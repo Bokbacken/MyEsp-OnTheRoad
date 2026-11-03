@@ -6,7 +6,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>OnTheRoad – Karaoke</title>
 <link rel="stylesheet" href="/style.css">
-<script src="/device-name.js" defer></script>
+<script src="/device-name.js"></script>
 <style>
 body { max-width: none; }
 .top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
@@ -26,7 +26,7 @@ body { max-width: none; }
 #cd span { width: .85rem; height: .85rem; border-radius: 50%; background: #fff;
   transition: background-color .35s ease, transform .35s ease; }
 #cd span.lit { background: var(--otr-orange); transform: scale(1.15); }
-#go { width: 100%; font-size: 1.3rem; padding: .9rem; background: var(--otr-orange); color: var(--otr-navy); }
+#go { display: block; width: 100%; font-size: 1.3rem; padding: .9rem; background: var(--otr-orange); color: var(--otr-navy); }
 #go.off { background: var(--otr-teal); }
 .hint { color: var(--otr-muted); font-size: .85rem; }
 </style>
