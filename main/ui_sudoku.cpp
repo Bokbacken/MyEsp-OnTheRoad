@@ -666,7 +666,7 @@ void play()
     const int margin = 4, gap = 3;
     const bool landscape = w > h;
     const int top = UiMetrics::titleH() + 4;
-    const int buttonH = landscape ? 42 : (h <= 500 ? 32 : 40);
+    const int buttonH = landscape ? 42 : (h <= 500 ? 30 : 40);
     const int controlsH = 3 * buttonH + 2 * gap;
     int side = landscape ? h - top - 8 : h - top - controlsH - gap - margin;
     if (!landscape && side > w - 2 * margin) side = w - 2 * margin;
