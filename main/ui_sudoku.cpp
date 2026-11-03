@@ -184,7 +184,7 @@ void scanSdIfNeeded()
     if (s_sdScanReady.load(std::memory_order_acquire) ||
         s_sdScanRunning.exchange(true, std::memory_order_acq_rel)) return;
     s_sdScanNoticePending = SudokuSd::needsScanNotice();
-    if (xTaskCreate(scanTask, "sudoku_sd", 4096, nullptr, 1, nullptr) != pdPASS) {
+    if (xTaskCreate(scanTask, "sudoku_sd", 8192, nullptr, 1, nullptr) != pdPASS) {
         s_sdScanRunning.store(false, std::memory_order_release);
         s_sdScanReady.store(true, std::memory_order_release);
         s_sdScanNoticePending = false;
