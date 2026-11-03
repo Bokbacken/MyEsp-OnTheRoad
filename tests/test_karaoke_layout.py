@@ -307,13 +307,13 @@ static void checkDrawnVolumeKnob() {
             layer.color_format = LV_COLOR_FORMAT_RGB565;
             lv_obj_send_event(P.midiVolumeSlider, LV_EVENT_DRAW_MAIN, &layer);
             lv_draw_layer_deinit(&layer);
-            if (lv_area_get_width(&drawn) != KaraokeLayout::VOLUME_KNOB_WIDTH ||
+            if (lv_area_get_width(&drawn) != KaraokeLayout::volumeKnobWidth(UiMetrics::screenW()) ||
                 lv_area_get_height(&drawn) != KaraokeLayout::VOLUME_KNOB_HEIGHT)
                 fprintf(stderr, "drawn volume knob at %d pressed=%d: %dx%d\n", value, pressed,
                         int(lv_area_get_width(&drawn)), int(lv_area_get_height(&drawn)));
-            assert(lv_area_get_width(&drawn) == KaraokeLayout::VOLUME_KNOB_WIDTH);
+            assert(lv_area_get_width(&drawn) == KaraokeLayout::volumeKnobWidth(UiMetrics::screenW()));
             assert(lv_area_get_height(&drawn) == KaraokeLayout::VOLUME_KNOB_HEIGHT);
-            assert(lv_area_get_width(&drawn) > 2 * lv_area_get_height(&drawn));
+            assert(lv_area_get_width(&drawn) > lv_area_get_height(&drawn));
         }
     }
     lv_obj_remove_state(P.midiVolumeSlider, LV_STATE_PRESSED);
@@ -362,11 +362,12 @@ static void checkPlayer() {
     }
     for (auto *rail : {P.midiVolumeSlider, P.masterVolumeSlider}) {
         inside(rail, P.scr);
-        assert(lv_obj_get_width(rail) == KaraokeLayout::VOLUME_TRACK_WIDTH &&
+        assert(lv_obj_get_width(rail) == KaraokeLayout::volumeTrackWidth(l.w) &&
                lv_obj_get_height(rail) >= 100);
         lv_area_t clickArea;
         lv_obj_get_click_area(rail, &clickArea);
-        assert(lv_area_get_width(&clickArea) >= l.volumeW && l.volumeW >= 68);
+        assert(lv_area_get_width(&clickArea) >= l.volumeW);
+        assert(l.volumeW >= (l.w <= 480 ? 45 : 68));
     }
     inside(P.midiVolumeValue, P.scr); inside(P.masterVolumeValue, P.scr);
     inside(P.midiVolumeTrack, P.scr); inside(P.masterVolumeTrack, P.scr);

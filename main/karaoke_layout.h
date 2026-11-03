@@ -8,6 +8,16 @@ constexpr int32_t VOLUME_KNOB_WIDTH = 30;
 constexpr int32_t VOLUME_KNOB_HEIGHT = 14;
 constexpr int32_t VOLUME_TRACK_WIDTH = 12;
 
+constexpr int32_t volumeKnobWidth(int32_t screenWidth)
+{
+    return screenWidth <= 480 ? VOLUME_KNOB_WIDTH * 2 / 3 : VOLUME_KNOB_WIDTH;
+}
+
+constexpr int32_t volumeTrackWidth(int32_t screenWidth)
+{
+    return screenWidth <= 480 ? VOLUME_TRACK_WIDTH * 2 / 3 : VOLUME_TRACK_WIDTH;
+}
+
 constexpr int32_t visibleLyricLines(int32_t screenWidth, int32_t availableHeight, int32_t lineHeight,
                                     int32_t gap)
 {
@@ -27,14 +37,17 @@ constexpr VolumeRail volumeRail(int32_t screenWidth, int32_t inset, int32_t gap,
                                 int32_t infoY, int32_t bottomY, int32_t lineHeight, int32_t minTouchWidth,
                                 int32_t timeWidth)
 {
-    const int32_t touchWidth = minTouchWidth > 68 ? minTouchWidth : 68;
+    const bool compact = screenWidth <= 480;
+    const int32_t normalWidth = minTouchWidth > 68 ? minTouchWidth : 68;
+    const int32_t touchWidth = compact ? normalWidth * 2 / 3 : normalWidth;
+    const int32_t edge = compact ? 0 : inset;
     const int32_t labelY = infoY + lineHeight + gap;
     const int32_t sliderY = labelY + lineHeight + (gap > VOLUME_KNOB_HEIGHT / 2 ? gap : VOLUME_KNOB_HEIGHT / 2);
-    const int32_t lyricsX = inset + touchWidth + gap;
-    const int32_t masterX = screenWidth - inset - touchWidth;
+    const int32_t lyricsX = edge + touchWidth + gap;
+    const int32_t masterX = screenWidth - edge - touchWidth;
     const int32_t timeX = masterX - timeWidth - gap;
     return {
-        inset,
+        edge,
         masterX,
         touchWidth,
         labelY,

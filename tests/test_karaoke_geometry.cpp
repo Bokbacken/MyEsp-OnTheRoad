@@ -12,9 +12,14 @@ static void check(int32_t screenWidth, int32_t screenHeight, int32_t inset, int3
     const int32_t lyricsRight = rail.lyricsX + rail.lyricsWidth;
     const int32_t seekRight = rail.lyricsX + rail.seekWidth;
 
-    assert(rail.width >= 68 && rail.height > 100);
+    assert(rail.width == (screenWidth <= 480 ? 45 : 78));
+    assert(rail.height > 100);
     assert(KaraokeLayout::VOLUME_KNOB_WIDTH > KaraokeLayout::VOLUME_KNOB_HEIGHT);
-    assert(rail.midiX == inset);
+    assert(rail.midiX == (screenWidth <= 480 ? 0 : inset));
+    assert(rail.masterX + rail.width == screenWidth - rail.midiX);
+    assert(rail.lyricsWidth == (screenWidth <= 480 ? 382 : 608));
+    assert(rail.sliderY == (screenWidth <= 480 ? 87 : 99));
+    assert(rail.height == (screenWidth <= 480 ? 161 : 294));
     assert(rail.midiX + rail.width + gap <= rail.lyricsX);
     assert(lyricsRight + gap <= rail.masterX);
     assert(seekRight <= rail.timeX);
