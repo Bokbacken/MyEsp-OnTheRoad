@@ -1222,7 +1222,7 @@ void drawMelodyIcon(lv_event_t *event)
     lv_layer_t *layer = lv_event_get_layer(event);
     lv_area_t bounds;
     lv_obj_get_coords(button, &bounds);
-    const int size = std::min({36, lv_area_get_width(&bounds) - 8, lv_area_get_height(&bounds) - 8});
+    const int32_t size = std::min<int32_t>({36, lv_area_get_width(&bounds) - 8, lv_area_get_height(&bounds) - 8});
     const int x = bounds.x1 + (lv_area_get_width(&bounds) - size) / 2;
     const int y = bounds.y1 + (lv_area_get_height(&bounds) - size) / 2;
     const auto point = [=](int px, int py) {
