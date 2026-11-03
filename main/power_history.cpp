@@ -2,10 +2,12 @@
 #include "power_interval.h"
 #include "power_io.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "app_config.h"
 #include "adv_live.h"
@@ -31,8 +33,8 @@
 
 namespace PowerHistory {
 namespace {
-constexpr unsigned FILE_COUNT = 16;
-constexpr size_t MAX_BYTES = 1024 * 1024;
+constexpr unsigned MAX_FILES = 150;
+constexpr const char *POWER_DIR = "/sdcard/otr/power";
 constexpr const char *HEADER =
     "schema,board,firmware,boot,reset,epoch,time_source,certain,uptime_ms,interval_ms,"
     "battery_mv_min,battery_mv_avg,battery_mv_max,battery_samples,battery_scale,"
@@ -52,33 +54,152 @@ void publish(bool ok, const char *path)
     portEXIT_CRITICAL(&s_mux);
 }
 
-bool append(const char *row, unsigned &slot, bool &fresh)
+bool isPowerFile(const char *name)
+{
+    constexpr char prefix[] = "power-";
+    constexpr char suffix[] = ".csv";
+    const size_t nameLen = strlen(name), prefixLen = sizeof(prefix) - 1, suffixLen = sizeof(suffix) - 1;
+    if (nameLen <= prefixLen + suffixLen || strncmp(name, prefix, prefixLen) != 0 ||
+        strcmp(name + nameLen - suffixLen, suffix) != 0)
+        return false;
+
+    const size_t stemLen = nameLen - prefixLen - suffixLen;
+    const char *stem = name + prefixLen;
+    if (stemLen == 2 || stemLen == 8) {
+        for (size_t i = 0; i < stemLen; ++i)
+            if (stem[i] < '0' || stem[i] > '9') return false;
+        return true;
+    }
+    if (stemLen >= 12 && strncmp(stem, "boot", 4) == 0) {
+        for (size_t i = 4; i < stemLen; ++i)
+            if (stem[i] < '0' || stem[i] > '9') return false;
+        return true;
+    }
+    return false;
+}
+
+bool oldestPowerFile(char *path, size_t pathSize, unsigned &count, bool &found)
+{
+    DIR *dir = opendir(POWER_DIR);
+    if (!dir) {
+        ESP_LOGE("power", "cannot list %s: errno=%d", POWER_DIR, errno);
+        return false;
+    }
+
+    found = false;
+    time_t oldest = 0;
+    count = 0;
+    for (;;) {
+        errno = 0;
+        const struct dirent *entry = readdir(dir);
+        if (!entry) {
+            const int error = errno;
+            const int closeResult = closedir(dir);
+            if (error || closeResult != 0) {
+                ESP_LOGE("power", "cannot finish listing %s: errno=%d", POWER_DIR, error ? error : errno);
+                return false;
+            }
+            return true;
+        }
+        if (!isPowerFile(entry->d_name)) continue;
+        char candidate[128];
+        const int n = snprintf(candidate, sizeof(candidate), "%s/%s", POWER_DIR, entry->d_name);
+        if (n <= 0 || n >= (int)sizeof(candidate)) {
+            closedir(dir);
+            ESP_LOGE("power", "history path is too long");
+            return false;
+        }
+
+        struct stat st{};
+        if (stat(candidate, &st) != 0) {
+            const int error = errno;
+            closedir(dir);
+            ESP_LOGE("power", "cannot stat %s: errno=%d", candidate, error);
+            return false;
+        }
+        if (!S_ISREG(st.st_mode)) continue;
+        ++count;
+        if (!found || st.st_mtime < oldest) {
+            if (strlen(candidate) >= pathSize) {
+                closedir(dir);
+                ESP_LOGE("power", "history path buffer is too small");
+                return false;
+            }
+            snprintf(path, pathSize, "%s", candidate);
+            oldest = st.st_mtime;
+            found = true;
+        }
+    }
+}
+
+bool makePath(char *path, size_t pathSize, int64_t epoch, bool certain)
+{
+    if (certain && epoch > 0) {
+        const time_t timestamp = static_cast<time_t>(epoch);
+        struct tm utc{};
+        if (gmtime_r(&timestamp, &utc) && utc.tm_year >= 120) {
+            const int n = snprintf(path, pathSize, "%s/power-%04d%02d%02d.csv", POWER_DIR,
+                                   utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday);
+            if (n > 0 && n < (int)pathSize) return true;
+        }
+    }
+    const int n = snprintf(path, pathSize, "%s/power-boot%08lu.csv", POWER_DIR,
+                           (unsigned long)MyDiag::bootCount());
+    return n > 0 && n < (int)pathSize;
+}
+
+bool makeRoomForFile(const char *path, bool &hasHeader)
+{
+    struct stat target{};
+    if (stat(path, &target) == 0) {
+        if (!S_ISREG(target.st_mode)) {
+            ESP_LOGE("power", "history path is not a regular file: %s", path);
+            return false;
+        }
+        hasHeader = target.st_size > 0;
+        return true;
+    }
+    if (errno != ENOENT) {
+        ESP_LOGE("power", "cannot stat %s: errno=%d", path, errno);
+        return false;
+    }
+    hasHeader = false;
+
+    unsigned count = 0;
+    bool found = false;
+    char oldest[128];
+    if (!oldestPowerFile(oldest, sizeof(oldest), count, found)) return false;
+    while (count >= MAX_FILES) {
+        if (!found) {
+            ESP_LOGE("power", "history retention count is inconsistent");
+            return false;
+        }
+        if (remove(oldest) != 0) {
+            ESP_LOGE("power", "cannot remove old history %s: errno=%d", oldest, errno);
+            return false;
+        }
+        if (!oldestPowerFile(oldest, sizeof(oldest), count, found)) return false;
+    }
+    return true;
+}
+
+bool append(const char *row, int64_t epoch, bool certain)
 {
     char path[64];
-    snprintf(path, sizeof(path), "/sdcard/otr/power/power-%02u.csv", slot);
+    if (!makePath(path, sizeof(path), epoch, certain)) {
+        publish(false, "");
+        ESP_LOGE("power", "cannot create history filename from the current time");
+        return false;
+    }
     bool ok = false;
     {
         BoardSd::Guard lock;
-        if (BoardSd::transferHealthy() && BoardSd::ensureDir("/sdcard/otr/power")) {
-            struct stat st{};
-            if (!fresh && stat(path, &st) != 0) {
-                if (errno == ENOENT) fresh = true;
-                else {
-                    ESP_LOGE("power", "cannot stat %s: errno=%d", path, errno);
-                    publish(false, path);
-                    return false;
-                }
-            }
-            if (!fresh && st.st_size + strlen(row) >= MAX_BYTES) {
-                slot = (slot + 1) % FILE_COUNT;
-                snprintf(path, sizeof(path), "/sdcard/otr/power/power-%02u.csv", slot);
-                fresh = true;
-            }
-            FILE *f = fopen(path, fresh ? "w" : "a");
+        bool hasHeader = false;
+        if (BoardSd::transferHealthy() && BoardSd::ensureDir(POWER_DIR) && makeRoomForFile(path, hasHeader)) {
+            FILE *f = fopen(path, "a");
             if (f) {
-                ok = (!fresh || fputs(HEADER, f) >= 0) && fputs(row, f) >= 0;
+                ok = (hasHeader || fputs(HEADER, f) >= 0) && fputs(row, f) >= 0;
                 if (fclose(f) != 0) ok = false;
-                if (ok) fresh = false;
             }
         }
     }
@@ -94,8 +215,7 @@ void task(void *)
     uint32_t previousErrors = BoardSd::info().errors, previousUnderruns = Audio::status().underruns;
     uint32_t last = MySys::millis();
     size_t freeMin = SIZE_MAX, largestMin = SIZE_MAX;
-    unsigned slot = MyDiag::bootCount() % FILE_COUNT;
-    bool enabled = false, fresh = true;
+    bool enabled = false;
     PowerInterval::Sample previous{};
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -121,14 +241,16 @@ void task(void *)
             float c;
             if (MyRtc::temperatureAvailable() && MyRtc::readTemp(c))
                 snprintf(temp, sizeof(temp), "%.2f", (double)c);
+            const int64_t epoch = MyTime::now();
+            const bool certain = MyTime::certain();
             char row[768];
             const int n = snprintf(row, sizeof(row),
                 "1,%s,%s,%lu,%d,%lld,%u,%u,%lu,%lu,%s,%s,%s,%lu,%u,"
                 "%lu,%llu,%lu,%d,%lu,%llu,%llu,%lu,"
                 "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%s,%lu\n",
                 HwProfile::active().id == HwProfile::Id::P4_43 ? "p4-43" : "es3c35p", FW_VERSION,
-                (unsigned long)MyDiag::bootCount(), (int)esp_reset_reason(), (long long)MyTime::now(),
-                (unsigned)MyTime::source(), MyTime::certain() ? 1u : 0u,
+                (unsigned long)MyDiag::bootCount(), (int)esp_reset_reason(), (long long)epoch,
+                (unsigned)MyTime::source(), certain ? 1u : 0u,
                 (unsigned long)now, (unsigned long)totals.elapsed,
                 batteryMin, batteryAvg, batteryMax, (unsigned long)totals.batterySamples,
                 cfg.batteryScalePermille, (unsigned long)totals.screen,
@@ -145,7 +267,7 @@ void task(void *)
                 (unsigned long)freeMin, (unsigned long)largestMin,
                 (unsigned long)(sd.errors - previousErrors),
                 (unsigned long)(audio.underruns - previousUnderruns), temp, (unsigned long)status().dropped);
-            if (n > 0 && n < (int)sizeof(row)) append(row, slot, fresh);
+            if (n > 0 && n < (int)sizeof(row)) append(row, epoch, certain);
             else {
                 publish(false, "");
                 ESP_LOGE("power", "history row exceeds buffer");

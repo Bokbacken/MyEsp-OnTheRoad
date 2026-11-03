@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.24.3 (unreleased)
+
+- Deliver daily UTC power-history files (`power-YYYYMMDD.csv`) instead of the
+  16-slot ring. Append across restarts; use boot-specific files until time is
+  certain. Keep at most 150 matching log files when creating a file, removing
+  the oldest by modification time. Legacy `power-NN.csv` files are retained
+  until normal pruning; there is no per-file or total byte limit.
+- Preserve the existing CSV schema and five-minute sampling. Physical
+  verification of midnight rollover and restart behavior on S3/P4 is pending.
+
 ## v0.24.2 (unreleased)
 
 - Record estimated active panel dimensions in the typed hardware profile and
