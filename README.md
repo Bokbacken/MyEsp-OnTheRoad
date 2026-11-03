@@ -22,6 +22,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 | [P4 SD/Wi-Fi investigation](docs/P4_SD_WIFI_INVESTIGATION.md) | Failure timeline, shared-controller clock findings and testing on other P4 boards |
 | [Karaoke and SoundFonts](docs/MUSIC_KARAOKE_PLAN.md) | Audio architecture and memory/quality tradeoffs |
 | [Multiplayer design](docs/MULTIPLAYER_DESIGN.md) | Host-authoritative Yatzy and joining devices |
+| [Hardware profile model](docs/HARDWARE_PROFILE_MODEL.md) | Profile structure, physical display metrics, evidence and future extensions |
 | [Sudoku](docs/SUDOKU.md) | Controls, saved progress, puzzle source and block import |
 | [Adventure work plan](docs/ADVENTURE_TODO.md) | Adventure/editor delivery status and remaining tests |
 | [Multi-board work plan](docs/MULTI_BOARD_TODO.md) | Board support, unresolved issues and hardware checks |
@@ -214,6 +215,9 @@ All input is touch.
 
 See [the S3 hardware reference](docs/hardware_reference.md) and
 [the P4 hardware reference](docs/Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md).
+The [hardware profile model](docs/HARDWARE_PROFILE_MODEL.md) explains how
+firmware profiles, per-board references, physical display geometry and
+verification status fit together.
 The table below is for S3 only; `main/board_pins.h` selects the active board's pin map.
 
 | Function | GPIO |

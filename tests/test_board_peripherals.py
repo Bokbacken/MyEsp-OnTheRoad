@@ -491,14 +491,30 @@ PROFILE = r'''
 #include "hw_profile.h"
 int main() {
     const auto &p = HwProfile::active();
+    const auto &s3 = HwProfile::get(HwProfile::Id::ES3C35P);
+    const auto &p4 = HwProfile::get(HwProfile::Id::P4_43);
+    assert(p.displayActiveWidthUm > 0 && p.displayActiveHeightUm > 0);
+    const uint32_t s3IconUm = s3.pixelPitchXUm() * 24u;
+    const uint32_t p4IconUm = p4.pixelPitchXUm() * 32u;
+    assert(s3IconUm > p4IconUm ? s3IconUm - p4IconUm <= 60 : p4IconUm - s3IconUm <= 60);
+    auto unknown = p;
+    unknown.displayActiveWidthUm = unknown.displayActiveHeightUm = 0;
+    assert(unknown.pixelPitchXUm() == 0 && unknown.pixelPitchYUm() == 0);
+    assert(unknown.ppiX() == 0 && unknown.ppiY() == 0);
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
     assert(p.id == HwProfile::Id::P4_43);
+    assert(p.pixelPitchXUm() == 117 && p.pixelPitchYUm() == 117);
+    assert(p.ppiX() == 217 && p.ppiY() == 217);
+    assert(p.pixelPitchXUm() * 32u >= 3740 && p.pixelPitchXUm() * 32u <= 3750);
     assert(p.flashBytes == 32u * 1024 * 1024 && p.psramBytes == 32u * 1024 * 1024);
     assert(p.soundFontMaxBytes == p.psramBytes && p.psramReserveBytes == 2u * 1024 * 1024);
     assert(!p.resampleSoundFonts);
     assert(p.maxKaraokeVoices == 192);
 #else
     assert(p.id == HwProfile::Id::ES3C35P);
+    assert(p.pixelPitchXUm() == 154 && p.pixelPitchYUm() == 154);
+    assert(p.ppiX() == 165 && p.ppiY() == 165);
+    assert(p.pixelPitchXUm() * 24u >= 3690 && p.pixelPitchXUm() * 24u <= 3710);
     assert(p.flashBytes == 16u * 1024 * 1024 && p.psramBytes == 8u * 1024 * 1024);
     assert(p.soundFontMaxBytes == 7u * 1024 * 1024 && p.psramReserveBytes == 512u * 1024);
     assert(p.resampleSoundFonts);
