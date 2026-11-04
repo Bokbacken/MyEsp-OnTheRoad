@@ -198,7 +198,7 @@ extern "C" void app_main(void)
 
     Display::setRotation(cfg.rotation == 180);   // Sent as MADCTL with the init sequence (v0.5.6)
     Touch::setRotation(cfg.rotation == 180);
-    const bool displayOk = Display::begin();
+    bool displayOk = Display::begin();
     const bool panelOk = Display::panelOk();
     ESP_LOGI(TAG, "display %s (panel %s%s%s)", displayOk ? "ok" : "FAILED", panelOk ? "ok" : "FAILED",
              displayOk ? "" : ", reason: ", Display::failReason());
@@ -226,6 +226,10 @@ extern "C" void app_main(void)
     if (displayOk) Rgb::setBase(0, 0, 25);   // Dim blue: touch / UI stage
     const bool touchOk = displayOk && Touch::begin();   // Registers the LVGL pointer device
     ESP_LOGI(TAG, "touch %s", touchOk ? "ok" : "not found");
+    if (displayOk && !Display::ok()) {
+        displayOk = false;
+        ESP_LOGE(TAG, "display failed during touch recovery: %s", Display::failReason());
+    }
 
     if (displayOk) {
         UiSettings::applyTextSize();

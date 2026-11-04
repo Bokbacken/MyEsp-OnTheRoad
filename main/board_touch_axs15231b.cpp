@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "board_pins.h"
+#include "board_display.h"
 #include "board_power.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -81,13 +82,13 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
     return ESP_OK;
 }
 
-esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y)
+esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool logReport = false)
 {
     uint8_t data[REPORT_LEN] = {};
     esp_err_t err = i2c_master_transmit(g_dev, READ_COMMAND, sizeof(READ_COMMAND), I2C_TIMEOUT_MS);
     if (err == ESP_OK)
         err = i2c_master_receive(g_dev, data, sizeof(data), I2C_TIMEOUT_MS);
-    const bool logError = g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0;
+    const bool logError = logReport || g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0;
     if (err != ESP_OK) {
         if (logError) ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)",
                               esp_err_to_name(err), (unsigned)(g_info.readErrors + 1));
@@ -200,17 +201,23 @@ bool begin()
     if (err != ESP_OK) return fail("AXS15231B I2C device", err);
     bool down = false, released = false;
     uint16_t x = 0, y = 0;
-    for (unsigned attempt = 0; attempt < STARTUP_ATTEMPTS; ++attempt) {
-        err = readPoint(down, released, x, y);
-        if (err == ESP_OK) {
-            if (attempt)
-                ESP_LOGI(TAG, "AXS15231B startup recovered after %u attempts", attempt + 1);
-            break;
+    for (unsigned pass = 0; pass < 2; ++pass) {
+        for (unsigned attempt = 0; attempt < STARTUP_ATTEMPTS; ++attempt) {
+            err = readPoint(down, released, x, y, attempt == 0);
+            if (err == ESP_OK) {
+                if (attempt || pass)
+                    ESP_LOGI(TAG, "AXS15231B startup recovered after %u attempts (shared reset %u)",
+                             attempt + 1, pass);
+                break;
+            }
+            ++g_info.readErrors;
+            ESP_LOGW(TAG, "AXS15231B startup attempt %u/%u (shared reset %u): %s",
+                     attempt + 1, STARTUP_ATTEMPTS, pass, esp_err_to_name(err));
+            if (attempt + 1 < STARTUP_ATTEMPTS) vTaskDelay(pdMS_TO_TICKS(STARTUP_RETRY_MS));
         }
-        ++g_info.readErrors;
-        ESP_LOGW(TAG, "AXS15231B startup attempt %u/%u: %s",
-                 attempt + 1, STARTUP_ATTEMPTS, esp_err_to_name(err));
-        if (attempt + 1 < STARTUP_ATTEMPTS) vTaskDelay(pdMS_TO_TICKS(STARTUP_RETRY_MS));
+        if (err == ESP_OK || pass == 1) break;
+        if (!Display::recoverTouchStartup())
+            return fail("AXS15231B shared LCD/touch recovery", ESP_ERR_INVALID_STATE);
     }
     if (err != ESP_OK) return fail("AXS15231B first report", err);
 

@@ -37,6 +37,11 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [ ] Verifiera touchändringen fysiskt vid upprepade kallstarter och drag;
   ägarloggen visar upprepade byte vid start och förskjutna paket under drift,
   men grundorsaken är inte bekräftad.
+- [x] Efter fem misslyckade touchstartsvar: en delad LCD/touch-reset och
+  full panelåterinitiering innan ytterligare fem läsförsök. Ingen automatisk
+  MCU-omstart eller ändring av PMIC-spänningar; fel rapporteras fortfarande.
+- [ ] Prova automatisk resetåterhämtning på S3: STOP-separerad läsning och
+  enbart återförsök räckte inte vid ägarens av/på-prov (`D7` i alla fem svar).
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

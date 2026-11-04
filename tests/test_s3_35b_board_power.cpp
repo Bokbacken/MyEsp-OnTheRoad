@@ -116,6 +116,19 @@ int main()
     (void)BoardPower::status();
     assert(transactionCount == before);
 
+    const uint8_t outputBeforeReset = registers[0x20][0x01];
+    const uint8_t directionBeforeReset = registers[0x20][0x03];
+    const uint8_t adcBeforeReset = registers[0x34][0x30];
+    assert(BoardPower::resetPanel());
+    assert(expanderOutputWrites.size() == 4 && delayedMs == 600);
+    assert(expanderOutputWrites[2] == (outputBeforeReset & ~(1U << 1)));
+    assert(expanderOutputWrites[3] == outputBeforeReset);
+    assert(registers[0x20][0x03] == directionBeforeReset);
+    assert(registers[0x34][0x30] == adcBeforeReset);
+    present[0x20] = false;
+    assert(!BoardPower::resetPanel());
+    present[0x20] = true;
+
     bool pressed = false;
     registers[0x20][0x00] = 1U << 6; // Vendor BSP confirms PWR press is active high.
     assert(BoardPower::readPowerButton(pressed) && pressed);

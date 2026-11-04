@@ -36,6 +36,7 @@ with tempfile.TemporaryDirectory(prefix="otr-board-power-") as directory:
 #include "board_power.h"
 int main() {
     assert(!BoardPower::begin());
+    assert(!BoardPower::resetPanel());
     assert(BoardPower::bus() == nullptr);
     const auto status = BoardPower::status();
     assert(!status.supported && !status.initialized);

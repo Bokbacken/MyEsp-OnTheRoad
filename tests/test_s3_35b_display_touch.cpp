@@ -24,10 +24,13 @@ template<class... Args> void logMock(Args...) {}
 using i2c_master_bus_handle_t = void *;
 bool powerReady = true;
 bool powerInitialized = true;
+bool panelResetSuccess = true;
+int panelResetCalls = 0;
 namespace BoardPower {
 struct Status { bool initialized; };
 void *bus() { return powerReady ? reinterpret_cast<void *>(1) : nullptr; }
 Status status() { return {powerInitialized}; }
+bool resetPanel() { ++panelResetCalls; return panelResetSuccess; }
 }
 
 struct lv_display_t {};
@@ -204,6 +207,11 @@ uint8_t report[14] = {};
 int reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
 int commandError = ESP_OK, writes = 0, startupFailures = 0, delays = 0;
 bool commandPending = false;
+bool recoverySuccess = true;
+int recoveryCalls = 0;
+namespace Display {
+bool recoverTouchStartup() { ++recoveryCalls; return recoverySuccess; }
+}
 int64_t clockUs = 0;
 int64_t esp_timer_get_time() { return clockUs; }
 int pdMS_TO_TICKS(int n) { return n; }
@@ -271,7 +279,10 @@ int main(int argc, char **argv) {
     }
     const bool ready = Display::begin();
     if (mode != "normal" && mode != "runtime-timeout" && mode != "runtime-queue" &&
-        mode != "sleep-errors" && mode != "column-error" && mode != "bounds") {
+        mode != "sleep-errors" && mode != "column-error" && mode != "bounds" &&
+        mode != "recovery" && mode != "recovery-reset-fail" &&
+        mode != "recovery-command-fail" && mode != "recovery-dma-fail" &&
+        mode != "recovery-after-task") {
         assert(!ready && !Display::ok() && *Display::failReason());
         assert(!Display::begin());
         if (mode == "dma-timeout") {
@@ -286,6 +297,32 @@ int main(int argc, char **argv) {
     assert(Display::begin() && beginCount == 1);
     assert(MyLvgl::config.swapBytes && MyLvgl::config.align == 2);
     checkStream(0);
+    if (mode == "recovery" || mode == "recovery-reset-fail" ||
+        mode == "recovery-command-fail" || mode == "recovery-dma-fail" ||
+        mode == "recovery-after-task") {
+        const int beforeAllocations = allocations;
+        const size_t beforeColors = colors.size();
+        const size_t beforeCommands = commands.size();
+        if (mode == "recovery-reset-fail") panelResetSuccess = false;
+        if (mode == "recovery-command-fail") { failCommand = 0xA0; commandError = ESP_ERR_TIMEOUT; }
+        if (mode == "recovery-dma-fail") dmaTimeout = true;
+        if (mode == "recovery-after-task") assert(Display::startTask());
+        const bool recovered = Display::recoverTouchStartup();
+        assert(recovered == (mode == "recovery"));
+        assert(allocations == beforeAllocations && beginCount == 1 && liveAllocations == 2);
+        assert(panelResetCalls == (mode == "recovery-after-task" ? 0 : 1));
+        if (recovered) {
+            assert(Display::ok() && Display::panelOk() && !*Display::failReason());
+            checkStream(beforeColors);
+            assert(commands.size() == beforeCommands + sizeof(INIT_CMDS) / sizeof(INIT_CMDS[0]) + 1);
+        } else if (mode != "recovery-after-task") {
+            assert(!Display::ok() && !Display::panelOk() && *Display::failReason());
+        }
+        const size_t afterColors = colors.size();
+        assert(!Display::recoverTouchStartup());
+        assert(colors.size() == afterColors && panelResetCalls <= 1);
+        return 0;
+    }
     for (const auto &band : colorData) for (uint8_t b : band) assert(b == 0);
     size_t before = colors.size();
     if (mode == "runtime-timeout") dmaTimeout = true;
@@ -301,6 +338,8 @@ int main(int argc, char **argv) {
         const uint16_t firstDma = g_dma[0];
         Display::fillScreen(0x07E0);
         assert(colors.size() == after && g_dma[0] == firstDma && liveAllocations == 2);
+        assert(!Display::recoverTouchStartup() && panelResetCalls == 0);
+        assert(colors.size() == after && g_dma[0] == firstDma);
         assert(!Display::setPanelSleeping(true));
         return 0;
     }
@@ -366,25 +405,37 @@ int main(int argc, char **argv) {
     if (mode == "add-device") addError = ESP_ERR_NO_MEM;
     if (mode == "bad-first-report") reportError = ESP_ERR_INVALID_RESPONSE;
     if (mode == "startup-corrupt") startupFailures = 5;
+    if (mode == "startup-stuck") startupFailures = 10;
+    if (mode == "recovery-failure") { startupFailures = 5; recoverySuccess = false; }
     if (mode == "startup-recovery") startupFailures = 3;
     if (mode == "command-failure") commandError = ESP_ERR_TIMEOUT;
     if (mode == "idle-first") std::memset(report, 0x37, sizeof(report));
     if (mode == "pointer") pointerFail = true;
     assert(Touch::bus() == BoardPower::bus());
     const bool ready = Touch::begin();
-    if (mode != "normal" && mode != "idle-first" && mode != "startup-recovery") {
+    if (mode != "normal" && mode != "idle-first" && mode != "startup-recovery" &&
+        mode != "startup-corrupt") {
         assert(!ready && !Touch::info().present && !Touch::indev());
-        if (mode == "bad-first-report" || mode == "startup-corrupt" || mode == "command-failure") {
-            assert(removes == 1 && writes == 5 && delays == 200);
-            assert(reads == (mode == "command-failure" ? 0 : 5));
-            assert(Touch::info().readErrors == 5);
+        if (mode == "bad-first-report" || mode == "startup-stuck" || mode == "command-failure") {
+            assert(removes == 1 && writes == 10 && delays == 400 && recoveryCalls == 1);
+            assert(reads == (mode == "command-failure" ? 0 : 10));
+            assert(Touch::info().readErrors == 10);
         }
+        if (mode == "recovery-failure")
+            assert(removes == 1 && writes == 5 && delays == 200 && recoveryCalls == 1);
         if (mode == "pointer") assert(removes == 1);
+        return 0;
+    }
+    if (mode == "startup-corrupt") {
+        assert(ready && Touch::info().present && reads == 6 && recoveryCalls == 1);
+        assert(Touch::info().readErrors == 5 && delays == 200 && MyLvgl::pointer);
+        assert(Touch::begin() && reads == 6 && recoveryCalls == 1);
         return 0;
     }
     if (mode == "startup-recovery") {
         assert(ready && Touch::info().present && reads == 4 && writes == 4 && delays == 150);
         assert(Touch::info().readErrors == 3 && MyLvgl::pointer);
+        assert(recoveryCalls == 0);
         assert(Touch::begin() && reads == 4);
         return 0;
     }

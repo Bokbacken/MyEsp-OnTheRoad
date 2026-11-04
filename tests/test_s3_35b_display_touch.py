@@ -16,12 +16,15 @@ def main():
             "board_display_s3_35b.cpp",
             ["normal", "missing-power", "failed-power", "memory-frame", "memory-dma", "semaphore",
              "spi", "io", "init-command", "dma-timeout", "lvgl",
-             "runtime-timeout", "runtime-queue", "column-error", "bounds", "sleep-errors"],
+             "runtime-timeout", "runtime-queue", "column-error", "bounds", "sleep-errors",
+             "recovery", "recovery-reset-fail", "recovery-command-fail",
+             "recovery-dma-fail", "recovery-after-task"],
         ),
         "touch": (
             "board_touch_axs15231b.cpp",
             ["normal", "idle-first", "missing-power", "failed-power", "missing-lvgl", "add-device",
-             "bad-first-report", "startup-corrupt", "startup-recovery", "command-failure", "pointer"],
+             "bad-first-report", "startup-corrupt", "startup-stuck", "recovery-failure",
+             "startup-recovery", "command-failure", "pointer"],
         ),
     }
     count = 0

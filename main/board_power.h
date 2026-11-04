@@ -25,6 +25,8 @@ struct Status {
 
 // Initializes the shared I2C bus, probes the PMIC and resets the panel via EXIO1.
 bool begin();
+// S3 shared LCD/touch reset; caller must reinitialize the panel before drawing.
+bool resetPanel();
 i2c_master_bus_handle_t bus();
 // Returns a cached PMIC sample; it never performs I2C transfers.
 Status status();

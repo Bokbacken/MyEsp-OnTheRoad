@@ -95,6 +95,8 @@ uint16_t *g_frame = nullptr;
 uint16_t *g_dma = nullptr;
 bool g_spiCreated = false;
 bool g_attempted = false;
+bool g_taskStarted = false;
+bool g_touchRecoveryAttempted = false;
 std::atomic<bool> g_ok{false};
 std::atomic<bool> g_panelOk{false};
 std::atomic<bool> g_transportFault{false};
@@ -186,6 +188,17 @@ void cleanupInit()
     g_dma = g_frame = nullptr;
 }
 
+bool configurePanel()
+{
+    for (const InitCmd &c : INIT_CMDS) {
+        const esp_err_t err = command(c.cmd, c.len ? c.data : nullptr, c.len);
+        if (err != ESP_OK) return fail("AXS15231B init command", err);
+        if (c.delayMs) vTaskDelay(pdMS_TO_TICKS(c.delayMs));
+    }
+    g_panelOk = true;
+    return sendFrame();
+}
+
 bool initPanel()
 {
     if (!BoardPower::bus() || !BoardPower::status().initialized) {
@@ -221,13 +234,7 @@ bool initPanel()
     if (err != ESP_OK) return fail("LCD QSPI IO", err);
 
     // BoardPower has already pulsed the shared LCD/touch reset on TCA9554 EXIO1.
-    for (const InitCmd &c : INIT_CMDS) {
-        err = command(c.cmd, c.len ? c.data : nullptr, c.len);
-        if (err != ESP_OK) return fail("AXS15231B init command", err);
-        if (c.delayMs) vTaskDelay(pdMS_TO_TICKS(c.delayMs));
-    }
-    g_panelOk = true;
-    return sendFrame();
+    return configurePanel();
 }
 
 lv_display_rotation_t rotationFor(bool rot180, bool land, bool flip)
@@ -272,6 +279,26 @@ bool begin()
 }
 
 bool ok() { return g_ok; }
+bool recoverTouchStartup()
+{
+    if (!g_ok || g_transportFault || g_taskStarted || g_touchRecoveryAttempted)
+        return fail("LCD/touch startup recovery unavailable", ESP_ERR_INVALID_STATE);
+    g_touchRecoveryAttempted = true;
+    ESP_LOGW(TAG, "touch startup failed; resetting shared LCD/touch and reinitializing panel");
+    g_ok = false;
+    g_panelOk = false;
+    if (!BoardPower::resetPanel()) return fail("LCD/touch recovery reset", ESP_ERR_INVALID_STATE);
+    if (!configurePanel()) {
+        g_panelOk = false;
+        return false;
+    }
+    lv_obj_invalidate(lv_screen_active());
+    lv_obj_invalidate(lv_layer_top());
+    g_fail = "";
+    g_ok = true;
+    return true;
+}
+
 bool panelOk() { return g_panelOk; }
 const char *failReason() { return g_fail; }
 bool panelSleepSupported() { return false; }
@@ -305,6 +332,7 @@ bool startTask()
 {
     if (!g_ok) return false;
     if (!MyLvgl::startTask(1, 2, 12 * 1024)) return fail("LVGL task", ESP_ERR_NO_MEM);
+    g_taskStarted = true;
     return true;
 }
 

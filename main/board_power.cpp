@@ -275,6 +275,15 @@ bool begin()
 
 i2c_master_bus_handle_t bus() { return s_bus; }
 
+bool resetPanel()
+{
+    if (!status().initialized || !initializeExpander()) {
+        ESP_LOGE(TAG, "shared LCD/touch reset failed");
+        return false;
+    }
+    return true;
+}
+
 Status status()
 {
     portENTER_CRITICAL(&s_statusMux);
@@ -302,6 +311,7 @@ void cancelPowerOff()
 namespace BoardPower {
 
 bool begin() { return false; }
+bool resetPanel() { return false; }
 i2c_master_bus_handle_t bus() { return nullptr; }
 Status status() { return {}; }
 bool powerOff() { return false; }
