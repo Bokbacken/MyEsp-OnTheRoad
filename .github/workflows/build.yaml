@@ -135,8 +135,11 @@ jobs:
           node tests/test_nvs_web.js
           node tests/test_karaoke_web.js
           node tests/test_karaoke_picker.js
+          node tests/test_karaoke_playlists_page.js
           python3 tests/test_karaoke_settings.py
           python3 tests/test_karaoke_book.py
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Imain tests/test_karaindex.cpp main/kara_index.cpp -o /tmp/test_karaindex
+          /tmp/test_karaindex
           python3 tests/test_diag_mac.py
           python3 tests/test_ota_stream.py
           python3 tests/test_screen_power.py

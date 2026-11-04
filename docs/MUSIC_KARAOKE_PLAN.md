@@ -86,6 +86,10 @@ spelbara banker; `POST` med action `font` sparar ett uttryckligt bankval,
 `decision: "save"|"discard"` och samma `current`-sökväg. Som befintliga
 uppspelnings-API:er används detta på enhetens betrodda lokala nätverk, utan PIN.
 Favoriter/sångarval har ännu inte fått något nytt UI i detta steg.
+Webbens låtväljare har separata lägen för filstruktur och alla låtar (filstruktur
+är standard och visar endast direkt underkataloger/låtar i vald katalog).
+Spellista väljs och skapas ovanför låtlistan; en separat
+`/karaoke/playlists`-sida hanterar innehåll, ordning, namn och radering.
 
 ### Aktuell kontrollista
 
@@ -98,6 +102,8 @@ Favoriter/sångarval har ännu inte fått något nytt UI i detta steg.
 - [x] S3: ägaren har bekräftat att bokstavshoppen fungerar med det verkliga
   biblioteket. Loggen visade att en Ö-post kunde ligga före A–V och fånga
   tröskelhopp; hoppet väljer nu den minsta initialranken som uppfyller bokstaven.
+- [x] Webb: filstruktur och alla låtar är separata lägen; spellisteval och
+  skapande ligger ovanför låtlistan och innehållet hanteras på egen sida.
 - [ ] S3/P4: skapa/ändra/radera spellistor, byt SF2 och prova
   Spara/Kasta/Avbryt på enheten och via webben; kontrollera efter omstart.
 

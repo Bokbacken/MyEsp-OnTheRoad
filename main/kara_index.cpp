@@ -218,7 +218,7 @@ std::vector<std::string> Library::subdirs(const std::string &dir) const
     return out;
 }
 
-std::vector<uint16_t> Library::songsIn(const std::string &dir) const
+std::vector<uint16_t> Library::songsIn(const std::string &dir, bool recursive) const
 {
     std::vector<uint16_t> out;
     const size_t n = dir.size();
@@ -227,6 +227,9 @@ std::vector<uint16_t> Library::songsIn(const std::string &dir) const
         if (n) {
             const char *d = &m_pool[r.rel];
             if (r.dirLen < n || memcmp(d, dir.data(), n) != 0 || (r.dirLen > n && d[n] != '/')) continue;
+            if (!recursive && r.dirLen != n) continue;
+        } else if (!recursive && r.dirLen != 0) {
+            continue;
         }
         out.push_back((uint16_t)i);
     }

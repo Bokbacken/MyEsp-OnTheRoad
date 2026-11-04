@@ -15,10 +15,12 @@
       ['/', 'Översikt', 'Overview'], ['/game', 'Live', 'Live'], ['/play', 'Spela', 'Play'],
       ['/adventure', 'Äventyr', 'Adventure'], ['/adventure-editor', 'Editor', 'Editor'],
       ['/karaoke', 'Karaoke', 'Karaoke'], ['/karaoke/songs', 'Låtar', 'Songs'],
+      ['/karaoke/playlists', 'Spellistor', 'Playlists'],
       ['/players', 'Spelare', 'Players'], ['/settings', 'Inställningar', 'Settings'],
       ['/diag', 'Diagnostik', 'Diagnostics'], ['/files', 'Filer', 'Files'], ['/update', 'Uppdatera', 'Update']
     ];
-    const aliases = {'/index.html': '/', '/diagnostics.html': '/diag', '/songs_picker.html': '/karaoke/songs'};
+    const aliases = {'/index.html': '/', '/diagnostics.html': '/diag', '/songs_picker.html': '/karaoke/songs',
+      '/playlists.html': '/karaoke/playlists'};
     const current = aliases[location.pathname] || location.pathname.replace(/\.html$/, '') || '/';
     let subtitle = pageTitle;
     let deviceName = cachedName || 'OnTheRoad';

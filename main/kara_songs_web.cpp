@@ -63,8 +63,11 @@ esp_err_t songsGet(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     char dirBuf[KaraIndex::MAX_PATH + 1] = "", qBuf[96] = "";
+    char allBuf[8] = "";
     q.get("dir", dirBuf, sizeof(dirBuf));
     q.get("q", qBuf, sizeof(qBuf));
+    q.get("all", allBuf, sizeof(allBuf));
+    const bool all = strcmp(allBuf, "1") == 0;
     long offset = 0, limit = DEF_LIMIT;
     bool bad = false;
     q.getInt("offset", 0, (long)KaraIndex::MAX_SONGS, offset, bad);
@@ -98,19 +101,21 @@ esp_err_t songsGet(httpd_req_t *r)
             songs = lib.search(qBuf);
         } else {
             bool first = true;
-            for (const std::string &d : lib.subdirs(dir)) {
-                const std::string p = dir.empty() ? d : dir + "/" + d;
-                if (!first) o += ',';
-                first = false;
-                o += "{\"name\":";
-                WebUtil::appendStr(o, d.c_str());
-                o += ",\"path\":";
-                WebUtil::appendStr(o, p.c_str());
-                o += ",\"count\":";
-                WebUtil::appendNum(o, lib.songsIn(p).size());
-                o += '}';
+            if (!all) {
+                for (const std::string &d : lib.subdirs(dir)) {
+                    const std::string p = dir.empty() ? d : dir + "/" + d;
+                    if (!first) o += ',';
+                    first = false;
+                    o += "{\"name\":";
+                    WebUtil::appendStr(o, d.c_str());
+                    o += ",\"path\":";
+                    WebUtil::appendStr(o, p.c_str());
+                    o += ",\"count\":";
+                    WebUtil::appendNum(o, lib.songsIn(p).size());
+                    o += '}';
+                }
             }
-            songs = lib.songsIn(dir);
+            songs = lib.songsIn(dir, all);
         }
         o += "],\"count\":";
         WebUtil::appendNum(o, songs.size());

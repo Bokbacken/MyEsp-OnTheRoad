@@ -89,8 +89,8 @@ public:
 
     // Immediate subfolders of dir ("" = root), sorted (Swedish order)
     std::vector<std::string> subdirs(const std::string &dir) const;
-    // Songs in dir and all its subfolders ("" = all songs), in library order
-    std::vector<uint16_t> songsIn(const std::string &dir) const;
+    // Songs in dir and, when recursive, its subfolders ("" = all songs), in library order
+    std::vector<uint16_t> songsIn(const std::string &dir, bool recursive = true) const;
     // Case-insensitive substring match of every word of q in "artist title" (all folders)
     std::vector<uint16_t> search(const char *q) const;
     int find(const char *rel) const;   // -1 when missing

@@ -10,8 +10,11 @@ a published GitHub Release.
 
 ## v0.24.7 (unreleased)
 
-- Web song picker: create, rename and delete playlists; add/remove songs and
-  change their order. Songs are started individually, not automatically queued.
+- Web song picker defaults to folder browsing (immediate subfolders and direct
+  songs only) and has a separate all-songs view; playlist selection and creation
+  stay above the song list. A dedicated playlist page manages contents, ordering,
+  rename and delete without pop-up windows. Songs are started individually, not
+  automatically queued.
   Choose and explicitly save a SoundFont per song without changing the global bank.
 - Song tempo, key, melody channel/mute, MIDI gain and SoundFont are now previews:
   save/revert from the device song menu, or decide when leaving/changing songs.
@@ -24,11 +27,12 @@ a published GitHub Release.
   the new creation/insertion limits are preserved through load/save. Discard
   restores the saved SoundFont and key together, and stale device confirmation
   dialogs cannot act on a song opened remotely.
-- All songs now lists songs only, instead of prepending every subfolder (145
-  folders could fill several pages before the first song). Folder navigation
-  stays available in the root browser. Letter jumps select the closest matching
-  initial rank instead of the first matching item, tolerating an out-of-order
-  cached list such as the S3 diagnostic where an Ö entry captured A–V jumps.
+- Device **All songs** now lists songs only, instead of prepending every
+  subfolder (145 folders could fill several pages before the first song).
+  Folder navigation stays available in the root browser. Letter jumps select
+  the closest matching initial rank instead of the first matching item, tolerating
+  an out-of-order cached list such as the S3 diagnostic where an Ö entry captured
+  A–V jumps.
   Jumps reuse the current view instead of allocating another full song-index
   vector. Log lines identify the selected sort key, entry and page. Host coverage
   includes a deliberately misplaced Ö entry, 1,521 songs across 145 folders,

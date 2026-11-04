@@ -34,6 +34,9 @@ ul.list li.busy { opacity: .5; pointer-events: none; }
 .hint { color: var(--otr-muted); font-size: .85rem; }
 .actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
 .actions select { flex: 1; min-width: 8rem; }
+#playlist-bar { padding: .7rem; border: 1px solid var(--otr-line); border-radius: .6rem; }
+#playlist-bar select { flex: 1; min-width: 8rem; }
+#view-mode { margin: .4rem 0; }
 #draft[hidden] { display: none; }
 li button { padding: .3rem .5rem; font-size: .85rem; }
 dialog { max-width: min(90vw, 36rem); border: 1px solid var(--otr-line); border-radius: .7rem;
@@ -56,6 +59,16 @@ dialog::backdrop { background: #0009; }
   <button onclick="resolveDraft('save')" data-t="save"></button>
   <button class="secondary" onclick="resolveDraft('discard')" data-t="discard"></button>
 </div>
+<div class="actions" id="playlist-bar">
+  <select id="playlist" aria-label="Spellista" onchange="rememberPlaylist()"></select>
+  <button onclick="editList('create')" data-t="create"></button>
+  <a class="button secondary" href="/karaoke/playlists" data-t="managePlaylists"></a>
+</div>
+<label for="view-mode" data-t="viewMode"></label>
+<select id="view-mode" onchange="setViewMode(this.value)">
+  <option value="folders" data-t="folders"></option>
+  <option value="all" data-t="all"></option>
+</select>
 <div class="bar2">
   <input type="search" id="q" autocomplete="off" enterkeyhint="search">
   <button id="rescan" class="secondary" onclick="rescan()" data-t="rescan"></button>
@@ -65,17 +78,6 @@ dialog::backdrop { background: #0009; }
 <ul class="list" id="list"></ul>
 <button id="more" onclick="load(true)" data-t="more"></button>
 <p class="hint" data-t="hint"></p>
-<section>
-  <h2 data-t="playlists"></h2>
-  <div class="actions">
-    <select id="playlist" aria-label="Spellista" onchange="loadPlaylist()"></select>
-    <button onclick="editList('create')" data-t="create"></button>
-    <button id="rename-list" class="secondary" onclick="editList('rename')" data-t="rename"></button>
-    <button id="delete-list" class="secondary" onclick="editList('delete')" data-t="delete"></button>
-  </div>
-  <p class="hint" data-t="playlistHint"></p>
-  <ul class="list" id="playlist-songs"></ul>
-</section>
 <dialog id="song-dialog">
   <h2 id="song-title"></h2>
   <p class="hint" data-t="fontHint"></p>
@@ -100,12 +102,13 @@ dialog::backdrop { background: #0009; }
 // folders), a tap opens and starts the song on the device (POST /api/karaoke/open). No PIN.
 const T = {
   sv: { title: 'Välj låt', karaoke: 'Webbkaraoke', rescan: 'Skanna om', more: 'Visa fler', all: 'Alla låtar',
+        viewMode: 'Visa låtar som', folders: 'Filstruktur (underkataloger)', managePlaylists: 'Hantera spellistor',
         search: 'Sök artist eller titel', songs: '{0} låtar', none: 'Inga låtar här',
         nomatch: 'Inga träffar för "{0}"', matches: '{0} träffar för "{1}"', scanning: 'Söker låtar på SD-kortet ...',
         opening: 'Öppnar {0} ...', playing: 'Spelas: {0}', open: 'Öppen: {0}', failed: 'Kunde inte öppna: {0}',
         neterr: 'Ingen kontakt med enheten', limit: 'Max {0} låtar visas', shown: 'visar {0} av {1}',
         hint: 'Låten startar på enheten. Lyssna i telefonen via Webbkaraoke. Mappar organiserar du själv på SD-kortet (/otr/karaoke).',
-        playlists: 'Spellistor', create: 'Skapa', rename: 'Byt namn', delete: 'Radera', remove: 'Ta bort',
+        playlists: 'Spellistor', create: 'Skapa spellista', rename: 'Byt namn', delete: 'Radera', remove: 'Ta bort',
         add: '+ Lista', settings: 'SF2', save: 'Spara', discard: 'Kasta ändringar', cancel: 'Avbryt',
         noLists: 'Skapa en spellista', listName: 'Spellistans namn (max 48 UTF-8-byte)',
         deleteList: 'Radera spellistan "{0}"? Låtfilerna behålls.',
@@ -115,12 +118,13 @@ const T = {
         saved: 'Sparat', added: 'Låten finns nu i spellistan', missingPath: 'Saknar sökväg – lägg till låten igen',
         up: 'Flytta upp', down: 'Flytta ned', busy: 'Vänta tills ändringen är klar' },
   en: { title: 'Choose song', karaoke: 'Web karaoke', rescan: 'Rescan', more: 'Show more', all: 'All songs',
+        viewMode: 'Show songs as', folders: 'Folder structure (subfolders)', managePlaylists: 'Manage playlists',
         search: 'Search artist or title', songs: '{0} songs', none: 'No songs here',
         nomatch: 'No matches for "{0}"', matches: '{0} matches for "{1}"', scanning: 'Scanning the SD card for songs ...',
         opening: 'Opening {0} ...', playing: 'Playing: {0}', open: 'Open: {0}', failed: 'Could not open: {0}',
         neterr: 'No contact with the device', limit: 'Max {0} songs shown', shown: 'showing {0} of {1}',
         hint: 'The song starts on the device. Listen on your phone via Web karaoke. You organise the folders yourself on the SD card (/otr/karaoke).',
-        playlists: 'Playlists', create: 'Create', rename: 'Rename', delete: 'Delete', remove: 'Remove',
+        playlists: 'Playlists', create: 'Create playlist', rename: 'Rename', delete: 'Delete', remove: 'Remove',
         add: '+ List', settings: 'SF2', save: 'Save', discard: 'Discard changes', cancel: 'Cancel',
         noLists: 'Create a playlist', listName: 'Playlist name (max 48 UTF-8 bytes)',
         deleteList: 'Delete playlist "{0}"? Song files are kept.',
@@ -134,7 +138,7 @@ let L = 'sv';
 const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
 const $ = id => document.getElementById(id);
 let dir = '', query = '', last = null, songs = [], busy = false, pollTimer = 0, seq = 0;
-let playlists = [], listSeq = 0, listsBusy = false, fontPath = '';
+let viewMode = 'folders', playlists = [], fontPath = '';
 
 function setLang(l, save) {
   if (!T[l]) return;
@@ -159,11 +163,17 @@ function el(tag, cls, text) {
 
 function go(d) { dir = d; query = ''; $('q').value = ''; load(false); }
 
+function rememberPlaylist() {
+  try { localStorage.setItem('otr_playlist', $('playlist').value); } catch (e) {}
+}
+
 async function load(more) {
   const my = ++seq;
   const off = more ? songs.length : 0;
   const p = new URLSearchParams({ offset: off, limit: 200 });
-  if (query) p.set('q', query); else p.set('dir', dir);
+  if (query) p.set('q', query);
+  else if (viewMode === 'all') p.set('all', '1');
+  else p.set('dir', dir);
   try {
     const r = await fetch('/api/karaoke/songs?' + p, { cache: 'no-store' });
     const j = await r.json();
@@ -189,7 +199,7 @@ function crumbs() {
     a.onclick = ev => { ev.preventDefault(); go(d); };
     c.appendChild(a);
   };
-  add('\u{1F3E0} ' + t('all'), '');
+  add('\u{1F3E0} ' + (viewMode === 'all' ? t('all') : t('folders')), '');
   if (query) return;
   let acc = '';
   dir.split('/').filter(Boolean).forEach(part => {
@@ -241,7 +251,8 @@ function render() {
     const add = actionButton(t('add'), async () => {
       const id = Number($('playlist').value);
       if (!id) { $('notice').textContent = t('noLists'); return; }
-      await mutateList({ action: 'add', id, path: s.path });
+      await request('/api/karaoke/playlists', { action: 'add', id, path: s.path });
+      await loadPlaylists();
       $('notice').textContent = t('added');
     });
     add.disabled = !playlists.length;
@@ -336,8 +347,8 @@ async function resolveDraft(action) {
   finally { busy = false; }
 }
 
-function renderPlaylistOptions() {
-  const select = $('playlist'), selected = select.value;
+function renderPlaylistOptions(selected = $('playlist').value) {
+  const select = $('playlist');
   select.textContent = '';
   if (!playlists.length) {
     const option = el('option', '', t('noLists')); option.value = '';
@@ -348,73 +359,28 @@ function renderPlaylistOptions() {
     select.appendChild(option);
   });
   if (playlists.some(p => String(p.id) === selected)) select.value = selected;
-  $('rename-list').disabled = $('delete-list').disabled = !playlists.length;
+  else if (playlists.length) select.value = String(playlists[0].id);
+  rememberPlaylist();
 }
 
 async function loadPlaylists(selected) {
   const j = await request('/api/karaoke/playlists');
   playlists = j.playlists;
-  renderPlaylistOptions();
-  if (selected) $('playlist').value = String(selected);
+  let saved = '';
+  try { saved = localStorage.getItem('otr_playlist') || ''; } catch (e) {}
+  renderPlaylistOptions(selected ? String(selected) : saved);
   if (last) render();
-  await loadPlaylist();
-}
-
-async function loadPlaylist() {
-  const my = ++listSeq, id = Number($('playlist').value);
-  const list = $('playlist-songs'); list.textContent = '';
-  if (!id) return;
-  try {
-    let entries = [], count;
-    do {
-      const j = await request('/api/karaoke/playlists?id=' + id + '&offset=' + entries.length);
-      if (my !== listSeq) return;
-      const p = j.playlists[0]; count = p.count;
-      entries = entries.concat(p.songs);
-      if (!p.songs.length && entries.length < count) throw new Error(t('neterr'));
-    } while (entries.length < count);
-    entries.forEach((s, index) => {
-      const li = el('li');
-      const name = el('span', 'tx', s.path ? nameOf(s) : t('missingPath'));
-      li.appendChild(name);
-      if (s.path) {
-        li.tabIndex = 0;
-        li.onclick = () => openSong(s, li);
-        li.onkeydown = e => { if (e.key === 'Enter') openSong(s, li); };
-      }
-      for (const [action, label, disabled] of [
-        ['up', '↑', index === 0], ['down', '↓', index + 1 === entries.length], ['remove', t('remove'), false]
-      ]) {
-        const b = actionButton(label, () => mutateList({ action, id, crc: s.crc, size: s.size }));
-        b.setAttribute('aria-label', t(action === 'remove' ? 'remove' : action));
-        b.disabled = disabled; li.appendChild(b);
-      }
-      list.appendChild(li);
-    });
-  } catch (e) { if (my === listSeq) $('notice').textContent = e.message || t('neterr'); }
-}
-
-async function mutateList(data) {
-  if (listsBusy) throw new Error(t('busy'));
-  listsBusy = true;
-  try {
-    const j = await request('/api/karaoke/playlists', data);
-    await loadPlaylists(data.action === 'delete' ? null : j.id);
-  } finally { listsBusy = false; }
 }
 
 async function editList(action) {
-  const id = Number($('playlist').value), p = playlists.find(p => p.id === id);
-  let name = '';
-  if (action === 'delete') {
-    if (!p || !confirm(t('deleteList', p.name))) return;
-  } else {
-    name = prompt(t('listName'), action === 'rename' && p ? p.name : '');
-    if (name === null) return;
-    name = name.trim();
-    if (!name) return;
+  let name = prompt(t('listName'));
+  if (name === null) return;
+  name = name.trim();
+  if (!name) return;
+  try {
+    const j = await request('/api/karaoke/playlists', { action, name });
+    await loadPlaylists(j.id);
   }
-  try { await mutateList({ action, id, name }); }
   catch (e) { $('notice').textContent = e.message || t('neterr'); }
 }
 
@@ -462,6 +428,16 @@ $('q').addEventListener('input', () => {
 let saved = null;
 try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
 setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
+try {
+  viewMode = localStorage.getItem('otr_song_view') === 'all' ? 'all' : 'folders';
+} catch (e) {}
+$('view-mode').value = viewMode;
+function setViewMode(mode) {
+  viewMode = mode === 'all' ? 'all' : 'folders';
+  try { localStorage.setItem('otr_song_view', viewMode); } catch (e) {}
+  dir = '';
+  load(false);
+}
 load(false);
 loadPlaylists().catch(e => { $('notice').textContent = e.message || t('neterr'); });
 window.addEventListener('focus', () => load(false));

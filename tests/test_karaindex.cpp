@@ -83,8 +83,11 @@ int main()
     CHECK(d.size() == 1 && d[0] == "\xc3\x96sten");
 
     CHECK(l.songsIn("").size() == 9);
+    CHECK(l.songsIn("", false).size() == 3);
     CHECK(l.songsIn("Pop").size() == 3);
+    CHECK(l.songsIn("Pop", false).size() == 1);
     CHECK(l.songsIn("Pop/80s").size() == 2);
+    CHECK(l.songsIn("Svenskt", false).size() == 2);
     CHECK(l.songsIn("Pop/80s/Deep").size() == 1);
     CHECK(l.songsIn("Po").empty());
     CHECK(l.songsIn("Svenskt").size() == 3);
