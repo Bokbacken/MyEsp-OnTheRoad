@@ -165,7 +165,6 @@ void showMenu()
     Audio::music(Sound::Music::DICE);   // Dice music loops in the menus and the dice games
     lv_obj_t *scr = Theme::screen();
     lv_obj_t *header = Theme::header(scr, Config::hostname());
-    lv_obj_set_width(lv_obj_get_child(header, 0), LV_PCT(40));
     lv_label_set_long_mode(lv_obj_get_child(header, 0), LV_LABEL_LONG_MODE_DOTS);
     lv_timer_t *nameTimer = lv_timer_create([](lv_timer_t *timer) {
         lv_obj_t *label = static_cast<lv_obj_t *>(lv_timer_get_user_data(timer));
@@ -178,9 +177,9 @@ void showMenu()
 
     const int32_t mN = UiMetrics::marginNormal();
     lv_obj_t *hint = Theme::label(scr, tr(Str::MENU_CHOOSE_GAME), &my_font_14, Theme::MUTED);
-    lv_obj_set_pos(hint, 14, 52);
+    lv_obj_set_pos(hint, mN, Theme::headerHeight() + UiMetrics::marginSmall());
     lv_obj_t *clk = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -14, 52);
+    lv_obj_align(clk, LV_ALIGN_TOP_RIGHT, -mN, Theme::headerHeight() + UiMetrics::marginSmall());
     UiClock::attachLabel(clk, true);
 
     // Keep the landing page focused on the available game families.
@@ -240,7 +239,7 @@ void showPlayerCenter()
     lv_obj_t *scr = Theme::screen();
     lv_obj_t *header = Theme::header(scr, tr(Str::MENU_SETTINGS_PLAYERS), false);
     lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) { UiSettings::show(); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *body = selectionColumn(scr, 0);
@@ -337,8 +336,7 @@ static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *d
 {
     lv_obj_t *header = Theme::header(scr, title);
     lv_obj_set_height(header, UiMetrics::titleH());
-    const int32_t statusReserved = Theme::statusShareAvailable() ? Theme::STATUS_BAR_SHARE_RESERVED_WIDTH
-                                                                 : Theme::STATUS_BAR_RESERVED_WIDTH;
+    const int32_t statusReserved = Theme::statusReservedWidth(Theme::statusShareAvailable());
     lv_obj_set_style_pad_right(header, statusReserved + UiMetrics::marginNormal(), 0);
     lv_obj_set_style_pad_column(header, UiMetrics::marginSmall(), 0);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
@@ -2699,13 +2697,13 @@ static void showGame()
     lv_obj_delete(lv_obj_get_child(h, 0));
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(s_playerLabel, s_layout.w - 150 - Theme::BATTERY_STATUS_WIDTH - 4);
+    lv_obj_set_width(s_playerLabel, s_layout.w - 150 - Theme::batteryStatusWidth() - 4);
     lv_obj_set_height(s_playerLabel, lv_font_get_line_height(&my_font_24));
     lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10, 0);
     s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
-    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
+    lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID, -62 - Theme::batteryStatusWidth() - 4, 0);
     lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48, 34, Theme::LINE);
-    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
+    lv_obj_align(menu, LV_ALIGN_RIGHT_MID, -6 - Theme::batteryStatusWidth() - 4, 0);
     lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
 
     // Felt dice area
@@ -2985,16 +2983,18 @@ static ResultLayout resultLayout(int32_t w, int32_t h, int32_t scale, int32_t ti
     l.cardX = normal / 2;
     l.cardY = titleH + normal;
     l.cardW = w - 2 * l.cardX;
-    l.buttonH = 46 * l.scale / 100;
+    l.buttonH = LV_MAX(46 * l.scale / 100, my_font_18.line_height + 16);
     l.buttonY = h - normal - l.buttonH;
     l.cardH = LV_MAX(0, l.buttonY - normal - l.cardY);
     l.buttonX = normal;
     l.buttonW = (w - 3 * normal) / 2;
     l.againX = 2 * normal + l.buttonW;
-    l.rowH = 42 * l.scale / 100;
-    l.badgeSize = 32 * l.scale / 100;
+    l.badgeSize = LV_MAX(32 * l.scale / 100, my_font_18.line_height + 8);
+    l.rowH = LV_MAX(42 * l.scale / 100, LV_MAX(l.badgeSize, my_font_24.line_height + 4) + 8);
     l.nameX = 42 * l.scale / 100;
-    l.scoreW = 56 * l.scale / 100;
+    lv_point_t scoreSize;
+    lv_text_get_size(&scoreSize, "99999", &my_font_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    l.scoreW = LV_MAX(56 * l.scale / 100, scoreSize.x);
     l.nameW = LV_MAX(0, LV_MIN(170 * l.scale / 100, l.cardW - l.nameX - l.scoreW - 10 * l.scale / 100));
     l.variantW = LV_MIN(150 * l.scale / 100, w / 2);
     return l;
@@ -3011,7 +3011,7 @@ static void protocolCell(lv_obj_t *parent, const char *text, int32_t x, int32_t 
                          uint32_t color, lv_text_align_t align)
 {
     lv_obj_t *label = Theme::label(parent, text, &my_font_14, color);
-    lv_obj_set_size(label, width, 24);
+    lv_obj_set_size(label, width, my_font_14.line_height);
     lv_obj_set_pos(label, x, y);
     lv_obj_set_style_text_align(label, align, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
@@ -3021,9 +3021,9 @@ static void showProtocol(lv_obj_t *card)
 {
     int categoryCount = 0;
     const YatzyCategory *categories = Yatzy::categories(s_game.variant(), categoryCount);
-    const int32_t labelW = 112;
-    const int32_t scoreW = 68;
-    const int32_t rowH = 28;
+    const int32_t labelW = MyFonts::uiPixels(112);
+    const int32_t scoreW = MyFonts::uiPixels(68);
+    const int32_t rowH = LV_MAX(MyFonts::uiPixels(28), my_font_14.line_height + 4);
     lv_obj_set_scrollable(card, true);
     lv_obj_set_scroll_dir(card, LV_DIR_ALL);
     lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
@@ -3078,12 +3078,12 @@ static void showResults(bool usePreferred)
     lv_obj_t *var = Theme::label(scr, trVariant(s_game.variant(), s_game.mode(), s_game.savedRollsRule()), &my_font_14, Theme::TEAL);
     lv_obj_set_width(var, layout.variantW);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT,
-                 -12 * layout.scale / 100 - Theme::BATTERY_STATUS_WIDTH - UiMetrics::marginSmall(),
+                 -12 * layout.scale / 100 - Theme::batteryStatusWidth() - UiMetrics::marginSmall(),
                  14 * layout.scale / 100);
 
     lv_obj_t *view = Theme::button(scr,
                                   tr(s_resultsProtocol ? Str::RES_RANKING_VIEW : Str::RES_PROTOCOL_VIEW),
-                                  layout.w - 2 * layout.cardX, 32, Theme::TEAL);
+                                  layout.w - 2 * layout.cardX, UiMetrics::buttonH(), Theme::TEAL);
     lv_obj_set_pos(view, layout.cardX, layout.cardY);
     lv_obj_add_event_cb(view, [](lv_event_t *) {
         s_resultsProtocol = !s_resultsProtocol;
@@ -3092,8 +3092,9 @@ static void showResults(bool usePreferred)
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];
     int n = s_game.ranking(order, places);
-    const int32_t contentY = layout.cardY + 38;
-    const int32_t contentH = LV_MAX(0, layout.cardH - 38);
+    const int32_t viewH = UiMetrics::buttonH() + UiMetrics::marginSmall();
+    const int32_t contentY = layout.cardY + viewH;
+    const int32_t contentH = LV_MAX(0, layout.cardH - viewH);
     lv_obj_t *card = Theme::card(scr, layout.cardW, contentH);
     lv_obj_set_pos(card, layout.cardX, contentY);
     lv_obj_set_scrollable(card, true);
@@ -3747,15 +3748,15 @@ static void showMini()
     s_playerLabel = Theme::label(h, "", &my_font_24, Theme::ACCENT);
     lv_label_set_long_mode(s_playerLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(s_playerLabel,
-                     s_mLayout.w - (160 + Theme::BATTERY_STATUS_WIDTH) * s_mLayout.scale / 100);
+                     s_mLayout.w - (160 + Theme::batteryStatusWidth()) * s_mLayout.scale / 100);
     lv_obj_align(s_playerLabel, LV_ALIGN_LEFT_MID, 10 * s_mLayout.scale / 100, 0);
     s_roundLabel = Theme::label(h, "", &my_font_14, Theme::MUTED);
     lv_obj_align(s_roundLabel, LV_ALIGN_RIGHT_MID,
-                 (-62 - Theme::BATTERY_STATUS_WIDTH - 4) * s_mLayout.scale / 100, 0);
+                 (-62 - Theme::batteryStatusWidth() - 4) * s_mLayout.scale / 100, 0);
     lv_obj_t *menu = Theme::button(h, LV_SYMBOL_LIST, 48 * s_mLayout.scale / 100,
                                    34 * s_mLayout.scale / 100, Theme::LINE);
     lv_obj_align(menu, LV_ALIGN_RIGHT_MID,
-                 (-6 - Theme::BATTERY_STATUS_WIDTH - 4) * s_mLayout.scale / 100, 0);
+                 (-6 - Theme::batteryStatusWidth() - 4) * s_mLayout.scale / 100, 0);
     lv_obj_add_event_cb(menu, onMenu, LV_EVENT_CLICKED, nullptr);
 
     // Scoreboard: one column up to 4 players, two columns above
@@ -3903,7 +3904,7 @@ static void showMiniResults()
     lv_obj_set_width(var, layout.variantW);
     lv_obj_set_style_text_align(var, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_align(var, LV_ALIGN_TOP_RIGHT,
-                 -12 * layout.scale / 100 - Theme::BATTERY_STATUS_WIDTH - UiMetrics::marginSmall(),
+                 -12 * layout.scale / 100 - Theme::batteryStatusWidth() - UiMetrics::marginSmall(),
                  14 * layout.scale / 100);
 
     int order[YATZY_MAX_PLAYERS], places[YATZY_MAX_PLAYERS];

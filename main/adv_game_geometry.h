@@ -37,15 +37,15 @@ inline JoyGeometry joyGeometry(Rect area) {
             JOY_STOP_R * area.w / JOY_SIZE, JOY_KNOB_R * area.w / JOY_SIZE};
 }
 
-inline Layout layout(int32_t screenW, int32_t screenH) {
+inline Layout layout(int32_t screenW, int32_t screenH, int32_t hudHeight = HUD_HEIGHT) {
     // Preserve the portrait baseline on unsupported smaller displays.
     const int32_t w = screenW < 320 ? 320 : screenW;
     const int32_t panelH = w / 2;
     const int32_t h = screenH < 480 ? 480 : screenH;
     const int32_t height = h > panelH ? h : panelH + 1;
-    return {w, height, {0, HUD_HEIGHT, w, height - panelH - HUD_HEIGHT},
+    return {w, height, {0, hudHeight, w, height - panelH - hudHeight},
             {0, height - panelH, w, panelH},
-            {(w - panelH) / 2, height - panelH, panelH, panelH}, {0, 0, w, HUD_HEIGHT}};
+            {(w - panelH) / 2, height - panelH, panelH, panelH}, {0, 0, w, hudHeight}};
 }
 
 inline size_t frameBytes(size_t strideBytes, int32_t height) {

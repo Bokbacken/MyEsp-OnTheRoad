@@ -25,6 +25,12 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   direkt spänning används i batteriloggen. ADC-kalibrering döljs för PMIC.
 - [x] Fysiskt pitchskalade teckensnitt och gemensamma UI-mått; större P4-
   typsnitt, med värdtester för verkliga glyphöjder och relevanta layouter.
+- [x] Oberoende skärmzoom (85/100/115 procent) och textstorlek i enhet/webb.
+  P4:s befintliga fysiska Normal är referens; spelplaner anpassas till
+  skärmen medan spel-/karaoketext följer fysiska teckensnittsroller.
+  Större text får mer utrymme eller rullningsbar vy, inte global bildzoom.
+- [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
+  värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
   avvisas; återgång till äldre firmware kräver USB.
 - [x] Alla tre firmwarebyggen och värdtester är gröna i CI-körning
@@ -50,13 +56,19 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Ägaren bekräftar att `37`-varningarna upphör under hållen beröring och
   återkommer efter släpp. Exakt fjorton `0x37`-bytes hanteras därför som ingen
   punkt, med befintlig släppdebounce. Andra rapportfel och bussfel behålls.
-- [ ] Bekräfta på kortet att `37`-varningsflödet upphört och tryck/släpp fungerar.
+- [x] Ägarens senaste logg efter `a105ab7`: start utan fel, FFat/SD och
+  spelarsparning fungerar, batteri cirka 4,17 V och Karaoke utan ljudunderrun.
+  `37`-varningsflödet är borta. En blandad felaktig touchrapport avvisas
+  fortfarande korrekt; orsaken är inte fastställd.
 - [ ] Färgtest, touch i hörn/rotation och
   karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
 - [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-
   spänning mot multimeter. PCB-revision är obekräftad, möjligen V1.
 - [ ] Prova skärmsömn/återväckning och rätt/fel OTA-bild. Bekräfta RTC-
   tidhållning med verklig ström-/batterikoppling, inte bara mjuk omstart.
+- [ ] Nästa hårdvarusvep: ägaren har provat "Släck skärmen nu" på S3_35B.
+  Skärmen släcks men går inte att väcka. Felsökning uttryckligen uppskjuten;
+  zoom/textarbetet ändrar inte sömn- eller väckningshanteringen.
 - [ ] Mät aktiv skärmyta och jämför Liten/Normal/Stor i mm på alla tre kort.
   Nuvarande fysiska mått är uppskattningar, inte nya panelmätningar.
 

@@ -486,7 +486,7 @@ void draw(lv_event_t *event)
             lv_draw_label_dsc_init(&d);
             d.text = text;
             d.text_local = true;
-            d.font = cell >= 42 ? &my_font_raw_32 : &my_font_raw_24;
+            d.font = MyFonts::fit(&my_font_24, cell - 4);
             d.color = Theme::c(s_game.fixed(i) ? 0x172339 : 0x1468A0);
             d.align = LV_TEXT_ALIGN_CENTER;
             lv_area_t a{x, y + (cell - d.font->line_height) / 2, x + cell - 1, y + cell - 1};
@@ -737,8 +737,9 @@ void play()
     const int w = UiMetrics::screenW(), h = UiMetrics::screenH();
     const int margin = 4, gap = 3;
     const bool landscape = w > h;
-    const int top = UiMetrics::titleH() + 4;
-    const int buttonH = landscape ? 42 : (h <= 500 ? 30 : 40);
+    const int top = LV_MAX(UiMetrics::titleH(), Theme::headerHeight()) + 4;
+    const int buttonH = LV_MAX(landscape ? 42 : (h <= 500 ? 30 : 40),
+                              my_font_24.line_height + 4);
     const int controlsH = 3 * buttonH + 2 * gap;
     int side = landscape ? h - top - 8 : h - top - controlsH - gap - margin;
     const int widthSide = (w - 2) / 9 * 9;
@@ -753,8 +754,8 @@ void play()
     lv_obj_set_pos(back, 6, 6);
     lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_pos(s_info, 44, 6);
-    lv_obj_set_size(s_info, LV_MAX(1, w - Theme::STATUS_BAR_RESERVED_WIDTH - 50), 32);
-    lv_obj_set_style_text_font(s_info, &my_font_raw_12, 0);
+    lv_obj_set_size(s_info, LV_MAX(1, w - Theme::statusReservedWidth() - 50), my_font_14.line_height);
+    lv_obj_set_style_text_font(s_info, &my_font_14, 0);
     lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
     s_board = lv_obj_create(screen);
     lv_obj_remove_style_all(s_board);
@@ -772,7 +773,7 @@ void play()
             const unsigned id = digit ? row * 3 + col : row + (col == 4 ? 3 : 0);
             char label[2] = {static_cast<char>('0' + id), 0};
             auto *b = Theme::button(screen, digit ? label : tools[id], buttonW, buttonH, Theme::LINE);
-            lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_raw_24, 0);
+            lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_24, 0);
             lv_obj_set_pos(b, controlsX + col * (buttonW + gap), controlsY + row * (buttonH + gap));
             lv_obj_add_event_cb(b, digit ? digitClick : tool, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(id)));
             if (digit) s_digits[id - 1] = b;
@@ -781,7 +782,7 @@ void play()
             else if (id == 5) s_pauseButton = b;
         }
     }
-    s_help = Theme::label(screen, "", &my_font_raw_12, Theme::MUTED);
+    s_help = Theme::label(screen, "", &my_font_14, Theme::MUTED);
     lv_obj_set_width(s_help, w - 16);
     lv_obj_set_style_text_align(s_help, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_color(s_help, Theme::c(Theme::PANEL), 0);

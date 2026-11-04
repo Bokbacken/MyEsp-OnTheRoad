@@ -1,5 +1,6 @@
 // ui_metrics.h - shared UI tokens scaled by physical pixel pitch.
-// ES3C35P is the reference density; display resolution does not define physical control size.
+// P4's existing Normal geometry is the physical reference. Screen zoom changes controls,
+// spacing and text; text size may grow text containers further without zooming game boards.
 #pragma once
 #include <stdint.h>
 

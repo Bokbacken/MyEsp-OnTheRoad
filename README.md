@@ -131,7 +131,11 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
   LVGL PSRAM draw buffers. S3_35B uses AXS15231B QSPI/touch, AXP2101 power
   management and PCF85063 RTC, with 1-bit SDMMC. RGB LED controls are only
   offered on ES3C35P. Text sizes use estimated physical pixel pitch, rather
-  than identical pixel counts across panels.
+  than identical pixel counts across panels. Independent **screen zoom**
+  (85/100/115%) and **text size** use P4's existing physical Normal sizes as
+  their reference. Game boards stay fitted; game and karaoke text follows
+  physical font roles. Device changes apply on Save; web changes apply when
+  returning to the device's main menu. Panel dimensions remain estimates.
 - **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, RTC, storage, Wi-Fi, web)
   with green ✓ / red ✗, plus an R→G→B→white LED sequence.
 - **Yatzy & Maxi-Yatzy** – 1–8 players, all 15 (Yatzy) / 20 (Maxi) categories, upper bonus (50 / 100),

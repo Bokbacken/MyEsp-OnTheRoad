@@ -54,13 +54,26 @@ zero. PPI (pixels per inch) is the accurate display term; the colloquial
 "DPI" is often used for the same idea. These helpers report axis PPI, not
 LVGL's diagonal-DPI convention.
 
-`MyFonts::apply()` selects generated fonts against a 154 µm reference pitch.
-For example, the normal 18 px S3 body font becomes 24 px on P4. Shared
-`UiMetrics` spacing uses the same physical scale and buttons also allow room
-for the selected body font. Screen-fitting game layouts still use available
-logical space; this is not a blanket scaling of every coordinate or asset.
-Host checks compare actual capital-A bitmap heights (within 12% across
-generated font steps) and exercise boot, Wi-Fi, Sudoku, menu and karaoke
+`MyFonts::apply()` uses **P4's existing physical Normal sizes** as the reference:
+117 µm per pixel, with 18/24/32/48 px small/body/title/display fonts at Normal
+text size and Normal zoom. Screen zoom (85/100/115%) changes physical text,
+menu icons, spacing and controls; the independent text-size setting changes
+font roles further. Each panel selects the nearest generated font by its
+actual capital-A bitmap height, rather than its nominal pixel size.
+Existing P4 integer `UiMetrics` dimensions are the Normal geometry baseline;
+text containers can grow to avoid clipping. Old settings without `screen_zoom`
+migrate to Normal, independently of saved text size.
+
+Device changes apply on Save; Cancel preserves both choices. Web changes
+apply when returning to the device's main menu, not during an active game.
+Scrollable menus/results remain reachable at large settings. Game boards,
+joysticks and art stay fitted to available space rather than receiving a
+global magnification transform. Game and karaoke text uses physical font
+roles, including Sudoku digits (bounded by their fixed cells); adventure HUD
+rows reserve the selected line height before allocating the viewport canvas.
+Host checks compare actual capital-A bitmap heights (within 12% of the P4
+physical target across zoom/text combinations) across generated font
+steps and exercise boot, Wi-Fi, Sudoku, adventure, menu and karaoke
 layouts. Physical panel measurement and on-device readability checks remain
 necessary before promising exact millimetres. Smaller panels still cap text
 size at Large; P4 additionally offers Extra Large.

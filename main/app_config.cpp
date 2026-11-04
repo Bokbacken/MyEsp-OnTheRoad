@@ -30,6 +30,7 @@ void defaults(AppConfig &c)
     strcpy(c.hostname, "ontheroad");
     c.brightness = 80;
     c.textSize = TEXT_SIZE_DEFAULT;
+    c.screenZoom = SCREEN_ZOOM_DEFAULT;
     c.ledBrightness = 40;
     c.ledEnabled = true;
     c.defaultVariant = 0;
@@ -81,6 +82,7 @@ void begin()
             g_cfg.powerLog = p.getBool("power_log", false);
             g_cfg.menuAnimations = p.getBool("menu_anim", true);
             g_cfg.textSize = p.getU8("text_size", TEXT_SIZE_DEFAULT);
+            g_cfg.screenZoom = p.getU8("screen_zoom", SCREEN_ZOOM_DEFAULT);
             g_cfg.ledBrightness = p.getU8("led_bri", g_cfg.ledBrightness);
             g_cfg.ledEnabled = p.getBool("led_on", g_cfg.ledEnabled);
             g_cfg.defaultVariant = p.getU8("variant", 0);
@@ -154,6 +156,7 @@ bool save()
     ok &= p.setBool("power_log", g_cfg.powerLog);
     ok &= p.setBool("menu_anim", g_cfg.menuAnimations);
     ok &= p.setU8("text_size", g_cfg.textSize);
+    ok &= p.setU8("screen_zoom", g_cfg.screenZoom);
     ok &= p.setU8("led_bri", g_cfg.ledBrightness);
     ok &= p.setBool("led_on", g_cfg.ledEnabled);
     ok &= p.setU8("variant", g_cfg.defaultVariant);
@@ -312,6 +315,10 @@ void sanitize(AppConfig &c)
         c.screenOffSeconds = 0;
     }
     if (c.textSize >= TEXT_SIZE_COUNT) c.textSize = TEXT_SIZE_DEFAULT;
+    if (c.screenZoom >= SCREEN_ZOOM_COUNT) {
+        ESP_LOGW(TAG, "invalid screen zoom %u; using Normal", (unsigned)c.screenZoom);
+        c.screenZoom = SCREEN_ZOOM_DEFAULT;
+    }
     if (c.sfxVol > 100) c.sfxVol = 100;
     if (c.masterVol > 100) c.masterVol = 100;
     if (c.musicVol > 100) c.musicVol = 100;

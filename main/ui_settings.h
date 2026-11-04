@@ -10,7 +10,7 @@ bool toggleSound();          // Persists the status-bar mute toggle, keeping an 
 bool togglePowerSaving();    // Persists the battery long-press toggle, keeping an open editor in sync
 void prepareForMenuNavigation(); // Stops settings timers and reverts unsaved live previews
 void applyHardware();        // Applies brightness / LED settings from Config (any task)
-// Switches the font roles to Config::get().textSize (clamped to the panel). Screens built
+// Applies Config's independent textSize and screenZoom using physical P4 reference sizes. Screens built
 // afterwards use the new sizes; UiYatzy::showMenu() calls this before building the menu.
 void applyTextSize();
 uint8_t maxTextSize();       // Largest MyFonts::TextSize value supported by this panel

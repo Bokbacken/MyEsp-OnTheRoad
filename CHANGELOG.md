@@ -31,9 +31,12 @@ a published GitHub Release.
   AXP2101 voltage is read directly in millivolts (the earlier 1.1 multiplier
   overstated it by 10%). Charger settings and supply voltages are not blindly
   overwritten.
-- Text sizes and shared UI spacing use physical pixel pitch. P4 uses larger
-  generated fonts to approximate S3's physical text size. Nominal panel
-  dimensions still need measurement; integer font steps prevent exact equality.
+- Independent screen zoom (85/100/115%) and text size in device/web settings,
+  using P4's existing physical Normal typography and spacing as the reference.
+  Missing zoom settings migrate to Normal. Menus/settings/results reflow or
+  scroll; Sudoku, adventure HUD and karaoke text follow physical font roles
+  while game boards remain fitted. Nominal panel dimensions still need
+  measurement; integer font steps prevent exact equality.
 - OTA images now carry a board identity and reject cross-board uploads,
   including the two incompatible ESP32-S3 boards. Once installed, this
   firmware also rejects old untagged images: reverting to them requires USB

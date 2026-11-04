@@ -13,9 +13,25 @@
 
 namespace Theme {
 
-constexpr int32_t BATTERY_STATUS_WIDTH = 62;
-constexpr int32_t STATUS_BAR_RESERVED_WIDTH = 184;
-constexpr int32_t STATUS_BAR_SHARE_RESERVED_WIDTH = 222;
+inline int32_t statusControlSize()
+{
+    return LV_MAX(MyFonts::p4Pixels(32), my_font_18.line_height + 4);
+}
+inline int32_t batteryStatusWidth()
+{
+    lv_point_t text;
+    lv_text_get_size(&text, "100%", &my_font_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return LV_MAX(MyFonts::p4Pixels(62), text.x + 12);
+}
+inline int32_t statusReservedWidth(bool share = false)
+{
+    return batteryStatusWidth() + (share ? 4 : 3) * (statusControlSize() + 6) + 8;
+}
+inline int32_t headerHeight()
+{
+    return LV_MAX(MyFonts::p4Pixels(44),
+                  LV_MAX(statusControlSize(), my_font_24.line_height) + 12);
+}
 constexpr uint32_t TEXT        = 0xEDF2F8;
 constexpr uint32_t ACCENT      = 0xFF9C3D;
 constexpr uint32_t GREEN       = 0x62D28A;
@@ -182,8 +198,8 @@ inline lv_obj_t *card(lv_obj_t *parent, int32_t w, int32_t h)
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(o, c(LINE), 0);
     lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_radius(o, 12, 0);
-    lv_obj_set_style_pad_all(o, 8, 0);
+    lv_obj_set_style_radius(o, MyFonts::p4Pixels(12), 0);
+    lv_obj_set_style_pad_all(o, MyFonts::p4Pixels(8), 0);
     lv_obj_set_style_text_color(o, c(TEXT), 0);
     return o;
 }
@@ -219,6 +235,9 @@ inline lv_obj_t *button(lv_obj_t *parent, const char *text, int32_t w, int32_t h
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, text);
     lv_obj_set_style_text_font(l, &my_font_18, 0);
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_center(l);
     return b;
 }
@@ -226,8 +245,8 @@ inline lv_obj_t *button(lv_obj_t *parent, const char *text, int32_t w, int32_t h
 inline lv_obj_t *menuCard(lv_obj_t *parent, int32_t width, const char *title, const char *description,
                           const void *image, const char *fallback, uint32_t accent, bool selected = false)
 {
-    const int32_t pad = 8;
-    const int32_t icon = LV_MAX(40, lv_font_get_line_height(&my_font_24) + 8);
+    const int32_t pad = MyFonts::p4Pixels(8);
+    const int32_t icon = LV_MAX(MyFonts::p4Pixels(40), lv_font_get_line_height(&my_font_24) + pad);
     const int32_t titleHeight = lv_font_get_line_height(&my_font_24);
     const int32_t descriptionHeight = 2 * lv_font_get_line_height(&my_font_14);
     const int32_t gap = LV_MAX(2, lv_font_get_line_height(&my_font_14) / 5);
@@ -257,6 +276,8 @@ inline lv_obj_t *menuCard(lv_obj_t *parent, int32_t width, const char *title, co
     if (image) {
         lv_obj_t *picture = lv_image_create(iconBox);
         lv_image_set_src(picture, image);
+        lv_obj_set_size(picture, MyFonts::p4Pixels(40), MyFonts::p4Pixels(40));
+        lv_image_set_inner_align(picture, LV_IMAGE_ALIGN_CONTAIN);
         lv_obj_center(picture);
         lv_obj_set_clickable(picture, false);
     } else {
@@ -287,7 +308,10 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
 {
     lv_obj_t *h = lv_obj_create(scr);
     lv_obj_remove_style_all(h);
-    lv_obj_set_size(h, LV_PCT(100), 44);
+    const int32_t control = statusControlSize();
+    const int32_t batteryWidth = batteryStatusWidth();
+    const int32_t right = batteryWidth + 4;
+    lv_obj_set_size(h, LV_PCT(100), headerHeight());
     lv_obj_set_style_bg_color(h, c(PANEL), 0);
     lv_obj_set_style_bg_opa(h, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(h, LV_BORDER_SIDE_BOTTOM, 0);
@@ -302,7 +326,7 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
 
     lv_obj_t *battery = lv_obj_create(h);
     lv_obj_remove_style_all(battery);
-    lv_obj_set_size(battery, BATTERY_STATUS_WIDTH, 32);
+    lv_obj_set_size(battery, batteryWidth, control);
     lv_obj_add_flag(battery, LV_OBJ_FLAG_FLOATING);
     lv_obj_update_layout(h);
     lv_area_t headerArea;
@@ -310,13 +334,15 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
     lv_display_t *display = lv_display_get_default();
     const int32_t headerWidth = display ? lv_display_get_horizontal_resolution(display)
                                         : headerArea.x2 - headerArea.x1 + 1;
-    lv_obj_set_pos(battery, headerWidth - BATTERY_STATUS_WIDTH - 4, 6);
+    lv_obj_set_pos(battery, headerWidth - right, 6);
+    lv_obj_set_width(t, LV_MAX(1, headerWidth - (withStatusControls
+        ? statusReservedWidth(statusShareAvailable()) : batteryWidth + 12) - 10));
     lv_obj_set_scrollable(battery, false);
     lv_obj_set_clickable(battery, false);
 
     lv_obj_t *body = lv_obj_create(battery);
     lv_obj_remove_style_all(body);
-    lv_obj_set_size(body, BATTERY_STATUS_WIDTH - 4, 26);
+    lv_obj_set_size(body, batteryWidth - 4, control - 6);
     lv_obj_set_pos(body, 0, 3);
     lv_obj_set_style_radius(body, 2, 0);
     lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
@@ -326,12 +352,12 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
     lv_obj_t *terminal = lv_obj_create(battery);
     lv_obj_remove_style_all(terminal);
     lv_obj_set_size(terminal, 4, 10);
-    lv_obj_set_pos(terminal, BATTERY_STATUS_WIDTH - 4, 11);
+    lv_obj_set_pos(terminal, batteryWidth - 4, (control - 10) / 2);
     lv_obj_set_style_bg_color(terminal, c(ACCENT), 0);
     lv_obj_set_style_bg_opa(terminal, LV_OPA_COVER, 0);
     lv_obj_set_clickable(terminal, false);
     lv_obj_t *voltage = label(body, "?", &my_font_14, MUTED);
-    lv_obj_set_size(voltage, BATTERY_STATUS_WIDTH - 8, lv_font_get_line_height(&my_font_14));
+    lv_obj_set_size(voltage, batteryWidth - 8, lv_font_get_line_height(&my_font_14));
     lv_obj_set_style_text_align(voltage, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(voltage);
     lv_obj_set_clickable(voltage, false);
@@ -344,17 +370,17 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
         }, LV_EVENT_DELETE, timer);
     }
     if (withStatusControls) {
-        lv_obj_t *menu = button(h, LV_SYMBOL_LIST, 32, 32, LINE);
+        lv_obj_t *menu = button(h, LV_SYMBOL_LIST, control, control, LINE);
         lv_obj_add_flag(menu, LV_OBJ_FLAG_FLOATING);
-        lv_obj_set_pos(menu, headerWidth - 178, 6);
+        lv_obj_set_pos(menu, headerWidth - right - 3 * (control + 6), 6);
         lv_obj_add_event_cb(menu, [](lv_event_t *) {
             if (statusActions().openMenu) statusActions().openMenu();
         }, LV_EVENT_CLICKED, nullptr);
 
         static bool speakerLongPressed = false;
-        lv_obj_t *speaker = button(h, LV_SYMBOL_AUDIO, 32, 32, LINE);
+        lv_obj_t *speaker = button(h, LV_SYMBOL_AUDIO, control, control, LINE);
         lv_obj_add_flag(speaker, LV_OBJ_FLAG_FLOATING);
-        lv_obj_set_pos(speaker, headerWidth - 140, 6);
+        lv_obj_set_pos(speaker, headerWidth - right - 2 * (control + 6), 6);
         lv_obj_add_event_cb(speaker, [](lv_event_t *) { speakerLongPressed = false; },
                             LV_EVENT_PRESSED, nullptr);
         lv_obj_add_event_cb(speaker, [](lv_event_t *) {
@@ -371,15 +397,15 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
 
         lv_obj_t *wifi = lv_obj_create(h);
         lv_obj_remove_style_all(wifi);
-        lv_obj_set_size(wifi, 32, 30);
+        lv_obj_set_size(wifi, control, control);
         lv_obj_add_flag(wifi, LV_OBJ_FLAG_FLOATING);
-        lv_obj_set_pos(wifi, headerWidth - 102, 7);
+        lv_obj_set_pos(wifi, headerWidth - right - control - 6, 6);
         lv_obj_set_scrollable(wifi, false);
         lv_obj_set_clickable(wifi, false);
         for (int i = 0; i < 5; ++i) {
             lv_obj_t *arc = lv_arc_create(wifi);
             lv_obj_remove_style_all(arc);
-            const int32_t diameter = 8 + 6 * i;
+            const int32_t diameter = (8 + 6 * i) * control / 32;
             lv_obj_set_size(arc, diameter, diameter);
             lv_obj_align(arc, LV_ALIGN_BOTTOM_MID, 0, -1);
             lv_arc_set_bg_angles(arc, 225, 315);
@@ -415,10 +441,10 @@ inline lv_obj_t *header(lv_obj_t *scr, const char *title, bool withStatusControl
                     lv_timer_delete(static_cast<lv_timer_t *>(lv_event_get_user_data(e)));
             }, LV_EVENT_DELETE, statusTimer);
 
-            lv_obj_t *share = button(h, "", 32, 32, TEAL);
+            lv_obj_t *share = button(h, "", control, control, TEAL);
             lv_obj_add_flag(share, LV_OBJ_FLAG_FLOATING);
             lv_obj_add_flag(share, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(share, headerWidth - 216, 6);
+            lv_obj_set_pos(share, headerWidth - right - 4 * (control + 6), 6);
             lv_obj_clean(share);
             auto node = [share](int32_t x, int32_t y) {
                 lv_obj_t *dot = lv_obj_create(share);

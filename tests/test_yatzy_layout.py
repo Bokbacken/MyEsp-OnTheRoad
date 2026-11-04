@@ -92,6 +92,9 @@ static void showPlayerCenter() { ++menus; }
 static void startNewGame() { ++starts; }
 @CHOICES@
 @LAYOUTS@
+namespace SettingsWidgets {
+@SETTINGS_WIDGETS@
+}
 enum class RemoteCommand : uint8_t { HOLD, ROLL, CHOOSE, RESULT_SHOWN };
 struct RemoteState {
     YatzyGame game;
@@ -137,15 +140,28 @@ static void inside(lv_obj_t *obj, lv_obj_t *parent);
 static void checkResponsiveLayouts(lv_display_t *display) {
     for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}}) {
         lv_display_set_resolution(display, size.x, size.y);
-        MyFonts::apply(MyFonts::TextSize::NORMAL,size.x,size.x>=480 ? 117 : 154);
+        for (int zoom=0;zoom<3;++zoom)
+        for (int text=0;text<=(int)MyFonts::maxFor(size.x);++text) {
+        MyFonts::apply((MyFonts::TextSize)text,size.x,size.x>=480 ? 117 : 154,
+                       (MyFonts::ScreenZoom)zoom);
         for (const char *language : {"sv", "en"}) {
             Lang::setLang(language);
             const auto mini = miniLayout();
-            if (size.x == 320) {
-                assert(mini.boardX == 5 && mini.boardY == 50 && mini.boardH == 112);
-                assert(mini.feltY == 168 && mini.feltH == 176 && mini.infoY == 350);
-                assert(mini.buttonY == 432 && mini.buttonH == 44);
-            }
+            auto *settings = Theme::card(lv_screen_active(), size.x - 2 * UiMetrics::marginNormal(), LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(settings, LV_FLEX_FLOW_COLUMN);
+            auto *dropdown = SettingsWidgets::styledDropdown(settings, "Small\nNormal\nLarge", zoom);
+            auto *toggle = SettingsWidgets::switchRow(settings,
+                "A long translated setting must wrap without covering its switch", true, [](lv_event_t *) {});
+            auto *toggleRow = lv_obj_get_parent(toggle);
+            lv_obj_update_layout(lv_screen_active());
+            inside(dropdown, settings); inside(toggleRow, settings);
+            inside(toggle, toggleRow); inside(lv_obj_get_child(toggleRow, 0), toggleRow);
+            auto *toggleLabel = lv_obj_get_child(toggleRow, 0);
+            assert(lv_obj_get_x(toggleLabel) + lv_obj_get_width(toggleLabel) <= lv_obj_get_x(toggle));
+            assert(lv_obj_get_height(toggleLabel) >= my_font_14.line_height);
+            assert(lv_obj_get_height(dropdown) == UiMetrics::buttonH());
+            assert(lv_dropdown_get_selected(dropdown) == (uint32_t)zoom);
+            lv_obj_delete(settings);
             assert(mini.boardX + mini.boardW <= mini.w);
             assert(mini.boardY + mini.boardH + mini.gap <= mini.feltY);
             assert(mini.feltY + mini.feltH + mini.gap <= mini.infoY);
@@ -199,7 +215,7 @@ static void checkResponsiveLayouts(lv_display_t *display) {
             assert(results.cardY + results.cardH <= results.buttonY - UiMetrics::marginNormal());
             assert(results.buttonY + results.buttonH <= results.h - UiMetrics::marginNormal());
             assert(results.buttonX >= 0 && results.againX + results.buttonW <= results.w);
-            assert(7 * results.rowH + results.badgeSize <= results.cardH);
+            assert(results.rowH + results.badgeSize <= results.cardH);
             assert(results.nameW > 0 && results.scoreW > 0 && results.variantW > 0);
 
             auto *card = lv_obj_create(lv_screen_active());
@@ -232,8 +248,11 @@ static void checkResponsiveLayouts(lv_display_t *display) {
             lv_obj_set_size(again, results.buttonW, results.buttonH);
             lv_obj_update_layout(lv_screen_active());
             inside(card, lv_screen_active());
-            for (unsigned child = 0; child < lv_obj_get_child_count(card); ++child)
+            for (unsigned child = 0; child < lv_obj_get_child_count(card); ++child) {
+                lv_obj_scroll_to_view(lv_obj_get_child(card, child), LV_ANIM_OFF);
+                lv_obj_update_layout(lv_screen_active());
                 inside(lv_obj_get_child(card, child), card);
+            }
             inside(menu, lv_screen_active()); inside(again, lv_screen_active());
             assert(lv_obj_get_y(card) + lv_obj_get_height(card) <= lv_obj_get_y(menu));
 
@@ -259,6 +278,7 @@ static void checkResponsiveLayouts(lv_display_t *display) {
             lv_obj_delete(menu); lv_obj_delete(again); lv_obj_delete(card);
         }
     }
+        }
     lv_display_set_resolution(display, 320, 480);
     MyFonts::apply(MyFonts::TextSize::NORMAL,320,154);
 }
@@ -572,16 +592,11 @@ static void check() {
                 assert(lv_obj_get_y(s_cupArea) >= lv_obj_get_y(s_felt) + lv_obj_get_height(s_felt));
                 assert(lv_obj_get_y(s_webBlock) == s_layout.feltY);
                 assert(cupCenterX() == s_layout.w / 2);
-                if (s_layout.w == 320 && s_layout.h == 480) {
-                    assert(s_layout.feltY == 48 && s_layout.feltRollH == 276);
-                    assert(s_layout.nestY == 244 && s_layout.throwTop == 56 && s_layout.throwH == 182);
-                    assert(s_layout.sugY == 330 && s_layout.sugW == 304);
-                    assert(s_layout.buttonY == 432 && s_layout.buttonH == 44);
-                    assert(s_layout.rollW == 150 && s_layout.chooseX == 162 && s_layout.chooseW == 152);
-                    assert(s_layout.barY == 194 && s_layout.barH == 42 && s_layout.tableY == 240);
-                    assert(s_layout.writeX == 122 && s_layout.writeW == 192);
-                    assert(s_layout.cupY == 326 && cupCenterY() == 403);
-                }
+                assert(s_layout.feltY == UiMetrics::titleH() + UiMetrics::marginSmall());
+                assert(s_layout.buttonY + s_layout.buttonH == s_layout.h - UiMetrics::marginSmall());
+                assert(s_layout.throwTop + s_layout.throwH + s_layout.gap == s_layout.nestY);
+                assert(s_layout.chooseX + s_layout.chooseW == s_layout.w - s_layout.gap);
+                assert(s_layout.writeX + s_layout.writeW == s_layout.w - s_layout.gap);
                 // Cup hit testing must use the same screen-space centre as the visuals.
                 auto *input = lv_indev_create();
                 lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
@@ -853,7 +868,9 @@ int main() {
                 auto *box = body(); auto *list = child(box, 0);
                 noOverlap(list, false, false); noOverlap(child(box, 1), true);
                 if (size.x == 320 && size.y == 480) {
-                    assert(lv_obj_get_y(box) == 74 && lv_obj_get_y(child(box, 1)) + lv_obj_get_y(box) == 432);
+                    assert(lv_obj_get_y(box) == UiMetrics::headerH());
+                    assert(lv_obj_get_y(child(box, 1)) + lv_obj_get_y(box) ==
+                           UiMetrics::screenH() - UiMetrics::controlSpacing() - UiMetrics::buttonH());
                     assert((lv_obj_get_scroll_bottom(list) > 0) == (game == GameType::YATZY));
                 }
                 unsigned count = game == GameType::YATZY ? 6 : game == GameType::PIG ? 2 : 1;
@@ -883,8 +900,11 @@ int main() {
                 assert(titleArea.x2 < batteryArea.x1 || titleArea.y2 < batteryArea.y1);
                 noOverlap(child(box, -1), true);
                 if (size.x == 320 && size.y == 480) {
-                    assert(lv_obj_get_y(s_addBtn) + lv_obj_get_y(box) == 384);
-                    assert(lv_obj_get_y(child(box, -1)) + lv_obj_get_y(box) == 432);
+                    assert(lv_obj_get_y(s_addBtn) + lv_obj_get_y(box) ==
+                           UiMetrics::screenH() - UiMetrics::controlSpacing() -
+                           2 * UiMetrics::buttonH() - UiMetrics::controlSpacing());
+                    assert(lv_obj_get_y(child(box, -1)) + lv_obj_get_y(box) ==
+                           UiMetrics::screenH() - UiMetrics::controlSpacing() - UiMetrics::buttonH());
                 }
                 assert(lv_obj_has_state(s_startBtn, LV_STATE_DISABLED) == (count == 0));
                 assert(lv_obj_has_state(s_addBtn, LV_STATE_DISABLED) == (count == YATZY_MAX_PLAYERS));
@@ -940,6 +960,9 @@ int main() {
 }
 '''
 code = code.replace("@CHOICES@", section("struct VariantChoice {", "static void showVariants();"))
+settings_source = (ROOT / "main/ui_settings.cpp").read_text()
+code = code.replace("@SETTINGS_WIDGETS@", settings_source[
+    settings_source.index("static lv_obj_t *styledDropdown("):settings_source.index("\nvoid show()\n")])
 code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ========================================================================================\n// Players"))
 code = code.replace(
     "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)\n{",
@@ -980,6 +1003,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/ui_numpad.cpp" "{ROOT}/main/hw_profile.cpp"
+ "{ROOT}/components/my_ui/fonts/my_font_raw_10.c" "{ROOT}/components/my_ui/fonts/my_font_raw_26.c" "{ROOT}/components/my_ui/fonts/my_font_raw_64.c"
  "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" "{ROOT}/components/my_ui/fonts/my_font_raw_48.c" "{ROOT}/components/my_ui/fonts/my_font_raw_52.c" "{ROOT}/components/my_ui/fonts/my_font_raw_56.c" "{ROOT}/components/my_ui/fonts/my_font_raw_60.c"
   "{ROOT}/components/my_ui/menu_art.cpp" "{ROOT}/main/app_players.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"

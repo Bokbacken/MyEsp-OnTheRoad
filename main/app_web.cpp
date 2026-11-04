@@ -409,6 +409,7 @@ static cJSON *configJson()
         cJSON_AddItemToArray(zones, item);
     }
     cJSON_AddNumberToObject(o, "text_size", c.textSize);
+    cJSON_AddNumberToObject(o, "screen_zoom", c.screenZoom);
     cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
     cJSON_AddBoolToObject(o, "led_enabled", c.ledEnabled);
@@ -458,6 +459,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.screenOffSeconds = static_cast<uint16_t>(v);
     }
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
+    if (q.getInt("screen_zoom", 0, SCREEN_ZOOM_COUNT - 1, v, bad)) next.screenZoom = (uint8_t)v;
     if (q.getBool("eco_sleep", b)) next.ecoSleep = b;
     if (q.getBool("power_log", b)) next.powerLog = b;
     if (q.getBool("menu_animations", b)) next.menuAnimations = b;

@@ -20,13 +20,7 @@ int32_t screenH()
     return h > 0 ? h : HwProfile::active().height;
 }
 
-static int32_t scalePct()
-{
-    const uint32_t pitch = HwProfile::active().pixelPitchYUm();
-    return pitch ? (MyFonts::REFERENCE_PITCH_UM * 100 + pitch / 2) / pitch : 100;
-}
-
-static int32_t sc(int32_t v) { return v * scalePct() / 100; }
+static int32_t sc(int32_t v) { return MyFonts::uiPixels(v); }
 
 int32_t marginSmall() { return sc(4); }
 int32_t marginNormal() { return sc(10); }
@@ -44,8 +38,8 @@ int32_t cardSpacing() { return sc(4); }
 int32_t cardMinH() { return sc(60); }
 
 int32_t controlSpacing() { return sc(6); }
-int32_t titleH() { return sc(44); }
-int32_t headerH() { return sc(74); }
-int32_t footerH() { return sc(26); }
+int32_t titleH() { return sc(44) > my_font_24.line_height + sc(12) ? sc(44) : my_font_24.line_height + sc(12); }
+int32_t headerH() { return titleH() + sc(30); }
+int32_t footerH() { return sc(26) > my_font_14.line_height + sc(8) ? sc(26) : my_font_14.line_height + sc(8); }
 
 }  // namespace UiMetrics

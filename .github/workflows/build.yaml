@@ -224,6 +224,7 @@ jobs:
         if: matrix.board == 'es3c35p'
         run: |
           python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
+          python3 tests/test_adv_game_layout.py /tmp/adventure-layout
           python3 tests/test_yatzy_layout.py /tmp/menu-layout
           python3 tests/test_karaoke_layout.py /tmp/karaoke-layout
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_karaoke_geometry.cpp -o /tmp/test_karaoke_geometry

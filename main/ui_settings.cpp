@@ -96,10 +96,11 @@ uint8_t maxTextSize()
 void applyTextSize()
 {
     static_assert((int)MyFonts::TextSize::COUNT == TEXT_SIZE_COUNT, "text size levels");
+    static_assert((int)MyFonts::ScreenZoom::COUNT == SCREEN_ZOOM_COUNT, "screen zoom levels");
     DisplayLock lock;
     const int32_t w = UiMetrics::screenW(), h = UiMetrics::screenH();
     MyFonts::apply((MyFonts::TextSize)Config::get().textSize, w < h ? w : h,
-                   HwProfile::active().pixelPitchYUm());
+                   HwProfile::active().pixelPitchYUm(), (MyFonts::ScreenZoom)Config::get().screenZoom);
 }
 
 void applyHardware()
@@ -395,6 +396,7 @@ static void leave(bool save)
         Config::get().menuAnimations = s_edit.menuAnimations;
         snprintf(Config::get().tz, sizeof(Config::get().tz), "%s", s_edit.tz);
         Config::get().textSize = s_edit.textSize;
+        Config::get().screenZoom = s_edit.screenZoom;
         Config::get().ledBrightness = s_edit.ledBrightness;
         Config::get().ledEnabled = s_edit.ledEnabled;
         Config::get().rollAnimMs = s_edit.rollAnimMs;
@@ -433,6 +435,7 @@ static void leave(bool save)
         s_timer = nullptr;
     }
     applyHardware();   // Reverts the live preview when cancelled
+    if (save) applyTextSize();
     show();
 }
 
@@ -442,6 +445,7 @@ static lv_obj_t *styledDropdown(lv_obj_t *parent, const char *opts, uint32_t sel
     lv_dropdown_set_options(dd, opts);
     lv_dropdown_set_selected(dd, sel);
     lv_obj_set_width(dd, LV_PCT(100));
+    lv_obj_set_height(dd, UiMetrics::buttonH());
     lv_obj_set_style_bg_color(dd, Theme::c(Theme::PANEL_RAISED), 0);
     lv_obj_set_style_text_color(dd, Theme::c(Theme::TEXT), 0);
     lv_obj_set_style_border_color(dd, Theme::c(Theme::LINE), 0);
@@ -454,12 +458,19 @@ static lv_obj_t *switchRow(lv_obj_t *parent, const char *title, bool on, lv_even
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, LV_PCT(100), 36);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(row, UiMetrics::buttonH(), 0);
     lv_obj_set_scrollable(row, false);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, UiMetrics::marginSmall(), 0);
     lv_obj_t *t = Theme::label(row, title, &my_font_14);
-    lv_obj_align(t, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_width(t, 0);
+    lv_obj_set_flex_grow(t, 1);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_pad_ver(row, UiMetrics::marginSmall(), 0);
     lv_obj_t *sw = lv_switch_create(row);
-    lv_obj_set_size(sw, 50, 26);
+    lv_obj_set_size(sw, UiMetrics::buttonWMin(), MyFonts::uiPixels(26));
     lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_color(sw, Theme::c(Theme::ACCENT), (lv_style_selector_t)LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
@@ -485,8 +496,11 @@ void show()
     Theme::setStatusShareAvailable(false);
     lv_obj_t *scr = Theme::screen();
     lv_obj_t *header = Theme::header(scr, tr(Str::SET_TITLE), false);
-    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_set_height(header, LV_MAX(Theme::headerHeight(), UiMetrics::buttonH() + 12));
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, UiMetrics::buttonWMin(), UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_set_width(lv_obj_get_child(header, 0), LV_MAX(1, UiMetrics::screenW() -
+        Theme::batteryStatusWidth() - UiMetrics::buttonWMin() - 30));
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
         prepareForMenuNavigation();
         UiYatzy::showMenu();
@@ -500,7 +514,7 @@ void show()
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(body, UiMetrics::cardSpacing(), 0);
     lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_scrollable(body, false);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
 
     lv_obj_t *game = Theme::menuCard(body, LV_PCT(100), tr(Str::MENU_SETTINGS_GAME),
                                      tr(Str::MENU_SETTINGS_GAME_DESC), UiYatzy::faceSprite(40, 6),
@@ -538,15 +552,20 @@ static void showPage(Page page)
     const char *title = page == Page::GAME ? tr(Str::MENU_SETTINGS_GAME) :
                         page == Page::USER ? tr(Str::MENU_SETTINGS_USER) : tr(Str::MENU_SETTINGS_ADMIN);
     lv_obj_t *header = Theme::header(scr, title, false);
-    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::BATTERY_STATUS_WIDTH - 8, 0);
+    lv_obj_set_height(header, LV_MAX(Theme::headerHeight(), UiMetrics::buttonH() + 12));
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, UiMetrics::buttonWMin(), UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_set_width(lv_obj_get_child(header, 0), LV_MAX(1, UiMetrics::screenW() -
+        Theme::batteryStatusWidth() - UiMetrics::buttonWMin() - 30));
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) { leave(false); }, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
     const int32_t sw = UiMetrics::screenW(), sh = UiMetrics::screenH();
-    lv_obj_set_pos(body, 0, 46);
-    lv_obj_set_size(body, sw, sh - 46 - 56);
+    const int32_t top = LV_MAX(Theme::headerHeight(), UiMetrics::buttonH() + 12) + UiMetrics::marginSmall();
+    const int32_t footer = UiMetrics::buttonH() + 2 * UiMetrics::marginSmall();
+    lv_obj_set_pos(body, 0, top);
+    lv_obj_set_size(body, sw, sh - top - footer);
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, 8, 0);
     lv_obj_set_style_pad_row(body, 8, 0);
@@ -575,7 +594,15 @@ static void showPage(Page page)
     s_userDisplay = disp;
     lv_obj_set_flex_flow(disp, LV_FLEX_FLOW_COLUMN);
     sliderRow(disp, tr(Str::SET_BRIGHTNESS), 5, 100, s_edit.brightness, &s_brightVal, onBright);
-    // Text size: applied on "Spara" (the menu is rebuilt with the new font roles).
+    Theme::label(disp, tr(Str::SET_SCREEN_ZOOM), &my_font_14, Theme::MUTED);
+    lv_obj_t *screenZoom = styledDropdown(disp, tr(Str::SET_SCREEN_ZOOM_OPTIONS), s_edit.screenZoom);
+    lv_obj_add_event_cb(screenZoom, [](lv_event_t *e) {
+        s_edit.screenZoom = (uint8_t)lv_dropdown_get_selected(lv_event_get_target_obj(e));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_t *zoomHelp = Theme::label(disp, tr(Str::SET_SCREEN_ZOOM_HELP), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(zoomHelp, LV_PCT(100));
+    lv_label_set_long_mode(zoomHelp, LV_LABEL_LONG_MODE_WRAP);
+    // Both choices apply on save when the menu is rebuilt.
     Theme::label(disp, tr(Str::SET_TEXT_SIZE), &my_font_14, Theme::MUTED);
     static char sizeOpts[96];
     snprintf(sizeOpts, sizeof(sizeOpts), "%s", tr(Str::SET_TEXT_SIZE_OPTIONS));
@@ -862,12 +889,13 @@ static void showPage(Page page)
         lv_obj_add_flag(s_sudokuCard, LV_OBJ_FLAG_HIDDEN);
     }
 
-    const int32_t halfW = (sw - 22) / 2;
-    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), halfW - 3, 44, Theme::MUTED);
-    lv_obj_set_pos(cancel, 8, sh - 50);
+    const int32_t inset = UiMetrics::marginSmall();
+    const int32_t halfW = (sw - 3 * inset) / 2;
+    lv_obj_t *cancel = Theme::button(scr, trp(LV_SYMBOL_CLOSE " ", Str::BTN_CANCEL), halfW, UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_set_pos(cancel, inset, sh - UiMetrics::buttonH() - inset);
     lv_obj_add_event_cb(cancel, [](lv_event_t *) { leave(false); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *save = Theme::button(scr, trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE), halfW + 3, 44, Theme::ACCENT, true);
-    lv_obj_set_pos(save, sw - 8 - (halfW + 3), sh - 50);
+    lv_obj_t *save = Theme::button(scr, trp(LV_SYMBOL_SAVE " ", Str::BTN_SAVE), halfW, UiMetrics::buttonH(), Theme::ACCENT, true);
+    lv_obj_set_pos(save, sw - inset - halfW, sh - UiMetrics::buttonH() - inset);
     lv_obj_add_event_cb(save, [](lv_event_t *) { leave(true); }, LV_EVENT_CLICKED, nullptr);
 
     refreshInfo(nullptr);

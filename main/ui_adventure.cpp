@@ -3064,6 +3064,14 @@ static void buildControls()
     const int32_t COL_L_W = s_layout.joystick.x;
     const int32_t COL_R_X = s_layout.joystick.x + s_layout.joystick.w;
     const int32_t COL_R_W = s_layout.controls.w - COL_R_X - px(4);
+    const int32_t swapH = LV_MAX(px(18), my_font_14.line_height + 4);
+    const int32_t hitH = LV_MAX(px(36), my_font_18.line_height + 4);
+    const int32_t barH = LV_MAX(px(18), my_font_14.line_height + 2);
+    const int32_t itemH = LV_MAX(HUD_PX + 2, my_font_14.line_height);
+    const int32_t rightGap = LV_MAX(0, (CTRL_H - px(4) - LV_MAX(36, 2 * HUD_PX) - px(4) -
+        swapH - hitH - barH - itemH) / 3);
+    const int32_t hitY = px(4) + swapH + rightGap;
+    const int32_t barY = hitY + hitH + rightGap;
     lv_obj_t *pan = lv_obj_create(s_gameRoot);
     lv_obj_remove_style_all(pan);
     lv_obj_set_size(pan, s_layout.controls.w, CTRL_H);
@@ -3089,7 +3097,7 @@ static void buildControls()
     for (int r = 0; r < C_COUNT; r++) {
         lv_obj_t *row = lv_obj_create(info);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, COL_L_W - px(8), px(HUD_PX));
+        lv_obj_set_size(row, COL_L_W - px(8), LV_MAX(px(HUD_PX), my_font_14.line_height));
         lv_obj_set_scrollable(row, false);
         lv_obj_set_clickable(row, false);
         if(!s_world->mineLevel()) hudIcon(row, rowIcon[r]);
@@ -3109,21 +3117,21 @@ static void buildControls()
     // Right column, top box: split action button — "Byt" (top 1/3) picks the action,
     // the bottom 2/3 runs it (Slå / Prata / Hoppa). In minefield it is the bomb button.
     if (s_world->mineLevel()) {
-        s_hitBtn = Theme::button(pan, tr(Str::ADV_BOMB), COL_R_W, px(56), Theme::ACCENT, true);
-        lv_obj_set_pos(s_hitBtn, COL_R_X, px(8));
+        s_hitBtn = Theme::button(pan, tr(Str::ADV_BOMB), COL_R_W, swapH + rightGap + hitH, Theme::ACCENT, true);
+        lv_obj_set_pos(s_hitBtn, COL_R_X, px(4));
         s_swapBtn = nullptr;
     } else {
         // Top 1/3: "Byt" cycles the selected action among the ones possible right now.
-        s_swapBtn = Theme::button(pan, tr(Str::ADV_SWAP), COL_R_W, px(18), Theme::LINE, true);
-        lv_obj_set_pos(s_swapBtn, COL_R_X, px(8));
+        s_swapBtn = Theme::button(pan, tr(Str::ADV_SWAP), COL_R_W, swapH, Theme::LINE, true);
+        lv_obj_set_pos(s_swapBtn, COL_R_X, px(4));
         lv_obj_set_style_text_font(lv_obj_get_child(s_swapBtn, 0), &my_font_14, 0);
         lv_obj_add_event_cb(s_swapBtn, [](lv_event_t *) {
             if (!Theme::debounce(s_hitTapMs)) return;
             doSwap();
         }, LV_EVENT_CLICKED, nullptr);
         // Bottom 2/3: run the selected action.
-        s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, px(36), Theme::ACCENT, true);
-        lv_obj_set_pos(s_hitBtn, COL_R_X, px(28));
+        s_hitBtn = Theme::button(pan, tr(Str::ADV_HIT), COL_R_W, hitH, Theme::ACCENT, true);
+        lv_obj_set_pos(s_hitBtn, COL_R_X, hitY);
     }
     s_actSel = ACT_HIT;
     s_actShown = -1;
@@ -3133,8 +3141,8 @@ static void buildControls()
         doHit();
     }, LV_EVENT_PRESSED, nullptr);
     s_bar = lv_bar_create(pan);
-    lv_obj_set_pos(s_bar, COL_R_X, px(74));
-    lv_obj_set_size(s_bar, COL_R_W, px(18));
+    lv_obj_set_pos(s_bar, COL_R_X, barY);
+    lv_obj_set_size(s_bar, COL_R_W, barH);
     lv_obj_set_style_bg_color(s_bar, Theme::c(0xEEF2F7), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_bar, 1, LV_PART_MAIN);
@@ -3147,8 +3155,8 @@ static void buildControls()
     // Compact level badges keep the boat and levelled abilities above the keys.
     s_itemBox = lv_obj_create(pan);
     lv_obj_remove_style_all(s_itemBox);
-    lv_obj_set_pos(s_itemBox, COL_R_X, px(94));
-    lv_obj_set_size(s_itemBox, COL_R_W, HUD_PX + 2);
+    lv_obj_set_pos(s_itemBox, COL_R_X, barY + barH + rightGap);
+    lv_obj_set_size(s_itemBox, COL_R_W, itemH);
     lv_obj_set_flex_flow(s_itemBox, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(s_itemBox, 4, 0);
     lv_obj_set_scrollable(s_itemBox, false);
@@ -3158,7 +3166,7 @@ static void buildControls()
     auto abilityCell = [&](HudIcon ic, uint32_t col, lv_obj_t *&lvl) -> lv_obj_t * {
         lv_obj_t *cell = lv_obj_create(s_itemBox);
         lv_obj_remove_style_all(cell);
-        lv_obj_set_size(cell, HUD_PX + 2, HUD_PX + 2);
+        lv_obj_set_size(cell, HUD_PX + 2, itemH);
         lv_obj_set_scrollable(cell, false);
         lv_obj_set_clickable(cell, false);
         s_item[ic] = hudIcon(cell, ic);
@@ -3233,24 +3241,24 @@ static void buildGame(bool loadFailed)
     lv_obj_set_pos(s_stageLabel,4,4);
     lv_obj_set_width(s_stageLabel, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(s_stageLabel, s_layout.view.w - 8, 0);
-    lv_obj_set_height(s_stageLabel, 20);
+    lv_obj_set_height(s_stageLabel, my_font_14.line_height);
     lv_label_set_long_mode(s_stageLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_stageLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_stageLabel,210,0);
     lv_obj_set_clickable(s_stageLabel,false);
     s_progressLabel=Theme::label(hud,"",&my_font_14,Theme::TEXT);
-    lv_obj_set_pos(s_progressLabel,4,24);
+    lv_obj_set_pos(s_progressLabel,4,my_font_14.line_height + 8);
     lv_obj_set_width(s_progressLabel, s_layout.hud.w / 2 - 6);
-    lv_obj_set_height(s_progressLabel, 20);
+    lv_obj_set_height(s_progressLabel, my_font_14.line_height);
     lv_label_set_long_mode(s_progressLabel, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_bg_color(s_progressLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_progressLabel,210,0);
     lv_obj_set_clickable(s_progressLabel,false);
     lv_obj_set_hidden(s_progressLabel,!s_extraHud);
     s_timerLabel=Theme::label(hud,"",&my_font_14,Theme::TEXT);
-    lv_obj_set_pos(s_timerLabel,s_layout.hud.w / 2 + 2,24);
+    lv_obj_set_pos(s_timerLabel,s_layout.hud.w / 2 + 2,my_font_14.line_height + 8);
     lv_obj_set_width(s_timerLabel, s_layout.hud.w - s_layout.hud.w / 2 - 6);
-    lv_obj_set_height(s_timerLabel, 20);
+    lv_obj_set_height(s_timerLabel, my_font_14.line_height);
     lv_label_set_long_mode(s_timerLabel, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_style_bg_color(s_timerLabel,Theme::c(Theme::BG),0);
     lv_obj_set_style_bg_opa(s_timerLabel,210,0);
@@ -3507,7 +3515,7 @@ static void buildPlayerPick()
     lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
     lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_PLAYER), false);
     lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4 - Theme::batteryStatusWidth() - 4, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
         if (!Theme::debounce(s_profileTapMs)) return;
         buildWorldPick();   // back to the adventure chooser
@@ -3539,7 +3547,7 @@ static void buildWorldPick()
     lv_obj_add_event_cb(scr, screenDeleted, LV_EVENT_DELETE, nullptr);
     lv_obj_t *h = Theme::header(scr, tr(Str::ADV_PICK_WORLD), false);
     lv_obj_t *back = Theme::button(h, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4 - Theme::BATTERY_STATUS_WIDTH - 4, 0);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -4 - Theme::batteryStatusWidth() - 4, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
         if (!Theme::debounce(s_worldTapMs)) return;
         closeDialog();
@@ -3576,7 +3584,8 @@ static void buildWorldPick()
 void show()
 {
     freeAll();
-    s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH());
+    s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH(),
+                            LV_MAX(Game::HUD_HEIGHT, 2 * my_font_14.line_height + 12));
     const size_t stride = lv_draw_buf_width_to_stride(s_layout.view.w, LV_COLOR_FORMAT_RGB565);
     const size_t frameBytes = stride >= size_t(s_layout.view.w) * sizeof(uint16_t) && stride % sizeof(uint16_t) == 0
         ? Game::frameBytes(stride, s_layout.view.h) : 0;

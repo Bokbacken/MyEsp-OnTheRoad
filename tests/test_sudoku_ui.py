@@ -151,9 +151,10 @@ int main() {
       lv_display_set_resolution(display,size.x,size.y);
       for (int language=0;language<2;++language) {
         Lang::setLang(language==0 ? "sv" : "en");
-        for (auto textSize : {MyFonts::TextSize::NORMAL,MyFonts::TextSize::LARGE,MyFonts::TextSize::XLARGE}) {
+        for (int zoom=0;zoom<3;++zoom)
+        for (auto textSize : {MyFonts::TextSize::SMALL,MyFonts::TextSize::NORMAL,MyFonts::TextSize::LARGE,MyFonts::TextSize::XLARGE}) {
         const int shortSide = size.x<size.y?size.x:size.y;
-        MyFonts::apply(textSize,shortSide,shortSide>=480 ? 117 : 154);
+        MyFonts::apply(textSize,shortSide,shortSide>=480 ? 117 : 154,(MyFonts::ScreenZoom)zoom);
         UiSudoku::s_game.start(Sudoku::Difficulty::EASY,0);
         for(auto &next : UiSudoku::s_next) next=0;
         UiSudoku::s_ready=true;
@@ -192,14 +193,21 @@ int main() {
         lv_obj_get_coords(UiSudoku::s_info,&infoArea);
         lv_obj_get_coords(UiSudoku::s_board,&boardArea);
         assert(infoArea.y2 < boardArea.y1);
-        if(size.x<size.y) assert(lv_obj_get_width(UiSudoku::s_board)>=size.x-8);
+        assert(lv_obj_get_width(UiSudoku::s_board) >= 9 * 20);
+        assert(lv_obj_get_width(UiSudoku::s_board) == lv_obj_get_height(UiSudoku::s_board));
+        const auto *cellFont = MyFonts::fit(&my_font_24,lv_obj_get_width(UiSudoku::s_board)/9-4);
+        assert(cellFont->line_height <= lv_obj_get_width(UiSudoku::s_board)/9-4);
         UiSudoku::showHelp(Str::SUDOKU_MODE_NOTES);
         assert(!lv_obj_has_flag(UiSudoku::s_help,LV_OBJ_FLAG_HIDDEN));
         Config::get().sudokuHelpHints=false;
         UiSudoku::showHelp(Str::SUDOKU_MODE_DIGIT);
         assert(lv_obj_has_flag(UiSudoku::s_help,LV_OBJ_FLAG_HIDDEN));
         Config::get().sudokuHelpHints=true;
-        for(auto *digit : UiSudoku::s_digits) inside(digit,size.x,size.y);
+        for(auto *digit : UiSudoku::s_digits) {
+            inside(digit,size.x,size.y);
+            assert(lv_obj_get_style_text_font(lv_obj_get_child(digit,0),LV_PART_MAIN)==&my_font_24);
+            assert(lv_obj_get_height(digit)>=my_font_24.line_height+4);
+        }
         inside(UiSudoku::s_noteButton,size.x,size.y);
         inside(UiSudoku::s_pauseButton,size.x,size.y);
         unsigned empty=0;
