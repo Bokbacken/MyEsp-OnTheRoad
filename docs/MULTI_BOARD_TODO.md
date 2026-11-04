@@ -27,7 +27,10 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   typsnitt, med värdtester för verkliga glyphöjder och relevanta layouter.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
   avvisas; återgång till äldre firmware kräver USB.
-- [ ] Verifiera alla tre firmwarebyggen i CI och ange körning i PR.
+- [x] Alla tre firmwarebyggen och värdtester är gröna i CI-körning
+  [41844848779](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/41844848779)
+  för `ca6c3d7`. Verkliga appbilder har verifierad kortidentitet vid offset 288.
+  Tre separata v0.25.0-artefakter finns; nytt kort är fortfarande hårdvaruoverifierat.
 - [ ] Första USB-flash på nya kortet: färgtest, touch i hörn/rotation och
   karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
 - [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-
