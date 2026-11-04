@@ -41,10 +41,12 @@ bool g_tapCancelled = false;
 void cancelMovedClick(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
-    if (!g_tapCancelled || code != LV_EVENT_CLICKED) return;
+    if (!g_tapCancelled ||
+        (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED &&
+         code != LV_EVENT_SINGLE_CLICKED && code != LV_EVENT_DOUBLE_CLICKED &&
+         code != LV_EVENT_TRIPLE_CLICKED)) return;
     lv_event_stop_processing(event);
     lv_indev_stop_processing(g_indev);
-    g_tapCancelled = false;
 }
 
 esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
@@ -69,16 +71,13 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
     }
     if (data[1] == 0) return ESP_OK;
     if (data[1] > MAX_POINTS || data[0] == 0xFF) return ESP_ERR_INVALID_RESPONSE;
-    if ((data[2] >> 6) == 1) {
-        released = true;
-        return ESP_OK;
-    }
     const uint16_t px = ((data[2] & 0x0F) << 8) | data[3];
     const uint16_t py = ((data[4] & 0x0F) << 8) | data[5];
     if (px >= LCD_H_RES || py >= LCD_V_RES) return ESP_ERR_INVALID_RESPONSE;
     x = px;
     y = py;
-    down = true;
+    released = (data[2] >> 6) == 1;
+    down = !released;
     return ESP_OK;
 }
 
@@ -130,29 +129,36 @@ bool pointerRead(int16_t *outX, int16_t *outY)
             if (g_info.pressed) g_tapCancelled = true;
             g_info.pressed = false;
             g_gap = false;
-        } else if (down) {
-            if (!g_info.pressed) {
-                g_info.touchCount++;
-                g_touchStartX = x;
-                g_touchStartY = y;
-                g_tapCancelled = false;
+        } else {
+            if ((down || released) && g_info.pressed) {
+                const int32_t dx = int32_t(x) - g_touchStartX;
+                const int32_t dy = int32_t(y) - g_touchStartY;
+                if (dx * dx + dy * dy > int32_t(TAP_SLOP_PX * TAP_SLOP_PX))
+                    g_tapCancelled = true;
             }
-            if (g_gap) g_info.bridgedGaps++;
-            g_gap = false;
-            g_info.lastX = x;
-            g_info.lastY = y;
-            g_info.pressed = true;
-            g_lastDown = now;
-            const int32_t dx = int32_t(x) - g_touchStartX;
-            const int32_t dy = int32_t(y) - g_touchStartY;
-            if (!g_tapCancelled && dx * dx + dy * dy > int32_t(TAP_SLOP_PX * TAP_SLOP_PX)) {
-                g_tapCancelled = true;
+            if (down) {
+                if (!g_info.pressed) {
+                    g_info.touchCount++;
+                    g_touchStartX = x;
+                    g_touchStartY = y;
+                    g_tapCancelled = false;
+                }
+                if (g_gap) g_info.bridgedGaps++;
+                g_gap = false;
+                g_info.lastX = x;
+                g_info.lastY = y;
+                g_info.pressed = true;
+                g_lastDown = now;
+            } else if (released || now - g_lastDown >= RELEASE_HOLD_MS) {
+                if (released && g_info.pressed) {
+                    g_info.lastX = x;
+                    g_info.lastY = y;
+                }
+                g_info.pressed = false;
+                g_gap = false;
+            } else if (g_info.pressed) {
+                g_gap = true;
             }
-        } else if (released || now - g_lastDown >= RELEASE_HOLD_MS) {
-            g_info.pressed = false;
-            g_gap = false;
-        } else if (g_info.pressed) {
-            g_gap = true;
         }
     }
     *outX = int16_t(g_info.lastX);

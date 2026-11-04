@@ -491,11 +491,12 @@ int main(int argc, char **argv) {
     assert(!poll(x, y));
     for (lv_event_code_t code : {LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED,
                                  LV_EVENT_DOUBLE_CLICKED, LV_EVENT_TRIPLE_CLICKED,
-                                 LV_EVENT_RELEASED}) {
+                                 LV_EVENT_CLICKED, LV_EVENT_RELEASED}) {
         lv_event_t event{code};
         pointerMock.stopProcessing = false;
         pointerEventCallback(&event);
-        assert(!pointerMock.stopProcessing && !event.stopped);
+        assert(pointerMock.stopProcessing == (code != LV_EVENT_RELEASED));
+        assert(event.stopped == (code != LV_EVENT_RELEASED));
     }
     lv_event_t movedClick{LV_EVENT_CLICKED};
     pointerMock.stopProcessing = false;
@@ -504,9 +505,50 @@ int main(int argc, char **argv) {
     lv_event_t movedShortClick{LV_EVENT_SHORT_CLICKED};
     pointerMock.stopProcessing = false;
     pointerEventCallback(&movedShortClick);
-    assert(!pointerMock.stopProcessing && !movedShortClick.stopped);
+    assert(pointerMock.stopProcessing && movedShortClick.stopped);
     setPoint(125, 115);
     assert(poll(x, y));
+    setPoint(125, 115, 1);
+    assert(!poll(x, y));
+    lv_event_t freshTap{LV_EVENT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&freshTap);
+    assert(!freshTap.stopped && !pointerMock.stopProcessing);
+    // A quick swipe may have only a start frame and a release at its destination.
+    setPoint(100, 100);
+    assert(poll(x, y));
+    setPoint(180, 160, 1);
+    assert(!poll(x, y) && x == 180 && y == 160);
+    for (lv_event_code_t code : {LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED,
+                                 LV_EVENT_DOUBLE_CLICKED, LV_EVENT_TRIPLE_CLICKED,
+                                 LV_EVENT_CLICKED}) {
+        lv_event_t event{code};
+        pointerMock.stopProcessing = false;
+        pointerEventCallback(&event);
+        assert(event.stopped && pointerMock.stopProcessing);
+    }
+    // Crossing the threshold and returning to the origin still cancels the gesture.
+    setPoint(100, 100);
+    assert(poll(x, y));
+    setPoint(121, 100);
+    assert(poll(x, y));
+    setPoint(100, 100, 1);
+    assert(!poll(x, y));
+    lv_event_t returnedClick{LV_EVENT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&returnedClick);
+    assert(returnedClick.stopped && pointerMock.stopProcessing);
+    for (int distance : {20, 21}) {
+        setPoint(100, 100);
+        assert(poll(x, y));
+        setPoint(100 + distance, 100, 1);
+        assert(!poll(x, y));
+        lv_event_t event{LV_EVENT_CLICKED};
+        pointerMock.stopProcessing = false;
+        pointerEventCallback(&event);
+        assert(event.stopped == (distance > 20));
+        assert(pointerMock.stopProcessing == (distance > 20));
+    }
     const uint8_t corruptReports[][14] = {
         {0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13},
         {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD, 0x65, 0x66, 0xFF, 0xFF, 0xFF, 0xFF},
