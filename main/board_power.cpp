@@ -188,6 +188,7 @@ bool begin()
     publish(next);
     if (s_status.supported) {
         refreshPmic();
+        ESP_LOGI(TAG, "AXP2101 PMIC ready at 0x%02X", AXP2101_ADDR);
         if (xTaskCreatePinnedToCore(sampleTask, "board_power", 3072, nullptr, 2, nullptr, 0) != pdPASS) {
             Status failed = status();
             ++failed.errors;

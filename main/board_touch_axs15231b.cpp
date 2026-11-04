@@ -16,7 +16,11 @@ const char *TAG = "touch";
 constexpr int I2C_TIMEOUT_MS = 20;
 constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
-constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 0x0E, 0, 0, 0};
+// Espressif's esp_lcd_touch_axs15231b reference: one point (8-byte report), command and
+// read as two separate transactions (a repeated-start read can be NACKed by the controller).
+constexpr size_t REPORT_LEN = 8;
+constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
+constexpr uint8_t MAX_POINTS = 1;
 
 Touch::Info g_info = {};
 uint8_t g_scan[0x78 - 0x08];
@@ -26,37 +30,41 @@ lv_indev_t *g_indev = nullptr;
 uint32_t g_lastPoll = 0;
 uint32_t g_lastDown = 0;
 bool g_gap = false;
+uint32_t g_oddFrames = 0;
 
-esp_err_t decodePoint(const uint8_t (&data)[14], bool &down, bool &released, uint16_t &x, uint16_t &y)
+// Like the reference driver, frames without a plausible point count simply mean "no touch";
+// they are not bus errors. Edge reports just outside the panel are clamped.
+void decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
     down = false;
     released = false;
-    if (data[0] == 0xFF || data[1] > 2) return ESP_ERR_INVALID_RESPONSE;
-    for (uint8_t i = 0; i < data[1]; i++) {
-        const uint8_t *p = data + 2 + i * 6;
-        const uint8_t event = p[0] >> 6;
-        if (event == 3) return ESP_ERR_INVALID_RESPONSE;
-        if (event == 1) {
-            released = true;
-            continue;
+    if (data[1] == 0) return;
+    if (data[1] > MAX_POINTS + 1 || data[0] == 0xFF) {
+        g_oddFrames++;
+        if (g_oddFrames <= 3 || g_oddFrames % 500 == 0) {
+            ESP_LOGW(TAG, "AXS15231B odd frame #%u: %02X %02X %02X %02X %02X %02X %02X %02X", (unsigned)g_oddFrames,
+                     data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
         }
-        const uint16_t px = ((p[0] & 0x0F) << 8) | p[1];
-        const uint16_t py = ((p[2] & 0x0F) << 8) | p[3];
-        if (px >= LCD_H_RES || py >= LCD_V_RES) return ESP_ERR_INVALID_RESPONSE;
-        x = px;
-        y = py;
-        down = true;
-        return ESP_OK;
+        return;
     }
-    return ESP_OK;
+    if ((data[2] >> 6) == 1) {
+        released = true;
+        return;
+    }
+    const uint16_t px = ((data[2] & 0x0F) << 8) | data[3];
+    const uint16_t py = ((data[4] & 0x0F) << 8) | data[5];
+    x = px < LCD_H_RES ? px : LCD_H_RES - 1;
+    y = py < LCD_V_RES ? py : LCD_V_RES - 1;
+    down = true;
 }
 
 esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
-    uint8_t data[14] = {};
-    esp_err_t err = i2c_master_transmit_receive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
-                                              data, sizeof(data), I2C_TIMEOUT_MS);
-    return err == ESP_OK ? decodePoint(data, down, released, x, y) : err;
+    uint8_t data[REPORT_LEN] = {};
+    esp_err_t err = i2c_master_transmit(g_dev, READ_COMMAND, sizeof(READ_COMMAND), I2C_TIMEOUT_MS);
+    if (err == ESP_OK) err = i2c_master_receive(g_dev, data, sizeof(data), I2C_TIMEOUT_MS);
+    if (err == ESP_OK) decodePoint(data, down, released, x, y);
+    return err;
 }
 
 void scanBus()
@@ -81,7 +89,7 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         if (err != ESP_OK) {
             g_info.readErrors++;
             if (g_info.readErrors == 1 || g_info.readErrors % 100 == 0) {
-                ESP_LOGW(TAG, "AXS15231B read: %s (%u errors)", esp_err_to_name(err), (unsigned)g_info.readErrors);
+                ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)", esp_err_to_name(err), (unsigned)g_info.readErrors);
             }
             // A failed bus must not keep an old button pressed.
             g_info.pressed = false;
@@ -149,7 +157,7 @@ bool begin()
     g_info.address = TOUCH_I2C_ADDR;
     g_info.maxX = LCD_H_RES;
     g_info.maxY = LCD_V_RES;
-    g_info.maxTouches = 2;
+    g_info.maxTouches = MAX_POINTS;
     // No documented firmware-identification command: version fields remain unknown (zero).
     ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, polled (no IRQ/reset GPIO)", TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY);
     return true;

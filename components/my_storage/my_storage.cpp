@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_vfs_fat.h"
 #include "my_log.h"
 #include "nvs_flash.h"
@@ -174,6 +175,23 @@ static void healthCheck()
     }
 }
 
+// True only when every byte of the partition is erased (0xFF): a factory-fresh partition
+// that cannot hold any user data, so formatting it is safe even when formatIfFail is false.
+static bool partitionErased(const char *label)
+{
+    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, label);
+    if (!part) return false;
+    static uint32_t buf[256];
+    for (size_t off = 0; off < part->size; off += sizeof(buf)) {
+        const size_t n = part->size - off < sizeof(buf) ? part->size - off : sizeof(buf);
+        if (esp_partition_read(part, off, buf, n) != ESP_OK) return false;
+        for (size_t i = 0; i < n / sizeof(uint32_t); ++i) {
+            if (buf[i] != 0xFFFFFFFFu) return false;
+        }
+    }
+    return true;
+}
+
 bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
 {
     if (s_mounted) return true;
@@ -190,6 +208,11 @@ bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
     cfg.max_files = maxFiles;
     cfg.allocation_unit_size = CONFIG_WL_SECTOR_SIZE;
     esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(base, label, &cfg, &s_wl);
+    if (err != ESP_OK && !formatIfFail && partitionErased(label)) {
+        MyLog::event(TAG, "FAT '%s' is blank (never formatted) - formatting on first boot", label);
+        cfg.format_if_mount_failed = true;
+        err = esp_vfs_fat_spiflash_mount_rw_wl(base, label, &cfg, &s_wl);
+    }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "FAT mount '%s' failed: %s", label, esp_err_to_name(err));
         return false;

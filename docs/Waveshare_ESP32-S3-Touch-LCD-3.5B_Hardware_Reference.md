@@ -14,7 +14,7 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 |---|---|
 | MCU/display | ESP32-S3, AXS15231B QSPI panel, 320 × 480 |
 | I2C | SDA GPIO8, SCL GPIO7, 400 kHz |
-| Touch | AXS15231B, I2C address `0x3B` |
+| Touch | AXS15231B, I2C address `0x3B`; polled with a separate command write and 8-byte one-point read |
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |

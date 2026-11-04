@@ -14,6 +14,11 @@ a published GitHub Release.
   AXS15231B QSPI display/touch, TCA9554 shared reset, AXP2101 power monitoring,
   1-bit SDMMC, ES8311 audio and PCF85063 RTC. Hardware verification remains
   required; the owner's PCB revision is not confirmed.
+- A completely erased (all 0xFF) FFat partition is formatted on first boot.
+  Partitions containing any data are still never formatted automatically.
+- S3_35B touch follows Espressif's AXS15231B reference: separate command/read
+  transactions, a one-point 8-byte report, implausible frames treated as no
+  touch (raw bytes logged) and edge coordinates clamped.
 - Battery voltage, USB presence, charging/completion and valid fuel-gauge
   percentage are read from the PMIC without ADC-divider calibration. Existing
   ADC-based boards retain their calibration and voltage-derived estimates.

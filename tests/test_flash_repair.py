@@ -32,13 +32,30 @@ constexpr int WL_INVALID_HANDLE=-1, ESP_OK=0, ESP_FAIL=-1;
 inline const char *esp_err_to_name(int) { return "injected error"; }
 namespace MyLog { template<class... T> void event(T...) {} }
 struct esp_vfs_fat_mount_config_t { bool format_if_mount_failed; int max_files; int allocation_unit_size; };
-inline bool diskValid=false, failFormat=false, failRemount=false;
-inline int formats=0, mounts=0;
+inline bool diskValid=false, failFormat=false, failRemount=false, partitionBlank=false;
+inline int formats=0, mounts=0, autoFormats=0;
+constexpr int ESP_PARTITION_TYPE_DATA=1, ESP_PARTITION_SUBTYPE_DATA_FAT=0x81;
+struct esp_partition_t { size_t size; };
+inline const esp_partition_t *esp_partition_find_first(int type, int subtype, const char *label) {
+    static const esp_partition_t part{10000}; // Not a multiple of the read chunk.
+    assert(type==ESP_PARTITION_TYPE_DATA && subtype==ESP_PARTITION_SUBTYPE_DATA_FAT && std::strcmp(label,"ffat")==0);
+    return &part;
+}
+inline int esp_partition_read(const esp_partition_t *p, size_t off, void *dst, size_t n) {
+    assert(off+n<=p->size);
+    std::memset(dst, 0xFF, n);
+    if (!partitionBlank && off==0) static_cast<uint8_t *>(dst)[n-1]=0; // Old data: never auto-format.
+    return ESP_OK;
+}
 inline int esp_vfs_fat_spiflash_mount_rw_wl(const char *base, const char *label,
                                          const esp_vfs_fat_mount_config_t *c, int *wl) {
     assert(std::strcmp(base,"/ffat")==0 && std::strcmp(label,"ffat")==0);
-    assert(!c->format_if_mount_failed && c->max_files==11 && c->allocation_unit_size==4096);
+    assert(c->max_files==11 && c->allocation_unit_size==4096);
     ++mounts;
+    if (c->format_if_mount_failed) {
+        assert(partitionBlank && !diskValid);
+        ++autoFormats; diskValid=true; *wl=7; return ESP_OK;
+    }
     if (!diskValid || failRemount) return ESP_FAIL;
     *wl=7; return ESP_OK;
 }
@@ -55,9 +72,14 @@ TEST = r'''
 int main(int argc, char **argv) {
     using namespace MyFat;
     const char *mode=argc>1 ? argv[1] : "";
+    if (std::strcmp(mode,"blank")==0) {
+        partitionBlank=true; // Factory-fresh, fully erased partition is formatted on first boot.
+        assert(mount("ffat","/ffat",false,11) && mounted() && autoFormats==1 && mounts==2);
+        return 0;
+    }
     assert(!format() && formats==0); // No partition has been selected.
     assert(!mount("ffat","/ffat",false,11));
-    assert(!mounted() && formats==0 && mounts==1); // Boot is observation-only.
+    assert(!mounted() && formats==0 && autoFormats==0 && mounts==1); // Non-blank data is never auto-formatted.
     assert(std::strcmp(basePath(),"/ffat")==0);
     if (std::strcmp(mode,"formatfail")==0) {
         failFormat=true;
@@ -90,6 +112,6 @@ with tempfile.TemporaryDirectory(prefix="otr-flash-repair-") as directory:
         f"-I{work}", f"-I{ROOT / 'components/my_storage/include'}",
         str(work / "test.cpp"), "-o", str(work / "test"),
     ], check=True)
-    for mode in ["ok", "formatfail", "remountfail"]:
+    for mode in ["ok", "formatfail", "remountfail", "blank"]:
         subprocess.run([str(work / "test"), mode], check=True)
-print("FFat: failed boot mount, explicit repair, format/remount errors and admin guards passed")
+print("FFat: failed boot mount, blank first-boot format, explicit repair, format/remount errors and admin guards passed")

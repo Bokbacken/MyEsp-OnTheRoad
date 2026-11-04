@@ -31,7 +31,15 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   [41844848779](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/41844848779)
   för `ca6c3d7`. Verkliga appbilder har verifierad kortidentitet vid offset 288.
   Tre separata v0.25.0-artefakter finns; nytt kort är fortfarande hårdvaruoverifierat.
-- [ ] Första USB-flash på nya kortet: färgtest, touch i hörn/rotation och
+- [x] Första USB-flash (ägarlogg): skärm, touch-start, SD, ES8311, PCF85063,
+  Wi-Fi och SNTP fungerade. Tom FFat på nytt kort monterades inte, och
+  AXS15231B-läsningar gav upprepade `ESP_ERR_INVALID_RESPONSE` vid användning.
+- [x] Åtgärd: helt raderad (0xFF) FFat formateras vid första start; partitioner
+  med data formateras aldrig automatiskt. Touch följer Espressifs referens:
+  separat kommando/läsning, 8-byte enpunktsrapport, orimliga ramar betyder
+  ingen beröring (råbytes loggas) och kantkoordinater klampas.
+- [ ] Bekräfta åtgärden på kortet: FFat monterad, inga touchläsfel.
+- [ ] Färgtest, touch i hörn/rotation och
   karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
 - [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-
   spänning mot multimeter. PCB-revision är obekräftad, möjligen V1.
