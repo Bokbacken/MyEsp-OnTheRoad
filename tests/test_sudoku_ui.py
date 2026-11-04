@@ -155,6 +155,13 @@ int main() {
         for (auto textSize : {MyFonts::TextSize::SMALL,MyFonts::TextSize::NORMAL,MyFonts::TextSize::LARGE,MyFonts::TextSize::XLARGE}) {
         const int shortSide = size.x<size.y?size.x:size.y;
         MyFonts::apply(textSize,shortSide,shortSide>=480 ? 117 : 154,(MyFonts::ScreenZoom)zoom);
+        for (const auto *font : {&my_font_14, &my_font_18, &my_font_24, &my_font_36}) {
+            for (uint32_t symbol : {0xF0E2u, 0xF2F9u}) {
+                lv_font_glyph_dsc_t glyph{};
+                assert(lv_font_get_glyph_dsc(font, &glyph, symbol, 0));
+                assert(glyph.box_w && glyph.box_h);
+            }
+        }
         UiSudoku::s_game.start(Sudoku::Difficulty::EASY,0);
         for(auto &next : UiSudoku::s_next) next=0;
         UiSudoku::s_ready=true;

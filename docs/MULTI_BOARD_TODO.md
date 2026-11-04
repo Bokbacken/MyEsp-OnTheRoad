@@ -29,6 +29,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   P4:s befintliga fysiska Normal är referens; spelplaner anpassas till
   skärmen medan spel-/karaoketext följer fysiska teckensnittsroller.
   Större text får mer utrymme eller rullningsbar vy, inte global bildzoom.
+- [x] Sudokus ångra/gör om-symboler finns i samtliga genererade fontstorlekar;
+  värdtest kontrollerar symbolerna efter varje byte av zoom/textstorlek.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
