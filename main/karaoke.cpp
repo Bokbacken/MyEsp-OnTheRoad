@@ -1242,14 +1242,23 @@ Err discardSongSettings()
         if (!s_open) return Err::NO_FILE;
         if (synthBusy()) return Err::BUSY;
         saved = s_savedSettings;
+        s_player.setTempo(saved.tempo);
+        s_melody = saved.melody;
+        s_melodyReg = s_melody != s_song.melody;
+        s_melodyMuted = saved.melodyMuted;
+        s_songVolume = saved.volume;
+        s_songSf2 = saved.sf2;
+        s_pendingTr = saved.transpose;
+        s_trReload = false;
+        s_resumePlay = false;
+        s_trRejected = false;
+        if (!synthBusy()) {
+            s_synth.setTranspose(saved.transpose);
+            s_player.seek(s_player.position(), s_synth);
+            applyMelodyMute();
+        }
     }
-    setTempo(saved.tempo);
-    setMelody(saved.melody);
-    setMelodyMuted(saved.melodyMuted);
-    setSongVolume(saved.volume);
-    setSongFont(saved.sf2.c_str());
-    setTranspose(saved.transpose);
-    ensureFont();
+    ensureFont(true);
     return Err::OK;
 }
 

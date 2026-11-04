@@ -20,7 +20,10 @@ a published GitHub Release.
 - Registry writes are serialized and installed atomically; failed writes keep the
   previous saved state and leave the draft available for retry. Existing entries,
   playlists and favorites remain readable; optional playlist paths help the web
-  picker resolve songs without hashing the entire library.
+  picker resolve songs without hashing the entire library. Legacy playlists above
+  the new creation/insertion limits are preserved through load/save. Discard
+  restores the saved SoundFont and key together, and stale device confirmation
+  dialogs cannot act on a song opened remotely.
 - All songs now lists songs only, instead of prepending every subfolder (145
   folders could fill several pages before the first song). Folder navigation
   stays available in the root browser. Letter jumps reuse the current browser view instead of allocating another full

@@ -148,7 +148,6 @@ function setLang(l, save) {
   if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
   if (last) render();
   renderPlaylistOptions();
-  loadPlaylist();
 }
 
 function el(tag, cls, text) {

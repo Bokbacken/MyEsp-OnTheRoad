@@ -85,6 +85,7 @@ static SongFile file{"/sdcard/otr/karaoke/Test_Long title.kar",
     "A very long title with ÅÄÖ that must never collide with menu or back controls",
     "A very long artist name", 100, ""};
 static View state{};
+static uint32_t externalGen;
 static FontState font = FontState::READY;
 static bool opened, muted, rejectTranspose;
 static int speed = 100, key = 0, channel = 0, vol = 80;
@@ -95,7 +96,7 @@ bool loadIndex() { return true; }
 void rescanAsync() {}
 bool scanning() { return false; }
 uint32_t libraryGen() { return 1; }
-uint32_t externalOpenGen() { return 0; }
+uint32_t externalOpenGen() { return externalGen; }
 Err libraryError() { return Err::OK; }
 void libraryLock() {}
 void libraryUnlock() {}
@@ -534,6 +535,13 @@ static void checkSongDecisions() {
     inside(dialog, lv_layer_top());
     click(lv_obj_get_child(lv_msgbox_get_header(dialog), -1)); // Cancel keeps the song and draft.
     assert(Karaoke::isOpen() && Karaoke::dirty && Karaoke::songSaves == saves);
+    Karaoke::file.path = "/sdcard/otr/karaoke/Web opened.kar";
+    ++Karaoke::externalGen;
+    settle();
+    assert(Karaoke::isOpen() && Karaoke::dirty && Karaoke::songSaves == saves);
+    assert(!button(lv_layer_top(), tr(Str::BTN_SAVE))); // Old draft dialog is dismissed.
+    Karaoke::file.path = "/sdcard/otr/karaoke/Test_Long title.kar";
+    ++Karaoke::externalGen;
     click(button(P.scr, LV_SYMBOL_LEFT));
     click(button(lv_layer_top(), tr(Str::BTN_SAVE)));
     assert(!Karaoke::isOpen() && !Karaoke::dirty && Karaoke::songSaves == saves + 1);

@@ -374,6 +374,20 @@ static void testPlaylistsAndFavorites()
     for (unsigned i = 0; i < 500; i++) CHECK(bounded.setPlaylistSong(1, i, 1, true, "Song.kar"));
     CHECK(!bounded.setPlaylistSong(1, 501, 1, true, "Song.kar"));
     CHECK(bounded.setPlaylistSong(1, 0, 1, true, "Renamed.kar"));
+    std::string legacy;
+    for (unsigned i = 1; i <= 33; i++) {
+        legacy += "#playlist " + std::to_string(i) + " Legacy" + std::to_string(i) + "\n";
+        for (unsigned song = 0; song < 501; song++)
+            legacy += "#playlist-song " + std::to_string(i) + " " + std::to_string(song) + " 1\n";
+    }
+    Registry legacyLarge;
+    legacyLarge.load(legacy);
+    CHECK(legacyLarge.playlists().size() == 33);
+    CHECK(legacyLarge.playlists().front().songs.size() == 501);
+    Registry legacyRoundTrip;
+    legacyRoundTrip.load(legacyLarge.save());
+    CHECK(legacyRoundTrip.playlists().size() == 33);
+    CHECK(legacyRoundTrip.playlists().front().songs.size() == 501);
 }
 
 static void testPlayer()

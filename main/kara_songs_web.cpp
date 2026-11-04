@@ -49,7 +49,7 @@ esp_err_t result(httpd_req_t *r, Karaoke::Err err)
     }
     return MyWeb::sendJson(r, err == Karaoke::Err::BUSY || err == Karaoke::Err::UNSAVED ? 409 :
                           err == Karaoke::Err::SAVE_FAILED || err == Karaoke::Err::NO_SD ? 503 :
-                          err == Karaoke::Err::NO_FILE ? 404 : 422, o);
+                          err == Karaoke::Err::NO_FILE ? 404 : 400, o);
 }
 
 // The library is loaded when the karaoke menu opens; the picker may be used before that.
@@ -191,7 +191,7 @@ esp_err_t playlistsGet(httpd_req_t *r)
     long id = 0, offset = 0;
     bool bad = false;
     q.getInt("id", 1, UINT16_MAX, id, bad);
-    q.getInt("offset", 0, 500, offset, bad);
+    q.getInt("offset", 0, UINT16_MAX, offset, bad);
     if (bad) return MyWeb::sendError(r, 400, "bad id/offset");
     std::vector<Karaoke::PlaylistView> lists;
     const auto err = Karaoke::playlists(lists, (uint16_t)id, (size_t)offset);

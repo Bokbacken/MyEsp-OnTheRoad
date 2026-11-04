@@ -47,9 +47,11 @@ På `/karaoke/songs` finns spellistor **under den befintliga låtlistan**.
 Skapa, byt namn eller radera en lista; välj den och använd **+ Lista** vid en låt.
 I listan kan låtar tas bort och flyttas upp/ned. Radering tar aldrig bort låtfiler.
 Tryck på en låt för att starta den; automatisk köuppspelning ingår inte i detta steg.
-Gränser: 32 spellistor, 500 låtar per lista och totalt högst 256 KiB registertext.
-Tomma/dubbla namn och överskridna gränser ger fel, inte ett skenbart lyckat svar.
-Listnamn får vara högst 48 UTF-8-byte.
+Nya spellistor begränsas till 32 och nya medlemmar till 500 låtar per lista;
+totalt högst 256 KiB registertext. Redan sparade äldre listor över dessa gränser
+bevaras vid läsning/sparning, och deras innehåll hämtas i 100-låtssidor.
+Tomma/dubbla namn och överskridna gränser för nya poster ger klientfel, inte ett
+skenbart lyckat svar. Listnamn får vara högst 48 UTF-8-byte.
 
 **SF2** vid en låt öppnar ett val av tillgängliga ljudbanker. **Spara** bekräftar
 valet för just den låten; Avbryt skriver ingenting. Övriga sparade låtval och
@@ -63,6 +65,8 @@ webbens låtbyte kräver Spara/Kasta/Avbryt när något är ändrat. Även webbs
 visar Spara/Kasta för den öppna låten vid inläsning eller när fliken återfår fokus.
 Mastervolymen är fortfarande global och sparas direkt; den ingår inte i låtutkastet.
 Utkast överlever inte omstart/strömavbrott.
+Om en fjärröppning byter låt medan enhetens Spara/Kasta-dialog är öppen stängs
+dialogen; dess knappar får aldrig spara eller stänga en annan låt.
 
 Lagring: befintliga `karaoke.reg` behålls. Spellistor använder CRC32 + filstorlek
 som identitet och en valfri procentkodad relativ sökväg i `#playlist-song`-posten.

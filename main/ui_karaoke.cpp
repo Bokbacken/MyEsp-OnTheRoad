@@ -116,6 +116,31 @@ struct Player {
 };
 Player P{};
 
+struct LeaveDialogContext {
+    lv_obj_t *dialog;
+    lv_timer_t *timer;
+    std::string songPath;
+    uint32_t externalGen;
+    bool closing;
+};
+
+bool sameSong(const LeaveDialogContext *context)
+{
+    const Karaoke::SongFile current = Karaoke::current();
+    return current.path == context->songPath && Karaoke::externalOpenGen() == context->externalGen;
+}
+
+void closeLeaveDialog(LeaveDialogContext *context)
+{
+    if (context->closing) return;
+    context->closing = true;
+    if (context->timer) {
+        lv_timer_delete(context->timer);
+        context->timer = nullptr;
+    }
+    lv_msgbox_close_async(context->dialog);
+}
+
 void syncVolumeControls()
 {
     P.updatingVolumeControls = true;
@@ -1364,22 +1389,43 @@ void leavePlayer()
     }
     closeSheet();
     lv_obj_t *q = lv_msgbox_create(nullptr);
+    auto *context = new LeaveDialogContext{q, nullptr, Karaoke::current().path,
+                                           Karaoke::externalOpenGen(), false};
     lv_msgbox_add_text(q, tr(Str::KARA_UNSAVED));
     lv_msgbox_add_close_button(q);
     lv_obj_t *save = lv_msgbox_add_footer_button(q, tr(Str::BTN_SAVE));
     lv_obj_t *discard = lv_msgbox_add_footer_button(q, tr(Str::KARA_DISCARD));
     lv_obj_add_event_cb(save, [](lv_event_t *e) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_event_get_user_data(e));
+        if (!sameSong(context)) {
+            closeLeaveDialog(context);
+            return;
+        }
         const auto err = Karaoke::saveSongSettings();
         if (err != Karaoke::Err::OK) { msg(Karaoke::errText(err)); return; }
-        lv_msgbox_close_async((lv_obj_t *)lv_event_get_user_data(e));
+        closeLeaveDialog(context);
         Karaoke::close();
         showList();
-    }, LV_EVENT_CLICKED, q);
+    }, LV_EVENT_CLICKED, context);
     lv_obj_add_event_cb(discard, [](lv_event_t *e) {
-        lv_msgbox_close_async((lv_obj_t *)lv_event_get_user_data(e));
+        auto *context = static_cast<LeaveDialogContext *>(lv_event_get_user_data(e));
+        if (!sameSong(context)) {
+            closeLeaveDialog(context);
+            return;
+        }
+        closeLeaveDialog(context);
         Karaoke::close();   // An explicit discard must not reload the old bank before leaving.
         showList();
-    }, LV_EVENT_CLICKED, q);
+    }, LV_EVENT_CLICKED, context);
+    lv_obj_add_event_cb(q, [](lv_event_t *e) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_event_get_user_data(e));
+        if (context->timer) lv_timer_delete(context->timer);
+        delete context;
+    }, LV_EVENT_DELETE, context);
+    context->timer = lv_timer_create([](lv_timer_t *timer) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_timer_get_user_data(timer));
+        if (!context->closing && !sameSong(context)) closeLeaveDialog(context);
+    }, 200, context);
     Theme::msgboxFonts(q);
     const auto l = layout();
     lv_obj_set_width(q, std::min<int32_t>(l.w - 2 * l.inset, 600));

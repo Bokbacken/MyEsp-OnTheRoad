@@ -585,7 +585,7 @@ void Registry::load(const std::string &text)
             if (sscanf(line.c_str() + 10, "%u %255s", &id, encoded) != 2 || !id || id > UINT16_MAX)
                 continue;
             const std::string name = decodeToken(encoded);
-            if (!name.empty() && name.size() <= 48 && !strpbrk(name.c_str(), "\r\n\t") && playlists_.size() < 32 &&
+            if (!name.empty() && name.size() <= 48 && !strpbrk(name.c_str(), "\r\n\t") &&
                 std::none_of(playlists_.begin(), playlists_.end(),
                              [id](const Playlist &p) { return p.id == id; })) {
                 playlists_.push_back(Playlist{(uint16_t)id, name, {}});
@@ -598,8 +598,16 @@ void Registry::load(const std::string &text)
             int used = 0;
             if (sscanf(line.c_str(), "#playlist-song %u %8x %u %n", &id, &crc, &size, &used) == 3 &&
                 id && id <= UINT16_MAX) {
-                const std::string path = used > 0 ? decodeToken(line.substr((size_t)used)) : "";
-                setPlaylistSong((uint16_t)id, crc, size, true, path.c_str());
+                std::string path = used > 0 ? decodeToken(line.substr((size_t)used)) : "";
+                if (path.size() > 255 || strpbrk(path.c_str(), "\r\n\t")) path.clear();
+                for (Playlist &playlist : playlists_) {
+                    if (playlist.id != id) continue;
+                    const auto it = std::find_if(playlist.songs.begin(), playlist.songs.end(),
+                        [crc, size](const SongKey &song) { return song.crc == crc && song.size == size; });
+                    if (it == playlist.songs.end()) playlist.songs.push_back(SongKey{crc, size, path});
+                    else if (!path.empty()) it->path = std::move(path);
+                    break;
+                }
             }
             continue;
         }

@@ -64,10 +64,12 @@ struct FontFile { std::string name; Err err; };
 Err scanFonts(std::vector<FontFile>& out){
     out={{"Bank with spaces.sf2",Err::OK},{"Bad.sf2",Err::FILE_BAD}}; return Err::OK;
 }
-struct FakeSynth {
+struct FakeSynth : Midi::Sink {
     int tr=0;
     void setTranspose(int n){tr=n;} int transpose(){return tr;}
     bool selective(){return false;} bool loaded(){return true;}
+    void midi(uint8_t,uint8_t,uint8_t) override {}
+    void reset() override {}
 } s_synth;
 Midi::Registry s_reg;
 Midi::RegEntry s_savedSettings;
@@ -78,12 +80,12 @@ uint32_t s_crc=123,s_size=456,s_songGen=0;
 std::string s_fileName="Test.kar",s_songSf2;
 struct { std::string path="songs/Test.kar"; } s_cur;
 int s_pendingTr=0,s_melody=3,s_prevTr=0;
-bool s_trReload=false,s_resumePlay=false;
+bool s_trReload=false,s_resumePlay=false,s_trRejected=false;
 uint8_t s_songVolume=100;
 bool synthBusy(){return busy;}
 void applyMelodyMute(){}
 void startTask(bool){}
-void ensureFont(){++reloads;}
+void ensureFont(bool=true){++reloads;}
 @FUNCTIONS@
 }
 void put(const char *path,const std::string &text){
@@ -117,6 +119,11 @@ int main(){
     assert(discardSongSettings()==Err::OK && writes==before);
     assert(!songSettingsDirty() && s_player.tempo()==120 && s_songVolume==160);
     assert(s_songSf2=="Bank with spaces.sf2");
+    setTranspose(7); setSongFont("");
+    const int reloadBeforeDiscard=reloads;
+    assert(discardSongSettings()==Err::OK);
+    assert(s_pendingTr==2 && s_synth.tr==2 && !s_trReload && !s_resumePlay);
+    assert(s_songSf2=="Bank with spaces.sf2" && reloads==reloadBeforeDiscard+1);
     uint16_t id=0;
     assert(editPlaylist("create",id,"Road trip","",0,0)==Err::OK && id);
     assert(editPlaylist("add",id,"","../outside.kar",0,0)==Err::BAD_INPUT);
