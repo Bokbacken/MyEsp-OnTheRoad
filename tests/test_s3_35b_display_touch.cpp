@@ -206,6 +206,7 @@ struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_sp
 uint8_t report[14] = {};
 int reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
 int commandError = ESP_OK, writes = 0, startupFailures = 0, delays = 0;
+int transactionDelayMs = 0;
 bool commandPending = false;
 bool recoverySuccess = true;
 int recoveryCalls = 0;
@@ -222,7 +223,7 @@ int i2c_master_probe(void *b, uint8_t addr, int timeout) {
     return addr == 0x3B || addr == 0x18 || addr == 0x34 ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out) {
-    assert(b == BoardPower::bus() && c->device_address == 0x3B && c->scl_speed_hz == 400000);
+    assert(b == BoardPower::bus() && c->device_address == 0x3B && c->scl_speed_hz == 100000);
     if (addError == ESP_OK) *out = reinterpret_cast<void *>(3);
     return addError;
 }
@@ -232,6 +233,7 @@ int i2c_master_transmit(void *d, const uint8_t *cmd, size_t len, int timeout) {
     assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len));
     assert(timeout == 100 && !commandPending);
     writes++;
+    clockUs += int64_t(transactionDelayMs) * 1000;
     commandPending = commandError == ESP_OK;
     return commandError;
 }
@@ -463,6 +465,7 @@ int main(int argc, char **argv) {
     setPoint(1, 1);
     assert(poll(x, y) && Touch::info().touchCount == 2);
     reportError = ESP_ERR_TIMEOUT;
+    clockUs += 60000;
     assert(!poll(x, y) && Touch::info().readErrors == 1);
     lv_event_t failedReadClick{LV_EVENT_CLICKED};
     pointerMock.stopProcessing = false;
@@ -610,6 +613,7 @@ int main(int argc, char **argv) {
         assert(poll(x, y));
         const uint32_t errors = Touch::info().readErrors;
         std::memcpy(report, corrupt, sizeof(report));
+        clockUs += 60000;
         assert(!poll(x, y) && Touch::info().readErrors == errors + 1);
         lv_event_t corruptClick{LV_EVENT_CLICKED};
         pointerMock.stopProcessing = false;
@@ -620,8 +624,62 @@ int main(int argc, char **argv) {
     assert(poll(x, y));
     const int readsBeforeCommandFailure = reads;
     commandError = ESP_ERR_TIMEOUT;
+    clockUs += 60000;
     assert(!poll(x, y) && reads == readsBeforeCommandFailure);
     commandError = ESP_OK;
     assert(poll(x, y));
+    setPoint(125, 115, 1);
+    assert(!poll(x, y));
+    for (const auto &corrupt : corruptReports) {
+        setPoint(100, 100);
+        assert(poll(x, y));
+        const uint32_t presses = Touch::info().touchCount;
+        const uint32_t gaps = Touch::info().bridgedGaps;
+        const uint32_t errors = Touch::info().readErrors;
+        std::memcpy(report, corrupt, sizeof(report));
+        for (int i = 0; i < 3; ++i)
+            assert(poll(x, y) && x == 100 && y == 100); // 15, 30 and 45 ms.
+        assert(Touch::info().readErrors == errors + 3);
+        setPoint(110, 108);
+        assert(poll(x, y) && x == 110 && y == 108);
+        assert(Touch::info().touchCount == presses && Touch::info().bridgedGaps == gaps + 1);
+        setPoint(110, 108, 1);
+        assert(!poll(x, y));
+        lv_event_t event{LV_EVENT_CLICKED};
+        pointerMock.stopProcessing = false;
+        pointerEventCallback(&event);
+        assert(event.stopped && pointerMock.stopProcessing);
+    }
+    // Missing data cannot extend the last real contact beyond 60 ms.
+    setPoint(100, 100);
+    assert(poll(x, y));
+    reportError = ESP_ERR_TIMEOUT;
+    for (int i = 0; i < 3; ++i) assert(poll(x, y));
+    assert(!poll(x, y));
+    for (int i = 0; i < 10; ++i) assert(!poll(x, y));
+    reportError = ESP_OK;
+    // Time spent blocked in the transport counts toward that same bound.
+    setPoint(100, 100);
+    assert(poll(x, y));
+    transactionDelayMs = 100;
+    commandError = ESP_ERR_TIMEOUT;
+    assert(!poll(x, y));
+    transactionDelayMs = 0;
+    commandError = ESP_OK;
+    // The bound also holds when the millisecond clock wraps.
+    clockUs = int64_t(UINT32_MAX - 30) * 1000;
+    setPoint(100, 100);
+    assert(poll(x, y));
+    std::memcpy(report, corruptReports[0], sizeof(report));
+    for (int i = 0; i < 3; ++i) assert(poll(x, y));
+    assert(!poll(x, y));
+    setPoint(100, 100);
+    assert(poll(x, y));
+    setPoint(100, 100, 1);
+    assert(!poll(x, y));
+    lv_event_t cleanTap{LV_EVENT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&cleanTap);
+    assert(!cleanTap.stopped && !pointerMock.stopProcessing);
 }
 #endif

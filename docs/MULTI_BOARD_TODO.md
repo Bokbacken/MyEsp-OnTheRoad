@@ -36,7 +36,11 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   behålls; värdtest med riktig LVGL täcker båda riktningarna och snabba släpp.
 - [x] S3-touch: begränsade återförsök vid ogiltigt startsvar, STOP mellan
   kommando/läsning enligt Waveshares Arduino-drivrutin, och avbrutet klick
-  om läsningen fallerar under ett tryck. I2C ligger kvar på 400 kHz.
+  om läsningen fallerar under ett tryck.
+- [x] Korta touchläsfel bryggas med senaste giltiga punkt i högst 60 ms,
+  utan att felen förlänger tidsgränsen. Touch sänkt till 100 kHz för nästa
+  hårdvaruprov efter ägarlogg med över 400 korrupta paket och knappflimmer;
+  övriga I2C-enheter behåller sina hastigheter. Grundorsaken är inte bevisad.
 - [ ] Verifiera touchändringen fysiskt vid upprepade kallstarter och drag;
   ägarloggen visar upprepade byte vid start och förskjutna paket under drift,
   men grundorsaken är inte bekräftad.

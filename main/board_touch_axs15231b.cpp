@@ -17,6 +17,7 @@ namespace {
 
 const char *TAG = "touch";
 constexpr int I2C_TIMEOUT_MS = 100;
+constexpr uint32_t TOUCH_I2C_HZ = 100000;
 constexpr unsigned STARTUP_ATTEMPTS = 5;
 constexpr uint32_t STARTUP_RETRY_MS = 50;
 constexpr uint32_t POLL_MS = 15;
@@ -124,12 +125,17 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         bool down = false, released = false;
         uint16_t x = g_info.lastX, y = g_info.lastY;
         const esp_err_t err = readPoint(down, released, x, y);
+        const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
         if (err != ESP_OK) {
             g_info.readErrors++;
             // A corrupt frame must not turn a held gesture into an accidental click.
             if (g_info.pressed) g_tapCancelled = true;
-            g_info.pressed = false;
-            g_gap = false;
+            if (g_info.pressed && sampledAt - g_lastDown < RELEASE_HOLD_MS) {
+                g_gap = true;
+            } else {
+                g_info.pressed = false;
+                g_gap = false;
+            }
         } else {
             if ((down || released) && g_info.pressed) {
                 const int32_t dx = int32_t(x) - g_touchStartX;
@@ -149,8 +155,8 @@ bool pointerRead(int16_t *outX, int16_t *outY)
                 g_info.lastX = x;
                 g_info.lastY = y;
                 g_info.pressed = true;
-                g_lastDown = now;
-            } else if (released || now - g_lastDown >= RELEASE_HOLD_MS) {
+                g_lastDown = sampledAt;
+            } else if (released || sampledAt - g_lastDown >= RELEASE_HOLD_MS) {
                 if (released && g_info.pressed) {
                     g_info.lastX = x;
                     g_info.lastY = y;
@@ -196,7 +202,7 @@ bool begin()
     i2c_device_config_t cfg = {};
     cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     cfg.device_address = TOUCH_I2C_ADDR;
-    cfg.scl_speed_hz = I2C_FREQ_HZ;
+    cfg.scl_speed_hz = TOUCH_I2C_HZ;
     esp_err_t err = i2c_master_bus_add_device(BoardPower::bus(), &cfg, &g_dev);
     if (err != ESP_OK) return fail("AXS15231B I2C device", err);
     bool down = false, released = false;
@@ -231,7 +237,8 @@ bool begin()
     g_info.maxY = LCD_V_RES;
     g_info.maxTouches = MAX_POINTS;
     // No documented firmware-identification command: version fields remain unknown (zero).
-    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, polled (no IRQ/reset GPIO)", TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY);
+    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz STOP-separated, polled (no IRQ/reset GPIO)",
+             TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);
     return true;
 }
 
