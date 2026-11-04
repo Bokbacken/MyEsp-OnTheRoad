@@ -562,14 +562,24 @@ void jumpTo(uint16_t rank)
 {
     if (Karaoke::libraryGen() != s_gen) buildEntries();
     if (s_firstSong >= s_entries.size()) return;
-    size_t target = s_entries.size() - 1;
+    size_t target = s_firstSong;
+    uint16_t bestRank = 0;
+    bool selected = rank == 0;
     std::string name;
     bool found = false;
     Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t gen) {
         if (gen != s_gen) return;
         found = true;
         for (size_t e = s_firstSong; e < s_entries.size(); e++) {
-            if (lib.rank(s_entries[e].idx) >= rank) { target = e; break; }
+            const uint16_t candidate = lib.rank(s_entries[e].idx);
+            if (candidate >= rank && (!selected || candidate < bestRank)) {
+                target = e;
+                bestRank = candidate;
+                selected = true;
+            } else if (!selected && candidate >= bestRank) {
+                target = e;
+                bestRank = candidate;
+            }
         }
         name = lib.sortName(s_entries[target].idx);
     });

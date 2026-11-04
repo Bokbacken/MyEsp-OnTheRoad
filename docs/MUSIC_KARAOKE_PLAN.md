@@ -95,9 +95,10 @@ Favoriter/sångarval har ännu inte fått något nytt UI i detta steg.
   mappar låg de tidigare före låtarna även i Alla-vyn.
 - [x] Hosttest: 1 521 låtar i 145 mappar, separat mappnavigering, bokstavsbyte
   mellan sidor, faktiskt synligt mål och högst 40 låtknappar.
-- [ ] S3: prova bokstavshopp igen med det verkliga biblioteket. Felet kunde inte
-  återskapas på host. Ny logg `kara-ui: jump rank=... entry=... page=... sort=...`
-  visar vilken artist (titel om artist saknas) som hoppet väljer.
+- [ ] S3: prova bokstavshopp igen med det verkliga biblioteket. Loggen visade
+  att en Ö-post kunde ligga före A–V och fånga alla tröskelhopp. Hoppet väljer nu
+  den minsta initialranken som uppfyller bokstaven i stället för första posten.
+  Ny logg `kara-ui: jump rank=... entry=... page=... sort=...` visar valt mål.
 - [ ] S3/P4: skapa/ändra/radera spellistor, byt SF2 och prova
   Spara/Kasta/Avbryt på enheten och via webben; kontrollera efter omstart.
 

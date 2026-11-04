@@ -590,7 +590,8 @@ int main(int argc, char **) {
             Karaoke::library.clear();
             for (int i = 0; i < 1521; ++i) {
                 char path[80], artist[40];
-                snprintf(artist, sizeof(artist), "%c Artist %04d", 'A' + i % 26, i);
+                if (i == 1520) snprintf(artist, sizeof(artist), "Ö Artist %04d", i);
+                else snprintf(artist, sizeof(artist), "%c Artist %04d", 'A' + i % 26, i);
                 snprintf(path, sizeof(path), "Folder %03d/%s_Title.kar", i % 145, artist);
                 assert(Karaoke::library.add(path, "Title", artist, 100));
             }
@@ -606,20 +607,30 @@ int main(int argc, char **) {
             assert(s_mode == ListMode::DIR && s_dir.empty());
             assert(s_firstSong == 0 && s_entries.size() == 1521);
             assert(!s_entries[0].folder);
+            const auto sortedEntries = s_entries;
+            std::rotate(s_entries.begin(), s_entries.end() - 1, s_entries.end());
+            renderList(-1, false); settle(); // A misplaced Ö entry must not capture later jumps.
             for (int index : {5, 1, 8, 3, 0, 11}) {
                 auto *keyButton = lv_obj_get_child(s_jumpCol, index);
                 lv_obj_scroll_to_view(keyButton, LV_ANIM_OFF); settle();
                 assert(hit(keyButton) == keyButton);
                 click(keyButton);
-                size_t expected = s_firstSong;
-                while (expected + 1 < s_entries.size() &&
-                       Karaoke::library.rank(s_entries[expected].idx) < JUMP[index].rank) ++expected;
+                size_t expected = s_firstSong, fallback = s_firstSong;
+                uint16_t best = UINT16_MAX, highest = 0;
+                for (size_t e = s_firstSong; e < s_entries.size(); e++) {
+                    const uint16_t candidate = Karaoke::library.rank(s_entries[e].idx);
+                    if (candidate >= JUMP[index].rank && candidate < best) best = candidate, expected = e;
+                    if (candidate >= highest) highest = candidate, fallback = e;
+                }
+                if (best == UINT16_MAX) expected = fallback;
                 assert(s_page == expected / PAGE);
                 auto *target = lv_obj_get_child(s_list, 1 + (int)(expected % PAGE));
                 assert(lv_obj_has_class(target, &lv_button_class));
                 inside(target, s_list);
                 assert(lv_obj_get_child_count(s_list) <= PAGE + 2);
             }
+            s_entries = sortedEntries;
+            renderList(); settle();
             goUp(); // Return to root before replacing the library.
             Karaoke::library.clear();
             for (int i = 0; i < 90; ++i) {
