@@ -29,11 +29,28 @@ lv_indev_t *g_indev = nullptr;
 uint32_t g_lastPoll = 0;
 uint32_t g_lastDown = 0;
 bool g_gap = false;
+bool g_idleReportLogged = false;
 
 esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
     down = false;
     released = false;
+    // Owner verified all-0x37 reports while untouched, replaced by valid reports
+    // during contact. Match the entire report; other malformed data stays an error.
+    bool idle = true;
+    for (uint8_t byte : data) {
+        if (byte != 0x37) {
+            idle = false;
+            break;
+        }
+    }
+    if (idle) {
+        if (!g_idleReportLogged) {
+            ESP_LOGI(TAG, "AXS15231B observed all-0x37 no-contact report; treating as no point");
+            g_idleReportLogged = true;
+        }
+        return ESP_OK;
+    }
     if (data[1] == 0) return ESP_OK;
     if (data[1] > MAX_POINTS || data[0] == 0xFF) return ESP_ERR_INVALID_RESPONSE;
     if ((data[2] >> 6) == 1) {

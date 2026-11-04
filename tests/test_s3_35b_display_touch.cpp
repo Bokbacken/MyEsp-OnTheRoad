@@ -330,10 +330,11 @@ int main(int argc, char **argv) {
     if (mode == "missing-lvgl") lvReady = false;
     if (mode == "add-device") addError = ESP_ERR_NO_MEM;
     if (mode == "bad-first-report") reportError = ESP_ERR_INVALID_RESPONSE;
+    if (mode == "idle-first") std::memset(report, 0x37, sizeof(report));
     if (mode == "pointer") pointerFail = true;
     assert(Touch::bus() == BoardPower::bus());
     const bool ready = Touch::begin();
-    if (mode != "normal") {
+    if (mode != "normal" && mode != "idle-first") {
         assert(!ready && !Touch::info().present && !Touch::indev());
         if (mode == "bad-first-report" || mode == "pointer") assert(removes == 1);
         return 0;
@@ -379,13 +380,30 @@ int main(int argc, char **argv) {
     assert(!poll(x, y) && Touch::info().readErrors == 5);
     setPoint(1, 480);
     assert(!poll(x, y) && Touch::info().readErrors == 6);
-    std::memset(report, 0x37, sizeof(report)); // Owner's failed-hardware report.
-    assert(!poll(x, y) && Touch::info().readErrors == 7);
+    std::memset(report, 0x37, sizeof(report)); // Owner confirmed no contact, not a bus failure.
+    assert(!poll(x, y) && Touch::info().readErrors == 6);
+    for (size_t i = 0; i < sizeof(report); ++i) {
+        report[i] = 0x36; // Near-matches must not hide a malformed report.
+        assert(!poll(x, y) && Touch::info().readErrors == 7 + i);
+        report[i] = 0x37;
+    }
     // Waveshare accepts contact event 3 as well as events 0 and 2.
     setPoint(5, 6, 3);
     assert(poll(x, y) && x == 5 && y == 6);
     setPoint(2, 3);
     assert(poll(x, y));
+    const uint32_t errorsBeforeIdle = Touch::info().readErrors;
+    const uint32_t pressesBeforeIdle = Touch::info().touchCount;
+    std::memset(report, 0x37, sizeof(report));
+    assert(poll(x, y) && x == 2 && y == 3); // Existing 60 ms gap debounce still applies.
+    clockUs += 60000;
+    assert(!poll(x, y)); // An idle report cannot leave a button held.
+    for (int i = 0; i < 1000; ++i) assert(!poll(x, y));
+    assert(Touch::info().readErrors == errorsBeforeIdle);
+    assert(Touch::info().touchCount == pressesBeforeIdle);
+    setPoint(4, 5);
+    assert(poll(x, y) && x == 4 && y == 5);
+    assert(Touch::info().touchCount == pressesBeforeIdle + 1);
     std::memset(report, 0, sizeof(report));
     assert(poll(x, y));
     clockUs += 60000;
@@ -395,6 +413,6 @@ int main(int argc, char **argv) {
     setPoint(42, 300, 2);
     report[1] = 2;
     assert(poll(x, y) && x == 42 && y == 300);
-    assert(Touch::info().readErrors == 7);
+    assert(Touch::info().readErrors == errorsBeforeIdle);
 }
 #endif

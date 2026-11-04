@@ -44,6 +44,13 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   PMIC-värdet är direkt mV: den felaktiga faktorn 1,1 är borttagen, så den
   rapporterade mätningen motsvarar cirka 4076 mV, inte 4484 mV.
 - [ ] Bekräfta åtgärden på kortet: FFat monterad, inga touchläsfel.
+- [x] Ägarlogg efter uppdatering: FFat och SD monteras, sparad spelare läses,
+  start utan fel och batterispänning 4090 mV. Touch fungerar, men hela
+  `37`-rapporter räknades fortfarande som fel.
+- [x] Ägaren bekräftar att `37`-varningarna upphör under hållen beröring och
+  återkommer efter släpp. Exakt fjorton `0x37`-bytes hanteras därför som ingen
+  punkt, med befintlig släppdebounce. Andra rapportfel och bussfel behålls.
+- [ ] Bekräfta på kortet att `37`-varningsflödet upphört och tryck/släpp fungerar.
 - [ ] Färgtest, touch i hörn/rotation och
   karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
 - [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-

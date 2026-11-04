@@ -22,6 +22,9 @@ a published GitHub Release.
   command/read transaction and 14-byte report. Contact event 3 is accepted;
   corrupt/out-of-bounds reports are rejected rather than clamped into edge taps.
   Logs distinguish I2C failures from invalid reports and include the report bytes.
+- S3_35B's exact all-`0x37` touch report is treated as no point, with the existing
+  release debounce. The owner confirmed it occurs without contact and stops during
+  contact. Other malformed reports and I2C failures remain errors.
 - Battery voltage, USB presence, charging/completion and valid fuel-gauge
   percentage are read from the PMIC without ADC-divider calibration. Existing
   ADC-based boards retain their calibration and voltage-derived estimates.

@@ -20,7 +20,7 @@ def main():
         ),
         "touch": (
             "board_touch_axs15231b.cpp",
-            ["normal", "missing-power", "failed-power", "missing-lvgl", "add-device", "bad-first-report", "pointer"],
+            ["normal", "idle-first", "missing-power", "failed-power", "missing-lvgl", "add-device", "bad-first-report", "pointer"],
         ),
     }
     count = 0
