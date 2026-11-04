@@ -271,6 +271,60 @@ static void resetBatteryCalibration()
     refreshInfo(nullptr);
 }
 
+struct SliderGesture {
+    enum class Direction { PENDING, HORIZONTAL, VERTICAL };
+    lv_point_t start{};
+    Direction direction = Direction::PENDING;
+    bool tracking = false;
+};
+
+static void sliderGesture(lv_event_t *e)
+{
+    auto *gesture = static_cast<SliderGesture *>(lv_event_get_user_data(e));
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_DELETE) {
+        delete gesture;
+        return;
+    }
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
+        code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) return;
+    lv_obj_t *slider = lv_event_get_current_target_obj(e);
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    if (code == LV_EVENT_PRESSED) {
+        gesture->start = point;
+        gesture->direction = SliderGesture::Direction::PENDING;
+        gesture->tracking = true;
+        return;
+    }
+    if (!gesture->tracking) return;
+    if (gesture->direction == SliderGesture::Direction::PENDING) {
+        const int32_t dx = LV_ABS(point.x - gesture->start.x);
+        const int32_t dy = LV_ABS(point.y - gesture->start.y);
+        const int32_t slop = LV_MAX(1, MyFonts::uiPixels(8));
+        if (LV_MAX(dx, dy) >= slop)
+            gesture->direction = dx > dy ? SliderGesture::Direction::HORIZONTAL
+                                        : SliderGesture::Direction::VERTICAL;
+    }
+    if (code == LV_EVENT_PRESSING) {
+        if (gesture->direction != SliderGesture::Direction::HORIZONTAL)
+            lv_event_stop_processing(e);
+        else
+            lv_obj_set_scroll_chain_ver(slider, false);
+        return;
+    }
+    gesture->tracking = false;
+    if (gesture->direction == SliderGesture::Direction::VERTICAL ||
+        (code == LV_EVENT_PRESS_LOST && gesture->direction == SliderGesture::Direction::PENDING)) {
+        // Keep base release cleanup, but skip the slider's release-to-set-value behavior.
+        lv_obj_event_base(&lv_slider_class, e);
+        lv_obj_set_scroll_chain_ver(slider, true);
+        lv_event_stop_processing(e);
+    }
+}
+
 static lv_obj_t *sliderRow(lv_obj_t *parent, const char *title, int min, int max, int value, lv_obj_t **valLabel,
                            lv_event_cb_t cb)
 {
@@ -290,6 +344,8 @@ static lv_obj_t *sliderRow(lv_obj_t *parent, const char *title, int min, int max
     lv_obj_set_style_bg_color(s, Theme::c(Theme::PANEL_RAISED), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(s, Theme::c(Theme::TEXT), LV_PART_KNOB);
+    lv_obj_add_event_cb(s, sliderGesture, static_cast<lv_event_code_t>(LV_EVENT_ALL | LV_EVENT_PREPROCESS),
+                        new SliderGesture{});
     lv_obj_add_event_cb(s, cb, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_send_event(s, LV_EVENT_VALUE_CHANGED, nullptr);   // Initial value text
     return s;

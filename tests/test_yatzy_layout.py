@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Yatzy game/selection/modal layouts and the real numpad with host LVGL (no ESP32/display).
+"""Exercise Yatzy layouts, settings slider gestures and the real numpad with host LVGL.
 Run: python3 tests/test_yatzy_layout.py [external build directory]
 Requires the project's managed_components/lvgl__lvgl dependency, like test_mine_dialog.py.
 """
@@ -836,6 +836,95 @@ static void checkHomeAnimations() {
     }
     puts("home artwork: frames, toggle, sleep/wake, screen navigation and timer cleanup passed");
 }
+static void checkSettingsSliders(lv_display_t *display) {
+    for (auto size : {lv_point_t{320,480}, lv_point_t{480,320},
+                      lv_point_t{480,800}, lv_point_t{800,480}})
+    for (int zoom = 0; zoom < 3; ++zoom) {
+        lv_display_set_resolution(display, size.x, size.y);
+        MyFonts::apply(MyFonts::TextSize::NORMAL, LV_MIN(size.x, size.y),
+                       LV_MIN(size.x, size.y) >= 480 ? 117 : 154, (MyFonts::ScreenZoom)zoom);
+        auto *screen = lv_obj_create(nullptr);
+        auto *previous = lv_screen_active();
+        lv_screen_load(screen);
+        auto *area = lv_obj_create(screen);
+        lv_obj_remove_style_all(area);
+        lv_obj_set_pos(area, 10, 10);
+        lv_obj_set_size(area, size.x - 20, size.y - 20);
+        lv_obj_set_scroll_dir(area, LV_DIR_VER);
+        lv_obj_set_flex_flow(area, LV_FLEX_FLOW_COLUMN);
+        int changes = 0, releases = 0;
+        lv_obj_t *valueLabel = nullptr;
+        auto *slider = SettingsWidgets::sliderRow(area, "Brightness", 0, 100, 25, &valueLabel,
+                                                   [](lv_event_t *) {});
+        lv_obj_add_event_cb(slider, [](lv_event_t *e) {
+            ++*static_cast<int *>(lv_event_get_user_data(e));
+        }, LV_EVENT_VALUE_CHANGED, &changes);
+        lv_obj_add_event_cb(slider, [](lv_event_t *e) {
+            ++*static_cast<int *>(lv_event_get_user_data(e));
+        }, LV_EVENT_RELEASED, &releases);
+        auto *spacer = lv_obj_create(area);
+        lv_obj_set_size(spacer, 20, size.y + 100);
+        settle();
+        auto *input = lv_indev_create();
+        lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+        lv_indev_data_t sample{};
+        lv_indev_set_user_data(input, &sample);
+        lv_indev_set_read_cb(input, [](lv_indev_t *i, lv_indev_data_t *data) {
+            *data = *static_cast<lv_indev_data_t *>(lv_indev_get_user_data(i));
+        });
+        auto read = [&]() { lv_tick_inc(20); lv_indev_read(input); };
+        auto start = [&](int percent) {
+            lv_obj_scroll_to_y(area, 0, LV_ANIM_OFF);
+            lv_slider_set_value(slider, 25, LV_ANIM_OFF);
+            settle();
+            changes = releases = 0;
+            lv_area_t bounds;
+            lv_obj_get_coords(slider, &bounds);
+            sample.point = {bounds.x1 + lv_obj_get_width(slider) * percent / 100,
+                            (bounds.y1 + bounds.y2) / 2};
+            sample.state = LV_INDEV_STATE_PRESSED;
+            read();
+        };
+        start(70);
+        for (int step = 0; step < 5; ++step) {
+            sample.point.x += 2;
+            sample.point.y -= 12;
+            read();
+            assert(lv_slider_get_value(slider) == 25 && changes == 0);
+        }
+        assert(lv_indev_get_scroll_obj(input) == area && lv_obj_get_scroll_y(area) > 0);
+        sample.state = LV_INDEV_STATE_RELEASED; read();
+        assert(lv_slider_get_value(slider) == 25 && changes == 0 && releases == 0);
+        assert(!lv_obj_has_state(slider, LV_STATE_PRESSED) && !lv_slider_is_dragged(slider));
+        lv_anim_delete(input, nullptr);
+        lv_obj_stop_scroll_anim(area);
+        start(25);
+        for (int step = 0; step < 5; ++step) {
+            sample.point.x += 12;
+            sample.point.y += step % 2 ? -1 : 1;
+            read();
+        }
+        assert(lv_slider_get_value(slider) > 25 && changes > 0);
+        assert(lv_indev_get_scroll_obj(input) == nullptr && lv_obj_get_scroll_y(area) == 0);
+        sample.state = LV_INDEV_STATE_RELEASED; read();
+        assert(releases == 1 && !lv_slider_is_dragged(slider));
+        start(70);
+        sample.point.x += 4; sample.point.y -= 50;
+        sample.state = LV_INDEV_STATE_RELEASED; read();
+        assert(lv_slider_get_value(slider) == 25 && changes == 0 && releases == 0);
+        start(70);
+        sample.state = LV_INDEV_STATE_RELEASED; read();
+        assert(lv_slider_get_value(slider) > 60 && changes > 0 && releases == 1);
+        int32_t beforeKey = lv_slider_get_value(slider);
+        uint32_t keyCode = LV_KEY_LEFT;
+        lv_obj_send_event(slider, LV_EVENT_KEY, &keyCode);
+        assert(lv_slider_get_value(slider) == beforeKey - 1);
+        lv_indev_delete(input);
+        lv_screen_load(previous);
+        lv_obj_delete(screen);
+    }
+    puts("settings sliders: vertical scroll, horizontal drag, quick swipe, tap and keyboard passed");
+}
 int main() {
     lv_init();
     auto *display = lv_display_create(320, 480);
@@ -845,6 +934,7 @@ int main() {
     lv_display_set_flush_cb(display, [](lv_display_t *d, const lv_area_t *, uint8_t *) { lv_display_flush_ready(d); });
     checkHomeAnimations();
     checkResponsiveLayouts(display);
+    checkSettingsSliders(display);
     char dir[] = "/tmp/yatzy-players-XXXXXX"; storageBase = mkdtemp(dir);
     assert(Players::begin());
     // No registry: preserve the two default guests.
@@ -961,8 +1051,9 @@ int main() {
 '''
 code = code.replace("@CHOICES@", section("struct VariantChoice {", "static void showVariants();"))
 settings_source = (ROOT / "main/ui_settings.cpp").read_text()
-code = code.replace("@SETTINGS_WIDGETS@", settings_source[
-    settings_source.index("static lv_obj_t *styledDropdown("):settings_source.index("\nvoid show()\n")])
+code = code.replace("@SETTINGS_WIDGETS@",
+    settings_source[settings_source.index("struct SliderGesture"):settings_source.index("static void onBright(")] +
+    settings_source[settings_source.index("static lv_obj_t *styledDropdown("):settings_source.index("\nvoid show()\n")])
 code = code.replace("@LAYOUTS@", section("// Selection screens keep", "// ========================================================================================\n// Players"))
 code = code.replace(
     "static lv_obj_t *selectionHeader(lv_obj_t *scr, const char *title, const char *detail)\n{",

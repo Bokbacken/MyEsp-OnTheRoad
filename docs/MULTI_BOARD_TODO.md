@@ -31,6 +31,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   Större text får mer utrymme eller rullningsbar vy, inte global bildzoom.
 - [x] Sudokus ångra/gör om-symboler finns i samtliga genererade fontstorlekar;
   värdtest kontrollerar symbolerna efter varje byte av zoom/textstorlek.
+- [x] Inställningarnas reglage skiljer vertikalt scrollsvep från horisontellt
+  reglage-drag före värdeändring. Vanliga tryck på skalan och tangentstyrning
+  behålls; värdtest med riktig LVGL täcker båda riktningarna och snabba släpp.
 - [x] S3-touch: begränsade återförsök vid ogiltigt startsvar, STOP mellan
   kommando/läsning enligt Waveshares Arduino-drivrutin, och avbrutet klick
   om läsningen fallerar under ett tryck. I2C ligger kvar på 400 kHz.
