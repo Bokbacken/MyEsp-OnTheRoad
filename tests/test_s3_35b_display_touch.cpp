@@ -134,8 +134,10 @@ using esp_lcd_panel_io_handle_t = void *;
 using esp_lcd_spi_bus_handle_t = uintptr_t;
 struct esp_lcd_panel_io_event_data_t {};
 using DoneFn = bool (*)(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *);
+enum gpio_num_t { GPIO_NUM_NC = -1, GPIO_NUM_12 = 12 };
 struct esp_lcd_panel_io_spi_config_t {
-    int cs_gpio_num = -1, dc_gpio_num = -1, spi_mode = 0, pclk_hz = 0, trans_queue_depth = 0;
+    gpio_num_t cs_gpio_num = GPIO_NUM_NC, dc_gpio_num = GPIO_NUM_NC;
+    int spi_mode = 0, pclk_hz = 0, trans_queue_depth = 0;
     DoneFn on_color_trans_done = nullptr;
     int lcd_cmd_bits = 0, lcd_param_bits = 0;
     struct { bool quad_mode = false; } flags;
