@@ -7,10 +7,10 @@
 #include <unistd.h>
 
 #include "esp_log.h"
-#include "esp_partition.h"
 #include "esp_vfs_fat.h"
 #include "my_log.h"
 #include "nvs_flash.h"
+#include "wear_levelling.h"
 
 static const char *TAG = "storage";
 
@@ -175,20 +175,39 @@ static void healthCheck()
     }
 }
 
-// True only when every byte of the partition is erased (0xFF): a factory-fresh partition
-// that cannot hold any user data, so formatting it is safe even when formatIfFail is false.
-static bool partitionErased(const char *label)
+// wl_mount writes metadata even if FatFs cannot mount. Inspect the entire logical
+// volume, not that metadata, before deciding whether there is any data to preserve.
+static bool volumeErased(wl_handle_t handle)
 {
-    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, label);
-    if (!part) return false;
-    static uint32_t buf[256];
-    for (size_t off = 0; off < part->size; off += sizeof(buf)) {
-        const size_t n = part->size - off < sizeof(buf) ? part->size - off : sizeof(buf);
-        if (esp_partition_read(part, off, buf, n) != ESP_OK) return false;
-        for (size_t i = 0; i < n / sizeof(uint32_t); ++i) {
-            if (buf[i] != 0xFFFFFFFFu) return false;
+    const size_t size = wl_size(handle);
+    if (!size) {
+        ESP_LOGE(TAG, "cannot inspect empty/invalid wear-levelled volume");
+        return false;
+    }
+    uint8_t buf[1024];
+    for (size_t off = 0; off < size; off += sizeof(buf)) {
+        const size_t n = size - off < sizeof(buf) ? size - off : sizeof(buf);
+        const esp_err_t err = wl_read(handle, off, buf, n);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "FAT blank-volume check failed at %zu: %s", off, esp_err_to_name(err));
+            return false;
+        }
+        for (size_t i = 0; i < n; ++i) {
+            if (buf[i] != 0xFF) return false;
         }
     }
+    return true;
+}
+
+static bool releaseFailedMount()
+{
+    if (s_wl == WL_INVALID_HANDLE) return true;
+    const esp_err_t err = wl_unmount(s_wl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "FAT failed-mount cleanup failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    s_wl = WL_INVALID_HANDLE;
     return true;
 }
 
@@ -207,13 +226,20 @@ bool mount(const char *label, const char *base, bool formatIfFail, int maxFiles)
     cfg.format_if_mount_failed = formatIfFail;
     cfg.max_files = maxFiles;
     cfg.allocation_unit_size = CONFIG_WL_SECTOR_SIZE;
+    if (!releaseFailedMount()) return false;
     esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(base, label, &cfg, &s_wl);
-    if (err != ESP_OK && !formatIfFail && partitionErased(label)) {
-        MyLog::event(TAG, "FAT '%s' is blank (never formatted) - formatting on first boot", label);
-        cfg.format_if_mount_failed = true;
-        err = esp_vfs_fat_spiflash_mount_rw_wl(base, label, &cfg, &s_wl);
+    if (err != ESP_OK) {
+        const bool blank = err == ESP_FAIL && !formatIfFail &&
+                           s_wl != WL_INVALID_HANDLE && volumeErased(s_wl);
+        if (!releaseFailedMount()) return false;
+        if (blank) {
+            MyLog::event(TAG, "FAT '%s' has no data (all logical bytes 0xFF) - formatting", label);
+            cfg.format_if_mount_failed = true;
+            err = esp_vfs_fat_spiflash_mount_rw_wl(base, label, &cfg, &s_wl);
+        }
     }
     if (err != ESP_OK) {
+        releaseFailedMount();
         ESP_LOGE(TAG, "FAT mount '%s' failed: %s", label, esp_err_to_name(err));
         return false;
     }
@@ -233,6 +259,7 @@ bool format()
         return false;
     }
     const bool wasMounted = s_mounted;
+    if (!wasMounted && !releaseFailedMount()) return false;
     // IDF also supports an unmounted volume, but leaves it unmounted afterwards.
     esp_err_t err = esp_vfs_fat_spiflash_format_rw_wl(s_base, s_label);
     if (err != ESP_OK) {

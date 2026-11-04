@@ -16,11 +16,10 @@ const char *TAG = "touch";
 constexpr int I2C_TIMEOUT_MS = 20;
 constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
-// Espressif's esp_lcd_touch_axs15231b reference: one point (8-byte report), command and
-// read as two separate transactions (a repeated-start read can be NACKed by the controller).
-constexpr size_t REPORT_LEN = 8;
+// Waveshare's 3.5B factory BSP uses a combined write/read and a 14-byte report.
+constexpr size_t REPORT_LEN = 14;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
-constexpr uint8_t MAX_POINTS = 1;
+constexpr uint8_t MAX_POINTS = 2;
 
 Touch::Info g_info = {};
 uint8_t g_scan[0x78 - 0x08];
@@ -30,40 +29,45 @@ lv_indev_t *g_indev = nullptr;
 uint32_t g_lastPoll = 0;
 uint32_t g_lastDown = 0;
 bool g_gap = false;
-uint32_t g_oddFrames = 0;
 
-// Like the reference driver, frames without a plausible point count simply mean "no touch";
-// they are not bus errors. Edge reports just outside the panel are clamped.
-void decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
+esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
     down = false;
     released = false;
-    if (data[1] == 0) return;
-    if (data[1] > MAX_POINTS + 1 || data[0] == 0xFF) {
-        g_oddFrames++;
-        if (g_oddFrames <= 3 || g_oddFrames % 500 == 0) {
-            ESP_LOGW(TAG, "AXS15231B odd frame #%u: %02X %02X %02X %02X %02X %02X %02X %02X", (unsigned)g_oddFrames,
-                     data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-        }
-        return;
-    }
+    if (data[1] == 0) return ESP_OK;
+    if (data[1] > MAX_POINTS || data[0] == 0xFF) return ESP_ERR_INVALID_RESPONSE;
     if ((data[2] >> 6) == 1) {
         released = true;
-        return;
+        return ESP_OK;
     }
     const uint16_t px = ((data[2] & 0x0F) << 8) | data[3];
     const uint16_t py = ((data[4] & 0x0F) << 8) | data[5];
-    x = px < LCD_H_RES ? px : LCD_H_RES - 1;
-    y = py < LCD_V_RES ? py : LCD_V_RES - 1;
+    if (px >= LCD_H_RES || py >= LCD_V_RES) return ESP_ERR_INVALID_RESPONSE;
+    x = px;
+    y = py;
     down = true;
+    return ESP_OK;
 }
 
 esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
     uint8_t data[REPORT_LEN] = {};
-    esp_err_t err = i2c_master_transmit(g_dev, READ_COMMAND, sizeof(READ_COMMAND), I2C_TIMEOUT_MS);
-    if (err == ESP_OK) err = i2c_master_receive(g_dev, data, sizeof(data), I2C_TIMEOUT_MS);
-    if (err == ESP_OK) decodePoint(data, down, released, x, y);
+    esp_err_t err = i2c_master_transmit_receive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
+                                              data, sizeof(data), I2C_TIMEOUT_MS);
+    const bool logError = g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0;
+    if (err != ESP_OK) {
+        if (logError) ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)",
+                              esp_err_to_name(err), (unsigned)(g_info.readErrors + 1));
+        return err;
+    }
+    err = decodePoint(data, down, released, x, y);
+    if (err != ESP_OK && logError) {
+        ESP_LOGW(TAG, "AXS15231B invalid report (%u errors): "
+                 "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                 (unsigned)(g_info.readErrors + 1),
+                 data[0], data[1], data[2], data[3], data[4], data[5], data[6],
+                 data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
+    }
     return err;
 }
 
@@ -88,9 +92,6 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         const esp_err_t err = readPoint(down, released, x, y);
         if (err != ESP_OK) {
             g_info.readErrors++;
-            if (g_info.readErrors == 1 || g_info.readErrors % 100 == 0) {
-                ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)", esp_err_to_name(err), (unsigned)g_info.readErrors);
-            }
             // A failed bus must not keep an old button pressed.
             g_info.pressed = false;
             g_gap = false;

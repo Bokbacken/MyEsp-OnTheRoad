@@ -55,8 +55,9 @@ Usage usage();
 
 namespace MyFat {
 
-// Mounts partition `label` at `basePath` (e.g. "ffat" at "/ffat"). formatIfFail formats on the
-// first boot (takes a few seconds for 9 MB).
+// Mounts partition `label` at `basePath` (e.g. "ffat" at "/ffat"). A completely erased
+// logical volume is formatted automatically. formatIfFail also allows formatting nonblank
+// volumes after a mount failure; leave false to preserve existing data.
 bool mount(const char *label, const char *basePath, bool formatIfFail, int maxFiles = 8);
 bool mounted();
 const char *basePath();

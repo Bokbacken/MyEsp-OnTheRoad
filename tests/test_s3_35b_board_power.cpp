@@ -88,7 +88,7 @@ int main()
     registers[0x34][0x30] = 0xA0;
     registers[0x34][0x00] = 0x28; // battery connected and VBUS good
     registers[0x34][0x01] = 0x24; // charging and charge done status bits
-    constexpr uint16_t rawBattery = 3727; // 4100 mV at 1.1 mV/LSB
+    constexpr uint16_t rawBattery = 4076; // AXP2101 reports millivolts directly.
     registers[0x34][0x34] = static_cast<uint8_t>(rawBattery >> 8);
     registers[0x34][0x35] = static_cast<uint8_t>(rawBattery);
     registers[0x34][0xA4] = 77;
@@ -108,7 +108,7 @@ int main()
 
     const BoardPower::Status sample = BoardPower::status();
     assert(sample.sampleValid && sample.batteryConnected && sample.batteryVoltageValid);
-    assert(sample.batteryMillivolts == 4100);
+    assert(sample.batteryMillivolts == 4076);
     assert(sample.usbPresent && sample.charging && sample.chargeDone);
     assert(sample.percentValid && sample.percent == 77);
     const int before = transactionCount;

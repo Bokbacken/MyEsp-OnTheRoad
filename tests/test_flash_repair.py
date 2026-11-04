@@ -33,34 +33,49 @@ inline const char *esp_err_to_name(int) { return "injected error"; }
 namespace MyLog { template<class... T> void event(T...) {} }
 struct esp_vfs_fat_mount_config_t { bool format_if_mount_failed; int max_files; int allocation_unit_size; };
 inline bool diskValid=false, failFormat=false, failRemount=false, partitionBlank=false;
-inline int formats=0, mounts=0, autoFormats=0;
-constexpr int ESP_PARTITION_TYPE_DATA=1, ESP_PARTITION_SUBTYPE_DATA_FAT=0x81;
-struct esp_partition_t { size_t size; };
-inline const esp_partition_t *esp_partition_find_first(int type, int subtype, const char *label) {
-    static const esp_partition_t part{10000}; // Not a multiple of the read chunk.
-    assert(type==ESP_PARTITION_TYPE_DATA && subtype==ESP_PARTITION_SUBTYPE_DATA_FAT && std::strcmp(label,"ffat")==0);
-    return &part;
+inline bool wlActive=false, metadataWritten=false, failRead=false, failUnmount=false, failAutoFormat=false;
+inline int formats=0, mounts=0, autoFormats=0, unmounts=0;
+inline size_t dataOffset=0;
+constexpr size_t volumeSize=10003; // Exercise the final partial chunk and byte.
+inline size_t wl_size(wl_handle_t wl) {
+    assert(wl==7 && wlActive);
+    return volumeSize;
 }
-inline int esp_partition_read(const esp_partition_t *p, size_t off, void *dst, size_t n) {
-    assert(off+n<=p->size);
+inline int wl_read(wl_handle_t wl, size_t off, void *dst, size_t n) {
+    assert(wl==7 && wlActive && metadataWritten && off+n<=volumeSize);
+    if (failRead) return ESP_FAIL;
     std::memset(dst, 0xFF, n);
-    if (!partitionBlank && off==0) static_cast<uint8_t *>(dst)[n-1]=0; // Old data: never auto-format.
+    if (!partitionBlank && off<=dataOffset && dataOffset<off+n)
+        static_cast<uint8_t *>(dst)[dataOffset-off]=0; // Any logical data must prevent auto-format.
+    return ESP_OK;
+}
+inline int wl_unmount(wl_handle_t wl) {
+    assert(wl==7 && wlActive);
+    if (failUnmount) return ESP_FAIL;
+    ++unmounts;
+    wlActive=false;
     return ESP_OK;
 }
 inline int esp_vfs_fat_spiflash_mount_rw_wl(const char *base, const char *label,
                                          const esp_vfs_fat_mount_config_t *c, int *wl) {
     assert(std::strcmp(base,"/ffat")==0 && std::strcmp(label,"ffat")==0);
     assert(c->max_files==11 && c->allocation_unit_size==4096);
+    assert(!wlActive);
+    wlActive=true; *wl=7;
+    metadataWritten=true; // IDF writes WL metadata before FatFs mount, even on failure.
     ++mounts;
     if (c->format_if_mount_failed) {
         assert(partitionBlank && !diskValid);
-        ++autoFormats; diskValid=true; *wl=7; return ESP_OK;
+        ++autoFormats;
+        if (failAutoFormat) return ESP_FAIL;
+        diskValid=true; return ESP_OK;
     }
     if (!diskValid || failRemount) return ESP_FAIL;
     *wl=7; return ESP_OK;
 }
 inline int esp_vfs_fat_spiflash_format_rw_wl(const char *base, const char *label) {
     assert(std::strcmp(base,"/ffat")==0 && std::strcmp(label,"ffat")==0);
+    assert(!wlActive || diskValid); // No leaked failed-mount handle before explicit repair.
     ++formats; if (failFormat) return ESP_FAIL; diskValid=true; return ESP_OK;
 }
 inline int esp_vfs_fat_info(const char *, uint64_t *total, uint64_t *free) {
@@ -72,14 +87,40 @@ TEST = r'''
 int main(int argc, char **argv) {
     using namespace MyFat;
     const char *mode=argc>1 ? argv[1] : "";
-    if (std::strcmp(mode,"blank")==0) {
-        partitionBlank=true; // Factory-fresh, fully erased partition is formatted on first boot.
-        assert(mount("ffat","/ffat",false,11) && mounted() && autoFormats==1 && mounts==2);
+    if (std::strcmp(mode,"existing")==0) {
+        diskValid=true;
+        assert(mount("ffat","/ffat",false,11) && mounted() && autoFormats==0 && mounts==1);
         return 0;
     }
+    if (std::strcmp(mode,"blank")==0 || std::strcmp(mode,"wl-only")==0) {
+        partitionBlank=true;
+        metadataWritten=std::strcmp(mode,"wl-only")==0; // Prior failed boot, WL metadata already exists.
+        assert(mount("ffat","/ffat",false,11) && mounted() && autoFormats==1 && mounts==2);
+        assert(unmounts==1 && wlActive);
+        return 0;
+    }
+    if (std::strcmp(mode,"readfail")==0 || std::strcmp(mode,"autoformatfail")==0) {
+        partitionBlank=true;
+        failRead=std::strcmp(mode,"readfail")==0;
+        failAutoFormat=!failRead;
+        assert(!mount("ffat","/ffat",false,11) && !mounted() && !wlActive);
+        assert(autoFormats==(failRead ? 0 : 1) && unmounts==(failRead ? 1 : 2));
+        return 0;
+    }
+    if (std::strcmp(mode,"cleanupfail")==0) {
+        partitionBlank=true;
+        failUnmount=true;
+        assert(!mount("ffat","/ffat",false,11) && !mounted() && mounts==1 && autoFormats==0);
+        failUnmount=false;
+        assert(format() && mounted() && unmounts==1); // Recover explicitly after cleanup works.
+        return 0;
+    }
+    if (std::strcmp(mode,"last-byte")==0) dataOffset=volumeSize-1;
+    if (std::strcmp(mode,"middle-byte")==0) dataOffset=4097;
     assert(!format() && formats==0); // No partition has been selected.
     assert(!mount("ffat","/ffat",false,11));
     assert(!mounted() && formats==0 && autoFormats==0 && mounts==1); // Non-blank data is never auto-formatted.
+    assert(!wlActive && unmounts==1);
     assert(std::strcmp(basePath(),"/ffat")==0);
     if (std::strcmp(mode,"formatfail")==0) {
         failFormat=true;
@@ -112,6 +153,7 @@ with tempfile.TemporaryDirectory(prefix="otr-flash-repair-") as directory:
         f"-I{work}", f"-I{ROOT / 'components/my_storage/include'}",
         str(work / "test.cpp"), "-o", str(work / "test"),
     ], check=True)
-    for mode in ["ok", "formatfail", "remountfail", "blank"]:
+    for mode in ["ok", "formatfail", "remountfail", "blank", "wl-only", "existing",
+                 "readfail", "autoformatfail", "cleanupfail", "last-byte", "middle-byte"]:
         subprocess.run([str(work / "test"), mode], check=True)
-print("FFat: failed boot mount, blank first-boot format, explicit repair, format/remount errors and admin guards passed")
+print("FFat: WL metadata-only recovery, data preservation, handle cleanup, explicit repair and error guards passed")

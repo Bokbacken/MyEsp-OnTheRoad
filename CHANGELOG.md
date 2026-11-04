@@ -14,15 +14,20 @@ a published GitHub Release.
   AXS15231B QSPI display/touch, TCA9554 shared reset, AXP2101 power monitoring,
   1-bit SDMMC, ES8311 audio and PCF85063 RTC. Hardware verification remains
   required; the owner's PCB revision is not confirmed.
-- A completely erased (all 0xFF) FFat partition is formatted on first boot.
-  Partitions containing any data are still never formatted automatically.
-- S3_35B touch follows Espressif's AXS15231B reference: separate command/read
-  transactions, a one-point 8-byte report, implausible frames treated as no
-  touch (raw bytes logged) and edge coordinates clamped.
+- A completely erased (all logical bytes 0xFF) FFat volume is formatted on
+  first boot, including after an earlier failed mount initialized wear-levelling
+  metadata. Volumes containing any data are never formatted automatically;
+  failed-mount wear-levelling handles are released before retry or explicit repair.
+- S3_35B touch follows Waveshare's board-specific factory BSP: a combined
+  command/read transaction and 14-byte report. Contact event 3 is accepted;
+  corrupt/out-of-bounds reports are rejected rather than clamped into edge taps.
+  Logs distinguish I2C failures from invalid reports and include the report bytes.
 - Battery voltage, USB presence, charging/completion and valid fuel-gauge
   percentage are read from the PMIC without ADC-divider calibration. Existing
   ADC-based boards retain their calibration and voltage-derived estimates.
-  Charger settings and supply voltages are not blindly overwritten.
+  AXP2101 voltage is read directly in millivolts (the earlier 1.1 multiplier
+  overstated it by 10%). Charger settings and supply voltages are not blindly
+  overwritten.
 - Text sizes and shared UI spacing use physical pixel pitch. P4 uses larger
   generated fonts to approximate S3's physical text size. Nominal panel
   dimensions still need measurement; integer font steps prevent exact equality.

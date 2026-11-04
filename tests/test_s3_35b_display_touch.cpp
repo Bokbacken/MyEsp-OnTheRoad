@@ -181,8 +181,8 @@ int esp_lcd_panel_io_tx_color(void *io, uint32_t cmd, const void *p, size_t n) {
 using i2c_master_dev_handle_t = void *;
 constexpr int I2C_ADDR_BIT_LEN_7 = 0;
 struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_speed_hz = 0; };
-uint8_t report[8] = {};
-int commandError = ESP_OK, reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
+uint8_t report[14] = {};
+int reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
 int64_t clockUs = 0;
 int64_t esp_timer_get_time() { return clockUs; }
 int i2c_master_probe(void *b, uint8_t addr, int timeout) {
@@ -196,18 +196,10 @@ int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out)
     return addError;
 }
 int i2c_master_bus_rm_device(void *) { removes++; return ESP_OK; }
-bool commandSent = false;
-int i2c_master_transmit(void *d, const uint8_t *cmd, size_t len, int timeout) {
-    const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 8, 0, 0, 0};
-    assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len));
-    assert(timeout > 0 && timeout <= 20 && !commandSent);
-    commandSent = commandError == ESP_OK;
-    return commandError;
-}
-int i2c_master_receive(void *d, uint8_t *data, size_t n, int timeout) {
-    // The report is read in its own transaction, only after the command succeeded.
-    assert(d && n == sizeof(report) && timeout > 0 && timeout <= 20 && commandSent);
-    commandSent = false;
+int i2c_master_transmit_receive(void *d, const uint8_t *cmd, size_t len, uint8_t *data, size_t n, int timeout) {
+    const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 14, 0, 0, 0};
+    assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len) && n == sizeof(report));
+    assert(timeout > 0 && timeout <= 20);
     reads++;
     std::memcpy(data, report, n);
     return reportError;
@@ -347,7 +339,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     assert(ready && Touch::info().present && Touch::info().address == 0x3B);
-    assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 1);
+    assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 2);
     assert(Touch::info().fwVersion == 0 && Touch::info().irqCount == 0);
     assert(Touch::begin() && probes == 112 && reads == 1);
     uint8_t addrs[4] = {};
@@ -371,11 +363,9 @@ int main(int argc, char **argv) {
     reportError = ESP_ERR_TIMEOUT;
     assert(!poll(x, y) && Touch::info().readErrors == 1);
     reportError = ESP_OK;
-    commandError = ESP_ERR_INVALID_RESPONSE; // NACK on the command transaction skips the read.
-    const int readsBefore = reads;
-    assert(!poll(x, y) && Touch::info().readErrors == 2 && reads == readsBefore);
-    commandError = ESP_OK;
-    // Implausible frames mean "no touch", not bus errors.
+    reportError = ESP_ERR_INVALID_RESPONSE; // Bus NACK, distinct from an invalid report.
+    assert(!poll(x, y) && Touch::info().readErrors == 2);
+    reportError = ESP_OK;
     for (int odd = 0; odd < 2; odd++) {
         setPoint(1, 1);
         if (odd == 0) report[0] = 0xFF;
@@ -383,12 +373,15 @@ int main(int argc, char **argv) {
         clockUs += 60000;
         assert(!poll(x, y));
     }
-    assert(Touch::info().readErrors == 2);
-    // Edge reports just outside the panel are clamped; event bit 3 is still contact.
+    assert(Touch::info().readErrors == 4);
+    // Out-of-bounds or corrupt data must never become taps on a clamped edge.
     setPoint(320, 1);
-    assert(poll(x, y) && x == 319 && y == 1);
+    assert(!poll(x, y) && Touch::info().readErrors == 5);
     setPoint(1, 480);
-    assert(poll(x, y) && x == 1 && y == 479);
+    assert(!poll(x, y) && Touch::info().readErrors == 6);
+    std::memset(report, 0x37, sizeof(report)); // Owner's failed-hardware report.
+    assert(!poll(x, y) && Touch::info().readErrors == 7);
+    // Waveshare accepts contact event 3 as well as events 0 and 2.
     setPoint(5, 6, 3);
     assert(poll(x, y) && x == 5 && y == 6);
     setPoint(2, 3);
@@ -399,6 +392,9 @@ int main(int argc, char **argv) {
     assert(!poll(x, y));
     setPoint(42, 300, 1);
     assert(!poll(x, y));
-    assert(Touch::info().readErrors == 2);
+    setPoint(42, 300, 2);
+    report[1] = 2;
+    assert(poll(x, y) && x == 42 && y == 300);
+    assert(Touch::info().readErrors == 7);
 }
 #endif

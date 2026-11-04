@@ -14,7 +14,7 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 |---|---|
 | MCU/display | ESP32-S3, AXS15231B QSPI panel, 320 × 480 |
 | I2C | SDA GPIO8, SCL GPIO7, 400 kHz |
-| Touch | AXS15231B, I2C address `0x3B`; polled with a separate command write and 8-byte one-point read |
+| Touch | AXS15231B, I2C address `0x3B`; polled with a combined command/read transaction and 14-byte report |
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |
@@ -24,7 +24,9 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus or toggles reset. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
 
-AXP2101 battery ADC data uses a 13-bit result with 1.1 mV/LSB; the firmware converts it to millivolts and reports the PMIC fuel-gauge percentage only when its byte is in the 0–100 range. USB presence, charging state, charge-done state, and battery connection are reported from PMIC status registers. The driver only enables the battery-voltage and VBUS ADC measurement channels; it does not change charger current/voltage, battery parameters, regulator rails, or LED policy. Neither this PMIC API nor the PCF85063 provides a supported board-temperature reading.
+The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`, not the generic AXS15231B driver's separate 8-byte read. The firmware follows that protocol, accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all 14 report bytes for the latter.
+
+AXP2101 battery ADC data is a 13-bit value already expressed in millivolts, without a 1.1 multiplier. This matches the vendor's pinned [`XPowersAXP2101.tpp` `getBattVoltage()`](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/XPowersLib/src/XPowersAXP2101.tpp) and its `readRegisterH5L8` helper. The firmware reports the PMIC fuel-gauge percentage only when its byte is in the 0–100 range. USB presence, charging state, charge-done state, and battery connection are reported from PMIC status registers. The driver only enables the battery-voltage and VBUS ADC measurement channels; it does not change charger current/voltage, battery parameters, regulator rails, or LED policy. Neither this PMIC API nor the PCF85063 provides a supported board-temperature reading.
 
 RTC validity is checked from the PCF85063 oscillator-stop flag, date fields, and a seconds-register tick. The clock is interpreted as UTC. If the optional RTC is missing or its time is invalid, normal system time synchronization remains responsible for setting it.
 
@@ -32,3 +34,4 @@ RTC validity is checked from the PCF85063 oscillator-stop flag, date fields, and
 
 Select `CONFIG_OTR_HW_PROFILE_S3_35B` for this board. No new managed component dependency is required for RTC/power support. See `main/board_pins_s3_35b.h` for the display, touch, SD, and audio pin map, and `main/board_power.h` / `main/board_battery.h` for the cached power APIs.
 
+A fresh board's internal FFat volume is formatted automatically only if every logical byte is erased (`0xFF`). The check uses the wear-levelling handle because even a failed FatFs mount writes wear-levelling metadata. Any logical data or read failure prevents automatic formatting. Failed-mount handles are released before retry or explicit repair. SD mounting/formatting is separate; an FFat failure does not mean that the SD card failed.

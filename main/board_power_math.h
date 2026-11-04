@@ -7,9 +7,8 @@ namespace BoardPowerMath {
 constexpr bool batteryMillivolts(uint16_t raw, uint16_t &millivolts)
 {
     if (raw == 0 || raw > 0x1FFF) return false;
-    const uint32_t converted = (static_cast<uint32_t>(raw) * 11 + 5) / 10;
-    if (converted < 2500 || converted > 4500) return false;
-    millivolts = static_cast<uint16_t>(converted);
+    if (raw < 2500 || raw > 4500) return false;
+    millivolts = raw;
     return true;
 }
 

@@ -34,10 +34,15 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Första USB-flash (ägarlogg): skärm, touch-start, SD, ES8311, PCF85063,
   Wi-Fi och SNTP fungerade. Tom FFat på nytt kort monterades inte, och
   AXS15231B-läsningar gav upprepade `ESP_ERR_INVALID_RESPONSE` vid användning.
-- [x] Åtgärd: helt raderad (0xFF) FFat formateras vid första start; partitioner
-  med data formateras aldrig automatiskt. Touch följer Espressifs referens:
-  separat kommando/läsning, 8-byte enpunktsrapport, orimliga ramar betyder
-  ingen beröring (råbytes loggas) och kantkoordinater klampas.
+- [x] Uppföljande ägarlogg: SD monteras, men FFat misslyckas fortfarande.
+  Touch rapporterar upprepade `37`-bytes; PMIC visar 4484 mV/100 procent.
+- [x] Korrigerad åtgärd: kontrollera hela logiska FFat-volymen efter WL-init,
+  inte råpartitionen vars metadata redan skrivits. Endast helt raderade
+  logiska volymer formateras automatiskt. Städa misslyckade WL-monteringar.
+  Touch följer Waveshares kortspecifika kombinerade 14-byte-protokoll och
+  accepterar kontakthändelse 3; felaktiga koordinater klampas inte till tryck.
+  PMIC-värdet är direkt mV: den felaktiga faktorn 1,1 är borttagen, så den
+  rapporterade mätningen motsvarar cirka 4076 mV, inte 4484 mV.
 - [ ] Bekräfta åtgärden på kortet: FFat monterad, inga touchläsfel.
 - [ ] Färgtest, touch i hörn/rotation och
   karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
