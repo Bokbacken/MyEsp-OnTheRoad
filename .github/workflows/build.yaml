@@ -132,7 +132,6 @@ jobs:
         if: matrix.board == 'es3c35p'
         run: |
           python3 tests/test_board_peripherals.py
-          python3 tests/test_s3_35b_display_touch.py
           python3 tests/test_board_power_math.py
           python3 tests/test_s3_35b_board_power.py
           python3 tests/test_rtc_pcf85063.py
@@ -220,9 +219,10 @@ jobs:
             python3 tools/check_firmware_board.py build/MyEsp_OnTheRoad.bin ${{ matrix.identity }}
             idf.py merge-bin -o merged.bin
 
-      - name: Test Sudoku and menu layouts (host LVGL)
+      - name: Test display, touch and UI layouts (host LVGL)
         if: matrix.board == 'es3c35p'
         run: |
+          python3 tests/test_s3_35b_display_touch.py
           python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
           python3 tests/test_adv_game_layout.py /tmp/adventure-layout
           python3 tests/test_yatzy_layout.py /tmp/menu-layout
