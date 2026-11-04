@@ -209,8 +209,8 @@ bool initPanel()
     g_spiCreated = true;
 
     esp_lcd_panel_io_spi_config_t io = {};
-    io.cs_gpio_num = PIN_LCD_CS;
-    io.dc_gpio_num = -1;
+    io.cs_gpio_num = static_cast<gpio_num_t>(PIN_LCD_CS);
+    io.dc_gpio_num = GPIO_NUM_NC;
     io.spi_mode = 3;
     io.pclk_hz = LCD_QSPI_HZ;
     io.trans_queue_depth = 1;
