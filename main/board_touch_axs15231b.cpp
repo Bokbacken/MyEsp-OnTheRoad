@@ -8,16 +8,20 @@
 #include "board_power.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "my_lvgl.h"
 
 namespace {
 
 const char *TAG = "touch";
-constexpr int I2C_TIMEOUT_MS = 20;
+constexpr int I2C_TIMEOUT_MS = 100;
+constexpr unsigned STARTUP_ATTEMPTS = 5;
+constexpr uint32_t STARTUP_RETRY_MS = 50;
 constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
 constexpr uint32_t TAP_SLOP_PX = 20;
-// Waveshare's 3.5B factory BSP uses a combined write/read and a 14-byte report.
+// Waveshare's Arduino driver ends the command with STOP before reading 14 bytes.
 constexpr size_t REPORT_LEN = 14;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
 constexpr uint8_t MAX_POINTS = 2;
@@ -81,8 +85,9 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
 esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
     uint8_t data[REPORT_LEN] = {};
-    esp_err_t err = i2c_master_transmit_receive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
-                                              data, sizeof(data), I2C_TIMEOUT_MS);
+    esp_err_t err = i2c_master_transmit(g_dev, READ_COMMAND, sizeof(READ_COMMAND), I2C_TIMEOUT_MS);
+    if (err == ESP_OK)
+        err = i2c_master_receive(g_dev, data, sizeof(data), I2C_TIMEOUT_MS);
     const bool logError = g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0;
     if (err != ESP_OK) {
         if (logError) ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)",
@@ -121,7 +126,8 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         const esp_err_t err = readPoint(down, released, x, y);
         if (err != ESP_OK) {
             g_info.readErrors++;
-            // A failed bus must not keep an old button pressed.
+            // A corrupt frame must not turn a held gesture into an accidental click.
+            if (g_info.pressed) g_tapCancelled = true;
             g_info.pressed = false;
             g_gap = false;
         } else if (down) {
@@ -188,7 +194,18 @@ bool begin()
     if (err != ESP_OK) return fail("AXS15231B I2C device", err);
     bool down = false, released = false;
     uint16_t x = 0, y = 0;
-    err = readPoint(down, released, x, y);
+    for (unsigned attempt = 0; attempt < STARTUP_ATTEMPTS; ++attempt) {
+        err = readPoint(down, released, x, y);
+        if (err == ESP_OK) {
+            if (attempt)
+                ESP_LOGI(TAG, "AXS15231B startup recovered after %u attempts", attempt + 1);
+            break;
+        }
+        ++g_info.readErrors;
+        ESP_LOGW(TAG, "AXS15231B startup attempt %u/%u: %s",
+                 attempt + 1, STARTUP_ATTEMPTS, esp_err_to_name(err));
+        if (attempt + 1 < STARTUP_ATTEMPTS) vTaskDelay(pdMS_TO_TICKS(STARTUP_RETRY_MS));
+    }
     if (err != ESP_OK) return fail("AXS15231B first report", err);
 
     g_indev = MyLvgl::addPointer(pointerRead);

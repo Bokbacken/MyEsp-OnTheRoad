@@ -14,7 +14,7 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 |---|---|
 | MCU/display | ESP32-S3, AXS15231B QSPI panel, 320 × 480 |
 | I2C | SDA GPIO8, SCL GPIO7, 400 kHz |
-| Touch | AXS15231B, I2C address `0x3B`; polled with a combined command/read transaction and 14-byte report |
+| Touch | AXS15231B, I2C address `0x3B`; polled with STOP-separated command/read transactions and 14-byte report |
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |
@@ -26,7 +26,9 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 
 The PWR button is polled through TCA9554 EXIO6. A short press wakes the backlight if the screen is off; it does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.
 
-The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`, not the generic AXS15231B driver's separate 8-byte read. The firmware follows that protocol, accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all 14 report bytes for the latter.
+The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`. The manufacturer's [Arduino touch driver](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/esp_lcd_touch_axs15231b/esp_lcd_touch_axs15231b.cpp) uses the same command/report size, but ends the write with STOP before a separate read. After owner logs showed repeated-byte startup reports and shifted runtime reports, this firmware adopts that STOP-separated variant, retaining 400 kHz. Each transfer has a 100 ms timeout, matching the current factory BSP's read timeout. Startup allows five attempts spaced 50 ms apart; exhausted attempts still report a touch failure. This is a hardware-validation candidate, not proof that repeated START caused the corruption.
+
+The firmware accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all 14 report bytes for the latter. A failed read during a held gesture releases the pointer but cancels its click, preventing corruption from activating a control.
 
 Hardware observation (owner, 2026-11-04): a report consisting of fourteen `0x37` bytes occurs without contact, stops while a finger is held on the screen, and returns after release. This is an observed no-contact pattern, not a manufacturer-documented protocol guarantee. Only this exact full-report pattern is accepted as no point, with the normal 60 ms release debounce; a one-time informational log records its detection. Other malformed reports and all I2C failures still increment the error counter and release the pointer.
 

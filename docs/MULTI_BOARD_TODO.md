@@ -31,6 +31,12 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   Större text får mer utrymme eller rullningsbar vy, inte global bildzoom.
 - [x] Sudokus ångra/gör om-symboler finns i samtliga genererade fontstorlekar;
   värdtest kontrollerar symbolerna efter varje byte av zoom/textstorlek.
+- [x] S3-touch: begränsade återförsök vid ogiltigt startsvar, STOP mellan
+  kommando/läsning enligt Waveshares Arduino-drivrutin, och avbrutet klick
+  om läsningen fallerar under ett tryck. I2C ligger kvar på 400 kHz.
+- [ ] Verifiera touchändringen fysiskt vid upprepade kallstarter och drag;
+  ägarloggen visar upprepade byte vid start och förskjutna paket under drift,
+  men grundorsaken är inte bekräftad.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

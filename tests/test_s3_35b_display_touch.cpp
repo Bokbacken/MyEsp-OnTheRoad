@@ -202,8 +202,12 @@ constexpr int I2C_ADDR_BIT_LEN_7 = 0;
 struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_speed_hz = 0; };
 uint8_t report[14] = {};
 int reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
+int commandError = ESP_OK, writes = 0, startupFailures = 0, delays = 0;
+bool commandPending = false;
 int64_t clockUs = 0;
 int64_t esp_timer_get_time() { return clockUs; }
+int pdMS_TO_TICKS(int n) { return n; }
+void vTaskDelay(int n) { delays += n; }
 int i2c_master_probe(void *b, uint8_t addr, int timeout) {
     assert(b == BoardPower::bus() && timeout > 0 && timeout <= 20);
     probes++;
@@ -215,12 +219,23 @@ int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out)
     return addError;
 }
 int i2c_master_bus_rm_device(void *) { removes++; return ESP_OK; }
-int i2c_master_transmit_receive(void *d, const uint8_t *cmd, size_t len, uint8_t *data, size_t n, int timeout) {
+int i2c_master_transmit(void *d, const uint8_t *cmd, size_t len, int timeout) {
     const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 14, 0, 0, 0};
-    assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len) && n == sizeof(report));
-    assert(timeout > 0 && timeout <= 20);
+    assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len));
+    assert(timeout == 100 && !commandPending);
+    writes++;
+    commandPending = commandError == ESP_OK;
+    return commandError;
+}
+int i2c_master_receive(void *d, uint8_t *data, size_t n, int timeout) {
+    assert(d && n == sizeof(report) && timeout == 100 && commandPending);
+    commandPending = false;
     reads++;
     std::memcpy(data, report, n);
+    if (startupFailures > 0) {
+        --startupFailures;
+        std::memset(data, 0x13, n);
+    }
     return reportError;
 }
 #endif
@@ -350,13 +365,27 @@ int main(int argc, char **argv) {
     if (mode == "missing-lvgl") lvReady = false;
     if (mode == "add-device") addError = ESP_ERR_NO_MEM;
     if (mode == "bad-first-report") reportError = ESP_ERR_INVALID_RESPONSE;
+    if (mode == "startup-corrupt") startupFailures = 5;
+    if (mode == "startup-recovery") startupFailures = 3;
+    if (mode == "command-failure") commandError = ESP_ERR_TIMEOUT;
     if (mode == "idle-first") std::memset(report, 0x37, sizeof(report));
     if (mode == "pointer") pointerFail = true;
     assert(Touch::bus() == BoardPower::bus());
     const bool ready = Touch::begin();
-    if (mode != "normal" && mode != "idle-first") {
+    if (mode != "normal" && mode != "idle-first" && mode != "startup-recovery") {
         assert(!ready && !Touch::info().present && !Touch::indev());
-        if (mode == "bad-first-report" || mode == "pointer") assert(removes == 1);
+        if (mode == "bad-first-report" || mode == "startup-corrupt" || mode == "command-failure") {
+            assert(removes == 1 && writes == 5 && delays == 200);
+            assert(reads == (mode == "command-failure" ? 0 : 5));
+            assert(Touch::info().readErrors == 5);
+        }
+        if (mode == "pointer") assert(removes == 1);
+        return 0;
+    }
+    if (mode == "startup-recovery") {
+        assert(ready && Touch::info().present && reads == 4 && writes == 4 && delays == 150);
+        assert(Touch::info().readErrors == 3 && MyLvgl::pointer);
+        assert(Touch::begin() && reads == 4);
         return 0;
     }
     assert(ready && Touch::info().present && Touch::info().address == 0x3B);
@@ -384,6 +413,10 @@ int main(int argc, char **argv) {
     assert(poll(x, y) && Touch::info().touchCount == 2);
     reportError = ESP_ERR_TIMEOUT;
     assert(!poll(x, y) && Touch::info().readErrors == 1);
+    lv_event_t failedReadClick{LV_EVENT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&failedReadClick);
+    assert(failedReadClick.stopped && pointerMock.stopProcessing);
     reportError = ESP_OK;
     reportError = ESP_ERR_INVALID_RESPONSE; // Bus NACK, distinct from an invalid report.
     assert(!poll(x, y) && Touch::info().readErrors == 2);
@@ -473,6 +506,29 @@ int main(int argc, char **argv) {
     pointerEventCallback(&movedShortClick);
     assert(!pointerMock.stopProcessing && !movedShortClick.stopped);
     setPoint(125, 115);
+    assert(poll(x, y));
+    const uint8_t corruptReports[][14] = {
+        {0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13},
+        {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD, 0x65, 0x66, 0xFF, 0xFF, 0xFF, 0xFF},
+        {0x01, 0x80, 0x68, 0x01, 0x5D, 0x11, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64},
+    };
+    for (const auto &corrupt : corruptReports) {
+        setPoint(125, 115);
+        assert(poll(x, y));
+        const uint32_t errors = Touch::info().readErrors;
+        std::memcpy(report, corrupt, sizeof(report));
+        assert(!poll(x, y) && Touch::info().readErrors == errors + 1);
+        lv_event_t corruptClick{LV_EVENT_CLICKED};
+        pointerMock.stopProcessing = false;
+        pointerEventCallback(&corruptClick);
+        assert(corruptClick.stopped && pointerMock.stopProcessing);
+    }
+    setPoint(125, 115);
+    assert(poll(x, y));
+    const int readsBeforeCommandFailure = reads;
+    commandError = ESP_ERR_TIMEOUT;
+    assert(!poll(x, y) && reads == readsBeforeCommandFailure);
+    commandError = ESP_OK;
     assert(poll(x, y));
 }
 #endif
