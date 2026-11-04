@@ -8,6 +8,7 @@ namespace HwProfile {
 enum class Id : uint8_t {
     ES3C35P,   // ESP32-S3, ST77922 QSPI 320x480 (current, working board)
     P4_43,     // Waveshare ESP32-P4 4.3" 480x800
+    S3_35B,    // Waveshare ESP32-S3 3.5B, AXS15231B QSPI 320x480
 };
 
 struct Info {

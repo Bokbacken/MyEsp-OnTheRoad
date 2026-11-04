@@ -587,6 +587,7 @@ int main(int argc, char **) {
             lv_display_set_resolution(display, size.x, size.y);
             Lang::setLang(language);
             Config::get().soundOn = true; Config::get().karaFlip = flip;
+            MyFonts::apply(MyFonts::TextSize::NORMAL,size.x,size.x>=480 ? 117 : 154);
             Karaoke::library.clear();
             for (int i = 0; i < 1521; ++i) {
                 char path[80], artist[40];
@@ -746,8 +747,8 @@ add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB
  LV_MEM_SIZE=262144 LV_USE_ASSERT_MALLOC=1)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp
- "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
-  
+ "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" "{ROOT}/components/my_ui/fonts/my_font_raw_48.c" "{ROOT}/components/my_ui/fonts/my_font_raw_52.c" "{ROOT}/components/my_ui/fonts/my_font_raw_56.c" "{ROOT}/components/my_ui/fonts/my_font_raw_60.c"
+
  "{ROOT}/components/my_ui/my_textinput.cpp" "{ROOT}/components/my_ui/my_charwheel.cpp"
  "{ROOT}/main/kara_index.cpp" "{ROOT}/components/otr_midi/otr_midi.cpp" "{ROOT}/components/otr_midi/otr_midi_gm.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"

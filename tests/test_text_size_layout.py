@@ -19,9 +19,12 @@ def section(path, start, end):
 
 
 line_heights = {}
+cap_heights = {}
 for font in (ROOT / "components/my_ui/fonts").glob("my_font_raw_*.c"):
     px = int(re.search(r"my_font_raw_(\d+)", font.name).group(1))
     line_heights[px] = int(re.search(r"\.line_height = (\d+),", font.read_text()).group(1))
+    glyphs = font.read_text().split("glyph_dsc[] = {", 1)[1].split("};", 1)[0]
+    cap_heights[px] = int(re.findall(r"\.box_h = (\d+)", glyphs)[ord("A") - 32 + 1])
 fonts_h = (ROOT / "components/my_ui/include/my_fonts.h").read_text()
 role_px = [[int(v) for v in row.split(",")]
            for row in re.findall(r"\{(\d+, \d+, \d+, \d+)\}", fonts_h)]
@@ -36,6 +39,13 @@ conn = section("main/ui_wifi.cpp", "ConnLayout connLayout(", "void showConnectin
 boot_h = section("main/ui_boot.h", "constexpr int32_t LIST_PAD", "void show();")
 conn_h = section("main/ui_wifi.h", "struct ConnLayout", "ConnLayout connLayout(")
 roles = ",\n".join("{%s}" % ", ".join(str(line_heights[px]) for px in row) for row in role_px)
+available = sorted(line_heights)
+physical_px = [[min(available, key=lambda px: abs(px * 117 - ref * 154)) for ref in row] for row in role_px]
+physical_roles = ",\n".join("{%s}" % ", ".join(str(line_heights[px]) for px in row) for row in physical_px)
+for original, physical in zip(role_px, physical_px):
+    for ref, px in zip(original, physical):
+        target = cap_heights[ref] * 154
+        assert abs(cap_heights[px] * 117 - target) * 100 <= target * 12, (ref, px)
 
 code = r'''
 #include <cassert>
@@ -57,10 +67,14 @@ namespace UiWifi {
 static const int32_t LINE[4][4] = {
 @ROLES@
 };
+static const int32_t PHYSICAL_LINE[4][4] = {
+@PHYSICAL_ROLES@
+};
 
 static void check(int32_t w, int32_t h, int size)
 {
-    const int32_t small = LINE[size][0], body = LINE[size][1], title = LINE[size][2], big = LINE[size][3];
+    const auto &line = w >= 480 ? PHYSICAL_LINE[size] : LINE[size];
+    const int32_t small = line[0], body = line[1], title = line[2], big = line[3];
     const UiBoot::Layout b = UiBoot::layout(w, h, big, small, body);
     if (b.showLogo) assert(b.titleY >= b.logoY + b.logo);
     assert(b.versionY >= b.titleY + big - 5);
@@ -107,12 +121,14 @@ int main()
 }
 '''
 code = (code.replace("@BOOT_H@", boot_h).replace("@BOOT@", boot).replace("@CONN_H@", conn_h)
-        .replace("@CONN@", conn).replace("@ROLES@", roles))
+        .replace("@CONN@", conn).replace("@ROLES@", roles).replace("@PHYSICAL_ROLES@", physical_roles))
 # MyFonts::apply() with a stub lv_font_t: every role follows ROLE_PX and XLARGE is clamped on 320 px.
 FONTS_TEST = r'''
 #include <cassert>
 #include <cstdio>
 #include "my_fonts.h"
+#include "ui_metrics.h"
+#include "hw_profile.h"
 @RAW@
 int main()
 {
@@ -129,6 +145,21 @@ int main()
     assert(MyFonts::apply(TextSize::XLARGE, 320) == TextSize::LARGE);
     assert(my_font_18.line_height == MyFonts::ROLE_PX[2][1]);
     assert(MyFonts::apply((TextSize)9, 320) == TextSize::NORMAL);
+    for (int s = 0; s < (int)TextSize::COUNT; s++) {
+        MyFonts::apply((TextSize)s, 480, 117);
+        assert(my_font_18.line_height == MyFonts::physicalPixels(MyFonts::ROLE_PX[s][1],117));
+        for (auto reference : MyFonts::ROLE_PX[s]) {
+            const int target = reference * 154;
+            const int actual = MyFonts::physicalPixels(reference,117) * 117;
+            assert((actual > target ? actual-target : target-actual)*100 <= target*8);
+        }
+    }
+    const auto &profile = HwProfile::active();
+    MyFonts::apply(TextSize::NORMAL,profile.width,profile.pixelPitchYUm());
+    assert(UiMetrics::screenW() == profile.width);
+    assert(UiMetrics::screenH() == profile.height);
+    assert(UiMetrics::marginNormal() == (profile.pixelPitchYUm() == 117 ? 13 : 10));
+    assert(UiMetrics::buttonH() >= my_font_18.line_height + 16);
     std::puts("font roles OK");
 }
 '''
@@ -142,9 +173,17 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", str(src), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
     (tmp / "lvgl.h").write_text("#pragma once\nstruct lv_font_t { int line_height; };\n"
-                                "#define LV_FONT_DECLARE(n) extern const lv_font_t n;\n")
+                                "#define LV_FONT_DECLARE(n) extern const lv_font_t n;\n"
+                                "struct lv_display_t {};\n"
+                                "inline lv_display_t *lv_display_get_default() { return nullptr; }\n"
+                                "inline int lv_display_get_horizontal_resolution(lv_display_t *) { return 0; }\n"
+                                "inline int lv_display_get_vertical_resolution(lv_display_t *) { return 0; }\n")
+    (tmp / "sdkconfig.h").write_text("#pragma once\n")
     (tmp / "fonts.cpp").write_text(FONTS_TEST.replace("@RAW@", raw))
-    subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I", str(tmp),
-                    "-I", str(ROOT / "components/my_ui/include"), str(tmp / "fonts.cpp"),
-                    str(ROOT / "components/my_ui/my_fonts.cpp"), "-o", str(tmp / "fonts")], check=True)
-    subprocess.run([str(tmp / "fonts")], check=True)
+    for profile in ("ES3C35P", "P4_43", "S3_35B"):
+        subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I", str(tmp),
+                        "-I", str(ROOT / "components/my_ui/include"), "-I", str(ROOT / "main"),
+                        "-DCONFIG_OTR_HW_PROFILE_" + profile, str(tmp / "fonts.cpp"),
+                        str(ROOT / "components/my_ui/my_fonts.cpp"), str(ROOT / "main/ui_metrics.cpp"),
+                        str(ROOT / "main/hw_profile.cpp"), "-o", str(tmp / "fonts")], check=True)
+        subprocess.run([str(tmp / "fonts")], check=True)

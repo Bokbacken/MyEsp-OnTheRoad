@@ -13,6 +13,10 @@ LV_FONT_DECLARE(my_font_raw_32);
 LV_FONT_DECLARE(my_font_raw_36);
 LV_FONT_DECLARE(my_font_raw_40);
 LV_FONT_DECLARE(my_font_raw_44);
+LV_FONT_DECLARE(my_font_raw_48);
+LV_FONT_DECLARE(my_font_raw_52);
+LV_FONT_DECLARE(my_font_raw_56);
+LV_FONT_DECLARE(my_font_raw_60);
 
 // Default (NORMAL) sizes, valid from static initialisation on.
 lv_font_t my_font_14 = my_font_raw_14;
@@ -38,20 +42,24 @@ static const lv_font_t *raw(uint8_t px)
     case 36: return &my_font_raw_36;
     case 40: return &my_font_raw_40;
     case 44: return &my_font_raw_44;
+    case 48: return &my_font_raw_48;
+    case 52: return &my_font_raw_52;
+    case 56: return &my_font_raw_56;
+    case 60: return &my_font_raw_60;
     default: return &my_font_raw_14;
     }
 }
 
-TextSize apply(TextSize size, int32_t shortSide)
+TextSize apply(TextSize size, int32_t shortSide, uint32_t pixelPitchUm)
 {
     if (!valid((uint8_t)size)) size = TextSize::NORMAL;
     const TextSize limit = maxFor(shortSide);
     if ((uint8_t)size > (uint8_t)limit) size = limit;
     const uint8_t *px = ROLE_PX[(int)size];
-    my_font_14 = *raw(px[0]);
-    my_font_18 = *raw(px[1]);
-    my_font_24 = *raw(px[2]);
-    my_font_36 = *raw(px[3]);
+    my_font_14 = *raw(physicalPixels(px[0], pixelPitchUm));
+    my_font_18 = *raw(physicalPixels(px[1], pixelPitchUm));
+    my_font_24 = *raw(physicalPixels(px[2], pixelPitchUm));
+    my_font_36 = *raw(physicalPixels(px[3], pixelPitchUm));
     s_current = size;
     return size;
 }

@@ -2,7 +2,8 @@
 
 A portable touch-screen console for dice games, Sudoku, tile-based adventures and
 SoundFont-powered Karaoke. It runs on the **Heemol ESP32-S3 3.5"** and
-**Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3** boards, using **ESP-IDF 6.1**
+**Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3** boards, with a separate
+**Waveshare ESP32-S3-Touch-LCD-3.5B** profile awaiting hardware verification, using **ESP-IDF 6.1**
 and **LVGL 9.6**.
 
 Play locally, join a hosted Yatzy game from another device or a browser, or
@@ -23,6 +24,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 | [Karaoke and SoundFonts](docs/MUSIC_KARAOKE_PLAN.md) | Audio architecture and memory/quality tradeoffs |
 | [Multiplayer design](docs/MULTIPLAYER_DESIGN.md) | Host-authoritative Yatzy and joining devices |
 | [Hardware profile model](docs/HARDWARE_PROFILE_MODEL.md) | Profile structure, physical display metrics, evidence and future extensions |
+| [Waveshare S3 3.5B reference](docs/Waveshare_ESP32-S3-Touch-LCD-3.5B_Hardware_Reference.md) | New board wiring, safe power initialization, RTC and available telemetry |
 | [Sudoku](docs/SUDOKU.md) | Controls, saved progress, puzzle source and block import |
 | [Adventure work plan](docs/ADVENTURE_TODO.md) | Adventure/editor delivery status and remaining tests |
 | [Multi-board work plan](docs/MULTI_BOARD_TODO.md) | Board support, unresolved issues and hardware checks |
@@ -124,9 +126,12 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
   bar, potions/hearts, lives (finite or infinite), protective suit, hidden treasures under crates/bushes/
   walls/rocks/doors, and per-player saves on FFat (Continue / New game). See
   [docs/ENGINE_2D_BRIEF.md](docs/ENGINE_2D_BRIEF.md).
-- **Board support** – S3 has an ST77922 QSPI 320×480 display and capacitive
+- **Board support** – ES3C35P has an ST77922 QSPI 320×480 display and capacitive
   touch; P4 has an ST7701 MIPI-DSI 480×800 display and GT911 touch. Both use
-  LVGL PSRAM draw buffers. RGB LED controls are only offered on S3.
+  LVGL PSRAM draw buffers. S3_35B uses AXS15231B QSPI/touch, AXP2101 power
+  management and PCF85063 RTC, with 1-bit SDMMC. RGB LED controls are only
+  offered on ES3C35P. Text sizes use estimated physical pixel pitch, rather
+  than identical pixel counts across panels.
 - **Boot screen** – logo, progress bar and hardware checklist (display, touch, PSRAM, I2C, RTC, storage, Wi-Fi, web)
   with green ✓ / red ✗, plus an R→G→B→white LED sequence.
 - **Yatzy & Maxi-Yatzy** – 1–8 players, all 15 (Yatzy) / 20 (Maxi) categories, upper bonus (50 / 100),
@@ -218,8 +223,9 @@ All input is touch.
 
 ## Hardware
 
-See [the S3 hardware reference](docs/hardware_reference.md) and
-[the P4 hardware reference](docs/Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md).
+See [the S3 hardware reference](docs/hardware_reference.md),
+[the Waveshare ESP32-S3-Touch-LCD-3.5B reference](docs/Waveshare_ESP32-S3-Touch-LCD-3.5B_Hardware_Reference.md),
+and [the P4 hardware reference](docs/Waveshare_ESP32-P4-WIFI6-Touch-LCD-4.3_Hardware_Reference.md).
 The [hardware profile model](docs/HARDWARE_PROFILE_MODEL.md) explains how
 firmware profiles, per-board references, physical display geometry and
 verification status fit together.
@@ -243,15 +249,17 @@ lasts until it is empty; the boot checklist shows "tid ogiltig (batteri?)" when 
 
 ### Hardware profiles
 
-The board profile follows the chip target (`idf.py set-target`): `ES3C35P` for `esp32s3` and
+The default board profile follows the chip target (`idf.py set-target`): `ES3C35P` for `esp32s3` and
 `P4_43` (Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3, ST7701 MIPI-DSI 480x800, GT911 touch, Wi-Fi via
 an ESP32-C6 over ESP-Hosted) for `esp32p4` (`CONFIG_OTR_HW_PROFILE_*`). Pins live in
 `main/board_pins_<profile>.h`, board drivers behind the shared `main/board_*.h` APIs. The P4 port
 is tracked in [`docs/MULTI_BOARD_TODO.md`](docs/MULTI_BOARD_TODO.md), including
 owner-reported results and remaining hardware checks.
+`S3_35B` must be explicitly selected for Waveshare ESP32-S3-Touch-LCD-3.5B;
+it is not electrically interchangeable with ES3C35P.
 `main/hw_profile.*` exposes the active profile (name, logical display size, touch/audio/SD
 capabilities). `main/ui_metrics.*` holds shared UI sizes
-(margins, button sizes, card spacing) derived from the live display size; the main menu now uses
+(margins, button sizes, card spacing) derived from physical pixel pitch; the main menu uses
 an LVGL flex layout built on them. Screen adaptations and remaining limitations
 are recorded in the multi-board work plan.
 
@@ -288,11 +296,20 @@ idf.py -B build_esp32s3 -D SDKCONFIG=build_esp32s3/sdkconfig -p /dev/ttyACM0 fla
 idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig set-target esp32p4 build
 idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig merge-bin -o merged.bin
 idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig -p /dev/ttyUSB0 flash monitor
+# Waveshare ESP32-S3-Touch-LCD-3.5B (use its own build/config directory)
+idf.py -B build_s3_35b -D SDKCONFIG=build_s3_35b/sdkconfig \
+  -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.defaults.s3-35b' \
+  set-target esp32s3 build
+idf.py -B build_s3_35b -D SDKCONFIG=build_s3_35b/sdkconfig merge-bin -o merged.bin
+idf.py -B build_s3_35b -D SDKCONFIG=build_s3_35b/sdkconfig -p /dev/ttyACM0 flash monitor
 ```
 
 `<build dir>/MyEsp_OnTheRoad.bin` is the OTA image, `<build dir>/merged.bin` the complete image
 to flash at `0x0` (first install, e.g. with esptool.js in the browser). Once the firmware runs,
 later updates can use the OTA file through the web page.
+Always choose the exact board image. v0.25.0 adds board identity validation:
+once installed, OTA rejects other boards and old images without that identity.
+USB flashing remains available for reverting to older versions.
 
 The firmware version comes from `PROJECT_VER` in the top-level `CMakeLists.txt`.
 S3 builds include Espressif's targeted SPI bus-lock race fix (`a16c003`)
@@ -301,8 +318,10 @@ and compiles a patched copy in the build directory, without changing the SDK.
 An SDK upgrade must explicitly review/update this backport; an unknown source
 fails configuration. P4 does not use this backport.
 
-CI builds both boards and labels the artifacts `firmware-esp32s3-v<PROJECT_VER>` and
-`firmware-esp32p4-v<PROJECT_VER>-unverified` (P4 hardware verification is incomplete;
+CI builds all three profiles and labels artifacts
+`firmware-esp32s3-es3c35p-v<PROJECT_VER>`,
+`firmware-esp32s3-s3-35b-v<PROJECT_VER>-unverified` and
+`firmware-esp32p4-p4-43-v<PROJECT_VER>-unverified` (P4 hardware verification is incomplete;
 startup and Wi-Fi have been confirmed).
 This build label does not create a Git release tag.
 

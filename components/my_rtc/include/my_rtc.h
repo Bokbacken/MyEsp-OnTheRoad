@@ -1,4 +1,4 @@
-// my_rtc.h - DS3231 on S3; auto-detected DS3231 or internal RTC timer on P4.
+// my_rtc.h - board-selected UTC RTC implementation.
 //
 // The DS3231 keeps UTC (24 h mode). Its begin() probes 0x68 and runs a function test:
 //   - answers on the bus and the registers read back
@@ -19,10 +19,15 @@
 #include <time.h>
 
 #include "driver/i2c_master.h"
+#include "sdkconfig.h"
 
 namespace MyRtc {
 
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+constexpr uint8_t I2C_ADDR = 0x51;
+#else
 constexpr uint8_t I2C_ADDR = 0x68;
+#endif
 
 enum class State : uint8_t {
     NOT_PROBED = 0,

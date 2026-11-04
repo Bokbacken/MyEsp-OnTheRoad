@@ -1,8 +1,11 @@
 #include "my_ota.h"
+#include "sdkconfig.h"
+#include "my_ota_board.h"
 
 #include <string.h>
 
 #include "esp_app_format.h"
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "freertos/FreeRTOS.h"
@@ -10,6 +13,17 @@
 #include "my_sys.h"
 
 namespace MyOta {
+
+static const __attribute__((used, section(".rodata_custom_desc"), aligned(4))) BoardIdentity s_board = {
+    BOARD_MAGIC,
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+    "S3_35B"
+#elif defined(CONFIG_OTR_HW_PROFILE_P4_43)
+    "P4_43"
+#else
+    "ES3C35P"
+#endif
+};
 
 static const char *TAG = "ota";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -85,6 +99,17 @@ bool end()
     if (s_state.phase != Phase::RUNNING) return false;
     esp_err_t e = esp_ota_end(s_handle);
     s_handle = 0;
+    if (e == ESP_OK) {
+        BoardIdentity candidate{};
+        constexpr size_t offset = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) +
+                                  sizeof(esp_app_desc_t);
+        e = esp_partition_read(s_target, offset, &candidate, sizeof(candidate));
+        if (e == ESP_OK && memcmp(&candidate, &s_board, sizeof(candidate)) != 0) {
+            setPhase(Phase::FAILED, "Fel kortprofil eller firmware utan kortidentifiering");
+            MyLog::event(TAG, "rejected OTA: board identity does not match %s", boardName());
+            return false;
+        }
+    }
     if (e == ESP_OK) e = esp_ota_set_boot_partition(s_target);
     if (e != ESP_OK) {
         setPhase(Phase::FAILED, e == ESP_ERR_OTA_VALIDATE_FAILED ? "Ogiltig app-fil" : esp_err_to_name(e));

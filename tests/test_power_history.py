@@ -77,6 +77,7 @@ inline bool connected() { return nowMs<101000; }
 namespace BoardBattery {
 struct Status { bool supported=true, sampleValid=true, adcCalibrated=true; uint16_t adcMillivolts=2050; };
 inline Status status() { return {}; }
+inline bool voltageMillivolts(uint16_t scale, uint16_t &mv) { mv=uint32_t(status().adcMillivolts)*scale/1000; return true; }
 }
 namespace BatteryMath {
 inline bool batteryMillivolts(uint16_t adc, uint16_t scale, uint16_t &mv) { mv=uint32_t(adc)*scale/1000; return true; }

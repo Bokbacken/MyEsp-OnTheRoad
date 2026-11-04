@@ -273,6 +273,8 @@ bool mountLocked(bool formatIfFail = false)
         ok = cardPower(true) && (tryMount(4, SDMMC_FREQ_DEFAULT, formatIfFail) ||
                                  tryMount(1, SDMMC_FREQ_DEFAULT, formatIfFail));
     }
+#elif defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+    const bool ok = tryMount(1, SDMMC_FREQ_DEFAULT, formatIfFail);
 #else
     const bool ok = tryMount(4, SDMMC_FREQ_DEFAULT, formatIfFail) ||
                     tryMount(1, SDMMC_FREQ_DEFAULT, formatIfFail);

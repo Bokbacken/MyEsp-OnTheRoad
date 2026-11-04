@@ -88,7 +88,7 @@ jobs:
           if-no-files-found: error
 
   build:
-    name: build-${{ matrix.target }}
+    name: build-${{ matrix.board }}
     needs: changes
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.firmware == 'true')
     runs-on: ubuntu-latest
@@ -98,11 +98,20 @@ jobs:
       matrix:
         include:
           - board: es3c35p
+            identity: ES3C35P
             target: esp32s3
             label: ""
+            defaults: "sdkconfig.defaults;sdkconfig.defaults.esp32s3"
           - board: p4-43
+            identity: P4_43
             target: esp32p4
             label: "-unverified"
+            defaults: "sdkconfig.defaults;sdkconfig.defaults.esp32p4"
+          - board: s3-35b
+            identity: S3_35B
+            target: esp32s3
+            label: "-unverified"
+            defaults: "sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.defaults.s3-35b"
 
     steps:
       - name: Require successful build selection
@@ -116,13 +125,17 @@ jobs:
           persist-credentials: false
 
       - name: Test release tooling (no publication)
-        if: matrix.target == 'esp32s3'
+        if: matrix.board == 'es3c35p'
         run: python3 -m unittest discover -s tests -p test_firmware_release.py
 
       - name: Test board peripherals (host)
-        if: matrix.target == 'esp32s3'
+        if: matrix.board == 'es3c35p'
         run: |
           python3 tests/test_board_peripherals.py
+          python3 tests/test_s3_35b_display_touch.py
+          python3 tests/test_board_power_math.py
+          python3 tests/test_s3_35b_board_power.py
+          python3 tests/test_rtc_pcf85063.py
           python3 -m unittest discover -s tests -p test_idf_spi_fix.py
           python3 tests/test_sd_log_diagnostics.py
           python3 tests/test_sd_clock.py
@@ -196,15 +209,19 @@ jobs:
           target: ${{ matrix.target }}
           command: |
             idf.py --version
-            idf.py set-target ${{ matrix.target }}
+            idf.py -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}" set-target ${{ matrix.target }}
+            if [ "${{ matrix.board }}" = s3-35b ]; then
+              grep -qx 'CONFIG_OTR_HW_PROFILE_S3_35B=y' sdkconfig
+            fi
             grep -qx 'CONFIG_LOG_DEFAULT_LEVEL=3' sdkconfig
             grep -qx 'CONFIG_LOG_MAXIMUM_LEVEL=4' sdkconfig
             grep -qx 'CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y' sdkconfig
             idf.py build
+            python3 tools/check_firmware_board.py build/MyEsp_OnTheRoad.bin ${{ matrix.identity }}
             idf.py merge-bin -o merged.bin
 
       - name: Test Sudoku and menu layouts (host LVGL)
-        if: matrix.target == 'esp32s3'
+        if: matrix.board == 'es3c35p'
         run: |
           python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
           python3 tests/test_yatzy_layout.py /tmp/menu-layout
@@ -216,7 +233,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.target }}-v${{ steps.firmware.outputs.version }}${{ matrix.label }}
+          name: firmware-${{ matrix.target }}-${{ matrix.board }}-v${{ steps.firmware.outputs.version }}${{ matrix.label }}
           path: |
             build/merged.bin
             build/*.bin

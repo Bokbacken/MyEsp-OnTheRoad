@@ -152,7 +152,8 @@ int main() {
       for (int language=0;language<2;++language) {
         Lang::setLang(language==0 ? "sv" : "en");
         for (auto textSize : {MyFonts::TextSize::NORMAL,MyFonts::TextSize::LARGE,MyFonts::TextSize::XLARGE}) {
-        MyFonts::apply(textSize,size.x<size.y?size.x:size.y);
+        const int shortSide = size.x<size.y?size.x:size.y;
+        MyFonts::apply(textSize,shortSide,shortSide>=480 ? 117 : 154);
         UiSudoku::s_game.start(Sudoku::Difficulty::EASY,0);
         for(auto &next : UiSudoku::s_next) next=0;
         UiSudoku::s_ready=true;

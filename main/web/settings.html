@@ -397,8 +397,16 @@ async function status() {
     }
     if (info.battery) {
       const b = info.battery;
+      $('battery-form').hidden = !!b.power_managed;
+      $('battery-full-form').hidden = !!b.power_managed;
       $('battery-info').textContent = !b.supported ? 'Mätning saknas på detta kort' :
-        !b.sample_valid ? 'Väntar på giltig ADC-mätning' :
+        !b.initialized ? 'Batterimätningen kunde inte startas' :
+        !b.sample_valid ? 'Väntar på giltig batterimätning' :
+        b.power_managed ? 'AXP2101 · ' + (b.battery_connected ?
+          'batteri ' + (b.battery_mv >= 0 ? b.battery_mv + ' mV' : 'okänd spänning') :
+          'inget batteri') + ' · USB ' + (b.usb_present ? 'ansluten' : 'frånkopplad') +
+          ' · laddar ' + (b.charging ? 'ja' : 'nej') + ' · laddning klar ' + (b.charge_done ? 'ja' : 'nej') +
+          ' · batterimätare ' + (b.gauge_percent >= 0 ? b.gauge_percent + '%' : 'okänd') :
         'ADC ' + b.raw_adc + (b.adc_calibrated ? ' · ' + b.adc_mv + ' mV' : ' · fabrikskalibrering saknas') +
         (b.battery_mv >= 0 ? ' · batteri ' + b.battery_mv + ' mV · ungefär ' + b.estimated_percent + '%' :
           ' · batterispänning okänd · skala ' + b.scale_permille + ' ‰') +

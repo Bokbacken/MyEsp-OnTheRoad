@@ -8,6 +8,24 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.0 (unreleased)
+
+- Added the separate `S3_35B` Waveshare ESP32-S3-Touch-LCD-3.5B build:
+  AXS15231B QSPI display/touch, TCA9554 shared reset, AXP2101 power monitoring,
+  1-bit SDMMC, ES8311 audio and PCF85063 RTC. Hardware verification remains
+  required; the owner's PCB revision is not confirmed.
+- Battery voltage, USB presence, charging/completion and valid fuel-gauge
+  percentage are read from the PMIC without ADC-divider calibration. Existing
+  ADC-based boards retain their calibration and voltage-derived estimates.
+  Charger settings and supply voltages are not blindly overwritten.
+- Text sizes and shared UI spacing use physical pixel pitch. P4 uses larger
+  generated fonts to approximate S3's physical text size. Nominal panel
+  dimensions still need measurement; integer font steps prevent exact equality.
+- OTA images now carry a board identity and reject cross-board uploads,
+  including the two incompatible ESP32-S3 boards. Once installed, this
+  firmware also rejects old untagged images: reverting to them requires USB
+  flashing. Initial upgrade from older firmware must use the correct board image.
+
 ## v0.24.7 (unreleased)
 
 - Web song picker defaults to folder browsing (immediate subfolders and direct

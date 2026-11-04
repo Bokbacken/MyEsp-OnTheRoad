@@ -98,7 +98,8 @@ void applyTextSize()
     static_assert((int)MyFonts::TextSize::COUNT == TEXT_SIZE_COUNT, "text size levels");
     DisplayLock lock;
     const int32_t w = UiMetrics::screenW(), h = UiMetrics::screenH();
-    MyFonts::apply((MyFonts::TextSize)Config::get().textSize, w < h ? w : h);
+    MyFonts::apply((MyFonts::TextSize)Config::get().textSize, w < h ? w : h,
+                   HwProfile::active().pixelPitchYUm());
 }
 
 void applyHardware()
@@ -192,9 +193,21 @@ static void refreshInfo(lv_timer_t *)
     if (!bs.supported) {
         snprintf(batteryText, sizeof(batteryText), "%s", tr(Str::BATTERY_UNSUPPORTED));
     } else if (!bs.initialized) {
-        snprintf(batteryText, sizeof(batteryText), "%s", tr(Str::BATTERY_ADC_FAILED));
+        snprintf(batteryText, sizeof(batteryText), "%s",
+                 tr(bs.powerManaged ? Str::BATTERY_PMIC_FAILED : Str::BATTERY_ADC_FAILED));
     } else if (!bs.sampleValid) {
         snprintf(batteryText, sizeof(batteryText), "%s", tr(Str::BATTERY_WAIT));
+    } else if (bs.powerManaged) {
+        char voltage[80];
+        if (!bs.batteryConnected)
+            snprintf(voltage, sizeof(voltage), "%s", tr(Str::BATTERY_ABSENT));
+        else if (bs.pmicVoltageValid)
+            snprintf(voltage, sizeof(voltage), tr(Str::BATTERY_VOLTAGE_FMT),
+                     (unsigned)(bs.pmicMillivolts / 1000), (unsigned)(bs.pmicMillivolts % 1000));
+        else
+            snprintf(voltage, sizeof(voltage), "%s", tr(Str::BATTERY_WAIT));
+        snprintf(batteryText, sizeof(batteryText), tr(Str::BATTERY_PMIC_INFO_FMT), voltage,
+                 bs.usbPresent, bs.charging, bs.chargeDone, bs.pmicPercentValid ? bs.pmicPercent : -1);
     } else if (!bs.adcCalibrated) {
         char raw[48];
         snprintf(raw, sizeof(raw), tr(Str::BATTERY_RAW_FMT), (long)bs.raw);
@@ -224,7 +237,7 @@ static bool batteryCalibrationDone(const char *reference, bool ok, void *pad)
     const BoardBattery::Status bs = BoardBattery::status();
     uint16_t scale = 0;
     const long batteryMv = reference ? strtol(reference, nullptr, 10) : 0;
-    if (!bs.supported || !bs.sampleValid || !bs.adcCalibrated ||
+    if (bs.powerManaged || !bs.supported || !bs.sampleValid || !bs.adcCalibrated ||
         !BatteryMath::scaleFromReference((int32_t)batteryMv, bs.adcMillivolts, scale)) {
         UiNumpad::setHint((lv_obj_t *)pad, tr(Str::BATTERY_CALIBRATION_FAILED), true);
         return false;
@@ -765,7 +778,9 @@ static void showPage(Page page)
     s_adminCards[3] = battery;
     lv_obj_set_flex_flow(battery, LV_FLEX_FLOW_COLUMN);
     Theme::label(battery, tr(Str::SET_BATTERY), &my_font_14, Theme::ACCENT);
-    lv_obj_t *help = Theme::label(battery, tr(Str::BATTERY_HELP), &my_font_14, Theme::MUTED);
+    const bool powerManaged = BoardBattery::status().powerManaged;
+    lv_obj_t *help = Theme::label(battery, tr(powerManaged ? Str::BATTERY_PMIC_HELP : Str::BATTERY_HELP),
+                                  &my_font_14, Theme::MUTED);
     lv_label_set_long_mode(help, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(help, LV_PCT(100));
     s_batteryInfo = Theme::label(battery, "", &my_font_14);
@@ -778,6 +793,8 @@ static void showPage(Page page)
     }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *reset = Theme::button(battery, tr(Str::BATTERY_RESET), LV_PCT(100), 40, Theme::MUTED);
     lv_obj_add_event_cb(reset, [](lv_event_t *) { resetBatteryCalibration(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_set_hidden(calibrate, powerManaged);
+    lv_obj_set_hidden(reset, powerManaged);
 
     lv_obj_t *net = Theme::card(body, LV_PCT(100), LV_SIZE_CONTENT);
     s_adminCards[4] = net;

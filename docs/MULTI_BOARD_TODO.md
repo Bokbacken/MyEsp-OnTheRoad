@@ -15,6 +15,31 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
+
+- [x] Separat `S3_35B`-profil och byggartefakt: AXS15231B-skärm/touch,
+  AXP2101, TCA9554, PCF85063, ES8311 och 1-bitars SDMMC.
+- [x] Tidig initiering av delad I2C/strömkrets före SD och skärm; laddarens
+  inställningar och spänningsnivåer skrivs inte över på chans.
+- [x] PMIC-spänning/laddstatus/batterimätare i diagnos och inställningar;
+  direkt spänning används i batteriloggen. ADC-kalibrering döljs för PMIC.
+- [x] Fysiskt pitchskalade teckensnitt och gemensamma UI-mått; större P4-
+  typsnitt, med värdtester för verkliga glyphöjder och relevanta layouter.
+- [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
+  avvisas; återgång till äldre firmware kräver USB.
+- [ ] Verifiera alla tre firmwarebyggen i CI och ange körning i PR.
+- [ ] Första USB-flash på nya kortet: färgtest, touch i hörn/rotation och
+  karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
+- [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-
+  spänning mot multimeter. PCB-revision är obekräftad, möjligen V1.
+- [ ] Prova skärmsömn/återväckning och rätt/fel OTA-bild. Bekräfta RTC-
+  tidhållning med verklig ström-/batterikoppling, inte bara mjuk omstart.
+- [ ] Mät aktiv skärmyta och jämför Liten/Normal/Stor i mm på alla tre kort.
+  Nuvarande fysiska mått är uppskattningar, inte nya panelmätningar.
+
+Se [hårdvarureferensen](Waveshare_ESP32-S3-Touch-LCD-3.5B_Hardware_Reference.md)
+för verifierade källor, signaler, PMIC-data och uttryckliga begränsningar.
+
 ### Native Yatzy och skatteditor, v0.24.4–0.24.6
 
 - [x] ESP-klienter använder den inbyggda Yatzy-vyn; värden är ensam

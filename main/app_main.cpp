@@ -34,6 +34,9 @@
 #include "my_time.h"
 #include "my_wifi.h"
 #include "hw_profile.h"
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+#include "board_power.h"
+#endif
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
 #include "host_ota.h"
 #endif
@@ -98,8 +101,9 @@ static Theme::BatteryIndicator batteryIndicator()
     uint16_t batteryMv = 0;
     uint8_t percent = 0;
     const uint16_t scale = Config::get().batteryScalePermille;
-    const bool voltageValid = status.supported && status.sampleValid && status.adcCalibrated &&
-                              BatteryMath::batteryMillivolts(status.adcMillivolts, scale, batteryMv);
+    if (status.powerManaged)
+        return {status.sampleValid && status.batteryConnected && status.pmicPercentValid, status.pmicPercent};
+    const bool voltageValid = BoardBattery::voltageMillivolts(scale, batteryMv);
     return {voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent), percent};
 }
 
@@ -163,6 +167,9 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
     const bool fsOk = MyFat::mount("ffat", "/ffat", false);   // Never erase profiles on a mount failure.
     if (fsOk) MyLog::setEventFile("/ffat/events.log", 256 * 1024);
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+    if (!BoardPower::begin()) ESP_LOGE(TAG, "Board power initialization FAILED; inspect PMIC/EXIO diagnostics");
+#endif
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
     Theme::setBatteryIndicatorReader(batteryIndicator);
@@ -271,7 +278,7 @@ extern "C" void app_main(void)
             snprintf(buf, sizeof(buf), "%s", MyRtc::stateText(rs.state));
         }
         bool waiting = false;
-#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43) || defined(CONFIG_OTR_HW_PROFILE_S3_35B)
         waiting = !MyRtc::temperatureAvailable() && rs.present && rs.ticking &&
                   rs.state == MyRtc::State::TIME_INVALID;
 #endif
@@ -394,11 +401,14 @@ extern "C" void app_main(void)
         uint16_t batteryMv = 0;
         const AppConfig &currentConfig = Config::get();
         const bool batteryVoltageValid =
-            battery.supported && battery.sampleValid && battery.adcCalibrated &&
-            BatteryMath::batteryMillivolts(battery.adcMillivolts, currentConfig.batteryScalePermille, batteryMv);
+            BoardBattery::voltageMillivolts(currentConfig.batteryScalePermille, batteryMv);
         if (BatteryMath::batteryLogDue(batteryVoltageValid, now, lastBatteryLog)) {
             lastBatteryLog = now;
-            MyLog::event("battery", "battery_mV=%u adc_mV=%u raw=%ld scale_permille=%u",
+            if (battery.powerManaged)
+                MyLog::event("battery", "source=AXP2101 battery_mV=%u usb=%d charging=%d done=%d gauge_pct=%d",
+                             static_cast<unsigned>(batteryMv), battery.usbPresent, battery.charging,
+                             battery.chargeDone, battery.pmicPercentValid ? battery.pmicPercent : -1);
+            else MyLog::event("battery", "battery_mV=%u adc_mV=%u raw=%ld scale_permille=%u",
                          static_cast<unsigned>(batteryMv), static_cast<unsigned>(battery.adcMillivolts),
                          static_cast<long>(battery.raw), static_cast<unsigned>(currentConfig.batteryScalePermille));
         }

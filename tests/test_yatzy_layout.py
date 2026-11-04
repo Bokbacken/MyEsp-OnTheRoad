@@ -137,6 +137,7 @@ static void inside(lv_obj_t *obj, lv_obj_t *parent);
 static void checkResponsiveLayouts(lv_display_t *display) {
     for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}}) {
         lv_display_set_resolution(display, size.x, size.y);
+        MyFonts::apply(MyFonts::TextSize::NORMAL,size.x,size.x>=480 ? 117 : 154);
         for (const char *language : {"sv", "en"}) {
             Lang::setLang(language);
             const auto mini = miniLayout();
@@ -259,6 +260,7 @@ static void checkResponsiveLayouts(lv_display_t *display) {
         }
     }
     lv_display_set_resolution(display, 320, 480);
+    MyFonts::apply(MyFonts::TextSize::NORMAL,320,154);
 }
 @MODALS@
 static lv_obj_t *child(lv_obj_t *o, int i) { return lv_obj_get_child(o, i); }
@@ -313,7 +315,8 @@ static void checkDialog(lv_obj_t *m) {
     inside(lv_msgbox_get_content(m), m);
     inside(lv_msgbox_get_footer(m), m);
     noOverlap(lv_msgbox_get_footer(m), true);
-    assert(lv_obj_get_width(m) == (UiMetrics::screenW() == 320 ? 280 : 420));
+    assert(lv_obj_get_width(m) == LV_MIN(UiMetrics::screenW() - 4 * UiMetrics::marginNormal(),
+                                       UiMetrics::buttonWMax() - 2 * UiMetrics::marginNormal()));
 }
 static void key(lv_obj_t *matrix, int id) {
     lv_buttonmatrix_set_selected_button(matrix, id);
@@ -844,6 +847,7 @@ int main() {
         Lang::setLang(language ? "en" : "sv");
         for (auto size : {lv_point_t{320,480}, lv_point_t{480,800}, lv_point_t{800,480}}) {
             lv_display_set_resolution(display, size.x, size.y);
+            MyFonts::apply(MyFonts::TextSize::NORMAL,LV_MIN(size.x,size.y),size.x>=480 ? 117 : 154);
             for (auto game : {GameType::YATZY, GameType::PIG, GameType::FARKLE, GameType::SCC}) {
                 s_gameType = game; showVariants(); settle();
                 auto *box = body(); auto *list = child(box, 0);
@@ -976,7 +980,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/ui_numpad.cpp" "{ROOT}/main/hw_profile.cpp"
- "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
+ "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" "{ROOT}/components/my_ui/fonts/my_font_raw_48.c" "{ROOT}/components/my_ui/fonts/my_font_raw_52.c" "{ROOT}/components/my_ui/fonts/my_font_raw_56.c" "{ROOT}/components/my_ui/fonts/my_font_raw_60.c"
   "{ROOT}/components/my_ui/menu_art.cpp" "{ROOT}/main/app_players.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"
  "{ROOT}/main/game_yatzy.cpp" "{ROOT}/main/dice_cup.cpp")

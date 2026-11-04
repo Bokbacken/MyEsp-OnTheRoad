@@ -31,6 +31,17 @@ inline const char *esp_err_to_name(int) { return "injected failure"; }
 namespace MySys { inline uint32_t now=0; inline uint32_t millis() { return now; } }
 namespace MyLog { template<class... T> void event(T...) {} }
 struct esp_partition_t { uint32_t size; const char *label; };
+struct esp_image_header_t { uint8_t bytes[24]; };
+struct esp_image_segment_header_t { uint8_t bytes[8]; };
+struct esp_app_desc_t { uint8_t bytes[256]; };
+inline bool wrongBoard=false, legacy=false;
+inline int esp_partition_read(const esp_partition_t *, size_t offset, void *out, size_t size) {
+    assert(offset==288 && size==16);
+    uint32_t magic=legacy ? 0u : 0x4252544fu;
+    memset(out,0,size); memcpy(out,&magic,4);
+    strncpy(static_cast<char *>(out)+4,wrongBoard ? "S3_35B" : "ES3C35P",size-4);
+    return ESP_OK;
+}
 inline esp_partition_t target={5*1024*1024,"app1"};
 inline int begins=0, writes=0, aborts=0, selections=0;
 inline bool failBegin=false, failWrite=false, failEnd=false;
@@ -83,6 +94,12 @@ int main() {
     assert(!MyOta::end() && selections==2);
     assert(MyOta::state().phase==MyOta::Phase::FAILED);
     failEnd=false;
+    for (bool oldImage : {false,true}) {
+        wrongBoard=!oldImage; legacy=oldImage;
+        assert(MyOta::begin(4) && MyOta::write(bytes,4));
+        assert(!MyOta::end() && selections==2);
+    }
+    wrongBoard=legacy=false;
     assert(MyOta::begin(0));
     MySys::now+=20001;
     MyOta::checkStale();
@@ -93,7 +110,7 @@ int main() {
 with tempfile.TemporaryDirectory(prefix="otr-ota-stream-") as directory:
     work = pathlib.Path(directory)
     (work / "stubs.h").write_text(STUB)
-    for header in ["esp_app_format.h", "esp_log.h", "esp_ota_ops.h",
+    for header in ["esp_app_format.h", "esp_app_desc.h", "sdkconfig.h", "esp_log.h", "esp_ota_ops.h",
                    "freertos/FreeRTOS.h", "my_log.h", "my_sys.h"]:
         path = work / header
         path.parent.mkdir(parents=True, exist_ok=True)

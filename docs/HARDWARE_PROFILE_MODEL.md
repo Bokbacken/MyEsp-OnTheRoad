@@ -39,6 +39,10 @@ not independent panel measurements or a newly verified manufacturer drawing:
 |---|---:|---:|---:|---:|
 | `ES3C35P` | 320 × 480 | 49.312 × 73.968 mm | about 154 µm | about 165 PPI |
 | `P4_43` | 480 × 800 | 56.208 × 93.680 mm | about 117 µm | about 217 PPI |
+| `S3_35B` | 320 × 480 | 49.312 × 73.968 mm | about 154 µm | about 165 PPI |
+
+`S3_35B` uses a nominal active area derived from a 3.5-inch 2:3 diagonal,
+not an independently verified measurement.
 
 These are approximate starting values, marked as such in the respective
 hardware references. Confirm them against an authoritative panel datasheet or
@@ -50,11 +54,16 @@ zero. PPI (pixels per inch) is the accurate display term; the colloquial
 "DPI" is often used for the same idea. These helpers report axis PPI, not
 LVGL's diagonal-DPI convention.
 
-The immediate purpose is to make the physical information available and
-testable. Existing `UiMetrics` still scales from logical resolution. Do not
-silently switch the entire UI to physical scaling: a later change should
-choose which dimensions benefit from density scaling, preserve usable touch
-targets, and verify both reference screens.
+`MyFonts::apply()` selects generated fonts against a 154 µm reference pitch.
+For example, the normal 18 px S3 body font becomes 24 px on P4. Shared
+`UiMetrics` spacing uses the same physical scale and buttons also allow room
+for the selected body font. Screen-fitting game layouts still use available
+logical space; this is not a blanket scaling of every coordinate or asset.
+Host checks compare actual capital-A bitmap heights (within 12% across
+generated font steps) and exercise boot, Wi-Fi, Sudoku, menu and karaoke
+layouts. Physical panel measurement and on-device readability checks remain
+necessary before promising exact millimetres. Smaller panels still cap text
+size at Large; P4 additionally offers Extra Large.
 
 For square visual assets, a future UI helper may calculate pixels for a
 target physical length from `pixelPitchXUm()`; horizontal and vertical

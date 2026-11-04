@@ -1,6 +1,5 @@
-// ui_metrics.h - shared UI dimensions/tokens derived from the active display size.
-// Values are computed from the live LVGL display (falling back to the hardware profile) and are
-// tuned so a 320x480 portrait screen yields the original fixed sizes.
+// ui_metrics.h - shared UI tokens scaled by physical pixel pitch.
+// ES3C35P is the reference density; display resolution does not define physical control size.
 #pragma once
 #include <stdint.h>
 
