@@ -111,9 +111,24 @@ int main()
     assert(sample.batteryMillivolts == 4076);
     assert(sample.usbPresent && sample.charging && sample.chargeDone);
     assert(sample.percentValid && sample.percent == 77);
+    assert(!sample.powerButtonPressed);
     const int before = transactionCount;
     (void)BoardPower::status();
     assert(transactionCount == before);
+
+    bool pressed = false;
+    registers[0x20][0x00] = 1U << 6; // Vendor BSP confirms PWR press is active high.
+    assert(BoardPower::readPowerButton(pressed) && pressed);
+    for (int i = 0; i < 99; ++i) BoardPower::handlePowerButton(true);
+    assert((registers[0x34][0x10] & 0x01) == 0);
+    BoardPower::handlePowerButton(true);
+    assert(BoardPower::status().powerOffRequested);
+    assert((registers[0x34][0x10] & 0x01) == 0); // The UI waits for active operations first.
+    assert(BoardPower::powerOff());
+    assert((registers[0x34][0x10] & 0x01) == 0x01); // 2 seconds requests PMIC shutdown.
+    assert(!BoardPower::status().powerOffRequested);
+    BoardPower::handlePowerButton(false);
+    assert(!BoardPower::status().powerButtonPressed);
 
     puts("S3 3.5B bus, expander-reset, and cached PMIC checks passed");
     return 0;

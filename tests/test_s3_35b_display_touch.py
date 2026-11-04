@@ -40,6 +40,12 @@ def main():
                 count += 1
         finally:
             binary.unlink(missing_ok=True)
+    indev = (ROOT / "managed_components/lvgl__lvgl/src/indev/lv_indev.c").read_text()
+    send_event_start = indev.index("static lv_result_t send_event(lv_event_code_t code, void * param)\n{")
+    send_event_end = indev.index("\n}\n", send_event_start) + 3
+    send_event = indev[send_event_start:send_event_end]
+    assert send_event.index("LV_EVENT_CLICKED") < send_event.index("lv_indev_send_event")
+    assert send_event.index("indev_stop_processing_check") < send_event.index("lv_obj_send_event")
     print(f"S3 3.5B display/touch: {count} host scenarios passed")
 
 

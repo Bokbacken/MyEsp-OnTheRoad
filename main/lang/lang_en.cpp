@@ -65,6 +65,8 @@ extern const Entry LANG_EN[] = {
     {Str::SET_TIME_ZONE_SAVED, "Previously saved time zone"},
     {Str::SCREEN_SLEEP_HELP, "Normally audio and games continue. Idle mode stops Wi-Fi and audio only without games, karaoke or transfers. Touch to wake; release and wait 250 ms. History requires SD and saves every five minutes."},
     {Str::SET_SAVE_FAILED, "Could not save settings. Please try again."},
+    {Str::POWER_OFF_CANCELLED, "Power-off cancelled: OTA, file transfer, or formatting is still active after 30 seconds."},
+    {Str::POWER_OFF_FAILED, "Power-off failed. The power controller did not respond; see the diagnostic log."},
 
     {Str::BOOT_I2C, "I2C bus"},
     {Str::BOOT_CLOCK, "Clock (RTC)"},

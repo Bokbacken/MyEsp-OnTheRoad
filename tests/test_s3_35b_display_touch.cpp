@@ -31,12 +31,31 @@ Status status() { return {powerInitialized}; }
 }
 
 struct lv_display_t {};
-struct lv_indev_t {};
+struct lv_indev_t { bool stopProcessing = false; };
 struct lv_obj_t {};
+enum lv_event_code_t {
+    LV_EVENT_ALL, LV_EVENT_PRESSED, LV_EVENT_PRESSING, LV_EVENT_RELEASED,
+    LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED, LV_EVENT_DOUBLE_CLICKED,
+    LV_EVENT_TRIPLE_CLICKED, LV_EVENT_CLICKED
+};
+struct lv_event_t { lv_event_code_t code; bool stopped = false; };
+struct lv_event_dsc_t {};
+using lv_event_cb_t = void (*)(lv_event_t *);
+lv_event_cb_t pointerEventCallback = nullptr;
 enum lv_display_rotation_t { LV_DISPLAY_ROTATION_0, LV_DISPLAY_ROTATION_90,
                              LV_DISPLAY_ROTATION_180, LV_DISPLAY_ROTATION_270 };
 lv_display_t displayMock;
 lv_indev_t pointerMock;
+lv_event_code_t lv_event_get_code(lv_event_t *event) { return event->code; }
+void lv_event_stop_processing(lv_event_t *event) { event->stopped = true; }
+void lv_indev_stop_processing(lv_indev_t *indev) { indev->stopProcessing = true; }
+lv_event_dsc_t *lv_indev_add_event_cb(lv_indev_t *indev, lv_event_cb_t callback,
+                                      lv_event_code_t filter, void *) {
+    assert(indev == &pointerMock && filter == LV_EVENT_ALL);
+    pointerEventCallback = callback;
+    static lv_event_dsc_t descriptor;
+    return &descriptor;
+}
 bool lastFlush = true, lvReady = false, rotationFail = false, lvBeginFail = false, pointerFail = false;
 int invalidations = 0, beginCount = 0;
 lv_display_rotation_t actualRotation = LV_DISPLAY_ROTATION_0;
@@ -295,19 +314,20 @@ int main(int argc, char **argv) {
     rotationFail = false;
     if (mode == "sleep-errors") { failCommand = 0x28; commandError = ESP_ERR_TIMEOUT; }
     if (mode == "sleep-errors") {
+        assert(!Display::panelSleepSupported() && !Display::panelSleeping());
+        const size_t count = commands.size();
         assert(!Display::setPanelSleeping(true) && !Display::panelSleeping());
-        failCommand = 0x10;
-        assert(!Display::setPanelSleeping(true) && Display::panelSleeping());
-        failCommand = 0x11;
-        assert(!Display::setPanelSleeping(false) && Display::panelSleeping());
+        assert(commands.size() == count);
+        assert(Display::setPanelSleeping(false) && !Display::panelSleeping());
         failCommand = -1;
-    } else assert(Display::setPanelSleeping(true) && Display::panelSleeping());
+    } else {
+        assert(!Display::panelSleepSupported() && !Display::panelSleeping());
+        assert(!Display::setPanelSleeping(true));
+    }
     before = colors.size();
     Display::fillScreen(0xFFFF);
-    MyLvgl::config.flush(0, 0, 1, 1, pixels, true);
-    assert(colors.size() == before);
-    assert(Display::setPanelSleeping(false) && !Display::panelSleeping());
     checkStream(before);
+    MyLvgl::config.flush(0, 0, 1, 1, pixels, true);
     const auto stats = Display::stats();
     assert(!stats.teActive && !stats.teEdges && !stats.teTimeouts && stats.bufInPsram);
 }
@@ -343,6 +363,7 @@ int main(int argc, char **argv) {
     assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 2);
     assert(Touch::info().fwVersion == 0 && Touch::info().irqCount == 0);
     assert(Touch::begin() && probes == 112 && reads == 1);
+    assert(pointerEventCallback);
     uint8_t addrs[4] = {};
     assert(Touch::scanResults(addrs, 4) == 3 && addrs[0] == 0x18 && addrs[2] == 0x3B);
     assert(Touch::scanResults(nullptr, 4) == 0 && Touch::scanResults(addrs, -1) == 0);
@@ -414,5 +435,44 @@ int main(int argc, char **argv) {
     report[1] = 2;
     assert(poll(x, y) && x == 42 && y == 300);
     assert(Touch::info().readErrors == errorsBeforeIdle);
+
+    setPoint(42, 300, 1);
+    assert(!poll(x, y));
+    setPoint(100, 100);
+    assert(poll(x, y));
+    setPoint(112, 108);
+    assert(poll(x, y));
+    setPoint(112, 108, 1);
+    assert(!poll(x, y));
+    lv_event_t clickNearStart{LV_EVENT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&clickNearStart);
+    assert(!pointerMock.stopProcessing && !clickNearStart.stopped);
+    setPoint(100, 100);
+    assert(poll(x, y));
+    setPoint(115, 115);
+    assert(poll(x, y));
+    setPoint(125, 115);
+    assert(poll(x, y));
+    setPoint(125, 115, 1);
+    assert(!poll(x, y));
+    for (lv_event_code_t code : {LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED,
+                                 LV_EVENT_DOUBLE_CLICKED, LV_EVENT_TRIPLE_CLICKED,
+                                 LV_EVENT_RELEASED}) {
+        lv_event_t event{code};
+        pointerMock.stopProcessing = false;
+        pointerEventCallback(&event);
+        assert(!pointerMock.stopProcessing && !event.stopped);
+    }
+    lv_event_t movedClick{LV_EVENT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&movedClick);
+    assert(pointerMock.stopProcessing && movedClick.stopped);
+    lv_event_t movedShortClick{LV_EVENT_SHORT_CLICKED};
+    pointerMock.stopProcessing = false;
+    pointerEventCallback(&movedShortClick);
+    assert(!pointerMock.stopProcessing && !movedShortClick.stopped);
+    setPoint(125, 115);
+    assert(poll(x, y));
 }
 #endif

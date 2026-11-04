@@ -97,7 +97,6 @@ bool g_spiCreated = false;
 bool g_attempted = false;
 std::atomic<bool> g_ok{false};
 std::atomic<bool> g_panelOk{false};
-std::atomic<bool> g_sleeping{false};
 std::atomic<bool> g_transportFault{false};
 bool g_rot180 = false;
 bool g_land = false;
@@ -135,7 +134,7 @@ bool IRAM_ATTR transferDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_da
 
 bool sendFrame()
 {
-    if (!g_panelOk || g_transportFault || g_sleeping) return false;
+    if (!g_panelOk || g_transportFault) return false;
     const uint8_t columns[] = {0, 0, uint8_t((LCD_H_RES - 1) >> 8), uint8_t(LCD_H_RES - 1)};
     esp_err_t err = command(0x2A, columns, sizeof(columns));
     if (err != ESP_OK) return transportFail("LCD column window", err);
@@ -155,7 +154,7 @@ bool sendFrame()
 
 void flush(int x1, int y1, int x2, int y2, const uint16_t *px, bool)
 {
-    if (!g_ok || g_sleeping) return;
+    if (!g_ok) return;
     if (!px || x1 < 0 || y1 < 0 || x2 < x1 || y2 < y1 || x2 >= LCD_H_RES || y2 >= LCD_V_RES) {
         transportFail("LCD flush bounds", ESP_ERR_INVALID_ARG);
         return;
@@ -275,41 +274,22 @@ bool begin()
 bool ok() { return g_ok; }
 bool panelOk() { return g_panelOk; }
 const char *failReason() { return g_fail; }
-bool panelSleepSupported() { return true; }
-bool panelSleeping() { return g_sleeping; }
+bool panelSleepSupported() { return false; }
+bool panelSleeping() { return false; }
 
 bool setPanelSleeping(bool sleeping)
 {
     if (!g_panelOk || g_transportFault) return fail("LCD power unavailable", ESP_ERR_INVALID_STATE);
-    if (sleeping == g_sleeping) return true;
-    esp_err_t err;
     if (sleeping) {
-        err = command(0x28);
-        if (err != ESP_OK) return fail("LCD display-off", err);
-        g_sleeping = true;
-        err = command(0x10);
-        if (err != ESP_OK) return fail("LCD sleep-in", err);
-        vTaskDelay(pdMS_TO_TICKS(120));
-    } else {
-        err = command(0x11);
-        if (err != ESP_OK) return fail("LCD sleep-out", err);
-        vTaskDelay(pdMS_TO_TICKS(120));
-        err = command(0x29);
-        if (err != ESP_OK) return fail("LCD display-on", err);
-        vTaskDelay(pdMS_TO_TICKS(20));
-        g_sleeping = false;
-        if (!sendFrame()) return false;
-        if (g_ok) {
-            lv_obj_invalidate(lv_screen_active());
-            lv_obj_invalidate(lv_layer_top());
-        }
+        ESP_LOGW(TAG, "panel sleep disabled to keep polled touch available for wake");
+        return false;
     }
     return true;
 }
 
 void fillScreen(uint16_t rgb565)
 {
-    if (!g_panelOk || g_sleeping || g_transportFault) return;
+    if (!g_panelOk || g_transportFault) return;
     const bool locked = MyLvgl::ok();
     if (locked && !MyLvgl::lock(DMA_TIMEOUT_MS)) {
         fail("LCD fill lock", ESP_ERR_TIMEOUT);

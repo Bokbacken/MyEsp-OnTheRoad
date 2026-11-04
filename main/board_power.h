@@ -18,6 +18,8 @@ struct Status {
     bool chargeDone;
     bool percentValid;
     uint8_t percent;
+    bool powerButtonPressed;
+    bool powerOffRequested;
     uint32_t errors;
 };
 
@@ -26,5 +28,7 @@ bool begin();
 i2c_master_bus_handle_t bus();
 // Returns a cached PMIC sample; it never performs I2C transfers.
 Status status();
+bool powerOff();
+void cancelPowerOff();
 
 }  // namespace BoardPower

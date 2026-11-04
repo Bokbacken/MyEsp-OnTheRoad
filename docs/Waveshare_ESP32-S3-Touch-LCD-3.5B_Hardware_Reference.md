@@ -18,11 +18,13 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |
-| Power button signal | TCA9554 EXIO6, configured as an input |
+| Power button signal | TCA9554 EXIO6, configured as an input; active high while pressed |
 | PMIC | AXP2101, I2C address `0x34` |
 | RTC | PCF85063, I2C address `0x51` when fitted |
 
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus or toggles reset. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
+
+The PWR button is polled through TCA9554 EXIO6. A short press wakes the backlight if the screen is off; it does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.
 
 The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`, not the generic AXS15231B driver's separate 8-byte read. The firmware follows that protocol, accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all 14 report bytes for the latter.
 

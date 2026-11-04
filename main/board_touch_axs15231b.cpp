@@ -16,6 +16,7 @@ const char *TAG = "touch";
 constexpr int I2C_TIMEOUT_MS = 20;
 constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
+constexpr uint32_t TAP_SLOP_PX = 20;
 // Waveshare's 3.5B factory BSP uses a combined write/read and a 14-byte report.
 constexpr size_t REPORT_LEN = 14;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
@@ -30,6 +31,17 @@ uint32_t g_lastPoll = 0;
 uint32_t g_lastDown = 0;
 bool g_gap = false;
 bool g_idleReportLogged = false;
+uint16_t g_touchStartX = 0, g_touchStartY = 0;
+bool g_tapCancelled = false;
+
+void cancelMovedClick(lv_event_t *event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (!g_tapCancelled || code != LV_EVENT_CLICKED) return;
+    lv_event_stop_processing(event);
+    lv_indev_stop_processing(g_indev);
+    g_tapCancelled = false;
+}
 
 esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
 {
@@ -113,13 +125,23 @@ bool pointerRead(int16_t *outX, int16_t *outY)
             g_info.pressed = false;
             g_gap = false;
         } else if (down) {
-            if (!g_info.pressed) g_info.touchCount++;
+            if (!g_info.pressed) {
+                g_info.touchCount++;
+                g_touchStartX = x;
+                g_touchStartY = y;
+                g_tapCancelled = false;
+            }
             if (g_gap) g_info.bridgedGaps++;
             g_gap = false;
             g_info.lastX = x;
             g_info.lastY = y;
             g_info.pressed = true;
             g_lastDown = now;
+            const int32_t dx = int32_t(x) - g_touchStartX;
+            const int32_t dy = int32_t(y) - g_touchStartY;
+            if (!g_tapCancelled && dx * dx + dy * dy > int32_t(TAP_SLOP_PX * TAP_SLOP_PX)) {
+                g_tapCancelled = true;
+            }
         } else if (released || now - g_lastDown >= RELEASE_HOLD_MS) {
             g_info.pressed = false;
             g_gap = false;
@@ -171,6 +193,8 @@ bool begin()
 
     g_indev = MyLvgl::addPointer(pointerRead);
     if (!g_indev) return fail("AXS15231B LVGL pointer", ESP_ERR_NO_MEM);
+    if (!lv_indev_add_event_cb(g_indev, cancelMovedClick, LV_EVENT_ALL, nullptr))
+        return fail("AXS15231B click filter", ESP_ERR_NO_MEM);
     g_info.present = true;
     g_info.address = TOUCH_I2C_ADDR;
     g_info.maxX = LCD_H_RES;

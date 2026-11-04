@@ -30,18 +30,24 @@ constexpr uint8_t AXP2101_ADDR = 0x34;
 constexpr uint8_t AXP2101_REG_STATUS1 = 0x00;
 constexpr uint8_t AXP2101_REG_STATUS2 = 0x01;
 constexpr uint8_t AXP2101_REG_CHIP_ID = 0x03;
+constexpr uint8_t AXP2101_REG_COMMON_CONFIG = 0x10;
 constexpr uint8_t AXP2101_REG_ADC_CHANNEL_CTRL = 0x30;
 constexpr uint8_t AXP2101_REG_BAT_ADC_HIGH = 0x34;
 constexpr uint8_t AXP2101_REG_BAT_ADC_LOW = 0x35;
 constexpr uint8_t AXP2101_REG_BAT_PERCENT = 0xA4;
 constexpr uint8_t AXP2101_CHIP_ID = 0x4A;
 constexpr int I2C_TIMEOUT_MS = 30;
+constexpr uint32_t BUTTON_POLL_MS = 20;
+constexpr uint32_t BUTTON_POWER_OFF_MS = 2000;
 
 i2c_master_bus_handle_t s_bus = nullptr;
 i2c_master_dev_handle_t s_expander = nullptr;
 i2c_master_dev_handle_t s_pmic = nullptr;
 Status s_status = {};
 portMUX_TYPE s_statusMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t s_buttonHeldMs = 0;
+uint32_t s_buttonReadErrors = 0;
+bool s_buttonShutdownIssued = false;
 
 bool addDevice(uint8_t address, i2c_master_dev_handle_t *device)
 {
@@ -68,6 +74,16 @@ void publish(const Status &next)
 {
     portENTER_CRITICAL(&s_statusMux);
     s_status = next;
+    portEXIT_CRITICAL(&s_statusMux);
+}
+
+void publishPmic(const Status &next)
+{
+    portENTER_CRITICAL(&s_statusMux);
+    Status current = next;
+    current.powerButtonPressed = s_status.powerButtonPressed;
+    current.powerOffRequested = s_status.powerOffRequested;
+    s_status = current;
     portEXIT_CRITICAL(&s_statusMux);
 }
 
@@ -124,7 +140,7 @@ void refreshPmic()
     if (!ok) {
         next.sampleValid = false;
         ++next.errors;
-        publish(next);
+        publishPmic(next);
         return;
     }
 
@@ -138,14 +154,71 @@ void refreshPmic()
                                    static_cast<uint16_t>(((batteryHigh & 0x1F) << 8) | batteryLow),
                                    next.batteryMillivolts);
     next.percentValid = next.batteryConnected && BoardPowerMath::percentage(percentage, next.percent);
-    publish(next);
+    publishPmic(next);
+}
+
+bool readPowerButton(bool &pressed)
+{
+    uint8_t input = 0;
+    if (!readRegister(s_expander, TCA9554_REG_INPUT, input)) {
+        ++s_buttonReadErrors;
+        if (s_buttonReadErrors == 1 || s_buttonReadErrors % 100 == 0)
+            ESP_LOGW(TAG, "power-button read failed (%u errors)", (unsigned)s_buttonReadErrors);
+        return false;
+    }
+    s_buttonReadErrors = 0;
+    pressed = (input & EXIO_POWER_BUTTON) != 0;
+    return true;
+}
+
+bool requestPmicShutdown()
+{
+    uint8_t config = 0;
+    if (!readRegister(s_pmic, AXP2101_REG_COMMON_CONFIG, config)) {
+        ESP_LOGE(TAG, "AXP2101 shutdown register read failed");
+        return false;
+    }
+    if (!writeRegister(s_pmic, AXP2101_REG_COMMON_CONFIG, config | 0x01)) {
+        ESP_LOGE(TAG, "AXP2101 shutdown request failed");
+        return false;
+    }
+    ESP_LOGI(TAG, "AXP2101 shutdown requested by power button");
+    return true;
+}
+
+void handlePowerButton(bool pressed)
+{
+    portENTER_CRITICAL(&s_statusMux);
+    s_status.powerButtonPressed = pressed;
+    portEXIT_CRITICAL(&s_statusMux);
+    if (!pressed) {
+        s_buttonHeldMs = 0;
+        s_buttonShutdownIssued = false;
+        return;
+    }
+    if (s_buttonHeldMs < BUTTON_POWER_OFF_MS) s_buttonHeldMs += BUTTON_POLL_MS;
+    if (s_buttonHeldMs >= BUTTON_POWER_OFF_MS && !s_buttonShutdownIssued) {
+        s_buttonShutdownIssued = true;
+        portENTER_CRITICAL(&s_statusMux);
+        s_status.powerOffRequested = true;
+        portEXIT_CRITICAL(&s_statusMux);
+        ESP_LOGI(TAG, "power-off requested after 2-second button hold");
+    }
 }
 
 void sampleTask(void *)
 {
+    uint32_t pmicElapsedMs = 0;
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
-        refreshPmic();
+        bool pressed = false;
+        if (readPowerButton(pressed)) handlePowerButton(pressed);
+        else handlePowerButton(false);
+        pmicElapsedMs += BUTTON_POLL_MS;
+        if (pmicElapsedMs >= 10000) {
+            pmicElapsedMs = 0;
+            refreshPmic();
+        }
+        vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_MS));
     }
 }
 
@@ -210,6 +283,20 @@ Status status()
     return copy;
 }
 
+bool powerOff()
+{
+    if (!status().supported || !requestPmicShutdown()) return false;
+    cancelPowerOff();
+    return true;
+}
+
+void cancelPowerOff()
+{
+    portENTER_CRITICAL(&s_statusMux);
+    s_status.powerOffRequested = false;
+    portEXIT_CRITICAL(&s_statusMux);
+}
+
 }  // namespace BoardPower
 #else
 namespace BoardPower {
@@ -217,6 +304,8 @@ namespace BoardPower {
 bool begin() { return false; }
 i2c_master_bus_handle_t bus() { return nullptr; }
 Status status() { return {}; }
+bool powerOff() { return false; }
+void cancelPowerOff() {}
 
 }  // namespace BoardPower
 #endif

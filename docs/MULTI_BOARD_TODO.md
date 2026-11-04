@@ -64,11 +64,14 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
 - [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-
   spänning mot multimeter. PCB-revision är obekräftad, möjligen V1.
-- [ ] Prova skärmsömn/återväckning och rätt/fel OTA-bild. Bekräfta RTC-
-  tidhållning med verklig ström-/batterikoppling, inte bara mjuk omstart.
-- [ ] Nästa hårdvarusvep: ägaren har provat "Släck skärmen nu" på S3_35B.
-  Skärmen släcks men går inte att väcka. Felsökning uttryckligen uppskjuten;
-  zoom/textarbetet ändrar inte sömn- eller väckningshanteringen.
+- [x] S3-skärmsläckning släcker endast bakbelysningen så att den I2C-pollade
+  touchen kan väcka skärmen; fysisk PWR-knapp väcker också utan att korttryck
+  släcker skärmen. Två sekunders hålltryck begär kontrollerad AXP2101-avstängning,
+  som väntar högst 30 sekunder på OTA/filöverföring/formatering och visar skäl
+  om avstängningen avbryts. Touchdrag över 20 px avbryter LVGL-klicket.
+  Värdtester täcker beteendena.
+- [ ] Prova fysisk skärmväckning med touch/PWR, två sekunders PWR-avstängning,
+  rätt/fel OTA-bild och RTC-tidhållning med verklig ström-/batterikoppling.
 - [ ] Mät aktiv skärmyta och jämför Liten/Normal/Stor i mm på alla tre kort.
   Nuvarande fysiska mått är uppskattningar, inte nya panelmätningar.
 

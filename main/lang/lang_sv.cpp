@@ -65,6 +65,8 @@ extern const Entry LANG_SV[] = {
     {Str::SET_TIME_ZONE_SAVED, "Tidigare sparad tidszon"},
     {Str::SCREEN_SLEEP_HELP, "Normalt fortsätter ljud och spel. Viloläge stoppar Wi-Fi och ljud endast utan spel, karaoke eller överföring. Touch väcker; släpp och vänta 250 ms. Historik kräver SD och sparas var femte minut."},
     {Str::SET_SAVE_FAILED, "Inställningarna kunde inte sparas. Försök igen."},
+    {Str::POWER_OFF_CANCELLED, "Avstängningen avbröts: OTA, filöverföring eller formatering pågår efter 30 sekunder."},
+    {Str::POWER_OFF_FAILED, "Avstängningen misslyckades. Strömkretsen svarar inte; se diagnostikloggen."},
 
     {Str::BOOT_I2C, "I2C-buss"},
     {Str::BOOT_CLOCK, "Klocka (RTC)"},

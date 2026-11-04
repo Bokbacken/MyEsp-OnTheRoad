@@ -122,6 +122,13 @@ static void showStatusMessage(const char *text)
     Theme::msgboxFonts(box);
 }
 
+static void showPowerMessage(UiScreenPower::PowerMessage message)
+{
+    const Str text = message == UiScreenPower::PowerMessage::CANCELLED ? Str::POWER_OFF_CANCELLED :
+                     Str::POWER_OFF_FAILED;
+    showStatusMessage(tr(text));
+}
+
 static void statusOpenMenu()
 {
     UiSettings::prepareForMenuNavigation();
@@ -386,6 +393,7 @@ extern "C" void app_main(void)
         else if (wifiOk) UiWifi::showNetworks();
         else UiYatzy::showMenu();
         UiOta::begin();
+        UiScreenPower::setPowerMessageHandler(showPowerMessage);
         UiScreenPower::begin();
     }
 
