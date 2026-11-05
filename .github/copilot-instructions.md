@@ -35,6 +35,16 @@ a concise changelog entry for a versioned delivery. Change README only when
 its current feature/setup description needs to change. Documentation-only
 reorganization does not require a firmware version bump.
 
+## Firmware build identification
+
+For this repository, increment the firmware patch version before each new
+firmware build delivery, including diagnostic/test builds, so the owner can
+identify which build is installed. Update `PROJECT_VER` in
+`CMakeLists.txt` and the matching changelog entry before triggering the build.
+All board variants of one delivery share the version. For upstream factory
+test builds, use a distinct diagnostic build version without changing the
+upstream touch behavior. Do not relabel an already built artifact.
+
 Before creating a PR, check for a PR template and follow it if present.
 Include this trailer on commits:
 
