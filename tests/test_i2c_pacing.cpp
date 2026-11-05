@@ -22,6 +22,9 @@ std::atomic<int> active{0};
 std::vector<int64_t> starts;
 std::vector<int64_t> ends;
 int nextResult = ESP_OK;
+int receiveResult = ESP_OK;
+bool splitPending = false;
+std::thread::id splitOwner;
 
 #define ESP_LOGE(...) (++errorLogs)
 #define ESP_LOGI(...) ((void)0)
@@ -48,6 +51,7 @@ void xSemaphoreGive(SemaphoreHandle_t mutex) { mutex->unlock(); }
 
 int transfer()
 {
+    assert(!splitPending || splitOwner == std::this_thread::get_id());
     assert(active.fetch_add(1) == 0);
     const int64_t start = clockUs.load();
     starts.push_back(start);
@@ -68,8 +72,21 @@ esp_err_t i2c_master_probe(i2c_master_bus_handle_t bus, uint16_t address, int ti
 }
 esp_err_t i2c_master_transmit(i2c_master_dev_handle_t device, const uint8_t *data, size_t size, int timeout)
 {
-    assert(device && data && size == 1 && timeout == 30);
-    return transfer();
+    assert(device && data && size == 1 && (timeout == 30 || timeout == 100));
+    const int result = transfer();
+    if (timeout == 100 && result == ESP_OK) {
+        splitOwner = std::this_thread::get_id();
+        splitPending = true;
+    }
+    return result;
+}
+esp_err_t i2c_master_receive(i2c_master_dev_handle_t device, uint8_t *rx, size_t size, int timeout)
+{
+    assert(device && rx && size == 1 && timeout == 100 && splitPending);
+    transfer();
+    splitPending = false;
+    *rx = 0x24;
+    return receiveResult;
 }
 esp_err_t i2c_master_transmit_receive(i2c_master_dev_handle_t device, const uint8_t *tx, size_t txSize,
                                      uint8_t *rx, size_t rxSize, int timeout)
@@ -108,10 +125,20 @@ int main()
     nextResult = ESP_OK;
     assert(OtrI2c::probe(bus, 0x20, 30) == ESP_OK);
 #ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+    assert(OtrI2c::transmitThenReceive(bus, &data, 1, &data, 1, 100) == ESP_OK && data == 0x24);
+    nextResult = ESP_FAIL;
+    const auto beforeFailedWrite = starts.size();
+    assert(OtrI2c::transmitThenReceive(bus, &data, 1, &data, 1, 100) == ESP_FAIL);
+    assert(starts.size() == beforeFailedWrite + 1 && !splitPending);
+    nextResult = ESP_OK;
+    receiveResult = ESP_FAIL;
+    assert(OtrI2c::transmitThenReceive(bus, &data, 1, &data, 1, 100) == ESP_FAIL);
+    receiveResult = ESP_OK;
     failLock = true;
     const auto count = starts.size();
     assert(OtrI2c::probe(bus, 0x20, 30) == ESP_ERR_INVALID_STATE);
-    assert(starts.size() == count && errorLogs == 3);
+    assert(OtrI2c::transmitThenReceive(bus, &data, 1, &data, 1, 100) == ESP_ERR_INVALID_STATE);
+    assert(starts.size() == count && errorLogs == 4);
     failLock = false;
     std::vector<std::thread> tasks;
     for (int i = 0; i < 4; ++i) {
@@ -121,11 +148,12 @@ int main()
                 assert(OtrI2c::probe(bus, 0x20, 30) == ESP_OK);
                 assert(OtrI2c::transmit(bus, &byte, 1, 30) == ESP_OK);
                 assert(OtrI2c::transmitReceive(bus, &byte, 1, &byte, 1, 100) == ESP_OK);
+                assert(OtrI2c::transmitThenReceive(bus, &byte, 1, &byte, 1, 100) == ESP_OK);
             }
         });
     }
     for (auto &task : tasks) task.join();
-    assert(starts.size() == count + 1200);
+    assert(starts.size() == count + 2000);
 #else
     assert(delayCalls == 0 && allocations == 0);
 #endif

@@ -95,7 +95,15 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.5: begär och läs 8 byte för en touchpunkt i stället för 14.
   Behåll kombinerad transaktion utan STOP, 400 kHz, touch/PWR 30/100 ms,
   mutex/100 us paus, 60 ms-bryggning och diagnostisk klickbypass.
-- [ ] Jämför v0.25.5 på kortet med samma stillahållning och långsamma drag.
+- [x] v0.25.5-loggen: 512 läsningar under 20,916 s, 236 accepterade kontakt-/
+  släpprapporter, 254 enhetliga tomrapporter, 21 parseravvisningar och ett
+  avvikande nollpunktpaket; inga transportfel. Anropstid 559-898 us,
+  medel 689,1 us, median 699 us; pollmedian 32,012 ms, max 329,089 ms.
+  Förskjutningsliknande paket och blandad FF/37 finns kvar med 8-bytebegäran.
+- [x] v0.25.6: samma 8-bytebegäran, men STOP mellan kommando och läsning.
+  Gemensamt lås över båda anropen; befintlig 100 us paus även efter kommandot.
+  Övrig touch-/PWR-timing och parser oförändrade.
+- [ ] Jämför v0.25.6 på kortet med samma stillahållning och långsamma drag.
   Kortare svar döljer vissa svansavvikelser; färre parserfel ensamt räcker inte.
   Behåll touchpollgränsen tills förbättring är bekräftad.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.

@@ -30,7 +30,7 @@ constexpr bool TOUCH_DIAGNOSTICS = true;
 #else
 constexpr bool TOUCH_DIAGNOSTICS = false;
 #endif
-// The combined transaction keeps the command/read pair atomic on the shared bus.
+// The shared lock keeps other devices out between the STOP-separated transfers.
 constexpr size_t REPORT_LEN = 8;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
 constexpr uint8_t MAX_POINTS = 1;
@@ -174,7 +174,7 @@ esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool l
 {
     uint8_t data[REPORT_LEN] = {};
     const int64_t startUs = esp_timer_get_time();
-    esp_err_t err = OtrI2c::transmitReceive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
+    esp_err_t err = OtrI2c::transmitThenReceive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
                                                 data, sizeof(data), I2C_TIMEOUT_MS);
     const int64_t durationUs = esp_timer_get_time() - startUs;
     const bool logError = !BUFFERED_TRACE &&
@@ -356,7 +356,7 @@ bool begin()
         ESP_LOGI("touch_raw", "ARMED: first contact records 512 reads in RAM, then dumps; "
                  "live touch traces disabled; reset to rearm");
     // No documented firmware-identification command: version fields remain unknown (zero).
-    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz atomic I2C, 8-byte single-point report, polled (no IRQ/reset GPIO)",
+    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz STOP-separated I2C, 8-byte single-point report, polled (no IRQ/reset GPIO)",
              TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);
     return true;
 }

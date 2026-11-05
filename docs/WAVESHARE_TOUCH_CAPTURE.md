@@ -24,6 +24,11 @@ below still uses its original 14-byte reports. Compare malformed starts and
 contact continuity as well as parser errors: fewer captured bytes also hide
 some tail anomalies, and a zero point count may mask an abnormal report.
 
+From v0.25.6 the same 8-byte request uses separate command and receive
+transfers with STOP between. The shared mutex covers both transfers, and
+the minimum 100 us gap also applies between them. `dt_us` includes both
+transfers, the intervening gap and any initial mutex/pacing wait.
+
 ## Factory comparison
 
 The optional `waveshare_touch_trace` input to the manual firmware workflow

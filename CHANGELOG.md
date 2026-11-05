@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.6 (diagnostic)
+
+- S3_35B keeps the 8-byte single-point touch request but sends the command
+  and reads the response as separate I2C transfers with STOP between,
+  following Espressif's transfer structure. One shared mutex covers both;
+  the existing minimum 100 us bus gap also applies after the command.
+  Clock, poll intervals, parser, dropout bound and diagnostic capture/bypass
+  remain unchanged. Physical comparison pending.
+
 ## v0.25.5 (diagnostic)
 
 - S3_35B requests and reads an 8-byte single-point touch report instead of

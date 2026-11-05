@@ -85,5 +85,19 @@ esp_err_t transmitReceive(i2c_master_dev_handle_t device, const uint8_t *tx, siz
     return i2c_master_transmit_receive(device, tx, txSize, rx, rxSize, timeoutMs);
 }
 
+esp_err_t transmitThenReceive(i2c_master_dev_handle_t device, const uint8_t *tx, size_t txSize,
+                              uint8_t *rx, size_t rxSize, int timeoutMs)
+{
+    Transaction transaction;
+    if (!transaction.locked()) return ESP_ERR_INVALID_STATE;
+    const esp_err_t err = i2c_master_transmit(device, tx, txSize, timeoutMs);
+    if (err != ESP_OK) return err;
+    const int64_t endUs = esp_timer_get_time();
+    int64_t remaining;
+    while ((remaining = BUS_GAP_US - (esp_timer_get_time() - endUs)) > 0)
+        esp_rom_delay_us(static_cast<uint32_t>(remaining));
+    return i2c_master_receive(device, rx, rxSize, timeoutMs);
+}
+
 }  // namespace OtrI2c
 #endif

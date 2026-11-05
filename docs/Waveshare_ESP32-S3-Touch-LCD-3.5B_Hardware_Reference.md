@@ -14,7 +14,7 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 |---|---|
 | MCU/display | ESP32-S3, AXS15231B QSPI panel, 320 × 480 |
 | I2C | SDA GPIO8, SCL GPIO7; all devices including touch at 400 kHz |
-| Touch | AXS15231B, I2C address `0x3B`; polled with an atomic command/read transaction and experimental 8-byte single-point report (v0.25.5) |
+| Touch | AXS15231B, I2C address `0x3B`; polled with locked STOP-separated command/read and experimental 8-byte single-point report (v0.25.6) |
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |
@@ -40,11 +40,12 @@ FreeRTOS mutex (priority inheritance) and enforces at least 100 us from the
 previous synchronous call's return to the next driver's call. Failed calls
 also start a new gap. The lock covers the gap so other callers cannot fill it;
 the short remaining interval uses a microsecond busy-wait, not a tick delay.
-Touch's combined command/read is never split. Touch, expander, PMIC, RTC and
+Through v0.25.5 touch's combined command/read is never split; v0.25.6 uses
+the locked STOP-separated pair described below. Touch, expander, PMIC, RTC and
 codec all use this path; the other board profiles forward directly to IDF.
 IDF already serializes transactions internally, so this is an explicit pacing
 experiment, not evidence that concurrent tasks previously interleaved bytes.
-No touch priority or extra pause within a transaction is introduced.
+No touch priority or pause within an individual IDF transfer is introduced.
 
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus. Reset remains owned by `BoardPower`, including the bounded startup recovery described below. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
 
@@ -58,6 +59,12 @@ Unlike that driver's separate write/read, our transaction remains combined.
 This isolates the report-size experiment; the clock, polling, pacing, event
 interpretation and dropout handling remain unchanged. Two-point counts are
 rejected for this single-point report. Physical comparison is pending.
+
+From v0.25.6, the 8-byte experiment uses separate transmit and receive calls
+with STOP between, like Espressif's driver. `OtrI2c::transmitThenReceive`
+holds one shared mutex over both, preventing other devices from interleaving.
+The existing minimum 100 us gap applies after the command as well as after
+the response; no other touch timing or parsing changes are introduced.
 
 Startup allows five attempts spaced 50 ms apart. If all fail, the display driver permits one shared EXIO1 reset (100 ms low, 200 ms settling), replays the full panel initialization, and restores the existing framebuffer before another five touch reads. It reuses the existing SPI/LVGL resources, does not reboot the MCU or change PMIC rails/charger settings, and refuses recovery after the LVGL task starts or after a DMA transport fault. Failed reset/reinitialization is propagated as a display failure; persistent invalid reports remain a touch failure. Automatic recovery after cold power-on still requires physical verification.
 
