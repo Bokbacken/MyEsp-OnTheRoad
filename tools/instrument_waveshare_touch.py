@@ -85,12 +85,22 @@ def instrument_drawing(source):
     raw_touch_dump();""")
 
 
+def instrument_cmake(source):
+    marker = '                    REQUIRES "esp_lcd"'
+    if source.count(marker) != 1 or "PRIV_REQUIRES" in source:
+        raise ValueError("Unexpected upstream BSP dependencies; refusing to patch")
+    return source.replace(marker, '                    PRIV_REQUIRES esp_timer\n' + marker)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("driver", type=Path)
     parser.add_argument("drawing", type=Path)
     args = parser.parse_args()
+    cmake_path = args.driver.parent / "CMakeLists.txt"
     driver = instrument(args.driver.read_text())
     drawing = instrument_drawing(args.drawing.read_text())
+    cmake = instrument_cmake(cmake_path.read_text())
     args.driver.write_text(driver)
     args.drawing.write_text(drawing)
+    cmake_path.write_text(cmake)

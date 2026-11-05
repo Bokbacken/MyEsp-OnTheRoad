@@ -13,6 +13,16 @@ spec.loader.exec_module(module)
 
 
 class InstrumentTest(unittest.TestCase):
+    def test_declares_timer_dependency(self):
+        source = 'idf_component_register(SRCS ${SRC_FILES}\n                    REQUIRES "esp_lcd" "driver")'
+        patched = module.instrument_cmake(source)
+        self.assertIn("PRIV_REQUIRES esp_timer", patched)
+        self.assertEqual(patched.replace("                    PRIV_REQUIRES esp_timer\n", ""), source)
+        with self.assertRaises(ValueError):
+            module.instrument_cmake(patched)
+        with self.assertRaises(ValueError):
+            module.instrument_cmake("")
+
     def test_only_adds_observation_around_transaction(self):
         source = """touch_data_t g_touch_data;
 void read(void) {

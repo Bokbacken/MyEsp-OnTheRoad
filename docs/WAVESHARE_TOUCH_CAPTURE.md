@@ -4,6 +4,8 @@ The optional `waveshare_touch_trace` input to the manual firmware workflow
 instruments `examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c`.
 The original I2C command, clock, timeout, report parsing and LVGL handling
 are unchanged. The artifact includes the instrumented source and upstream SHA.
+The instrumentation adds the BSP's explicit `esp_timer` build dependency for
+timestamp collection.
 
 The most recent 512 reads are continuously saved in a RAM ring buffer, including
 empty reports and transport errors. Pressing the drawing screen's Refresh/clear
