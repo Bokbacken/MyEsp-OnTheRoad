@@ -223,7 +223,7 @@ int i2c_master_probe(void *b, uint8_t addr, int timeout) {
     return addr == 0x3B || addr == 0x18 || addr == 0x34 ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out) {
-    assert(b == BoardPower::bus() && c->device_address == 0x3B && c->scl_speed_hz == 100000);
+    assert(b == BoardPower::bus() && c->device_address == 0x3B && c->scl_speed_hz == 400000);
     if (addError == ESP_OK) *out = reinterpret_cast<void *>(3);
     return addError;
 }
@@ -240,7 +240,7 @@ int i2c_master_transmit_receive(void *d, const uint8_t *cmd, size_t len,
     std::memcpy(data, report, n);
     if (startupFailures > 0) {
         --startupFailures;
-        std::memset(data, 0x13, n);
+        for (size_t i = 0; i < n; ++i) data[i] = uint8_t(0x13 + (i & 1)); // Non-uniform: malformed.
     }
     return reportError;
 }
@@ -408,9 +408,19 @@ int main(int argc, char **argv) {
     if (mode == "startup-recovery") startupFailures = 3;
     if (mode == "command-failure") commandError = ESP_ERR_TIMEOUT;
     if (mode == "idle-first") std::memset(report, 0x37, sizeof(report));
+    if (mode == "idle-first-57") std::memset(report, 0x57, sizeof(report));
+    if (mode == "idle-first-02") std::memset(report, 0x02, sizeof(report));
     if (mode == "pointer") pointerFail = true;
     assert(Touch::bus() == BoardPower::bus());
     const bool ready = Touch::begin();
+    if (mode == "idle-first-57" || mode == "idle-first-02") {
+        // Boot-varying filler bytes: device present, no retries, no shared reset.
+        assert(ready && Touch::info().present && reads == 1 && recoveryCalls == 0);
+        assert(Touch::info().readErrors == 0 && MyLvgl::pointer);
+        int16_t x = -1, y = -1;
+        assert(!poll(x, y) && Touch::info().readErrors == 0);
+        return 0;
+    }
     if (mode != "normal" && mode != "idle-first" && mode != "startup-recovery" &&
         mode != "startup-corrupt") {
         assert(!ready && !Touch::info().present && !Touch::indev());
@@ -599,8 +609,21 @@ int main(int argc, char **argv) {
         assert(event.stopped == (distance > 20));
         assert(pointerMock.stopProcessing == (distance > 20));
     }
+    // Uniform filler of any value means no contact: a held tap bridges, then releases cleanly.
+    for (uint8_t filler : {0x02, 0x13, 0x17, 0x57, 0xD7}) {
+        setPoint(125, 115);
+        assert(poll(x, y));
+        const uint32_t errors = Touch::info().readErrors;
+        std::memset(report, filler, sizeof(report));
+        assert(poll(x, y) && x == 125 && y == 115);
+        clockUs += 60000;
+        assert(!poll(x, y) && Touch::info().readErrors == errors);
+        lv_event_t releasedClick{LV_EVENT_CLICKED};
+        pointerMock.stopProcessing = false;
+        pointerEventCallback(&releasedClick);
+        assert(!releasedClick.stopped && !pointerMock.stopProcessing);
+    }
     const uint8_t corruptReports[][14] = {
-        {0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13},
         {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD, 0x65, 0x66, 0xFF, 0xFF, 0xFF, 0xFF},
         {0x01, 0x80, 0x68, 0x01, 0x5D, 0x11, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64},
     };

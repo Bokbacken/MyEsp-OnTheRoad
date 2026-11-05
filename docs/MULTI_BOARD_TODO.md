@@ -38,19 +38,21 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   kommando/läsning på den delade I2C-bussen och avbrutet klick
   om läsningen fallerar under ett tryck.
 - [x] Korta touchläsfel bryggas med senaste giltiga punkt i högst 60 ms,
-  utan att felen förlänger tidsgränsen. Touch sänkt till 100 kHz för nästa
-  hårdvaruprov efter ägarlogg med över 400 korrupta paket och knappflimmer;
-  övriga I2C-enheter behåller sina hastigheter. Grundorsaken är inte bevisad.
+  utan att felen förlänger tidsgränsen. Touch kör åter Waveshares 400 kHz;
+  100 kHz-provet ändrade inte startresultatet.
 - [ ] Verifiera touchändringen fysiskt vid upprepade kallstarter och drag;
   ägarloggen visar upprepade byte vid start och förskjutna paket under drift,
   men grundorsaken är inte bekräftad.
 - [x] Efter fem misslyckade touchstartsvar: en delad LCD/touch-reset och
   full panelåterinitiering innan ytterligare fem läsförsök. Ingen automatisk
   MCU-omstart eller ändring av PMIC-spänningar; fel rapporteras fortfarande.
-- [ ] Prova atomisk touchläsning på S3: ägarens senaste logg bekräftar att
-  100 kHz och delad reset inte löste starten (`13` i samtliga tio svar).
-  Atomisk läsning tar bort möjlig interfoliering med PWR-taskens I2C-anrop;
-  grundorsaken är fortfarande okänd.
+- [x] Grundorsak till "touch not found": utan beröring svarar kontrollern med
+  fjorton likadana utfyllnadsbyte vars värde varierar mellan starter
+  (`02`, `13`, `17`, `37`, `57`, `D7`). Endast `37` accepterades, övriga
+  räknades som fel. Waveshares BSP ignorerar dem tyst; alla helt enhetliga
+  rapporter tolkas nu som ingen punkt, vid start och under drift.
+- [ ] Verifiera på kortet: touch hittas vid varje kallstart utan finger på
+  skärmen, och knappflimmer/avbrutna klick minskar.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

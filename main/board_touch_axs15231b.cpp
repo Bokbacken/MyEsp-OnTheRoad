@@ -17,7 +17,7 @@ namespace {
 
 const char *TAG = "touch";
 constexpr int I2C_TIMEOUT_MS = 100;
-constexpr uint32_t TOUCH_I2C_HZ = 100000;
+constexpr uint32_t TOUCH_I2C_HZ = 400000;  // Waveshare factory BSP rate
 constexpr unsigned STARTUP_ATTEMPTS = 5;
 constexpr uint32_t STARTUP_RETRY_MS = 50;
 constexpr uint32_t POLL_MS = 15;
@@ -55,18 +55,19 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
 {
     down = false;
     released = false;
-    // Owner verified all-0x37 reports while untouched, replaced by valid reports
-    // during contact. Match the entire report; other malformed data stays an error.
+    // Without contact the controller returns 14 copies of one filler byte whose value
+    // varies between boots (owner logs: 02, 13, 17, 37, 57, D7). Waveshare's BSP drops
+    // these silently. Only a fully uniform report qualifies; other malformed data stays an error.
     bool idle = true;
     for (uint8_t byte : data) {
-        if (byte != 0x37) {
+        if (byte != data[0]) {
             idle = false;
             break;
         }
     }
     if (idle) {
         if (!g_idleReportLogged) {
-            ESP_LOGI(TAG, "AXS15231B observed all-0x37 no-contact report; treating as no point");
+            ESP_LOGI(TAG, "AXS15231B uniform 0x%02X no-contact report; treating as no point", data[0]);
             g_idleReportLogged = true;
         }
         return ESP_OK;
