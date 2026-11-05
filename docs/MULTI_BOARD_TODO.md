@@ -60,6 +60,12 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [ ] Jämför vanliga knappar, Sudoku och inställningsscroll på diagnostikbygget.
   Ägaren bekräftar bra touch i Waveshares originalexempel på samma kort;
   någon specifik ESP-IDF-/LVGL-inkompatibilitet är ännu inte påvisad.
+- [x] v0.25.1: rålogga 512 läsningar i RAM efter första beröring, skriv först
+  efter inspelningen. Löpande touchutskrifter avstängda; samma klickbypass och
+  start-/bortfallshantering som föregående diagnostikbygge. Reset återaktiverar.
+- [ ] Jämför v0.25.1-råpaket och läsintervall med fabriksexemplets inspelning.
+  Fabriksloggen visar huvudsakligen hela rapporter och 00/37-tomrapporter;
+  byteförskjutningens orsak är fortfarande inte fastställd.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

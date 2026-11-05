@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.1 (diagnostic)
+
+- S3_35B captures 512 raw touch reads in RAM after the first valid contact and
+  prints them only after recording, with timestamps, transfer duration, transport
+  status and all 14 bytes. Live touch diagnostic output is disabled during this
+  comparison. Reset to rearm; dumping temporarily pauses the UI.
+- Retains the disabled extra click veto and existing startup/gap handling.
+  No touch protocol, IDF or LVGL version changes. Physical comparison pending.
+
 ## v0.25.0 (unreleased)
 
 - Added the separate `S3_35B` Waveshare ESP32-S3-Touch-LCD-3.5B build:

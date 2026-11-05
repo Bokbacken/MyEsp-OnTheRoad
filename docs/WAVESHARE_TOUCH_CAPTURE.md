@@ -1,5 +1,18 @@
 # Waveshare factory touch capture
 
+## Application comparison: v0.25.1
+
+The S3_35B application diagnostic build records the same raw fields, without
+live touch-event/sample logs. Reset with serial logging open at 115200 baud.
+The `touch_raw: ARMED` message precedes recording. First valid contact starts
+512 consecutive reads: hold still for two seconds, drag slowly and release.
+Wait for `touch_raw: END capture` and save the complete log. This is automatic,
+not triggered by the application's clear-log button. Reset to repeat.
+Dumping briefly pauses input after measurement. Other application module logs
+remain enabled. Transport success in this trace does not imply a valid report.
+
+## Factory comparison
+
 The optional `waveshare_touch_trace` input to the manual firmware workflow
 instruments `examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c`.
 The original I2C command, clock, timeout, report parsing and LVGL handling

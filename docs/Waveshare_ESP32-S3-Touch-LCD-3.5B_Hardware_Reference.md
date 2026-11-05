@@ -35,6 +35,12 @@ The firmware accepts non-release contact events including event 3, and rejects i
 Click suppression checks movement in both contact and release reports. Moving more than 20 pixels from the initial contact cancels all click variants until the next press, including when a quick swipe has only a start frame and a release frame. Release and scrolling events remain available to widgets.
 
 Temporary diagnostic build: `sdkconfig.defaults.s3-35b` enables
+`CONFIG_OTR_S3_TOUCH_DIAGNOSTICS`. As of v0.25.1, live touch traces below are
+replaced by a 512-read RAM capture, dumped after recording; see
+[capture instructions](WAVESHARE_TOUCH_CAPTURE.md). The click bypass remains.
+The preceding v0.25.0 diagnostic build used the live event tracing described below.
+
+Live tracing in the preceding diagnostic build:
 `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS`. This bypasses both the movement and read-error
 click veto above, leaving LVGL to decide clicks and scrolling. Startup validation,
 the 60 ms gap bound, coordinate decoding and settings-slider handling are unchanged.

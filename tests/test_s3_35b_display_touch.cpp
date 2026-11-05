@@ -496,17 +496,25 @@ int main(int argc, char **argv) {
         for (int i = 0; i < 3; ++i) assert(poll(x, y));
         assert(!poll(x, y)); // Diagnostics must not remove the bounded failure release.
         reportError = ESP_OK;
-        lv_obj_t scroller;
-        scrollMock = &scroller;
+#ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
+        assert(g_rawStarted && !g_rawDumped);
+        assert(g_rawSamples[0].bytes[1] == 1);
+        assert(g_rawSamples[2].bytes[2] == 0x40); // Release packet retained verbatim.
+        assert(std::any_of(g_rawSamples, g_rawSamples + g_rawCount,
+                          [](const RawSample &sample) { return sample.result == ESP_ERR_TIMEOUT; }));
+        const auto beforeDump = logFormats.size();
+        while (g_rawCount < 511) poll(x, y);
+        assert(logFormats.size() == beforeDump); // No per-read logging.
         poll(x, y);
-        assert(g_scrollObject == scrollMock);
-        scrollMock = nullptr;
-        poll(x, y);
-        assert(g_scrollObject == nullptr);
-        for (const char *marker : {"DIAG touch:", "DIAG sample", "DIAG LVGL %s", "DIAG LVGL scroll"}) {
+        assert(g_rawDumped && g_rawCount == 512);
+        assert(logFormats.size() == beforeDump + 514);
+        for (int i = 0; i < 1000; ++i) poll(x, y);
+        assert(g_rawCount == 512 && logFormats.size() == beforeDump + 514);
+        for (const char *marker : {"DIAG touch:", "ARMED:", "BEGIN 512", "n=%u t_us=", "END capture"}) {
             assert(std::any_of(logFormats.begin(), logFormats.end(),
                               [marker](const std::string &line) { return line.find(marker) != std::string::npos; }));
         }
+#endif
         return 0;
     }
     setPoint(0, 0);

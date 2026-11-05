@@ -45,6 +45,48 @@ bool g_gap = false;
 bool g_idleReportLogged = false;
 uint16_t g_touchStartX = 0, g_touchStartY = 0;
 bool g_tapCancelled = false;
+constexpr bool BUFFERED_TRACE = TOUCH_DIAGNOSTICS;
+struct RawSample {
+    int64_t timeUs;
+    int64_t durationUs;
+    esp_err_t result;
+    uint8_t bytes[REPORT_LEN];
+};
+#ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
+RawSample g_rawSamples[512];
+unsigned g_rawCount = 0;
+bool g_rawStarted = false;
+bool g_rawDumped = false;
+
+void recordRaw(int64_t start, int64_t duration, esp_err_t result,
+               const uint8_t *bytes, bool down)
+{
+    if (g_rawDumped) return;
+    if (!g_rawStarted) {
+        if (result != ESP_OK || !down) return;
+        g_rawStarted = true;
+    }
+    RawSample &sample = g_rawSamples[g_rawCount++];
+    sample.timeUs = start;
+    sample.durationUs = duration;
+    sample.result = result;
+    memcpy(sample.bytes, bytes, REPORT_LEN);
+    if (g_rawCount != 512) return;
+    g_rawDumped = true;
+    ESP_LOGI("touch_raw", "BEGIN 512 buffered reads; first contact triggered capture; "
+             "t_us=boot time, dt_us=I2C duration; no serial logging during capture");
+    for (unsigned i = 0; i < g_rawCount; ++i) {
+        const RawSample &s = g_rawSamples[i];
+        const uint8_t *b = s.bytes;
+        ESP_LOGI("touch_raw", "n=%u t_us=%lld dt_us=%lld result=%s bytes="
+                 "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                 i, (long long)s.timeUs, (long long)s.durationUs, esp_err_to_name(s.result),
+                 b[0], b[1], b[2], b[3], b[4], b[5], b[6],
+                 b[7], b[8], b[9], b[10], b[11], b[12], b[13]);
+    }
+    ESP_LOGI("touch_raw", "END capture; reset to record again");
+}
+#endif
 uint32_t g_lastTrace = 0;
 lv_obj_t *g_scrollObject = nullptr;
 
@@ -61,6 +103,7 @@ void traceScroll()
 void cancelMovedClick(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
+    if (TOUCH_DIAGNOSTICS && BUFFERED_TRACE) return;
     if (TOUCH_DIAGNOSTICS) {
         const char *name = nullptr;
         switch (code) {
@@ -108,7 +151,7 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
         }
     }
     if (idle) {
-        if (!g_idleReportLogged) {
+        if (!g_idleReportLogged && !BUFFERED_TRACE) {
             ESP_LOGI(TAG, "AXS15231B uniform 0x%02X no-contact report; treating as no point", data[0]);
             g_idleReportLogged = true;
         }
@@ -129,9 +172,22 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
 esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool logReport = false)
 {
     uint8_t data[REPORT_LEN] = {};
+    const int64_t startUs = esp_timer_get_time();
     esp_err_t err = i2c_master_transmit_receive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
                                                 data, sizeof(data), I2C_TIMEOUT_MS);
-    const bool logError = logReport || g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0;
+    const int64_t durationUs = esp_timer_get_time() - startUs;
+    const bool logError = !BUFFERED_TRACE &&
+        (logReport || g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0);
+#ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
+    // Keep transport status distinct from parser rejection in the raw capture.
+    bool rawDown = false, rawReleased = false;
+    uint16_t rawX = 0, rawY = 0;
+    if (err == ESP_OK) decodePoint(data, rawDown, rawReleased, rawX, rawY);
+    if (g_indev) recordRaw(startUs, durationUs, err, data, rawDown);
+#else
+    (void)startUs;
+    (void)durationUs;
+#endif
     if (err != ESP_OK) {
         if (logError) ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)",
                               esp_err_to_name(err), (unsigned)(g_info.readErrors + 1));
@@ -161,7 +217,7 @@ void scanBus()
 
 bool pointerRead(int16_t *outX, int16_t *outY)
 {
-    if (TOUCH_DIAGNOSTICS) traceScroll();
+    if (TOUCH_DIAGNOSTICS && !BUFFERED_TRACE) traceScroll();
     const uint32_t now = uint32_t(esp_timer_get_time() / 1000);
     if (g_dev && now - g_lastPoll >= POLL_MS) {
         g_lastPoll = now;
@@ -212,7 +268,7 @@ bool pointerRead(int16_t *outX, int16_t *outY)
                 g_gap = true;
             }
         }
-        if (TOUCH_DIAGNOSTICS &&
+        if (TOUCH_DIAGNOSTICS && !BUFFERED_TRACE &&
             (wasPressed != g_info.pressed || wasCancelled != g_tapCancelled ||
              ((wasPressed || g_info.pressed) && sampledAt - g_lastTrace >= 100))) {
             ESP_LOGI(TAG, "DIAG sample x=%u y=%u down=%u release=%u pressed=%u gap=%u "
@@ -295,6 +351,9 @@ bool begin()
     if (TOUCH_DIAGNOSTICS)
         ESP_LOGW(TAG, "DIAG touch: extra movement/read-error click veto DISABLED; "
                  "LVGL handles clicks/scroll, swipes may activate buttons");
+    if (BUFFERED_TRACE)
+        ESP_LOGI("touch_raw", "ARMED: first contact records 512 reads in RAM, then dumps; "
+                 "live touch traces disabled; reset to rearm");
     // No documented firmware-identification command: version fields remain unknown (zero).
     ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz atomic I2C, polled (no IRQ/reset GPIO)",
              TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);
