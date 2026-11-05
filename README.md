@@ -118,6 +118,10 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
 - **Double-tap protection (v0.10.x)** – the touch driver only reports a release after the finger has been up
   60 ms (the controller can drop a held finger for a read or two, which made buttons fire twice; filtered gaps
   are counted on the diagnostics page), and every toggle has a 500 ms guard (`Theme::debounce`).
+- **Drag is not click** – on every board, moving more than 20 physical pixels
+  from the initial contact cancels all click variants until the next press,
+  even after dragging back. Release and scrolling events remain available;
+  S3_35B also cancels clicks after a read error during contact.
 - **Adventure engine** – separate module (`components/otr_engine`
   + `main/ui_adventure.cpp`): own tile renderer on a PSRAM canvas, smooth camera, 32/16 px zoom. Two worlds:
   the 60 × 60 *Testvärlden* (rocks, keys/doors, boat, lava, plates/gates) and the minesweeper-style

@@ -82,12 +82,40 @@ void flushCb(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
     lv_display_flush_ready(disp);
 }
 
+bool g_pointerPressed = false;
+bool g_pointerClickCancelled = false;
+int16_t g_pointerStartX = 0, g_pointerStartY = 0;
+constexpr int32_t POINTER_TAP_SLOP_PX = 20;
+
+void pointerClickCb(lv_event_t *event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (!g_pointerClickCancelled ||
+        (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED &&
+         code != LV_EVENT_SINGLE_CLICKED && code != LV_EVENT_DOUBLE_CLICKED &&
+         code != LV_EVENT_TRIPLE_CLICKED)) return;
+    lv_event_stop_processing(event);
+    lv_indev_stop_processing(static_cast<lv_indev_t *>(lv_event_get_target(event)));
+}
+
 void pointerCb(lv_indev_t *, lv_indev_data_t *d)
 {
     static int16_t lastX = 0, lastY = 0;
     int16_t x = lastX, y = lastY;
     bool pressed = g_pointer && g_pointer(&x, &y);
     if (g_pointerFilter) pressed = g_pointerFilter(pressed);
+    if (pressed && !g_pointerPressed) {
+        g_pointerStartX = x;
+        g_pointerStartY = y;
+        g_pointerClickCancelled = false;
+    }
+    if (g_pointerPressed) {
+        const int32_t dx = int32_t(x) - g_pointerStartX;
+        const int32_t dy = int32_t(y) - g_pointerStartY;
+        if (dx * dx + dy * dy > POINTER_TAP_SLOP_PX * POINTER_TAP_SLOP_PX)
+            g_pointerClickCancelled = true;
+    }
+    g_pointerPressed = pressed;
     if (pressed) {
         lastX = x;
         lastY = y;
@@ -194,6 +222,12 @@ lv_indev_t *addPointer(PointerFn fn)
     if (!g_disp || !fn) return nullptr;
     g_pointer = fn;
     lv_indev_t *in = lv_indev_create();
+    if (!in) return nullptr;
+    if (!lv_indev_add_event_cb(in, pointerClickCb, LV_EVENT_ALL, nullptr)) {
+        ESP_LOGE(TAG, "could not register pointer click suppression");
+        lv_indev_delete(in);
+        return nullptr;
+    }
     lv_indev_set_type(in, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(in, pointerCb);
     lv_indev_set_display(in, g_disp);

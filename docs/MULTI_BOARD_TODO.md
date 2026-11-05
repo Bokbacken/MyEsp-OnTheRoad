@@ -17,6 +17,14 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
+- [x] v0.25.14: gemensam "drag/släp är inte klick"-spärr i MyLvgl för
+  ES3C35P, S3_35B och P4_43. Rörelse över 20 fysiska pixlar spärrar
+  klickvarianterna till nästa tryck; släpp och scroll behålls.
+  S3_35B behåller dessutom sin spärr för läsfel och rörelse i samplingstasken.
+- [x] v0.25.14: båda S3-profilerna och P4 byggda i CI (`42047601853`);
+  gemensam spärr verifierad med riktig LVGL-händelseleverans.
+- [ ] Bekräfta v0.25.14 på alla kort: rena tryck, drag, scroll och snabba släpp.
+
 Aktuell touchstatus (2026-11-05): ägaren accepterar touchfunktionen efter
 gemensam touch/PWR-task och högre Sudoku-knappar. Undersökningen avslutas;
 återöppna vid regression. v0.25.13 stänger av extraloggen och återaktiverar
