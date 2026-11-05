@@ -304,6 +304,7 @@ jobs:
           esp_idf_version: v6.1
           target: ${{ matrix.target }}
           command: |
+            set -eu
             idf.py --version
             idf.py -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}" set-target ${{ matrix.target }}
             if [ "${{ matrix.board }}" = s3-35b ]; then

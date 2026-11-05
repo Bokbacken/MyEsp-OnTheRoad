@@ -6,6 +6,7 @@ dependencies:
   espressif/esp_websocket_client: "^1.8.0"
   espressif/led_strip: "^3.1.1"
   espressif/esp_hosted:
-    version: "^3.0.10"
+    # Avoid newer candidates' USB Kconfig rules leaking into the locked SDIO build.
+    version: "3.0.10"
     rules:
       - if: "target in [esp32p4]"

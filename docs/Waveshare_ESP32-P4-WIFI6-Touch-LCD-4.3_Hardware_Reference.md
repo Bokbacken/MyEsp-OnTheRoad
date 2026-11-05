@@ -418,6 +418,14 @@ On ESP-IDF, Wi-Fi/BT on the ESP32-P4 is driven **remotely** through the C6:
 - With ESP-IDF 6.1+, `esp_wifi` routes through ESP-Hosted; older ESP-IDF
   versions may also need `espressif/esp_wifi_remote`.
 
+The application pins ESP-Hosted exactly to the locked 3.0.10, not a compatible
+version range. Older Component Manager versions can collect missing Kconfig
+references from an unselected newer candidate: 3.1.0 introduces USB manifest
+selectors that 3.0.10 does not define. The exact pin keeps this SDIO build on
+the existing component without inventing USB configuration or changing C6
+firmware. A future upgrade must validate host/C6 compatibility and refresh
+the target-specific dependency locks together.
+
 The C6 runs its own "slave"/hosted firmware. Keep the P4 host firmware and the C6 slave firmware versions compatible — a mismatch is a common cause of Wi-Fi not coming up. Official examples: `04_wifistation` (station via the hosted link). The factory image also bundles ESP-Hosted Wi-Fi.
 
 The application CI builds `host_fw.bin` from the pinned Espressif

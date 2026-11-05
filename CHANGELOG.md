@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.11
+
+- Pins the P4 ESP-Hosted dependency exactly to the already locked 3.0.10.
+  This avoids older dependency managers collecting USB Kconfig requirements
+  from an unselected newer release. SDIO transport and C6 firmware are unchanged.
+- Firmware CI stops immediately on a failed configure/build rather than
+  continuing to image validation and merge commands without an application.
+
 ## v0.25.10
 
 - Taller Sudoku keypad and tool buttons on both S3 profiles (minimum 36 px

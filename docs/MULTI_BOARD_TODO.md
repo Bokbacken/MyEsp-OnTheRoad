@@ -138,6 +138,12 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   dess inställningsreglage tas bort; sparfel visas som kvitterbar modal popup.
 - [ ] Prova särskilt Sudokus nedersta knapprad på båda S3 och P4 med de högre
   knapparna. Fysisk träffsäkerhet är ännu inte verifierad.
+- [x] v0.25.10 bygger för båda S3-profilerna; P4 stoppas fortfarande före
+  kompilering av saknade USB-manifestsymboler i ESP-Hosted-beroendehanteringen.
+- [x] v0.25.11: lås ESP-Hosted exakt till befintlig 3.0.10 i stället för
+  versionsintervall, så att nyare kandidaters USB-villkor inte blandas in.
+  SDIO/C6-version och radiobeteende lämnas oförändrade.
+- [ ] Verifiera att P4 åter bygger en komplett appbild med exakt Hosted-låsning.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
