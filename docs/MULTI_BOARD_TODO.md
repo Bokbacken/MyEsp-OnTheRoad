@@ -15,6 +15,16 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### ESP UI-inställningar och snabbpanel
+
+- [x] Kodnära inventering och stegvis UX-/implementeringsplan finns i
+  `docs/ESP_UI_SETTINGS_PLAN.md`. Endast planering; ingen firmware ändrad.
+- [ ] Bekräfta ljudkontraktet (master mute, separat spelmusik-/SFX-mute och
+  karaoke MIDI-kanal) innan metadata-/audioändringar.
+- [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
+  porträtt-/landskapspanel, konsekvent navigering och kontextuella
+  inställningar utan att förlora aktiv spelsession.
+
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
 - [x] v0.25.14: gemensam "drag/släp är inte klick"-spärr i MyLvgl för
