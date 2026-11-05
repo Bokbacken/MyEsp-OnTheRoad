@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.14
+
+- Applies drag-is-not-click protection to every board through the shared LVGL
+  pointer layer, including ES3C35P and P4_43, not only S3_35B. Movement over
+  20 physical pixels cancels all click variants until the next press, including
+  release-only movement and dragging back to the starting point. Release,
+  scrolling and normal taps remain available. S3_35B retains its additional
+  sampled movement/read-error protection.
+
 ## v0.25.13
 
 - Ends the owner-accepted S3_35B touch investigation: disables raw capture by

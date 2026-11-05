@@ -326,6 +326,7 @@ jobs:
       - name: Test display, touch and UI layouts (host LVGL)
         if: matrix.board == 'es3c35p'
         run: |
+          python3 tests/test_pointer_click.py /tmp/pointer-click
           python3 tests/test_s3_35b_display_touch.py
           python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
           python3 tests/test_adv_game_layout.py /tmp/adventure-layout

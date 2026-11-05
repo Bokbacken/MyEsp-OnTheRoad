@@ -45,6 +45,8 @@ struct Stats {
 bool begin(const Config &cfg);  // lv_init(), tick, buffers, display
 bool ok();
 lv_display_t *display();
+// Movement >20 physical pixels cancels click variants until the next press.
+// Release/scroll events remain available; the board can add stricter filtering.
 lv_indev_t *addPointer(PointerFn fn);
 // Runs on every pointer sample, before LVGL sees it. Set with the LVGL lock held.
 void setPointerFilter(PointerFilterFn fn);
