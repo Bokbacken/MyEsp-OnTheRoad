@@ -63,9 +63,14 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.1: rålogga 512 läsningar i RAM efter första beröring, skriv först
   efter inspelningen. Löpande touchutskrifter avstängda; samma klickbypass och
   start-/bortfallshantering som föregående diagnostikbygge. Reset återaktiverar.
-- [ ] Jämför v0.25.1-råpaket och läsintervall med fabriksexemplets inspelning.
-  Fabriksloggen visar huvudsakligen hela rapporter och 00/37-tomrapporter;
+- [x] Jämfört v0.25.1-råpaket och läsintervall med fabriksexemplets inspelning:
+  appen har många fler förskjutningsliknande paket och oftast 16 ms mellan
+  läsningarna mot fabrikens 30 ms. Inga transportfel i dessa inspelningar;
   byteförskjutningens orsak är fortfarande inte fastställd.
+- [x] v0.25.2: PWR/EXIO6-pollning sänkt från 20 till 100 ms, med oförändrad
+  tvåsekundersgräns och PMIC-period. Touchpollning/råcapture lämnas oförändrade.
+- [ ] Jämför touch/rålogg och prova PWR-väckning samt långt tryck på v0.25.2.
+  Mycket korta tryck mellan två 100 ms-samplingar kan missas.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

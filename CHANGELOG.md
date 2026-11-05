@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.2 (diagnostic)
+
+- S3_35B polls the PWR-button expander every 100 ms instead of 20 ms,
+  reducing its nominal I2C polling rate from 50 to 10 reads/second.
+  The two-second shutdown hold and ten-second PMIC sampling period remain
+  unchanged. Touch polling and the buffered capture are unchanged to isolate
+  the effect of reduced expander traffic. Hardware comparison pending.
+
 ## v0.25.1 (diagnostic)
 
 - S3_35B captures 512 raw touch reads in RAM after the first valid contact and

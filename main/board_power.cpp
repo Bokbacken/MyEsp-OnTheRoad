@@ -37,7 +37,7 @@ constexpr uint8_t AXP2101_REG_BAT_ADC_LOW = 0x35;
 constexpr uint8_t AXP2101_REG_BAT_PERCENT = 0xA4;
 constexpr uint8_t AXP2101_CHIP_ID = 0x4A;
 constexpr int I2C_TIMEOUT_MS = 30;
-constexpr uint32_t BUTTON_POLL_MS = 20;
+constexpr uint32_t BUTTON_POLL_MS = 100;
 constexpr uint32_t BUTTON_POWER_OFF_MS = 2000;
 
 i2c_master_bus_handle_t s_bus = nullptr;
