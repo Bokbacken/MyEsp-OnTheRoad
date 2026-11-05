@@ -35,6 +35,17 @@ LVGL scheduling and synchronous display transfers can lengthen the interval.
 The 60 ms missing-contact bound, report parser and buffered raw capture remain
 unchanged; this is a timing comparison, not a confirmed fix.
 
+As of v0.25.4, `otr_i2c` serializes every S3 shared-bus transfer/probe with a
+FreeRTOS mutex (priority inheritance) and enforces at least 100 us from the
+previous synchronous call's return to the next driver's call. Failed calls
+also start a new gap. The lock covers the gap so other callers cannot fill it;
+the short remaining interval uses a microsecond busy-wait, not a tick delay.
+Touch's combined command/read is never split. Touch, expander, PMIC, RTC and
+codec all use this path; the other board profiles forward directly to IDF.
+IDF already serializes transactions internally, so this is an explicit pacing
+experiment, not evidence that concurrent tasks previously interleaved bytes.
+No touch priority or extra pause within a transaction is introduced.
+
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus. Reset remains owned by `BoardPower`, including the bounded startup recovery described below. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
 
 The PWR button is polled through TCA9554 EXIO6 every 100 ms (10 reads/second, reduced from 20 ms in v0.25.2). Very short taps between samples may be missed; a short press wakes the backlight if the screen is off and does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.

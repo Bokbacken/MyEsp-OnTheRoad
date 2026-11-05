@@ -20,6 +20,7 @@ std::vector<uint8_t> expanderOutputWrites;
 int transactionCount = 0;
 int delayedMs = 0;
 TaskFunction_t scheduledTask = nullptr;
+bool pacingReady = false;
 
 }  // namespace
 
@@ -77,10 +78,32 @@ int xTaskCreatePinnedToCore(TaskFunction_t entry, const char *, int, void *, int
     return pdPASS;
 }
 
+#include "otr_i2c.h"
+namespace OtrI2c {
+bool begin() { return pacingReady; }
+esp_err_t probe(i2c_master_bus_handle_t bus, uint16_t address, int timeout)
+{
+    return i2c_master_probe(bus, address, timeout);
+}
+esp_err_t transmit(i2c_master_dev_handle_t device, const uint8_t *data, size_t size, int timeout)
+{
+    return i2c_master_transmit(device, data, size, timeout);
+}
+esp_err_t transmitReceive(i2c_master_dev_handle_t device, const uint8_t *tx, size_t txSize,
+                          uint8_t *rx, size_t rxSize, int timeout)
+{
+    return i2c_master_transmit_receive(device, tx, txSize, rx, rxSize, timeout);
+}
+}
+
 #include "../main/board_power.cpp"
 
 int main()
 {
+    assert(!BoardPower::begin());
+    assert(!BoardPower::status().initialized && BoardPower::status().errors == 1);
+    assert(transactionCount == 0 && scheduledTask == nullptr);
+    pacingReady = true;
     present[0x20] = present[0x34] = true;
     registers[0x20][0x01] = 0xFF;
     registers[0x20][0x03] = 0xFF;

@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.4 (diagnostic)
+
+- S3_35B shared I2C users now take an explicit mutex and leave at least 100 us
+  between transaction completions and the next start, including failed calls
+  and probes. Applies to touch, TCA9554, AXP2101, PCF85063 and ES8311.
+  The touch command/read remains one combined transaction; 400 kHz, touch
+  polling at 30 ms, PWR polling at 100 ms and parser behavior are unchanged.
+  Other board profiles retain their direct I2C calls. Physical comparison pending.
+- Raw touch `dt_us` includes waiting for the new mutex/gap, not just the
+  driver's transfer time; it is not an on-wire bus-occupancy measurement.
+
 ## v0.25.3 (diagnostic)
 
 - S3_35B limits touch I2C polling to one read per 30 ms instead of 15 ms,

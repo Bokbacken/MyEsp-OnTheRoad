@@ -230,6 +230,7 @@ jobs:
           python3 tests/test_board_peripherals.py
           python3 tests/test_board_power_math.py
           python3 tests/test_s3_35b_board_power.py
+          python3 tests/test_i2c_pacing.py
           python3 tests/test_rtc_pcf85063.py
           python3 -m unittest discover -s tests -p test_idf_spi_fix.py
           python3 tests/test_sd_log_diagnostics.py

@@ -79,6 +79,15 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.3: enbart touchpollgränsen ändrad från 15 till 30 ms;
   PWR kvar på 100 ms, samma protokoll, 60 ms-bortfallsgräns och RAM-capture.
 - [ ] Jämför känsla och råpaket på v0.25.3 med v0.25.2 och fabriksprovet.
+- [x] v0.25.3-loggen bekräftar cirka 32 ms pollning, kvarvarande förskjutnings-
+  liknande paket och luckor upp till cirka 320 ms. 512 I2C-anrop tog
+  686-997 us, medel 788,8 us inklusive eventuell väntan i IDF-drivrutinen.
+  Mestadels tomrapporter; lägre felantal bevisar därför inte en lösning.
+- [x] v0.25.4: gemensam mutex och minst 100 us paus efter varje avslutad
+  I2C-transaktion, även fel/probe. Alla S3-bussanvändare omfattas, utan paus
+  inne i touchens kombinerade kommando/svar. Touch/PWR kvar på 30/100 ms.
+- [ ] Jämför v0.25.4 på kortet. Öka touchpollhastigheten först om pausprovet
+  lyckas; skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

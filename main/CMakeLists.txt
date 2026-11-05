@@ -23,7 +23,7 @@ idf_component_register(
        "hw_profile.cpp" "ui_metrics.cpp" "ui_boot.cpp" "ui_clock.cpp" "ui_numpad.cpp" "ui_ota.cpp" "ui_screen_power.cpp" "ui_settings.cpp" "ui_wifi.cpp" "ui_yatzy.cpp" "ui_multiplayer.cpp" "ui_adventure.cpp" "ui_karaoke.cpp" "karaoke.cpp" "kara_lyrics.cpp" "kara_stream.cpp" "kara_web.cpp" "kara_index.cpp" "kara_songs_web.cpp" "otr_log.cpp"
        "lang/lang.cpp" "lang/lang_sv.cpp" "lang/lang_en.cpp"
   INCLUDE_DIRS "." "lang"
-  REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui
+  REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui otr_i2c
            otr_engine otr_story otr_midi otr_synth lvgl__lvgl espressif__led_strip espressif__cjson
            ${board_reqs} esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_adc esp_timer esp_app_format
            esp_driver_i2s esp_driver_sdmmc esp_http_client espressif__mdns espressif__esp_websocket_client

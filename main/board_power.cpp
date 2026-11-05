@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "sdkconfig.h"
+#include "otr_i2c.h"
 
 #if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
 #include "driver/gpio.h"
@@ -61,13 +62,13 @@ bool addDevice(uint8_t address, i2c_master_dev_handle_t *device)
 
 bool readRegister(i2c_master_dev_handle_t device, uint8_t reg, uint8_t &value)
 {
-    return device && i2c_master_transmit_receive(device, &reg, 1, &value, 1, I2C_TIMEOUT_MS) == ESP_OK;
+    return device && OtrI2c::transmitReceive(device, &reg, 1, &value, 1, I2C_TIMEOUT_MS) == ESP_OK;
 }
 
 bool writeRegister(i2c_master_dev_handle_t device, uint8_t reg, uint8_t value)
 {
     const uint8_t data[] = {reg, value};
-    return device && i2c_master_transmit(device, data, sizeof(data), I2C_TIMEOUT_MS) == ESP_OK;
+    return device && OtrI2c::transmit(device, data, sizeof(data), I2C_TIMEOUT_MS) == ESP_OK;
 }
 
 void publish(const Status &next)
@@ -89,7 +90,7 @@ void publishPmic(const Status &next)
 
 bool initializeExpander()
 {
-    if (i2c_master_probe(s_bus, TCA9554_ADDR, I2C_TIMEOUT_MS) != ESP_OK ||
+    if (OtrI2c::probe(s_bus, TCA9554_ADDR, I2C_TIMEOUT_MS) != ESP_OK ||
         !addDevice(TCA9554_ADDR, &s_expander))
         return false;
 
@@ -114,7 +115,7 @@ bool initializeExpander()
 
 bool initializePmic()
 {
-    if (i2c_master_probe(s_bus, AXP2101_ADDR, I2C_TIMEOUT_MS) != ESP_OK ||
+    if (OtrI2c::probe(s_bus, AXP2101_ADDR, I2C_TIMEOUT_MS) != ESP_OK ||
         !addDevice(AXP2101_ADDR, &s_pmic))
         return false;
     uint8_t chipId = 0;
@@ -227,6 +228,12 @@ void sampleTask(void *)
 bool begin()
 {
     if (s_status.initialized) return true;
+    if (!OtrI2c::begin()) {
+        Status next = {};
+        next.errors = 1;
+        publish(next);
+        return false;
+    }
 
     i2c_master_bus_config_t config = {};
     config.i2c_port = I2C_NUM_0;

@@ -251,6 +251,17 @@ int i2c_master_transmit_receive(void *d, const uint8_t *cmd, size_t len,
     }
     return reportError;
 }
+namespace OtrI2c {
+int probe(void *bus, uint16_t address, int timeout)
+{
+    return i2c_master_probe(bus, address, timeout);
+}
+int transmitReceive(void *device, const uint8_t *tx, size_t txSize,
+                    uint8_t *rx, size_t rxSize, int timeout)
+{
+    return i2c_master_transmit_receive(device, tx, txSize, rx, rxSize, timeout);
+}
+}
 #endif
 
 // DRIVER_UNDER_TEST

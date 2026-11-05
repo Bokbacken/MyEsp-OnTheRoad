@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "my_log.h"
 #include "my_rtc_pcf85063_time.h"
+#include "otr_i2c.h"
 
 namespace MyRtc {
 namespace {
@@ -28,7 +29,7 @@ Status s_st = {};
 
 bool readRegs(uint8_t reg, uint8_t *buf, size_t count)
 {
-    if (!s_dev || i2c_master_transmit_receive(s_dev, &reg, 1, buf, count, TIMEOUT_MS) != ESP_OK) {
+    if (!s_dev || OtrI2c::transmitReceive(s_dev, &reg, 1, buf, count, TIMEOUT_MS) != ESP_OK) {
         ++s_st.errors;
         return false;
     }
@@ -41,7 +42,7 @@ bool writeRegs(uint8_t reg, const uint8_t *buf, size_t count)
     uint8_t tx[8];
     tx[0] = reg;
     memcpy(tx + 1, buf, count);
-    if (i2c_master_transmit(s_dev, tx, count + 1, TIMEOUT_MS) != ESP_OK) {
+    if (OtrI2c::transmit(s_dev, tx, count + 1, TIMEOUT_MS) != ESP_OK) {
         ++s_st.errors;
         return false;
     }
@@ -70,7 +71,7 @@ bool begin(i2c_master_bus_handle_t bus, time_t *outTime)
 {
     s_st = {};
     s_st.state = State::MISSING;
-    if (!bus || i2c_master_probe(bus, I2C_ADDR, TIMEOUT_MS) != ESP_OK) {
+    if (!bus || OtrI2c::probe(bus, I2C_ADDR, TIMEOUT_MS) != ESP_OK) {
         ESP_LOGW(TAG, "no PCF85063 at 0x%02X", I2C_ADDR);
         return false;
     }

@@ -20,6 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "otr_i2c.h"
 
 static const char *TAG = "audio";
 
@@ -109,7 +110,7 @@ int16_t s_mono[BLOCK];
 bool wr(uint8_t reg, uint8_t val)
 {
     uint8_t b[2] = {reg, val};
-    return i2c_master_transmit(s_dev, b, 2, 50) == ESP_OK;
+    return OtrI2c::transmit(s_dev, b, 2, 50) == ESP_OK;
 }
 
 uint8_t dacVolumeCode(uint8_t volume)
@@ -120,7 +121,7 @@ uint8_t dacVolumeCode(uint8_t volume)
     return (uint8_t)(code < 0 ? 0 : code > DAC_VOL ? DAC_VOL : code);
 }
 
-bool rd(uint8_t reg, uint8_t &val) { return i2c_master_transmit_receive(s_dev, &reg, 1, &val, 1, 50) == ESP_OK; }
+bool rd(uint8_t reg, uint8_t &val) { return OtrI2c::transmitReceive(s_dev, &reg, 1, &val, 1, 50) == ESP_OK; }
 
 bool codecInit()
 {
@@ -512,7 +513,7 @@ bool begin(i2c_master_bus_handle_t bus)
     s_ampOn = false;
 
     // 2. Codec on the shared I2C bus
-    if (!bus || i2c_master_probe(bus, ES8311_I2C_ADDR, 50) != ESP_OK) {
+    if (!bus || OtrI2c::probe(bus, ES8311_I2C_ADDR, 50) != ESP_OK) {
         s_error = "ES8311 not found (I2C 0x18)";
         ESP_LOGW(TAG, "%s - running silent", s_error);
         return false;

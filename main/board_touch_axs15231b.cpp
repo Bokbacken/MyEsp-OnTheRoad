@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "my_lvgl.h"
 #include "sdkconfig.h"
+#include "otr_i2c.h"
 
 namespace {
 
@@ -173,7 +174,7 @@ esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool l
 {
     uint8_t data[REPORT_LEN] = {};
     const int64_t startUs = esp_timer_get_time();
-    esp_err_t err = i2c_master_transmit_receive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
+    esp_err_t err = OtrI2c::transmitReceive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
                                                 data, sizeof(data), I2C_TIMEOUT_MS);
     const int64_t durationUs = esp_timer_get_time() - startUs;
     const bool logError = !BUFFERED_TRACE &&
@@ -208,7 +209,7 @@ void scanBus()
 {
     g_scanCount = 0;
     for (uint8_t addr = 0x08; addr < 0x78; addr++) {
-        const esp_err_t err = i2c_master_probe(BoardPower::bus(), addr, 10);
+        const esp_err_t err = OtrI2c::probe(BoardPower::bus(), addr, 10);
         if (err == ESP_OK) g_scan[g_scanCount++] = addr;
         else if (err != ESP_ERR_NOT_FOUND) ESP_LOGW(TAG, "I2C probe 0x%02X: %s", addr, esp_err_to_name(err));
     }

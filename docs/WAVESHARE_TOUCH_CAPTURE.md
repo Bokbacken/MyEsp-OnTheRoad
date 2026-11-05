@@ -1,6 +1,6 @@
 # Waveshare factory touch capture
 
-## Application comparison: v0.25.1
+## Application comparison: v0.25.1 and later
 
 The S3_35B application diagnostic build records the same raw fields, without
 live touch-event/sample logs. Reset with serial logging open at 115200 baud.
@@ -10,6 +10,12 @@ Wait for `touch_raw: END capture` and save the complete log. This is automatic,
 not triggered by the application's clear-log button. Reset to repeat.
 Dumping briefly pauses input after measurement. Other application module logs
 remain enabled. Transport success in this trace does not imply a valid report.
+
+`dt_us` measures the synchronous call's elapsed time, not pure on-wire bus
+occupancy. From v0.25.4 it also includes any wait for the application's shared
+bus mutex and 100 us inter-transaction gap. Touch remains at a 30 ms minimum
+poll interval and PWR at 100 ms for this comparison. An idle bus does not
+necessarily incur the extra 100 us: only the unelapsed portion is waited.
 
 ## Factory comparison
 
