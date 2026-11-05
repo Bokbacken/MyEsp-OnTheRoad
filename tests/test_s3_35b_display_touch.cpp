@@ -210,7 +210,7 @@ int esp_lcd_panel_io_tx_color(void *io, uint32_t cmd, const void *p, size_t n) {
 using i2c_master_dev_handle_t = void *;
 constexpr int I2C_ADDR_BIT_LEN_7 = 0;
 struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_speed_hz = 0; };
-uint8_t report[14] = {};
+uint8_t report[8] = {};
 int reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
 int commandError = ESP_OK, writes = 0, startupFailures = 0, delays = 0;
 int transactionDelayMs = 0;
@@ -237,7 +237,7 @@ int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out)
 int i2c_master_bus_rm_device(void *) { removes++; return ESP_OK; }
 int i2c_master_transmit_receive(void *d, const uint8_t *cmd, size_t len,
                                 uint8_t *data, size_t n, int timeout) {
-    const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 14, 0, 0, 0};
+    const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 8, 0, 0, 0};
     assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len));
     assert(n == sizeof(report) && timeout == 100 && !commandPending);
     writes++;
@@ -466,7 +466,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     assert(ready && Touch::info().present && Touch::info().address == 0x3B);
-    assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 2);
+    assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 1);
     assert(Touch::info().fwVersion == 0 && Touch::info().irqCount == 0);
     assert(Touch::begin() && probes == 112 && reads == 1);
     assert(pointerEventCallback);
@@ -508,6 +508,7 @@ int main(int argc, char **argv) {
         assert(!poll(x, y)); // Diagnostics must not remove the bounded failure release.
         reportError = ESP_OK;
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
+        static_assert(sizeof(RawSample::bytes) == 8);
         assert(g_rawStarted && !g_rawDumped);
         assert(g_rawSamples[0].bytes[1] == 1);
         assert(g_rawSamples[2].bytes[2] == 0x40); // Release packet retained verbatim.
@@ -603,8 +604,10 @@ int main(int argc, char **argv) {
     assert(!poll(x, y));
     setPoint(42, 300, 2);
     report[1] = 2;
+    assert(!poll(x, y));
+    assert(Touch::info().readErrors == errorsBeforeIdle + 1);
+    setPoint(42, 300, 2);
     assert(poll(x, y) && x == 42 && y == 300);
-    assert(Touch::info().readErrors == errorsBeforeIdle);
 
     setPoint(42, 300, 1);
     assert(!poll(x, y));
@@ -700,9 +703,9 @@ int main(int argc, char **argv) {
         pointerEventCallback(&releasedClick);
         assert(!releasedClick.stopped && !pointerMock.stopProcessing);
     }
-    const uint8_t corruptReports[][14] = {
-        {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD, 0x65, 0x66, 0xFF, 0xFF, 0xFF, 0xFF},
-        {0x01, 0x80, 0x68, 0x01, 0x5D, 0x11, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64},
+    const uint8_t corruptReports[][8] = {
+        {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD},
+        {0x01, 0x80, 0x68, 0x01, 0x5D, 0x11, 0x12, 0xFF},
     };
     for (const auto &corrupt : corruptReports) {
         setPoint(125, 115);

@@ -17,6 +17,13 @@ bus mutex and 100 us inter-transaction gap. Touch remains at a 30 ms minimum
 poll interval and PWR at 100 ms for this comparison. An idle bus does not
 necessarily incur the extra 100 us: only the unelapsed portion is waited.
 
+From v0.25.5 the application requests and records 8-byte single-point reports
+instead of 14-byte reports. The command's requested length is also 8; the
+command/read remains combined with no intervening STOP. The factory capture
+below still uses its original 14-byte reports. Compare malformed starts and
+contact continuity as well as parser errors: fewer captured bytes also hide
+some tail anomalies, and a zero point count may mask an abnormal report.
+
 ## Factory comparison
 
 The optional `waveshare_touch_trace` input to the manual firmware workflow

@@ -14,7 +14,7 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 |---|---|
 | MCU/display | ESP32-S3, AXS15231B QSPI panel, 320 × 480 |
 | I2C | SDA GPIO8, SCL GPIO7; all devices including touch at 400 kHz |
-| Touch | AXS15231B, I2C address `0x3B`; polled with an atomic command/read transaction and 14-byte report |
+| Touch | AXS15231B, I2C address `0x3B`; polled with an atomic command/read transaction and experimental 8-byte single-point report (v0.25.5) |
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |
@@ -52,9 +52,16 @@ The PWR button is polled through TCA9554 EXIO6 every 100 ms (10 reads/second, re
 
 The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`. The manufacturer's [Arduino touch driver](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/esp_lcd_touch_axs15231b/esp_lcd_touch_axs15231b.cpp) uses the same command/report size, but ends the write with STOP before a separate read. An initial firmware experiment adopted that variant; owner logs still showed five consecutive `0xD7` and then ten `0x13` reports after power-on, including after a shared LCD/touch reset. Touch now uses the factory BSP's atomic combined transaction, avoiding a possible interleaving between the two transfers and the concurrent PWR polling task. The race was possible but is not confirmed as the cause. Owner logs also showed that neither 100 kHz nor the shared reset changed the startup result, so touch is back at the manufacturer's 400 kHz. Those startup frames were not corruption; see the no-contact filler rule below.
 
+From v0.25.5, the diagnostic application instead requests and reads 8 bytes
+for one point, following the report length in Espressif's AXS15231B 2.1.1 driver.
+Unlike that driver's separate write/read, our transaction remains combined.
+This isolates the report-size experiment; the clock, polling, pacing, event
+interpretation and dropout handling remain unchanged. Two-point counts are
+rejected for this single-point report. Physical comparison is pending.
+
 Startup allows five attempts spaced 50 ms apart. If all fail, the display driver permits one shared EXIO1 reset (100 ms low, 200 ms settling), replays the full panel initialization, and restores the existing framebuffer before another five touch reads. It reuses the existing SPI/LVGL resources, does not reboot the MCU or change PMIC rails/charger settings, and refuses recovery after the LVGL task starts or after a DMA transport fault. Failed reset/reinitialization is propagated as a display failure; persistent invalid reports remain a touch failure. Automatic recovery after cold power-on still requires physical verification.
 
-The firmware accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all 14 report bytes for the latter. During an existing press, failed reads retain only the last valid coordinates for less than 60 ms from the last valid contact, sharing the existing no-contact debounce deadline. Errors never extend this deadline, and time blocked in I2C counts toward it. A valid release ends the press immediately. Corruption cancels the gesture's click even if contact resumes within that interval; it still increments the error counter. This avoids repeated visual release/repress transitions on brief dropouts without allowing persistent failures to hold a button indefinitely.
+The firmware accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all report bytes (8 from v0.25.5) for the latter. During an existing press, failed reads retain only the last valid coordinates for less than 60 ms from the last valid contact, sharing the existing no-contact debounce deadline. Errors never extend this deadline, and time blocked in I2C counts toward it. A valid release ends the press immediately. Corruption cancels the gesture's click even if contact resumes within that interval; it still increments the error counter. This avoids repeated visual release/repress transitions on brief dropouts without allowing persistent failures to hold a button indefinitely.
 
 Click suppression checks movement in both contact and release reports. Moving more than 20 pixels from the initial contact cancels all click variants until the next press, including when a quick swipe has only a start frame and a release frame. Release and scrolling events remain available to widgets.
 

@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.5 (diagnostic)
+
+- S3_35B requests and reads an 8-byte single-point touch report instead of
+  14 bytes, matching Espressif AXS15231B 2.1.1's report size. Raw capture and
+  invalid-report logs contain all 8 bytes. The combined command/read (no STOP
+  between), 400 kHz clock, 30/100 ms touch/PWR polling, shared mutex/100 us gap,
+  60 ms dropout bound and diagnostic click bypass are unchanged.
+  Physical comparison pending; this is not a switch to Espressif's driver.
+
 ## v0.25.4 (diagnostic)
 
 - S3_35B shared I2C users now take an explicit mutex and leave at least 100 us

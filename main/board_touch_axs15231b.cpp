@@ -31,9 +31,9 @@ constexpr bool TOUCH_DIAGNOSTICS = true;
 constexpr bool TOUCH_DIAGNOSTICS = false;
 #endif
 // The combined transaction keeps the command/read pair atomic on the shared bus.
-constexpr size_t REPORT_LEN = 14;
+constexpr size_t REPORT_LEN = 8;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
-constexpr uint8_t MAX_POINTS = 2;
+constexpr uint8_t MAX_POINTS = 1;
 
 Touch::Info g_info = {};
 uint8_t g_scan[0x78 - 0x08];
@@ -80,10 +80,10 @@ void recordRaw(int64_t start, int64_t duration, esp_err_t result,
         const RawSample &s = g_rawSamples[i];
         const uint8_t *b = s.bytes;
         ESP_LOGI("touch_raw", "n=%u t_us=%lld dt_us=%lld result=%s bytes="
-                 "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                 "%02X %02X %02X %02X %02X %02X %02X %02X",
                  i, (long long)s.timeUs, (long long)s.durationUs, esp_err_to_name(s.result),
                  b[0], b[1], b[2], b[3], b[4], b[5], b[6],
-                 b[7], b[8], b[9], b[10], b[11], b[12], b[13]);
+                 b[7]);
     }
     ESP_LOGI("touch_raw", "END capture; reset to record again");
 }
@@ -141,7 +141,7 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
 {
     down = false;
     released = false;
-    // Without contact the controller returns 14 copies of one filler byte whose value
+    // Without contact the controller returns copies of one filler byte whose value
     // varies between boots (owner logs: 02, 13, 17, 37, 57, D7). Waveshare's BSP drops
     // these silently. Only a fully uniform report qualifies; other malformed data stays an error.
     bool idle = true;
@@ -197,10 +197,10 @@ esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool l
     err = decodePoint(data, down, released, x, y);
     if (err != ESP_OK && logError) {
         ESP_LOGW(TAG, "AXS15231B invalid report (%u errors): "
-                 "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                 "%02X %02X %02X %02X %02X %02X %02X %02X",
                  (unsigned)(g_info.readErrors + 1),
                  data[0], data[1], data[2], data[3], data[4], data[5], data[6],
-                 data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
+                 data[7]);
     }
     return err;
 }
@@ -356,7 +356,7 @@ bool begin()
         ESP_LOGI("touch_raw", "ARMED: first contact records 512 reads in RAM, then dumps; "
                  "live touch traces disabled; reset to rearm");
     // No documented firmware-identification command: version fields remain unknown (zero).
-    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz atomic I2C, polled (no IRQ/reset GPIO)",
+    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz atomic I2C, 8-byte single-point report, polled (no IRQ/reset GPIO)",
              TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);
     return true;
 }

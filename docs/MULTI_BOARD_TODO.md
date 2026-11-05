@@ -86,8 +86,19 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.4: gemensam mutex och minst 100 us paus efter varje avslutad
   I2C-transaktion, även fel/probe. Alla S3-bussanvändare omfattas, utan paus
   inne i touchens kombinerade kommando/svar. Touch/PWR kvar på 30/100 ms.
-- [ ] Jämför v0.25.4 på kortet. Öka touchpollhastigheten först om pausprovet
-  lyckas; skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
+- [x] v0.25.4-dragloggen `S3-New-20261105-105144-261.log`: 512 läsningar
+  under 20,454 s, 385 accepterade kontakt-/släpprapporter, 78 enhetliga
+  tomrapporter, 45 parseravvisningar och fyra avvikande nollpunktpaket.
+  Fyra accepterade kontaktrapporter har dessutom avvikande svans.
+  Inga transportfel. Anropstid 695-1092 us, medel 827,6 us, median 836 us;
+  pollmedian 32,014 ms, max 89,015 ms. Mutex/100 us löser inte rapportfelen.
+- [x] v0.25.5: begär och läs 8 byte för en touchpunkt i stället för 14.
+  Behåll kombinerad transaktion utan STOP, 400 kHz, touch/PWR 30/100 ms,
+  mutex/100 us paus, 60 ms-bryggning och diagnostisk klickbypass.
+- [ ] Jämför v0.25.5 på kortet med samma stillahållning och långsamma drag.
+  Kortare svar döljer vissa svansavvikelser; färre parserfel ensamt räcker inte.
+  Behåll touchpollgränsen tills förbättring är bekräftad.
+  Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
