@@ -18,7 +18,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 ### ESP UI-inställningar och snabbpanel
 
 - [x] Kodnära inventering och stegvis UX-/implementeringsplan finns i
-  `docs/ESP_UI_SETTINGS_PLAN.md`. Endast planering; ingen firmware ändrad.
+  `docs/ESP_UI_SETTINGS_PLAN.md` (PR #60). Endast planering; ingen firmware
+  ändrad.
 - [ ] Bekräfta ljudkontraktet (master mute, separat spelmusik-/SFX-mute och
   karaoke MIDI-kanal) innan metadata-/audioändringar.
 - [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
