@@ -17,6 +17,11 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
+Aktuell touchstatus (2026-11-05): ägaren accepterar touchfunktionen efter
+gemensam touch/PWR-task och högre Sudoku-knappar. Undersökningen avslutas;
+återöppna vid regression. v0.25.13 stänger av extraloggen och återaktiverar
+"drag är inte klick". Historiska diagnostiksteg nedan är inte aktuell drift.
+
 - [x] Separat `S3_35B`-profil och byggartefakt: AXS15231B-skärm/touch,
   AXP2101, TCA9554, PCF85063, ES8311 och 1-bitars SDMMC.
 - [x] Tidig initiering av delad I2C/strömkrets före SD och skärm; laddarens
@@ -57,7 +62,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   kortprofilen. Extra klickspärr för rörelse/läsfel förbikopplas; startfix och
   60 ms-gräns behålls. `touch: DIAG` visar koordinater, lässtatus, hypotetisk
   spärr samt LVGL-klick och observerad scroll. Svep kan tillfälligt ge felklick.
-- [ ] Jämför vanliga knappar, Sudoku och inställningsscroll på diagnostikbygget.
+- [x] Ägaren har provat vidare och accepterar touchkänslan, inklusive förbättrat
+  Sudoku. Detaljerade kallstarts-/tvåfingersscenarier är inte därmed verifierade.
   Ägaren bekräftar bra touch i Waveshares originalexempel på samma kort;
   någon specifik ESP-IDF-/LVGL-inkompatibilitet är ännu inte påvisad.
 - [x] v0.25.1: rålogga 512 läsningar i RAM efter första beröring, skriv först
@@ -152,6 +158,16 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   3.1.0, med exakt komponentversion och pinnad taggcommit.
 - [ ] Verifiera kompletta P4/C6-bilder för 3.1.0 och prova Wi-Fi, radio-OTA
   och samtidig SD-trafik på kortet. Ingen prestandaförbättring är uppmätt.
+- [x] v0.25.12: P4, båda S3-profilerna och C6 byggda i CI
+  (`42034204303`). P4-/C6-bildhuvuden och C6:s 1,75 MiB-slotgräns
+  kontrollerade; genererade beroendelås sparade från artefakterna.
+  C6-appversionen är upstream-revision `235aca9`, inte versionssträngen
+  `3.1.0`; radioprotokollets version och faktisk radiofunktion provas på kortet.
+- [x] v0.25.13: extraloggen av, enhetliga `37`-tomrapporter ignoreras tyst;
+  verkliga buss-/parserfel räknas och varnas fortfarande. Rörelse över 20 px
+  eller läsfel under en gest spärrar klick, även vid opt-in diagnostik.
+- [x] Gemensam touch/PWR-task dokumenterad i hårdvarureferensen och
+  repositoryinstruktionerna, inklusive cachad LVGL-läsning och I2C-låsning.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.

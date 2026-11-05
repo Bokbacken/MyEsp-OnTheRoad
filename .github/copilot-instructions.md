@@ -52,3 +52,11 @@ Before creating a PR, check for a PR template and follow it if present.
 Include this trailer on commits:
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+## S3_35B touch sampling
+
+Keep touch and TCA9554/PWR polling in BoardPower's shared task: touch first
+each nominal 20 ms, then PWR every fifth pass. LVGL reads cached state only.
+Keep uniform idle reports silent and gesture click suppression enabled,
+including in opt-in raw diagnostics. See the Waveshare S3 hardware reference
+for the accepted solution and the limits of the hardware evidence.

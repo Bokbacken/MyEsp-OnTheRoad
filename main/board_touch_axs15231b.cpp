@@ -43,7 +43,6 @@ i2c_master_dev_handle_t g_dev = nullptr;
 lv_indev_t *g_indev = nullptr;
 uint32_t g_lastDown = 0;
 bool g_gap = false;
-bool g_idleReportLogged = false;
 uint16_t g_touchStartX = 0, g_touchStartY = 0;
 bool g_tapCancelled = false;
 constexpr bool BUFFERED_TRACE = TOUCH_DIAGNOSTICS;
@@ -80,10 +79,11 @@ void recordRaw(int64_t start, int64_t duration, esp_err_t result,
         const RawSample &s = g_rawSamples[i];
         const uint8_t *b = s.bytes;
         ESP_LOGI("touch_raw", "n=%u t_us=%lld dt_us=%lld result=%s bytes="
-                 "%02X %02X %02X %02X %02X %02X %02X %02X",
+                 "%02X %02X %02X %02X %02X %02X %02X %02X "
+                 "%02X %02X %02X %02X %02X %02X",
                  i, (long long)s.timeUs, (long long)s.durationUs, esp_err_to_name(s.result),
                  b[0], b[1], b[2], b[3], b[4], b[5], b[6],
-                 b[7]);
+                 b[7], b[8], b[9], b[10], b[11], b[12], b[13]);
     }
     ESP_LOGI("touch_raw", "END capture; reset to record again");
 }
@@ -104,8 +104,7 @@ void traceScroll()
 void cancelMovedClick(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
-    if (TOUCH_DIAGNOSTICS && BUFFERED_TRACE) return;
-    if (TOUCH_DIAGNOSTICS) {
+    if (TOUCH_DIAGNOSTICS && !BUFFERED_TRACE) {
         const char *name = nullptr;
         switch (code) {
         case LV_EVENT_PRESSED: name = "pressed"; break;
@@ -127,7 +126,6 @@ void cancelMovedClick(lv_event_t *event)
                      name, long(point.x), long(point.y), static_cast<void *>(scroll),
                      unsigned(g_tapCancelled));
         }
-        return;
     }
     portENTER_CRITICAL(&g_infoMux);
     const bool tapCancelled = g_tapCancelled;
@@ -154,13 +152,7 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
             break;
         }
     }
-    if (idle) {
-        if (!g_idleReportLogged && !BUFFERED_TRACE) {
-            ESP_LOGI(TAG, "AXS15231B uniform 0x%02X no-contact report; treating as no point", data[0]);
-            g_idleReportLogged = true;
-        }
-        return ESP_OK;
-    }
+    if (idle) return ESP_OK;
     if (data[1] == 0) return ESP_OK;
     if (data[1] > MAX_POINTS || data[0] == 0xFF) return ESP_ERR_INVALID_RESPONSE;
     const uint16_t px = ((data[2] & 0x0F) << 8) | data[3];
@@ -200,10 +192,11 @@ esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool l
     err = decodePoint(data, down, released, x, y);
     if (err != ESP_OK && logError) {
         ESP_LOGW(TAG, "AXS15231B invalid report (%u errors): "
-                 "%02X %02X %02X %02X %02X %02X %02X %02X",
+                 "%02X %02X %02X %02X %02X %02X %02X %02X "
+                 "%02X %02X %02X %02X %02X %02X",
                  (unsigned)(g_info.readErrors + 1),
                  data[0], data[1], data[2], data[3], data[4], data[5], data[6],
-                 data[7]);
+                 data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
     }
     return err;
 }
@@ -364,8 +357,7 @@ bool begin()
     g_info.maxY = LCD_V_RES;
     g_info.maxTouches = MAX_POINTS;
     if (TOUCH_DIAGNOSTICS)
-        ESP_LOGW(TAG, "DIAG touch: extra movement/read-error click veto DISABLED; "
-                 "LVGL handles clicks/scroll, swipes may activate buttons");
+        ESP_LOGW(TAG, "DIAG touch: buffered raw capture enabled; movement/read-error click veto remains active");
     if (BUFFERED_TRACE)
         ESP_LOGI("touch_raw", "ARMED: first contact records 512 reads in RAM, then dumps; "
                  "live touch traces disabled; reset to rearm");

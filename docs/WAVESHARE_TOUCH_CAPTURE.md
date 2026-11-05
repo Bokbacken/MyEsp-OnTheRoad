@@ -2,6 +2,13 @@
 
 ## Application comparison: v0.25.1 and later
 
+Normal builds disable `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS` from v0.25.13.
+The owner accepted the shared touch/PWR task after testing v0.25.9-v0.25.10.
+Enable this option explicitly only if investigating a new regression.
+Capture no longer bypasses the movement/read-error click filter.
+Current dumps include all 14 bytes; v0.25.9-v0.25.12 read 14 but accidentally
+printed only the first eight, so those logs cannot validate report tails.
+
 The S3_35B application diagnostic build records the same raw fields, without
 live touch-event/sample logs. Reset with serial logging open at 115200 baud.
 The `touch_raw: ARMED` message precedes recording. First valid contact starts the 512-read capture, including that triggering
@@ -29,7 +36,7 @@ transfers with STOP between. The shared mutex covers both transfers, and
 the minimum 100 us gap also applies between them. `dt_us` includes both
 transfers, the intervening gap and any initial mutex/pacing wait.
 
-From v0.25.8 the raw capture no longer pauses TCA reads. In v0.25.9 touch is
+In v0.25.8 raw capture paused TCA reads. From v0.25.9 touch is
 sampled first every 20 ms, followed by a TCA9554 read every fifth pass. Thus
 the trace captures touch/PWR interleaving under this shared-task cadence, not
 an isolated touch-only bus. The trigger report is the first captured sample.

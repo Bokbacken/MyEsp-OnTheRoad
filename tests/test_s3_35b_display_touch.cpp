@@ -501,8 +501,6 @@ int main(int argc, char **argv) {
         for (bool failRead : {false, true}) {
             setPoint(100, 100);
             assert(poll(x, y));
-#ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
-#endif
             if (failRead) {
                 reportError = ESP_ERR_TIMEOUT;
                 assert(poll(x, y));
@@ -513,7 +511,7 @@ int main(int argc, char **argv) {
                 setPoint(180, 160);
                 assert(poll(x, y));
             }
-            assert(g_tapCancelled); // Still tracked for comparison, never used as a veto.
+            assert(g_tapCancelled);
             setPoint(180, 160, 1);
             assert(!poll(x, y));
             for (auto code : {LV_EVENT_CLICKED, LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED,
@@ -521,7 +519,8 @@ int main(int argc, char **argv) {
                 lv_event_t event{code};
                 pointerMock.stopProcessing = false;
                 pointerEventCallback(&event);
-                assert(!event.stopped && !pointerMock.stopProcessing);
+                assert(event.stopped == (code != LV_EVENT_RELEASED));
+                assert(pointerMock.stopProcessing == (code != LV_EVENT_RELEASED));
             }
         }
         setPoint(100, 100);
@@ -551,6 +550,13 @@ int main(int argc, char **argv) {
             assert(std::any_of(logFormats.begin(), logFormats.end(),
                               [marker](const std::string &line) { return line.find(marker) != std::string::npos; }));
         }
+        const auto rawFormat = std::find_if(logFormats.begin(), logFormats.end(),
+            [](const std::string &line) { return line.find("n=%u t_us=") != std::string::npos; });
+        assert(rawFormat != logFormats.end());
+        size_t byteFormats = 0;
+        for (size_t pos = rawFormat->find("%02X"); pos != std::string::npos;
+             pos = rawFormat->find("%02X", pos + 4)) ++byteFormats;
+        assert(byteFormats == 14);
 #endif
         return 0;
     }
@@ -803,5 +809,10 @@ int main(int argc, char **argv) {
     pointerMock.stopProcessing = false;
     pointerEventCallback(&cleanTap);
     assert(!cleanTap.stopped && !pointerMock.stopProcessing);
+    for (const std::string &line : logFormats) {
+        assert(line.find("DIAG") == std::string::npos);
+        assert(line.find("ARMED:") == std::string::npos);
+        assert(line.find("no-contact report") == std::string::npos);
+    }
 }
 #endif

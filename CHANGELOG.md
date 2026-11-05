@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.13
+
+- Ends the owner-accepted S3_35B touch investigation: disables raw capture by
+  default and silently discards uniform idle reports, including `0x37`.
+  Real I2C/parser failures still have counters and rate-limited warnings.
+- Restores movement/read-error click suppression: drags exceeding 20 px
+  cannot become clicks on release; ordinary taps and release events remain.
+  Opt-in raw diagnostics now preserve this protection and print all 14 bytes.
+- Retains the shared task (touch each 20 ms, PWR after every fifth sample),
+  cached LVGL state, 14-byte/two-point report and locked STOP-separated I2C.
+
 ## v0.25.12
 
 - Updates P4's exact ESP-Hosted dependency and the pinned C6 OTA example to

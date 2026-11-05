@@ -23,14 +23,13 @@ endmenu
 
 menu "OnTheRoad diagnostics"
     config OTR_S3_TOUCH_DIAGNOSTICS
-        bool "S3 3.5B touch diagnostics without extra click suppression"
+        bool "S3 3.5B buffered raw touch diagnostics"
         depends on OTR_HW_PROFILE_S3_35B
         default n
         help
-            Temporarily lets LVGL handle clicks without the application's
-            movement/read-error click veto. Logs contact transitions, sampled
-            coordinates and LVGL click/scroll decisions. Swipes may activate
-            buttons in this diagnostic build. Startup validation and the
+            Records 512 raw reports in RAM after the first contact, then
+            prints them to serial. Disabled for normal builds. Gesture click
+            suppression, shared touch/PWR sampling, startup validation and
             bounded read-gap handling remain unchanged.
 
     config OTR_SD_50MHZ_EXPERIMENT

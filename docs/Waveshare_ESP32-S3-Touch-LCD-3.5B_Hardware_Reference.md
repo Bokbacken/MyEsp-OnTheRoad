@@ -30,10 +30,20 @@ preserving the other direction/output bits. It reads the whole input register
 for PWR but does not service the touch, RTC or PMIC interrupt bits, or configure
 an ESP32 interrupt handler for the expander.
 
-As of v0.25.3, touch reads are limited to one every 30 ms (previously 15 ms).
-LVGL scheduling and synchronous display transfers can lengthen the interval.
-The 60 ms missing-contact bound, report parser and buffered raw capture remain
-unchanged; this is a timing comparison, not a confirmed fix.
+### Accepted touch/PWR sampling solution
+
+The owner accepted touch operation on 2026-11-05 after the shared-task change
+in v0.25.9 and taller Sudoku controls in v0.25.10. Touch is no longer an open
+investigation; reopen it if a regression appears. This is acceptance of the
+observed behavior, not proof of the controller's internal failure mechanism.
+
+`BoardPower::sampleTask()` is the single periodic owner of touch and PWR
+sampling. Each iteration calls `sampleTouch()` first, then reads TCA9554 EXIO6
+on every fifth iteration, and waits 20 ms. LVGL's pointer callback only reads
+a cached snapshot under `g_infoMux`; it must not issue its own I2C reads.
+PWR is nominally sampled every 100 ms and PMIC every ten seconds. Transfer
+time and scheduling add to these delays; other I2C clients still share the bus.
+Do not restore independent LVGL and PWR polling without rechecking hardware.
 
 As of v0.25.4, `otr_i2c` serializes every S3 shared-bus transfer/probe with a
 FreeRTOS mutex (priority inheritance) and enforces at least 100 us from the
@@ -49,20 +59,20 @@ No touch priority or pause within an individual IDF transfer is introduced.
 
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus. Reset remains owned by `BoardPower`, including the bounded startup recovery described below. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
 
-In v0.25.9 touch and PWR share one task: touch is sampled every 20 ms, then the
+Since v0.25.9 touch and PWR share one task: touch is sampled every 20 ms, then the
 TCA9554 EXIO6 input is read every fifth pass (nominally 100 ms). Actual
-intervals include bus work and scheduling. This tests sequenced reads in one
+intervals include bus work and scheduling. This sequences reads in one
 task; it does not prevent other shared-bus clients from running between their
 individual I2C transactions. The 2000 ms button hold is accumulated as 100 ms
 per PWR sample; PMIC refresh remains nominally ten seconds.
 Very short taps between samples may be missed; a short press wakes the backlight if the screen is off and does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.
 
-The v0.25.9 raw 512-report capture does not suppress TCA9554 reads. Touch is
+The optional raw 512-report capture does not suppress TCA9554 reads. Touch is
 sampled first, and PWR is read on every fifth pass while recording; PMIC
 refresh continues on its normal cadence. The first valid touch report is
 included in the capture.
 
-The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`. The manufacturer's [Arduino touch driver](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/esp_lcd_touch_axs15231b/esp_lcd_touch_axs15231b.cpp) uses the same command/report size, but ends the write with STOP before a separate read. An initial firmware experiment adopted that variant; owner logs still showed five consecutive `0xD7` and then ten `0x13` reports after power-on, including after a shared LCD/touch reset. Touch now uses the factory BSP's atomic combined transaction, avoiding a possible interleaving between the two transfers and the concurrent PWR polling task. The race was possible but is not confirmed as the cause. Owner logs also showed that neither 100 kHz nor the shared reset changed the startup result, so touch is back at the manufacturer's 400 kHz. Those startup frames were not corruption; see the no-contact filler rule below.
+The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`. The manufacturer's [Arduino touch driver](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/esp_lcd_touch_axs15231b/esp_lcd_touch_axs15231b.cpp) uses the same command/report size, but ends the write with STOP before a separate read. The application tested both variants; the accepted implementation uses the locked STOP-separated pair below. Owner logs showed that neither 100 kHz nor the shared reset changed the startup result, so touch uses the manufacturer's 400 kHz. Uniform startup frames were not corruption; see the no-contact filler rule below.
 
 From v0.25.5 through v0.25.8, the diagnostic application requested and read 8
 bytes for one point, following the report length in Espressif's AXS15231B 2.1.1
@@ -78,30 +88,16 @@ the response; no other touch timing or parsing changes are introduced.
 
 Startup allows five attempts spaced 50 ms apart. If all fail, the display driver permits one shared EXIO1 reset (100 ms low, 200 ms settling), replays the full panel initialization, and restores the existing framebuffer before another five touch reads. It reuses the existing SPI/LVGL resources, does not reboot the MCU or change PMIC rails/charger settings, and refuses recovery after the LVGL task starts or after a DMA transport fault. Failed reset/reinitialization is propagated as a display failure; persistent invalid reports remain a touch failure. Automatic recovery after cold power-on still requires physical verification.
 
-The firmware accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and include all report bytes (8 from v0.25.5) for the latter. During an existing press, failed reads retain only the last valid coordinates for less than 60 ms from the last valid contact, sharing the existing no-contact debounce deadline. Errors never extend this deadline, and time blocked in I2C counts toward it. A valid release ends the press immediately. Corruption cancels the gesture's click even if contact resumes within that interval; it still increments the error counter. This avoids repeated visual release/repress transitions on brief dropouts without allowing persistent failures to hold a button indefinitely.
+The firmware accepts non-release contact events including event 3, and rejects invalid point counts or out-of-range coordinates without clamping them into unintended taps. Rate-limited logs distinguish transport failures from invalid reports and print all 14 report bytes for the latter. During an existing press, failed reads retain only the last valid coordinates for less than 60 ms from the last valid contact, sharing the existing no-contact debounce deadline. Errors never extend this deadline, and time blocked in I2C counts toward it. A valid release ends the press immediately. Corruption cancels the gesture's click even if contact resumes within that interval; it still increments the error counter. This avoids repeated visual release/repress transitions on brief dropouts without allowing persistent failures to hold a button indefinitely.
 
 Click suppression checks movement in both contact and release reports. Moving more than 20 pixels from the initial contact cancels all click variants until the next press, including when a quick swipe has only a start frame and a release frame. Release and scrolling events remain available to widgets.
 
-Temporary diagnostic build: `sdkconfig.defaults.s3-35b` enables
-`CONFIG_OTR_S3_TOUCH_DIAGNOSTICS`. As of v0.25.1, live touch traces below are
-replaced by a 512-read RAM capture, dumped after recording; see
-[capture instructions](WAVESHARE_TOUCH_CAPTURE.md). The click bypass remains.
-The preceding v0.25.0 diagnostic build used the live event tracing described below.
+From v0.25.13 normal builds disable `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS`, so no
+raw capture or extra touch traces run. The movement/read-error veto is active
+again, and opt-in diagnostics no longer bypass it. If needed, enable the
+512-read RAM capture explicitly; see [capture instructions](WAVESHARE_TOUCH_CAPTURE.md).
 
-Live tracing in the preceding diagnostic build:
-`CONFIG_OTR_S3_TOUCH_DIAGNOSTICS`. This bypasses both the movement and read-error
-click veto above, leaving LVGL to decide clicks and scrolling. Startup validation,
-the 60 ms gap bound, coordinate decoding and settings-slider handling are unchanged.
-`touch: DIAG` logs record contact transitions, coordinates during contact at most
-every 100 ms, and changes that would have triggered the old veto. LVGL press,
-release and click events and sampled scroll-object transitions are also logged.
-`extra_veto_would_cancel=1` is informational, not an active veto in this build.
-Swipes can activate buttons; this is a comparison build, not a final gesture fix.
-Disable the option to restore the previous click filter. The owner reports that
-the unmodified Waveshare factory example works well on the same board; that
-narrows investigation to software but does not identify a specific IDF/LVGL fault.
-
-Hardware observation (owner, 2026-11-04/05): without contact the controller returns fourteen copies of a single filler byte, which stop while a finger is held and return after release. The byte differs between boots (`0x02`, `0x13`, `0x17`, `0x37`, `0x57` and `0xD7` observed). Waveshare's factory BSP discards these frames silently (`data[1] > 2` gives no touch). Treating every value other than `0x37` as an error made startup report "touch not found" whenever the finger was off the screen at boot. Any fully uniform report is therefore accepted as no point, both at startup and at runtime, with the normal 60 ms release debounce; a one-time informational log records its detection. Other malformed reports and all I2C failures still increment the error counter and use the bounded failure handling above.
+Hardware observation (owner, 2026-11-04/05): without contact the controller returns fourteen copies of a single filler byte, which stop while a finger is held and return after release. The byte differs between boots (`0x02`, `0x13`, `0x17`, `0x37`, `0x57` and `0xD7` observed). Waveshare's factory BSP discards these frames silently (`data[1] > 2` gives no touch). Treating every value other than `0x37` as an error made startup report "touch not found" whenever the finger was off the screen at boot. Any fully uniform report is therefore silently accepted as no point, both at startup and at runtime, with the normal 60 ms release debounce. Other malformed reports and all I2C failures still increment the error counter and use the bounded failure handling above.
 
 AXP2101 battery ADC data is a 13-bit value already expressed in millivolts, without a 1.1 multiplier. This matches the vendor's pinned [`XPowersAXP2101.tpp` `getBattVoltage()`](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/XPowersLib/src/XPowersAXP2101.tpp) and its `readRegisterH5L8` helper. The firmware reports the PMIC fuel-gauge percentage only when its byte is in the 0–100 range. USB presence, charging state, charge-done state, and battery connection are reported from PMIC status registers. The driver only enables the battery-voltage and VBUS ADC measurement channels; it does not change charger current/voltage, battery parameters, regulator rails, or LED policy. Neither this PMIC API nor the PCF85063 provides a supported board-temperature reading.
 

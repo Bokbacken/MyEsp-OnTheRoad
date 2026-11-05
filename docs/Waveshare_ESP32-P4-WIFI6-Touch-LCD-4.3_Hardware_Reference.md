@@ -436,6 +436,9 @@ Use `host_fw.bin`, not the P4 application or a merged USB image. The 3.1.0
 example retains the previous two `0x1C0000` OTA slots. Install the matching
 P4 application first, then update C6 through the radio OTA page and confirm
 both reported ESP-Hosted versions after restart.
+The C6 app descriptor identifies this build as `235aca9` (the upstream git
+revision), while the ESP-Hosted release is 3.1.0. These are different fields,
+not evidence that the radio update failed.
 The uploader checks the ESP32-C6 image header and queries the running C6
 firmware before using the ESP-Hosted OTA RPCs. If the installed firmware
 cannot report its version or is older than v2.6.0, OTA still proceeds but

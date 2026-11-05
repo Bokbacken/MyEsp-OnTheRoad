@@ -21,6 +21,17 @@ class BuildPlanTests(unittest.TestCase):
         pinned = re.search(r'^    version: "(\d+\.\d+\.\d+)"$', hosted, re.M)
         self.assertIsNotNone(pinned, "Pin Hosted exactly to avoid unselected USB Kconfig rules")
         self.assertIn('if: "target in [esp32p4]"', hosted)
+        lock = (root / "dependencies.lock.esp32p4").read_text()
+        locked_hosted = lock.split("  espressif/esp_hosted:\n", 1)[1].split("\n  espressif/", 1)[0]
+        self.assertIn(f"    version: {pinned.group(1)}\n", locked_hosted + "\n")
+
+    def test_s3_touch_capture_is_opt_in(self):
+        root = Path(__file__).resolve().parents[1]
+        disabled = "# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set"
+        self.assertIn(disabled, (root / "sdkconfig.defaults.s3-35b").read_text().splitlines())
+        workflow = (root / ".github/workflows/build.yaml").read_text()
+        self.assertIn(f"grep -qx '{disabled}' sdkconfig", workflow)
+        self.assertNotIn("grep -qx 'CONFIG_OTR_S3_TOUCH_DIAGNOSTICS=y'", workflow)
 
     def run_plan(self, event, name, green=False, paths=None):
         with tempfile.TemporaryDirectory() as tmp:
