@@ -71,6 +71,7 @@ jobs:
             MyEsp-OnTheRoad. After testing, restore the normal application by flashing
             its firmware image.
             EOF
+            echo "Waveshare source commit: ${{ steps.source.outputs.sha }}" >> webflash/README.txt
             python3 - <<'PY'
             import json
             with open("webflash/manifest.json", "w", encoding="utf-8") as f:
@@ -84,10 +85,6 @@ jobs:
                 }, f, indent=2)
                 f.write("\n")
             PY
-
-      - name: Include exact upstream revision
-        run: |
-          echo "Waveshare source commit: ${{ steps.source.outputs.sha }}" >> waveshare/examples/esp-idf/01_factory/webflash/README.txt
 
       - name: Upload web flasher package
         uses: actions/upload-artifact@v4
