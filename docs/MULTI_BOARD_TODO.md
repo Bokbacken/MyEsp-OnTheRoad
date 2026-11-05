@@ -15,6 +15,41 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Uppsamlings-PR utan speländringar, v0.25.15
+
+- [x] Avbryt fil-/mappuppladdning: stoppa kö och aktiva HTTP-anrop; visa
+  bekräftat klara filer separat från osäkra pågående utfall. Behåll färdiga
+  filer/mappar och befintligt original vid ofullständig temporär uppladdning.
+- [x] Avbryt rekursiv radering även på servern, inte bara i webbläsaren.
+  Bakgrundsjobb, admin-skyddad status/avbryt och räknare för partiellt resultat;
+  redan raderat kan inte återställas.
+- [x] Kvitterbara fel-/avbrottsresultat i filhanteraren; ingen migrering av
+  spelens dialoger eller andra ändringar i spelvyer/regler/protokoll.
+- [x] Uppladdningslogg med begärda, mottagna, stdio-accepterade och installerade
+  byte. Detta är bättre diagnostik, inte en lösning på SD-skrivfelet/hastigheten.
+- [x] RTC: korrigera sekundkvantisering och skrivningens sekundgräns för
+  DS3231/PCF85063; granska interna RTC utan att ändra retention/VBAT.
+- [x] Städa dubbla implementeringspunkter: LFN, C6-versionsdiagnostik,
+  kort-ID/release/partitioner och power-historik. Fysiska tester står kvar.
+- [ ] Firmware-CI för båda S3-profilerna och P4.
+- [ ] Hårdvara: avbryt under mappförberedelse, aktiv överföring och rekursiv
+  radering; kontrollera original/temporärfiler, partiellt resultat och nya
+  operationer efteråt. Följ RTC-loggen över flera tiominuterskontroller.
+
+Separata framtida arbeten (ingår inte i uppsamlingen):
+
+- [ ] Nätlägen i Administration på ESP:n: STA, AP och Hotspot (AP+STA med NAT),
+  20 MHz kanalbredd, SSID/lösenord och samma fyra adressnätsval som i
+  `Bokbacken/MyPi-Hotspot`. Återanvänd lämpliga delar; kontrollera faktisk
+  AP/STA-kanalbindning, adresskonflikter, DHCP/DNS och publik captive portal.
+- [ ] Kryptera sparade nätuppgifter så en kopierad inställningsfil inte
+  avslöjar lösenord; enhetsspecifik nyckel utanför filen, inte permanent
+  flash-kryptering eller löfte om skydd vid full flashåtkomst.
+- [ ] BLE för Spela tillsammans: idéstadium, alla kort som mål.
+  Gemensamt spelprotokoll med alternativ transport; P4 kräver BT-stöd i C6.
+- [ ] SD/Wi-Fi-grundfelsökning, USB-lagring och ytterligare strömsparning
+  följs separat i respektive avsnitt; inte småfixar i denna PR.
+
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
 - [x] v0.25.14: gemensam "drag/släp är inte klick"-spärr i MyLvgl för
@@ -24,6 +59,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.14: båda S3-profilerna och P4 byggda i CI (`42047601853`);
   gemensam spärr verifierad med riktig LVGL-händelseleverans.
 - [ ] Bekräfta v0.25.14 på alla kort: rena tryck, drag, scroll och snabba släpp.
+  Ägaren godkänner funktionen efter provning 2026-11-05; exakt testade kort
+  och moment är inte specificerade. PR #58 är mergad.
 
 Aktuell touchstatus (2026-11-05): ägaren accepterar touchfunktionen efter
 gemensam touch/PWR-task och högre Sudoku-knappar. Undersökningen avslutas;
@@ -545,11 +582,12 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   pin-matrisen inte städas korrekt. Fastställ vilken operation som först
   aktiverar återhämtningsläget och rapportera det ursprungliga SD-felet
   separat från Wi-Fi-roaming/avbruten HTTP-uppladdning.
-- [ ] Långa FAT-filnamn på båda korten: höj/verifiera LFN-gränsen och
+- [x] Långa FAT-filnamn på båda korten: höj/verifiera LFN-gränsen och
   samordna filhanterarens validering med FAT-konfigurationen och temporära
   uppladdningsnamn. Avvisa för långa namn med tydligt fel före skrivning.
   Lägg regressionstest för de två rapporterade namnen, gränsfall och
   `.part`-suffix; verifiera att befintliga filer inte skadas vid fel.
+  Implementerat i v0.23.2; fysisk gränsfallsprovning följs i avsnitt X punkt 8.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
 - [x] **Hårdvara v0.22.2:** SD-läsning för Adventure/Karaoke, ljud och
   batterimätning bekräftade av ägaren. Längre SD-stabilitetstest återstår.
@@ -562,7 +600,8 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   Wi-Fi-anslutning bekräftad av ägaren med v0.22.0.
 - [x] `my_wifi`, mDNS, webbserver, NTP och app-webb-OTA fungerar på P4.
   Ägaren bekräftar båda kortens senaste firmware efter v0.22.6-test.
-- [ ] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
+- [x] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
+  Implementerat enligt avsnitt X punkt 1; fysisk mismatch-provning återstår.
 - [x] Webb-OTA kontrollerar nu C6-version och kräver firmware ≥2.6.0
   innan en uppdatering kan aktiveras; system-RPC saknas/är för gammal ger
   ett tydligt fel med hänvisning till återställningskontakten.
@@ -578,7 +617,7 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   källrevision `78b1c1c43c02b0c4e898cf87f94679278b1ddaff` i den separata
   artefakten `host-fw-esp32c6-78b1c1c`. C6-byggprojektets dubbla OTA-slots
   är 0x1C0000 byte; webb-OTA avvisar större filer.
-- [ ] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
+- [x] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
   vid uppstart. Flyttad till avsnitt X punkt 1.
 - [ ] Dokumentera återställning via C6:s 4-poliga flashkontakt.
 - [x] **Hårdvara:** C6-OTA från fabriksfirmware till 3.0.10 verifierad av
@@ -623,9 +662,9 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
 
 ## VII. Release, app-OTA och säkerhet mot fel kort
 
-- [ ] Kort-ID i firmware; web-OTA avvisar bild för annat kort.
-- [ ] `tools/firmware_release.py` och release-workflow per kort.
-- [ ] Partitionstabell för 32 MB på P4 (större app/FAT, ev. C6-bild).
+- [x] Kort-ID i firmware; web-OTA avvisar bild för annat kort.
+- [x] `tools/firmware_release.py` och release-workflow per kort.
+- [x] Partitionstabell för 32 MB på P4 (större app/FAT, separat C6-artefakt).
 
 ## VIII. Prestanda och P4-möjligheter
 
@@ -757,7 +796,7 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
-- [ ] Inför femminutershistorik på SD för batterispänning, tidskälla,
+- [x] Inför femminutershistorik på SD för batterispänning, tidskälla,
   boot-ID/drifttid, aktiv tid per spel, bakgrundsbelysning/skärmtid,
   Wi-Fi-status, lagringsöverföringar och ljud/volym. Komplettera med
   händelser, filrotation och synliga tappade poster. Batterispänning är
@@ -769,6 +808,7 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   Ägaren rapporterar (2026-11-01) att SD-loggningen är igång och att
   CSV-filerna ser bra ut; analys av en längre körning återstår.
   Se [mätfält och begränsningar](POWER_HISTORY.md).
+  Implementation klar; separat hårdvaruchecklista för retention nedan kvarstår.
 - [x] v0.24.3: ersätt power-loggens 16-filsring med UTC-dagsfiler,
   bootfil vid osäker tid och gallring till högst 150 matchande loggfiler
   när en ny fil skapas. Behåll CSV-schema och femminutersintervall.

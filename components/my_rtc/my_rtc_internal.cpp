@@ -8,6 +8,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "my_rtc_sync.h"
 
 namespace MyRtc::Internal {
 namespace {
@@ -94,7 +95,11 @@ bool read(time_t &utc)
 bool write(time_t utcNow)
 {
     if (!s_st.present || !s_st.ticking) return false;
-    if (!utcNow) utcNow = time(nullptr);
+    if (!utcNow && !MyRtcSync::alignedSystemTime(utcNow, MIN_T, MAX_T)) {
+        ++s_st.errors;
+        ESP_LOGW("rtc", "cannot align internal RTC to system time");
+        return false;
+    }
     if (utcNow < MIN_T || utcNow >= MAX_T) {
         ++s_st.errors;
         ESP_LOGW("rtc", "refusing invalid internal RTC time");
@@ -116,15 +121,18 @@ bool write(time_t utcNow)
 
 bool syncFromSystem(bool force)
 {
-    const time_t sys = time(nullptr);
-    if (sys < MIN_T || sys >= MAX_T) return false;
+    MyRtcSync::Sample before = {}, after = {};
+    if (!MyRtcSync::sample(before, MIN_T, MAX_T)) return false;
     time_t rtc = 0;
-    if (read(rtc)) {
-        const int64_t drift = static_cast<int64_t>(rtc) - sys;
-        s_st.lastDriftS = static_cast<int32_t>(drift);
-        if (!force && drift > -1 && drift < 1) return true;
+    const bool ok = read(rtc);
+    if (!MyRtcSync::sample(after, MIN_T, MAX_T)) return false;
+    int32_t drift = 0;
+    if (!MyRtcSync::compare(rtc, before, after, drift)) return false;
+    if (ok) {
+        s_st.lastDriftS = drift;
+        if (!force && drift == 0) return true;
     }
-    return write(sys);
+    return write(0);
 }
 
 Status status() { return s_st; }

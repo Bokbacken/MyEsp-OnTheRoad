@@ -1522,7 +1522,7 @@ bool begin()
     c.adminOk = Config::adminOk;
     c.canReboot = [] { return !MyOta::busy() && !AppWebFiles::busy(); };
     c.onReboot = [] { MyLog::setEventFile(nullptr); };
-    c.maxUris = sizeof(WEB_ASSETS) / sizeof(WEB_ASSETS[0]) + 56;  // Static assets plus API/WebSocket routes
+    c.maxUris = sizeof(WEB_ASSETS) / sizeof(WEB_ASSETS[0]) + 59;  // Static assets plus API/WebSocket routes
     c.maxSockets = 12;   // Room for 4 WebSocket clients next to normal page loads (LWIP: 16)
     if (!MyWeb::begin(c)) return false;
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);

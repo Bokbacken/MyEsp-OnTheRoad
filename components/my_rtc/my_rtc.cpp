@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "my_log.h"
 #include "my_rtc_time.h"
+#include "my_rtc_sync.h"
 
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
 namespace MyRtc::Ds3231 {
@@ -159,23 +160,19 @@ bool begin(i2c_master_bus_handle_t bus, time_t *outTime)
 bool write(time_t utcNow)
 {
     if (!s_dev) return false;
-    // Wait for the next system second edge so the RTC second starts in phase.
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    uint32_t waitMs = (uint32_t)((1000000 - tv.tv_usec) / 1000);
-    if (waitMs > 0 && waitMs <= 1000) vTaskDelay(pdMS_TO_TICKS(waitMs));
-    gettimeofday(&tv, nullptr);
-    time_t t = tv.tv_sec + (tv.tv_usec >= 500000 ? 1 : 0);
-    if (utcNow == 0) utcNow = t;
     (void)utcNow;
+    time_t t = 0;
+    if (!MyRtcSync::alignedSystemTime(t, MIN_T, MAX_T)) {
+        ++s_st.errors;
+        return false;
+    }
     uint8_t r[7];
     MyRtcTime::encode(t, r);
     if (!writeRegs(REG_TIME, r, sizeof(r))) return false;
     uint8_t stat = 0;
-    if (readRegs(REG_STATUS, &stat, 1)) {
-        stat &= (uint8_t)~(ST_OSF | 0x08);
-        writeRegs(REG_STATUS, &stat, 1);
-    }
+    if (!readRegs(REG_STATUS, &stat, 1)) return false;
+    stat &= (uint8_t)~(ST_OSF | 0x08);
+    if (!writeRegs(REG_STATUS, &stat, 1)) return false;
     s_st.lastWrite = t;
     s_st.writes++;
     s_st.lastDriftS = 0;
@@ -187,18 +184,22 @@ bool write(time_t utcNow)
 bool syncFromSystem(bool force)
 {
     if (!s_st.present || !s_dev || s_st.state == State::NOT_TICKING) return false;
-    time_t sys = time(nullptr);
-    if (sys < MIN_T) return false;
+    MyRtcSync::Sample before = {}, after = {};
+    if (!MyRtcSync::sample(before, MIN_T, MAX_T)) return false;
     time_t rtc = 0;
     uint8_t sec;
+    const uint32_t errors = s_st.errors;
     bool ok = readRaw(rtc, sec);
+    if (!MyRtcSync::sample(after, MIN_T, MAX_T)) return false;
+    if (s_st.errors != errors) return false;
+    int32_t drift = 0;
+    if (!MyRtcSync::compare(rtc, before, after, drift)) return false;
     readTemp(s_st.tempC);
     if (ok && s_st.timeValid) {
-        int64_t d = (int64_t)rtc - (int64_t)sys;
-        s_st.lastDriftS = (int32_t)d;
-        if (!force && d > -1 && d < 1) return true;
+        s_st.lastDriftS = drift;
+        if (!force && drift == 0) return true;
     }
-    int32_t drift = s_st.lastDriftS;
+    drift = s_st.lastDriftS;
     bool wasValid = s_st.timeValid;
     if (!write(0)) return false;
     if (wasValid) MyLog::event(TAG, "RTC updated from system clock (drift %ld s)", (long)drift);

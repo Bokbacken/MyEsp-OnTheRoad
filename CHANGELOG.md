@@ -8,6 +8,22 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.15
+
+- Adds cancellation for browser file/folder upload batches: stop scheduling,
+  abort active requests, preserve already completed files and explicitly
+  report unconfirmed in-flight outcomes. Temporary upload files retain the
+  existing cleanup/original-preservation rules.
+- Adds cancellable background directory deletion, with admin-protected
+  start/status/cancel routes and per-entry cancellation checks. Already
+  deleted entries cannot be restored; partial results are reported explicitly.
+  Active deletion blocks formatting, flash repair and controlled restart.
+- File-manager failures and partial/cancelled batch results remain in an
+  acknowledgement dialog. Upload diagnostics distinguish requested, received,
+  staged (accepted by stdio) and installed bytes, not just declared file size.
+- Corrects RTC synchronization checks and second-boundary write alignment;
+  no game logic, network modes, RTC retention policy or SD clock changes.
+
 ## v0.25.14
 
 - Applies drag-is-not-click protection to every board through the shared LVGL

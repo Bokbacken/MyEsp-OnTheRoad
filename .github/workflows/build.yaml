@@ -237,10 +237,12 @@ jobs:
           python3 tests/test_s3_35b_board_power.py
           python3 tests/test_i2c_pacing.py
           python3 tests/test_rtc_pcf85063.py
+          python3 tests/test_rtc_sync.py
           python3 -m unittest discover -s tests -p test_idf_spi_fix.py
           python3 tests/test_sd_log_diagnostics.py
           python3 tests/test_sd_clock.py
           python3 tests/test_upload_pipeline.py
+          python3 tests/test_file_delete.py
           python3 tests/test_upload_body.py
           python3 tests/test_kara_overload.py
           python3 tests/test_upload_memory_audio.py
@@ -292,6 +294,7 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Itests tests/test_fs_upload.cpp main/fs_upload.cpp -o /tmp/test_fs_upload
           /tmp/test_fs_upload
           node tests/test_files_upload_web.js
+          node tests/test_files_delete_web.js
           g++ -std=c++17 -Wall -Wextra -Werror -Imain -Icomponents/otr_engine/include -Icomponents/otr_story/include tests/test_adv_validator.cpp main/adv_validator.cpp main/adv_loader.cpp components/otr_engine/otr_world.cpp components/otr_story/otr_story.cpp -o /tmp/test_adv_validator
           /tmp/test_adv_validator
           /tmp/test_adv_validator /tmp/newadv/*.adv
