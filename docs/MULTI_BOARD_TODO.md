@@ -34,8 +34,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Inställningarnas reglage skiljer vertikalt scrollsvep från horisontellt
   reglage-drag före värdeändring. Vanliga tryck på skalan och tangentstyrning
   behålls; värdtest med riktig LVGL täcker båda riktningarna och snabba släpp.
-- [x] S3-touch: begränsade återförsök vid ogiltigt startsvar, STOP mellan
-  kommando/läsning enligt Waveshares Arduino-drivrutin, och avbrutet klick
+- [x] S3-touch: begränsade återförsök vid ogiltigt startsvar, atomisk
+  kommando/läsning på den delade I2C-bussen och avbrutet klick
   om läsningen fallerar under ett tryck.
 - [x] Korta touchläsfel bryggas med senaste giltiga punkt i högst 60 ms,
   utan att felen förlänger tidsgränsen. Touch sänkt till 100 kHz för nästa
@@ -47,8 +47,10 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Efter fem misslyckade touchstartsvar: en delad LCD/touch-reset och
   full panelåterinitiering innan ytterligare fem läsförsök. Ingen automatisk
   MCU-omstart eller ändring av PMIC-spänningar; fel rapporteras fortfarande.
-- [ ] Prova automatisk resetåterhämtning på S3: STOP-separerad läsning och
-  enbart återförsök räckte inte vid ägarens av/på-prov (`D7` i alla fem svar).
+- [ ] Prova atomisk touchläsning på S3: ägarens senaste logg bekräftar att
+  100 kHz och delad reset inte löste starten (`13` i samtliga tio svar).
+  Atomisk läsning tar bort möjlig interfoliering med PWR-taskens I2C-anrop;
+  grundorsaken är fortfarande okänd.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet

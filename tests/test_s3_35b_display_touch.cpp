@@ -228,18 +228,14 @@ int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out)
     return addError;
 }
 int i2c_master_bus_rm_device(void *) { removes++; return ESP_OK; }
-int i2c_master_transmit(void *d, const uint8_t *cmd, size_t len, int timeout) {
+int i2c_master_transmit_receive(void *d, const uint8_t *cmd, size_t len,
+                                uint8_t *data, size_t n, int timeout) {
     const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 14, 0, 0, 0};
     assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len));
-    assert(timeout == 100 && !commandPending);
+    assert(n == sizeof(report) && timeout == 100 && !commandPending);
     writes++;
     clockUs += int64_t(transactionDelayMs) * 1000;
-    commandPending = commandError == ESP_OK;
-    return commandError;
-}
-int i2c_master_receive(void *d, uint8_t *data, size_t n, int timeout) {
-    assert(d && n == sizeof(report) && timeout == 100 && commandPending);
-    commandPending = false;
+    if (commandError != ESP_OK) return commandError;
     reads++;
     std::memcpy(data, report, n);
     if (startupFailures > 0) {

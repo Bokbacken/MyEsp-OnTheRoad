@@ -23,7 +23,7 @@ constexpr uint32_t STARTUP_RETRY_MS = 50;
 constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
 constexpr uint32_t TAP_SLOP_PX = 20;
-// Waveshare's Arduino driver ends the command with STOP before reading 14 bytes.
+// The combined transaction keeps the command/read pair atomic on the shared bus.
 constexpr size_t REPORT_LEN = 14;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
 constexpr uint8_t MAX_POINTS = 2;
@@ -86,9 +86,8 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
 esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool logReport = false)
 {
     uint8_t data[REPORT_LEN] = {};
-    esp_err_t err = i2c_master_transmit(g_dev, READ_COMMAND, sizeof(READ_COMMAND), I2C_TIMEOUT_MS);
-    if (err == ESP_OK)
-        err = i2c_master_receive(g_dev, data, sizeof(data), I2C_TIMEOUT_MS);
+    esp_err_t err = i2c_master_transmit_receive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
+                                                data, sizeof(data), I2C_TIMEOUT_MS);
     const bool logError = logReport || g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0;
     if (err != ESP_OK) {
         if (logError) ESP_LOGW(TAG, "AXS15231B I2C read: %s (%u errors)",
@@ -237,7 +236,7 @@ bool begin()
     g_info.maxY = LCD_V_RES;
     g_info.maxTouches = MAX_POINTS;
     // No documented firmware-identification command: version fields remain unknown (zero).
-    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz STOP-separated, polled (no IRQ/reset GPIO)",
+    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz atomic I2C, polled (no IRQ/reset GPIO)",
              TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);
     return true;
 }
