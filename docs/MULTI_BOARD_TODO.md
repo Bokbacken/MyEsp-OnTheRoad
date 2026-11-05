@@ -45,6 +45,11 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 
 Separata framtida arbeten (ingår inte i uppsamlingen):
 
+- [ ] Översyn av ESP-UI, möjlig nästa UX-leverans: enhetlig placering och
+  funktion för Tillbaka/navigering så man hittar ut konsekvent i menyer och
+  undersidor. Inställningar öppnade från ett aktivt spel ska återvända till
+  oförändrat spel med bevarat tillstånd; bara en ändring som faktiskt kräver
+  omstart får avbryta/spela klart med tydlig förklaring.
 - [ ] Nätlägen i Administration på ESP:n: STA, AP och Hotspot (AP+STA med NAT),
   20 MHz kanalbredd, SSID/lösenord och samma fyra adressnätsval som i
   `Bokbacken/MyPi-Hotspot`. Återanvänd lämpliga delar; kontrollera faktisk
