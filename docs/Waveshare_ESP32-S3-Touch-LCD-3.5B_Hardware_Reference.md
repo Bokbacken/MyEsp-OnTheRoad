@@ -34,6 +34,19 @@ The firmware accepts non-release contact events including event 3, and rejects i
 
 Click suppression checks movement in both contact and release reports. Moving more than 20 pixels from the initial contact cancels all click variants until the next press, including when a quick swipe has only a start frame and a release frame. Release and scrolling events remain available to widgets.
 
+Temporary diagnostic build: `sdkconfig.defaults.s3-35b` enables
+`CONFIG_OTR_S3_TOUCH_DIAGNOSTICS`. This bypasses both the movement and read-error
+click veto above, leaving LVGL to decide clicks and scrolling. Startup validation,
+the 60 ms gap bound, coordinate decoding and settings-slider handling are unchanged.
+`touch: DIAG` logs record contact transitions, coordinates during contact at most
+every 100 ms, and changes that would have triggered the old veto. LVGL press,
+release and click events and sampled scroll-object transitions are also logged.
+`extra_veto_would_cancel=1` is informational, not an active veto in this build.
+Swipes can activate buttons; this is a comparison build, not a final gesture fix.
+Disable the option to restore the previous click filter. The owner reports that
+the unmodified Waveshare factory example works well on the same board; that
+narrows investigation to software but does not identify a specific IDF/LVGL fault.
+
 Hardware observation (owner, 2026-11-04/05): without contact the controller returns fourteen copies of a single filler byte, which stop while a finger is held and return after release. The byte differs between boots (`0x02`, `0x13`, `0x17`, `0x37`, `0x57` and `0xD7` observed). Waveshare's factory BSP discards these frames silently (`data[1] > 2` gives no touch). Treating every value other than `0x37` as an error made startup report "touch not found" whenever the finger was off the screen at boot. Any fully uniform report is therefore accepted as no point, both at startup and at runtime, with the normal 60 ms release debounce; a one-time informational log records its detection. Other malformed reports and all I2C failures still increment the error counter and use the bounded failure handling above.
 
 AXP2101 battery ADC data is a 13-bit value already expressed in millivolts, without a 1.1 multiplier. This matches the vendor's pinned [`XPowersAXP2101.tpp` `getBattVoltage()`](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/XPowersLib/src/XPowersAXP2101.tpp) and its `readRegisterH5L8` helper. The firmware reports the PMIC fuel-gauge percentage only when its byte is in the 0–100 range. USB presence, charging state, charge-done state, and battery connection are reported from PMIC status registers. The driver only enables the battery-voltage and VBUS ADC measurement channels; it does not change charger current/voltage, battery parameters, regulator rails, or LED policy. Neither this PMIC API nor the PCF85063 provides a supported board-temperature reading.

@@ -22,6 +22,17 @@ menu "OnTheRoad hardware profile"
 endmenu
 
 menu "OnTheRoad diagnostics"
+    config OTR_S3_TOUCH_DIAGNOSTICS
+        bool "S3 3.5B touch diagnostics without extra click suppression"
+        depends on OTR_HW_PROFILE_S3_35B
+        default n
+        help
+            Temporarily lets LVGL handle clicks without the application's
+            movement/read-error click veto. Logs contact transitions, sampled
+            coordinates and LVGL click/scroll decisions. Swipes may activate
+            buttons in this diagnostic build. Startup validation and the
+            bounded read-gap handling remain unchanged.
+
     config OTR_SD_50MHZ_EXPERIMENT
         bool "Experimental 50 MHz SD card and C6 SDIO clocks"
         depends on OTR_HW_PROFILE_P4_43

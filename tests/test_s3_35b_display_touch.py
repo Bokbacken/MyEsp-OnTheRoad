@@ -26,6 +26,11 @@ def main():
              "bad-first-report", "startup-corrupt", "startup-stuck", "recovery-failure",
              "startup-recovery", "command-failure", "pointer"],
         ),
+        "touch_diag": (
+            "board_touch_axs15231b.cpp",
+            ["diagnostics", "idle-first-57", "idle-first-02", "startup-recovery",
+             "startup-corrupt", "startup-stuck", "command-failure"],
+        ),
     }
     count = 0
     for kind, (source, scenarios) in cases.items():
@@ -35,7 +40,8 @@ def main():
         try:
             subprocess.run(
                 ["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
-                 "-fsanitize=undefined", f"-DTEST_{kind.upper()}",
+                 "-fsanitize=undefined", f"-DTEST_{'TOUCH' if kind == 'touch_diag' else kind.upper()}",
+                 *(["-DCONFIG_OTR_S3_TOUCH_DIAGNOSTICS=1"] if kind == "touch_diag" else []),
                  "-I", str(TESTS), "-x", "c++", "-", "-o", str(binary)],
                 input=code, text=True, check=True, cwd=ROOT,
             )

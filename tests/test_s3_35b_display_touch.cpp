@@ -16,7 +16,10 @@ constexpr int ESP_OK = 0, ESP_ERR_INVALID_STATE = 1, ESP_ERR_NO_MEM = 2,
               ESP_ERR_TIMEOUT = 3, ESP_ERR_INVALID_ARG = 4,
               ESP_ERR_NOT_FOUND = 5, ESP_ERR_INVALID_RESPONSE = 6;
 const char *esp_err_to_name(int) { return "mock error"; }
-template<class... Args> void logMock(Args...) {}
+std::vector<std::string> logFormats;
+template<class... Args> void logMock(const char *, const char *format, Args...) {
+    logFormats.emplace_back(format);
+}
 #define ESP_LOGE(...) logMock(__VA_ARGS__)
 #define ESP_LOGW(...) logMock(__VA_ARGS__)
 #define ESP_LOGI(...) logMock(__VA_ARGS__)
@@ -36,10 +39,14 @@ bool resetPanel() { ++panelResetCalls; return panelResetSuccess; }
 struct lv_display_t {};
 struct lv_indev_t { bool stopProcessing = false; };
 struct lv_obj_t {};
+struct lv_point_t { int32_t x = 0, y = 0; };
+lv_obj_t *scrollMock = nullptr;
+lv_obj_t *lv_indev_get_scroll_obj(lv_indev_t *) { return scrollMock; }
+void lv_indev_get_point(lv_indev_t *, lv_point_t *point) { *point = {100, 100}; }
 enum lv_event_code_t {
     LV_EVENT_ALL, LV_EVENT_PRESSED, LV_EVENT_PRESSING, LV_EVENT_RELEASED,
     LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED, LV_EVENT_DOUBLE_CLICKED,
-    LV_EVENT_TRIPLE_CLICKED, LV_EVENT_CLICKED
+    LV_EVENT_TRIPLE_CLICKED, LV_EVENT_CLICKED, LV_EVENT_PRESS_LOST
 };
 struct lv_event_t { lv_event_code_t code; bool stopped = false; };
 struct lv_event_dsc_t {};
@@ -421,7 +428,7 @@ int main(int argc, char **argv) {
         assert(!poll(x, y) && Touch::info().readErrors == 0);
         return 0;
     }
-    if (mode != "normal" && mode != "idle-first" && mode != "startup-recovery" &&
+    if (mode != "normal" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
         mode != "startup-corrupt") {
         assert(!ready && !Touch::info().present && !Touch::indev());
         if (mode == "bad-first-report" || mode == "startup-stuck" || mode == "command-failure") {
@@ -457,6 +464,51 @@ int main(int argc, char **argv) {
     assert(Touch::scanResults(nullptr, 4) == 0 && Touch::scanResults(addrs, -1) == 0);
     assert(!Touch::deviceFound(0x55));
     int16_t x = -1, y = -1;
+    if (mode == "diagnostics") {
+        assert(TOUCH_DIAGNOSTICS);
+        for (bool failRead : {false, true}) {
+            setPoint(100, 100);
+            assert(poll(x, y));
+            if (failRead) {
+                reportError = ESP_ERR_TIMEOUT;
+                assert(poll(x, y));
+                reportError = ESP_OK;
+                setPoint(100, 100);
+                assert(poll(x, y));
+            } else {
+                setPoint(180, 160);
+                assert(poll(x, y));
+            }
+            assert(g_tapCancelled); // Still tracked for comparison, never used as a veto.
+            setPoint(180, 160, 1);
+            assert(!poll(x, y));
+            for (auto code : {LV_EVENT_CLICKED, LV_EVENT_SHORT_CLICKED, LV_EVENT_SINGLE_CLICKED,
+                              LV_EVENT_DOUBLE_CLICKED, LV_EVENT_TRIPLE_CLICKED, LV_EVENT_RELEASED}) {
+                lv_event_t event{code};
+                pointerMock.stopProcessing = false;
+                pointerEventCallback(&event);
+                assert(!event.stopped && !pointerMock.stopProcessing);
+            }
+        }
+        setPoint(100, 100);
+        assert(poll(x, y));
+        reportError = ESP_ERR_TIMEOUT;
+        for (int i = 0; i < 3; ++i) assert(poll(x, y));
+        assert(!poll(x, y)); // Diagnostics must not remove the bounded failure release.
+        reportError = ESP_OK;
+        lv_obj_t scroller;
+        scrollMock = &scroller;
+        poll(x, y);
+        assert(g_scrollObject == scrollMock);
+        scrollMock = nullptr;
+        poll(x, y);
+        assert(g_scrollObject == nullptr);
+        for (const char *marker : {"DIAG touch:", "DIAG sample", "DIAG LVGL %s", "DIAG LVGL scroll"}) {
+            assert(std::any_of(logFormats.begin(), logFormats.end(),
+                              [marker](const std::string &line) { return line.find(marker) != std::string::npos; }));
+        }
+        return 0;
+    }
     setPoint(0, 0);
     assert(poll(x, y) && x == 0 && y == 0 && Touch::info().touchCount == 1);
     setPoint(319, 479, 2);

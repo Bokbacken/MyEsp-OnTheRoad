@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "my_lvgl.h"
+#include "sdkconfig.h"
 
 namespace {
 
@@ -23,6 +24,11 @@ constexpr uint32_t STARTUP_RETRY_MS = 50;
 constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
 constexpr uint32_t TAP_SLOP_PX = 20;
+#ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
+constexpr bool TOUCH_DIAGNOSTICS = true;
+#else
+constexpr bool TOUCH_DIAGNOSTICS = false;
+#endif
 // The combined transaction keeps the command/read pair atomic on the shared bus.
 constexpr size_t REPORT_LEN = 14;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
@@ -39,10 +45,46 @@ bool g_gap = false;
 bool g_idleReportLogged = false;
 uint16_t g_touchStartX = 0, g_touchStartY = 0;
 bool g_tapCancelled = false;
+uint32_t g_lastTrace = 0;
+lv_obj_t *g_scrollObject = nullptr;
+
+void traceScroll()
+{
+    lv_obj_t *scroll = lv_indev_get_scroll_obj(g_indev);
+    if (scroll != g_scrollObject) {
+        ESP_LOGI(TAG, "DIAG LVGL scroll %s object=%p", scroll ? "begin/change" : "end",
+                 static_cast<void *>(scroll));
+        g_scrollObject = scroll;
+    }
+}
 
 void cancelMovedClick(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
+    if (TOUCH_DIAGNOSTICS) {
+        const char *name = nullptr;
+        switch (code) {
+        case LV_EVENT_PRESSED: name = "pressed"; break;
+        case LV_EVENT_RELEASED: name = "released"; break;
+        case LV_EVENT_PRESS_LOST: name = "press-lost"; break;
+        case LV_EVENT_CLICKED: name = "clicked"; break;
+        case LV_EVENT_SHORT_CLICKED: name = "short-clicked"; break;
+        case LV_EVENT_SINGLE_CLICKED: name = "single-clicked"; break;
+        case LV_EVENT_DOUBLE_CLICKED: name = "double-clicked"; break;
+        case LV_EVENT_TRIPLE_CLICKED: name = "triple-clicked"; break;
+        default: break;
+        }
+        traceScroll();
+        lv_obj_t *scroll = g_scrollObject;
+        if (name) {
+            lv_point_t point;
+            lv_indev_get_point(g_indev, &point);
+            ESP_LOGI(TAG, "DIAG LVGL %s x=%ld y=%ld scroll=%p extra_veto_would_cancel=%u",
+                     name, long(point.x), long(point.y), static_cast<void *>(scroll),
+                     unsigned(g_tapCancelled));
+        }
+        return;
+    }
     if (!g_tapCancelled ||
         (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED &&
          code != LV_EVENT_SINGLE_CLICKED && code != LV_EVENT_DOUBLE_CLICKED &&
@@ -119,6 +161,7 @@ void scanBus()
 
 bool pointerRead(int16_t *outX, int16_t *outY)
 {
+    if (TOUCH_DIAGNOSTICS) traceScroll();
     const uint32_t now = uint32_t(esp_timer_get_time() / 1000);
     if (g_dev && now - g_lastPoll >= POLL_MS) {
         g_lastPoll = now;
@@ -126,6 +169,8 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         uint16_t x = g_info.lastX, y = g_info.lastY;
         const esp_err_t err = readPoint(down, released, x, y);
         const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
+        const bool wasPressed = g_info.pressed;
+        const bool wasCancelled = g_tapCancelled;
         if (err != ESP_OK) {
             g_info.readErrors++;
             // A corrupt frame must not turn a held gesture into an accidental click.
@@ -166,6 +211,17 @@ bool pointerRead(int16_t *outX, int16_t *outY)
             } else if (g_info.pressed) {
                 g_gap = true;
             }
+        }
+        if (TOUCH_DIAGNOSTICS &&
+            (wasPressed != g_info.pressed || wasCancelled != g_tapCancelled ||
+             ((wasPressed || g_info.pressed) && sampledAt - g_lastTrace >= 100))) {
+            ESP_LOGI(TAG, "DIAG sample x=%u y=%u down=%u release=%u pressed=%u gap=%u "
+                     "read=%s extra_veto_would_cancel=%u dx=%ld dy=%ld",
+                     unsigned(x), unsigned(y), unsigned(down), unsigned(released),
+                     unsigned(g_info.pressed), unsigned(g_gap), esp_err_to_name(err),
+                     unsigned(g_tapCancelled), long(int32_t(x) - g_touchStartX),
+                     long(int32_t(y) - g_touchStartY));
+            g_lastTrace = sampledAt;
         }
     }
     *outX = int16_t(g_info.lastX);
@@ -236,6 +292,9 @@ bool begin()
     g_info.maxX = LCD_H_RES;
     g_info.maxY = LCD_V_RES;
     g_info.maxTouches = MAX_POINTS;
+    if (TOUCH_DIAGNOSTICS)
+        ESP_LOGW(TAG, "DIAG touch: extra movement/read-error click veto DISABLED; "
+                 "LVGL handles clicks/scroll, swipes may activate buttons");
     // No documented firmware-identification command: version fields remain unknown (zero).
     ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz atomic I2C, polled (no IRQ/reset GPIO)",
              TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);

@@ -53,6 +53,13 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   rapporter tolkas nu som ingen punkt, vid start och under drift.
 - [ ] Verifiera på kortet: touch hittas vid varje kallstart utan finger på
   skärmen, och knappflimmer/avbrutna klick minskar.
+- [x] Diagnostikbygge för S3: `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS` aktiverad i
+  kortprofilen. Extra klickspärr för rörelse/läsfel förbikopplas; startfix och
+  60 ms-gräns behålls. `touch: DIAG` visar koordinater, lässtatus, hypotetisk
+  spärr samt LVGL-klick och observerad scroll. Svep kan tillfälligt ge felklick.
+- [ ] Jämför vanliga knappar, Sudoku och inställningsscroll på diagnostikbygget.
+  Ägaren bekräftar bra touch i Waveshares originalexempel på samma kort;
+  någon specifik ESP-IDF-/LVGL-inkompatibilitet är ännu inte påvisad.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
