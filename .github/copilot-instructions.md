@@ -44,6 +44,9 @@ identify which build is installed. Update `PROJECT_VER` in
 All board variants of one delivery share the version. For upstream factory
 test builds, use a distinct diagnostic build version without changing the
 upstream touch behavior. Do not relabel an already built artifact.
+Failed builds and retries of the same delivery keep the reserved version;
+do not increment it just to fix a build failure. Increment again for the next
+delivery after a successful firmware build.
 
 Before creating a PR, check for a PR template and follow it if present.
 Include this trailer on commits:
