@@ -69,7 +69,12 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   byteförskjutningens orsak är fortfarande inte fastställd.
 - [x] v0.25.2: PWR/EXIO6-pollning sänkt från 20 till 100 ms, med oförändrad
   tvåsekundersgräns och PMIC-period. Touchpollning/råcapture lämnas oförändrade.
-- [ ] Jämför touch/rålogg och prova PWR-väckning samt långt tryck på v0.25.2.
+- [x] Ägaren upplever bättre touch på v0.25.2. Två kompletta 512-läsnings-
+  inspelningar visar 88 parseravvisningar på v0.25.1 mot 36 på v0.25.2,
+  utan transportfel. Giltiga kontakt-/släpprapporter: 122 mot 266; enhetliga
+  tomrapporter: 300 mot 209. Olika beröringsförlopp begränsar jämförelsen.
+  Medianpollning är fortfarande 16 ms; grundorsaken är inte bevisad.
+- [ ] Prova PWR-väckning samt långt tryck på v0.25.2.
   Mycket korta tryck mellan två 100 ms-samplingar kan missas.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
