@@ -21,7 +21,7 @@ constexpr int I2C_TIMEOUT_MS = 100;
 constexpr uint32_t TOUCH_I2C_HZ = 400000;  // Waveshare factory BSP rate
 constexpr unsigned STARTUP_ATTEMPTS = 5;
 constexpr uint32_t STARTUP_RETRY_MS = 50;
-constexpr uint32_t POLL_MS = 15;
+constexpr uint32_t POLL_MS = 30;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
 constexpr uint32_t TAP_SLOP_PX = 20;
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS

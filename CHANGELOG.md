@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.3 (diagnostic)
+
+- S3_35B limits touch I2C polling to one read per 30 ms instead of 15 ms,
+  for comparison with the factory example's observed cadence. Actual intervals
+  still depend on LVGL scheduling and display transfers. PWR polling remains
+  100 ms; protocol, 60 ms gap bound and raw capture are unchanged.
+  Physical comparison pending.
+
 ## v0.25.2 (diagnostic)
 
 - S3_35B polls the PWR-button expander every 100 ms instead of 20 ms,

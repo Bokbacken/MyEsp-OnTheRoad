@@ -399,7 +399,7 @@ void setPoint(int x, int y, int event = 0) {
     report[4] = uint8_t(y >> 8);
     report[5] = uint8_t(y);
 }
-bool poll(int16_t &x, int16_t &y) { clockUs += 15000; return MyLvgl::pointer(&x, &y); }
+bool poll(int16_t &x, int16_t &y) { clockUs += 30000; return MyLvgl::pointer(&x, &y); }
 int main(int argc, char **argv) {
     assert(argc == 2);
     const std::string mode = argv[1];
@@ -493,7 +493,7 @@ int main(int argc, char **argv) {
         setPoint(100, 100);
         assert(poll(x, y));
         reportError = ESP_ERR_TIMEOUT;
-        for (int i = 0; i < 3; ++i) assert(poll(x, y));
+        assert(poll(x, y)); // The first missing read is at 30 ms.
         assert(!poll(x, y)); // Diagnostics must not remove the bounded failure release.
         reportError = ESP_OK;
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
@@ -519,6 +519,12 @@ int main(int argc, char **argv) {
     }
     setPoint(0, 0);
     assert(poll(x, y) && x == 0 && y == 0 && Touch::info().touchCount == 1);
+    static_assert(POLL_MS == 30);
+    const int readsBeforeLimit = reads;
+    clockUs += 29000;
+    assert(MyLvgl::pointer(&x, &y) && reads == readsBeforeLimit);
+    clockUs += 1000;
+    assert(MyLvgl::pointer(&x, &y) && reads == readsBeforeLimit + 1);
     setPoint(319, 479, 2);
     Touch::setRotation(true);
     assert(poll(x, y) && x == 319 && y == 479 && Touch::info().touchCount == 1);
@@ -716,9 +722,8 @@ int main(int argc, char **argv) {
         const uint32_t gaps = Touch::info().bridgedGaps;
         const uint32_t errors = Touch::info().readErrors;
         std::memcpy(report, corrupt, sizeof(report));
-        for (int i = 0; i < 3; ++i)
-            assert(poll(x, y) && x == 100 && y == 100); // 15, 30 and 45 ms.
-        assert(Touch::info().readErrors == errors + 3);
+        assert(poll(x, y) && x == 100 && y == 100); // Missing read at 30 ms.
+        assert(Touch::info().readErrors == errors + 1);
         setPoint(110, 108);
         assert(poll(x, y) && x == 110 && y == 108);
         assert(Touch::info().touchCount == presses && Touch::info().bridgedGaps == gaps + 1);
@@ -733,7 +738,7 @@ int main(int argc, char **argv) {
     setPoint(100, 100);
     assert(poll(x, y));
     reportError = ESP_ERR_TIMEOUT;
-    for (int i = 0; i < 3; ++i) assert(poll(x, y));
+    assert(poll(x, y));
     assert(!poll(x, y));
     for (int i = 0; i < 10; ++i) assert(!poll(x, y));
     reportError = ESP_OK;
@@ -750,7 +755,7 @@ int main(int argc, char **argv) {
     setPoint(100, 100);
     assert(poll(x, y));
     std::memcpy(report, corruptReports[0], sizeof(report));
-    for (int i = 0; i < 3; ++i) assert(poll(x, y));
+    assert(poll(x, y));
     assert(!poll(x, y));
     setPoint(100, 100);
     assert(poll(x, y));

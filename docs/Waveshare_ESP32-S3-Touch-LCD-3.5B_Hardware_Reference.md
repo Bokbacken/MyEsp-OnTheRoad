@@ -22,6 +22,19 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 | PMIC | AXP2101, I2C address `0x34` |
 | RTC | PCF85063, I2C address `0x51` when fitted |
 
+The V2 schematic maps EXIO2 to TP_INT, EXIO4 to RTC_INT and EXIO5 to
+AXP_IRQ. EXIO0 is CAM_PWDN, EXIO3 is SD_CS and EXIO7 is PA_CTRL.
+Not every interrupt goes through the expander: IMU_INT1 connects to ESP32
+GPIO0. Our expander driver configures EXIO1 for reset and EXIO6 for PWR,
+preserving the other direction/output bits. It reads the whole input register
+for PWR but does not service the touch, RTC or PMIC interrupt bits, or configure
+an ESP32 interrupt handler for the expander.
+
+As of v0.25.3, touch reads are limited to one every 30 ms (previously 15 ms).
+LVGL scheduling and synchronous display transfers can lengthen the interval.
+The 60 ms missing-contact bound, report parser and buffered raw capture remain
+unchanged; this is a timing comparison, not a confirmed fix.
+
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus. Reset remains owned by `BoardPower`, including the bounded startup recovery described below. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
 
 The PWR button is polled through TCA9554 EXIO6 every 100 ms (10 reads/second, reduced from 20 ms in v0.25.2). Very short taps between samples may be missed; a short press wakes the backlight if the screen is off and does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.

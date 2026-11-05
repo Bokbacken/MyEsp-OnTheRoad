@@ -76,6 +76,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   Medianpollning är fortfarande 16 ms; grundorsaken är inte bevisad.
 - [ ] Prova PWR-väckning samt långt tryck på v0.25.2.
   Mycket korta tryck mellan två 100 ms-samplingar kan missas.
+- [x] v0.25.3: enbart touchpollgränsen ändrad från 15 till 30 ms;
+  PWR kvar på 100 ms, samma protokoll, 60 ms-bortfallsgräns och RAM-capture.
+- [ ] Jämför känsla och råpaket på v0.25.3 med v0.25.2 och fabriksprovet.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
 - [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
