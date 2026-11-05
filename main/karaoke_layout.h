@@ -21,11 +21,11 @@ constexpr int32_t volumeTrackWidth(int32_t screenWidth)
 constexpr int32_t visibleLyricLines(int32_t screenWidth, int32_t availableHeight, int32_t lineHeight,
                                     int32_t gap)
 {
-    if (screenWidth <= 480) return 4;
     if (lineHeight <= 0) return 1;
     const int32_t rowGap = gap > 0 ? gap : 0;
     const int32_t count = (availableHeight + rowGap) / (lineHeight + rowGap);
-    return count <= 0 ? 1 : count > 32 ? 32 : count;
+    const int32_t maximum = screenWidth <= 480 ? 4 : 32;
+    return count <= 0 ? 1 : count > maximum ? maximum : count;
 }
 
 struct VolumeRail {

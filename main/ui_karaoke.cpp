@@ -32,7 +32,7 @@ constexpr uint32_t TICK_MS = 40;
 constexpr uint32_t DEBOUNCE_MS = 500;
 struct Layout {
     int32_t w, h, inset, gap, buttonH, headerH, infoY, lyricsY, lyricsH;
-    int32_t visibleLines;
+    int32_t visibleLines, timeW;
     int32_t lyricsX, lyricsW, seekY, seekH, seekX, seekW, timeX, bottomY, bottomW, listY, listW, jumpW, toolbarY, toolbarW;
     int32_t midiVolumeX, masterVolumeX, volumeW, volumeLabelY, volumeSliderY, volumeH;
 };
@@ -42,9 +42,9 @@ Layout layout()
     Layout l{};
     l.w = UiMetrics::screenW();
     l.h = UiMetrics::screenH();
-    l.inset = std::clamp<int32_t>(UiMetrics::marginNormal(), 8, 12);
+    l.inset = UiMetrics::marginNormal();
     l.gap = UiMetrics::marginSmall();
-    l.buttonH = std::clamp<int32_t>(UiMetrics::buttonH(), 44, 52);
+    l.buttonH = UiMetrics::buttonH();
     l.headerH = l.buttonH + l.gap;
     l.infoY = l.headerH;
     l.lyricsY = l.infoY + my_font_14.line_height + l.gap;
@@ -54,10 +54,12 @@ Layout layout()
     l.seekY = l.bottomY - l.gap - l.seekH;
     l.lyricsH = l.seekY - l.gap - l.lyricsY;
     l.visibleLines = KaraokeLayout::visibleLyricLines(l.w, l.lyricsH, my_font_24.line_height, l.gap);
-    constexpr int32_t timeW = 124;
+    lv_point_t timeSize;
+    lv_text_get_size(&timeSize, "00:00 / 00:00", &my_font_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    l.timeW = timeSize.x + 2 * l.gap;
     const KaraokeLayout::VolumeRail rail = KaraokeLayout::volumeRail(
         l.w, l.inset, l.gap, l.buttonH, l.infoY, l.bottomY, my_font_14.line_height,
-        UiMetrics::buttonWMin(), timeW);
+        UiMetrics::buttonWMin(), l.timeW);
     l.midiVolumeX = rail.midiX;
     l.masterVolumeX = rail.masterX;
     l.volumeW = rail.width;
@@ -69,7 +71,7 @@ Layout layout()
     l.seekX = rail.lyricsX;
     l.seekW = rail.seekWidth;
     l.timeX = rail.timeX;
-    l.jumpW = std::clamp<int32_t>(l.w / 12, 44, 52);
+    l.jumpW = std::max<int32_t>(UiMetrics::buttonWMin(), my_font_18.line_height + 2 * l.gap);
     l.toolbarY = l.headerH + l.gap;
     l.toolbarW = l.w - l.jumpW - 2 * l.inset - l.gap;
     l.listY = l.toolbarY + l.buttonH + my_font_14.line_height + 2 * l.gap;
@@ -198,7 +200,7 @@ lv_obj_t *backButton(lv_obj_t *scr)
 {
     const auto l = layout();
     lv_obj_t *b = Theme::button(scr, LV_SYMBOL_LEFT, l.buttonH, l.buttonH, Theme::LINE);
-    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -l.inset - l.gap - Theme::BATTERY_STATUS_WIDTH, 0);
+    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -l.inset - l.gap - Theme::batteryStatusWidth(), 0);
     return b;
 }
 
@@ -364,7 +366,9 @@ void songButton(lv_obj_t *list, const KaraIndex::Library &lib, size_t e)
     const int32_t bw = (layout().listW - 28) / 2;
     lv_obj_t *b = lv_button_create(list);
     lv_obj_remove_style_all(b);
-    lv_obj_set_size(b, bw, 58);
+    const int32_t pad = UiMetrics::marginNormal();
+    const int32_t artistY = pad + my_font_18.line_height + layout().gap;
+    lv_obj_set_size(b, bw, artistY + my_font_14.line_height + pad);
     lv_obj_set_style_radius(b, 10, 0);
     lv_obj_set_style_bg_color(b, Theme::c(Theme::PANEL), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
@@ -375,11 +379,11 @@ void songButton(lv_obj_t *list, const KaraIndex::Library &lib, size_t e)
     const char *artist = lib.artist(en.idx);
     lv_obj_t *t = Theme::label(b, lib.title(en.idx), &my_font_18);
     singleLine(t, bw - 20);
-    lv_obj_set_pos(t, 10, *artist ? 10 : 18);
+    lv_obj_set_pos(t, 10, pad);
     if (*artist) {
         lv_obj_t *a = Theme::label(b, artist, &my_font_14, Theme::MUTED);
         singleLine(a, bw - 20);
-        lv_obj_set_pos(a, 10, 34);
+        lv_obj_set_pos(a, 10, artistY);
     }
     static uint32_t openLast = 0;
     lv_obj_add_event_cb(b, [](lv_event_t *ev) {
@@ -656,7 +660,7 @@ void showList()
     lv_obj_t *header = Theme::header(scr, tr(Str::MENU_KARAOKE), false);
     lv_obj_set_height(header, l.headerH);
     singleLine(lv_obj_get_child(header, 0),
-               l.w - l.buttonH - Theme::BATTERY_STATUS_WIDTH - 3 * l.inset - l.gap);
+               l.w - l.buttonH - Theme::batteryStatusWidth() - 3 * l.inset - l.gap);
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
         if (!Theme::debounce(backLast, DEBOUNCE_MS)) return;
@@ -675,7 +679,11 @@ void showList()
     // Row 1: search field | rescan | sound bank
     lv_obj_t *sf = lv_button_create(scr);
     lv_obj_remove_style_all(sf);
-    const int32_t actionW = std::max<int32_t>(120, l.toolbarW / 4);
+    lv_point_t rescanSize, bankSize;
+    lv_text_get_size(&rescanSize, tr(Str::KARA_RESCAN), &my_font_18, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    lv_text_get_size(&bankSize, tr(Str::KARA_BTN_FONT), &my_font_18, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const int32_t actionW = std::max<int32_t>(l.toolbarW / 4,
+        std::max(rescanSize.x, bankSize.x) + 2 * l.inset);
     const int32_t searchW = l.toolbarW - 2 * (actionW + l.gap);
     lv_obj_set_size(sf, searchW, l.buttonH);
     lv_obj_set_pos(sf, l.inset, l.toolbarY);
@@ -745,7 +753,7 @@ void showList()
     lv_obj_set_size(s_jumpCol, l.jumpW, l.h - l.toolbarY);
     lv_obj_set_pos(s_jumpCol, l.w - l.jumpW, l.toolbarY);
     lv_obj_set_scroll_dir(s_jumpCol, LV_DIR_VER);
-    const int32_t kh = std::max<int32_t>(l.buttonH, (l.h - l.toolbarY) / JUMP_N);
+    const int32_t kh = std::max<int32_t>(l.buttonH + 2, (l.h - l.toolbarY) / JUMP_N);
     for (int i = 0; i < JUMP_N; i++) {
         lv_obj_t *k = lv_button_create(s_jumpCol);
         lv_obj_remove_style_all(k);
@@ -1465,9 +1473,9 @@ void showPlayer()
     lv_obj_set_height(hdr, l.headerH);
     lv_obj_t *title = lv_obj_get_child(hdr, 0);
     lv_label_set_text(title, f.title.c_str());
-    singleLine(title, l.w - 2 * l.buttonH - Theme::BATTERY_STATUS_WIDTH - 3 * l.inset - 3 * l.gap);
+    singleLine(title, l.w - 2 * l.buttonH - Theme::batteryStatusWidth() - 3 * l.inset - 3 * l.gap);
     ctlButton(scr, LV_SYMBOL_LIST,
-              l.w - 2 * l.buttonH - Theme::BATTERY_STATUS_WIDTH - l.inset - 2 * l.gap, 0,
+              l.w - 2 * l.buttonH - Theme::batteryStatusWidth() - l.inset - 2 * l.gap, 0,
               l.buttonH, l.buttonH, Theme::TEAL, [](lv_event_t *) { showPlayerMenu(); });
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
@@ -1552,7 +1560,6 @@ void showPlayer()
                                      i == 0 ? Theme::MUTED : Theme::LINE));
 
     P.slider = lv_slider_create(scr);
-    const int32_t timeW = 124;
     lv_obj_set_size(P.slider, l.seekW, 8);
     lv_obj_set_pos(P.slider, l.seekX, l.seekY + l.seekH / 2 - 4);
     lv_slider_set_range(P.slider, 0, (int32_t)(song->lengthUs / 100000 > 0 ? song->lengthUs / 100000 : 1));
@@ -1568,7 +1575,7 @@ void showPlayer()
         P.line = -3;
     }, LV_EVENT_RELEASED, nullptr);
     P.timeLbl = Theme::label(scr, "", &my_font_14, Theme::MUTED);
-    singleLine(P.timeLbl, timeW);
+    singleLine(P.timeLbl, l.timeW);
     lv_obj_set_style_text_align(P.timeLbl, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_pos(P.timeLbl, l.timeX, l.seekY + (l.seekH - my_font_14.line_height) / 2);
 

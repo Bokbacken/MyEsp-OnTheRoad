@@ -2,6 +2,7 @@
 #include "ui_metrics.h"
 #include "hw_profile.h"
 #include "lvgl.h"
+#include "my_fonts.h"
 
 namespace UiMetrics {
 
@@ -19,24 +20,17 @@ int32_t screenH()
     return h > 0 ? h : HwProfile::active().height;
 }
 
-// Scale factor in percent from the short side (320 px = 100 %), limited so large panels get
-// somewhat larger spacing without oversized controls.
-static int32_t scalePct()
-{
-    int32_t w = screenW(), h = screenH();
-    int32_t s = (w < h ? w : h) * 100 / 320;
-    if (s < 100) s = 100;
-    if (s > 150) s = 150;
-    return s;
-}
-
-static int32_t sc(int32_t v) { return v * scalePct() / 100; }
+static int32_t sc(int32_t v) { return MyFonts::uiPixels(v); }
 
 int32_t marginSmall() { return sc(4); }
 int32_t marginNormal() { return sc(10); }
 int32_t marginLarge() { return sc(14); }
 
-int32_t buttonH() { return sc(42); }
+int32_t buttonH()
+{
+    const int32_t minimum = my_font_18.line_height + sc(16);
+    return sc(42) > minimum ? sc(42) : minimum;
+}
 int32_t buttonWMin() { return sc(52); }
 int32_t buttonWMax() { return sc(300); }
 
@@ -44,8 +38,8 @@ int32_t cardSpacing() { return sc(4); }
 int32_t cardMinH() { return sc(60); }
 
 int32_t controlSpacing() { return sc(6); }
-int32_t titleH() { return sc(44); }
-int32_t headerH() { return sc(74); }
-int32_t footerH() { return sc(26); }
+int32_t titleH() { return sc(44) > my_font_24.line_height + sc(12) ? sc(44) : my_font_24.line_height + sc(12); }
+int32_t headerH() { return titleH() + sc(30); }
+int32_t footerH() { return sc(26) > my_font_14.line_height + sc(8) ? sc(26) : my_font_14.line_height + sc(8); }
 
 }  // namespace UiMetrics

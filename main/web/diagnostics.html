@@ -216,11 +216,18 @@ async function refresh() {
     const b = i.battery || {};
     rows('battery', [
       ['Mätstöd / sampling', b.supported ? (b.initialized ? 'tillgänglig' : 'initieringsfel') : 'saknas'],
-      ['Rå ADC / ADC-kalibrering', (b.raw_adc >= 0 ? b.raw_adc : '–') + ' / ' + (b.adc_calibrated ? b.adc_mv + ' mV' : 'saknas')],
-      ['Batterispänning', b.battery_mv >= 0 ? b.battery_mv + ' mV' : 'okänd (ej kalibrerad)'],
-      ['Ungefärlig LiPo-nivå', b.estimated_percent >= 0 ? b.estimated_percent + '%' : 'okänd'],
-      ['Divider / fullpunkt', b.scale_permille + ' ‰ / ' + b.full_reference_mv + ' mV'],
-      ['ADC-fel', b.errors],
+      ['Mätkälla', esc(b.source || 'ADC')],
+      ...(b.power_managed ? [
+        ['Batteri / USB', b.sample_valid ? (b.battery_connected ? 'anslutet' : 'saknas') + ' / ' + (b.usb_present ? 'ansluten' : 'frånkopplad') : 'okänd'],
+        ['Laddar / klar', b.sample_valid ? (b.charging ? 'ja' : 'nej') + ' / ' + (b.charge_done ? 'ja' : 'nej') : 'okänd'],
+        ['AXP2101 batterimätare', b.gauge_percent >= 0 ? b.gauge_percent + '%' : 'okänd'],
+      ] : [
+        ['Rå ADC / ADC-kalibrering', (b.raw_adc >= 0 ? b.raw_adc : '–') + ' / ' + (b.adc_calibrated ? b.adc_mv + ' mV' : 'saknas')],
+        ['Ungefärlig LiPo-nivå', b.estimated_percent >= 0 ? b.estimated_percent + '%' : 'okänd'],
+        ['Divider / fullpunkt', b.scale_permille + ' ‰ / ' + b.full_reference_mv + ' mV'],
+      ]),
+      ['Batterispänning', b.battery_mv >= 0 ? b.battery_mv + ' mV' : 'okänd'],
+      ['Mätfel', b.errors],
     ]);
     $('raw').textContent = JSON.stringify(i, null, 2);
   } catch (e) {

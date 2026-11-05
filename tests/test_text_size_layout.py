@@ -19,9 +19,12 @@ def section(path, start, end):
 
 
 line_heights = {}
+cap_heights = {}
 for font in (ROOT / "components/my_ui/fonts").glob("my_font_raw_*.c"):
     px = int(re.search(r"my_font_raw_(\d+)", font.name).group(1))
     line_heights[px] = int(re.search(r"\.line_height = (\d+),", font.read_text()).group(1))
+    glyphs = font.read_text().split("glyph_dsc[] = {", 1)[1].split("};", 1)[0]
+    cap_heights[px] = int(re.findall(r"\.box_h = (\d+)", glyphs)[ord("A") - 32 + 1])
 fonts_h = (ROOT / "components/my_ui/include/my_fonts.h").read_text()
 role_px = [[int(v) for v in row.split(",")]
            for row in re.findall(r"\{(\d+, \d+, \d+, \d+)\}", fonts_h)]
@@ -29,13 +32,39 @@ assert len(role_px) == 4, role_px
 for row in role_px:
     for px in row:
         assert px in line_heights, f"font size {px} is not generated"
-assert role_px[1] == [14, 18, 24, 36], "NORMAL must keep the original sizes"
+assert role_px[1] == [18, 24, 32, 48], "NORMAL must keep P4's existing physical sizes"
 
 boot = section("main/ui_boot.cpp", "Layout layout(", "void show()")
 conn = section("main/ui_wifi.cpp", "ConnLayout connLayout(", "void showConnecting(")
 boot_h = section("main/ui_boot.h", "constexpr int32_t LIST_PAD", "void show();")
 conn_h = section("main/ui_wifi.h", "struct ConnLayout", "ConnLayout connLayout(")
-roles = ",\n".join("{%s}" % ", ".join(str(line_heights[px]) for px in row) for row in role_px)
+available = sorted(line_heights)
+s3_px = [[min(available, key=lambda px: abs(cap_heights[px] * 154 - cap_heights[ref] * 117))
+          for ref in row] for row in role_px]
+roles = ",\n".join("{%s}" % ", ".join(str(line_heights[px]) for px in row) for row in s3_px)
+physical_px = role_px
+physical_roles = ",\n".join("{%s}" % ", ".join(str(line_heights[px]) for px in row) for row in physical_px)
+for original, physical in zip(s3_px, physical_px):
+    for ref, px in zip(original, physical):
+        target = cap_heights[ref] * 154
+        assert abs(cap_heights[px] * 117 - target) * 100 <= target * 12, (ref, px)
+
+zoom_lines = []
+for pitch in (154, 117):
+    panel_lines = []
+    for percent in (85, 100, 115):
+        sizes = []
+        for row in role_px:
+            selected = [min(available, key=lambda px: abs(cap_heights[px] * pitch * 100 -
+                                                       cap_heights[ref] * 117 * percent))
+                        for ref in row]
+            for ref, px in zip(row, selected):
+                target = cap_heights[ref] * 117 * percent
+                assert abs(cap_heights[px] * pitch * 100 - target) * 100 <= target * 12, (
+                    pitch, percent, ref, px)
+            sizes.append("{%s}" % ",".join(str(line_heights[px]) for px in selected))
+        panel_lines.append("{%s}" % ",".join(sizes))
+    zoom_lines.append("{%s}" % ",".join(panel_lines))
 
 code = r'''
 #include <cassert>
@@ -57,10 +86,15 @@ namespace UiWifi {
 static const int32_t LINE[4][4] = {
 @ROLES@
 };
+static const int32_t PHYSICAL_LINE[4][4] = {
+@PHYSICAL_ROLES@
+};
 
-static void check(int32_t w, int32_t h, int size)
+static const int32_t ZOOM_LINE[2][3][4][4] = {@ZOOM_LINES@};
+static void check(int32_t w, int32_t h, int size, const int32_t *selected = nullptr)
 {
-    const int32_t small = LINE[size][0], body = LINE[size][1], title = LINE[size][2], big = LINE[size][3];
+    const auto *line = selected ? selected : w >= 480 ? PHYSICAL_LINE[size] : LINE[size];
+    const int32_t small = line[0], body = line[1], title = line[2], big = line[3];
     const UiBoot::Layout b = UiBoot::layout(w, h, big, small, body);
     if (b.showLogo) assert(b.titleY >= b.logoY + b.logo);
     assert(b.versionY >= b.titleY + big - 5);
@@ -96,6 +130,10 @@ int main()
 {
     for (int size = 0; size <= 2; size++) check(320, 480, size);   // S3: up to LARGE
     for (int size = 0; size <= 3; size++) check(480, 800, size);   // P4: up to XLARGE
+    for (int panel=0;panel<2;++panel)
+        for (int zoom=0;zoom<3;++zoom)
+            for (int size=0;size<(panel?4:3);++size)
+                check(panel?480:320,panel?800:480,size,ZOOM_LINE[panel][zoom][size]);
     // S3 at the normal size keeps the original boot geometry.
     const UiBoot::Layout s3 = UiBoot::layout(320, 480, LINE[1][3], LINE[1][0], LINE[1][1]);
     assert(s3.showLogo && s3.logo == 64 && s3.cardW == 296 && s3.barW == 260 && s3.rowH == 33);
@@ -107,16 +145,22 @@ int main()
 }
 '''
 code = (code.replace("@BOOT_H@", boot_h).replace("@BOOT@", boot).replace("@CONN_H@", conn_h)
-        .replace("@CONN@", conn).replace("@ROLES@", roles))
+        .replace("@CONN@", conn).replace("@ROLES@", roles).replace("@PHYSICAL_ROLES@", physical_roles)
+        .replace("@ZOOM_LINES@", ",".join(zoom_lines)))
 # MyFonts::apply() with a stub lv_font_t: every role follows ROLE_PX and XLARGE is clamped on 320 px.
 FONTS_TEST = r'''
 #include <cassert>
 #include <cstdio>
 #include "my_fonts.h"
+#include "ui_metrics.h"
+#include "hw_profile.h"
 @RAW@
 int main()
 {
     using MyFonts::TextSize;
+    const int caps[] = {@CAPS@};
+    for (unsigned i=0;i<sizeof(MyFonts::AVAILABLE_PX);++i)
+        assert(MyFonts::CAP_HEIGHT[i]==caps[i]);
     assert(my_font_14.line_height == 14 && my_font_36.line_height == 36);   // Static default = NORMAL
     for (int s = 0; s < (int)TextSize::COUNT; s++) {
         assert(MyFonts::apply((TextSize)s, 480) == (TextSize)s);
@@ -129,6 +173,46 @@ int main()
     assert(MyFonts::apply(TextSize::XLARGE, 320) == TextSize::LARGE);
     assert(my_font_18.line_height == MyFonts::ROLE_PX[2][1]);
     assert(MyFonts::apply((TextSize)9, 320) == TextSize::NORMAL);
+    for (int s = 0; s < (int)TextSize::COUNT; s++) {
+        MyFonts::apply((TextSize)s, 480, 117);
+        assert(my_font_18.line_height == MyFonts::physicalPixels(MyFonts::ROLE_PX[s][1],117));
+        for (auto reference : MyFonts::ROLE_PX[s]) {
+            const int target = reference * 117;
+            const int actual = MyFonts::physicalPixels(reference,117) * 117;
+            assert((actual > target ? actual-target : target-actual)*100 <= target*8);
+        }
+    }
+    const auto &profile = HwProfile::active();
+    MyFonts::apply(TextSize::NORMAL,profile.width,profile.pixelPitchYUm());
+    assert(UiMetrics::screenW() == profile.width);
+    assert(UiMetrics::screenH() == profile.height);
+    assert(UiMetrics::marginNormal() == (profile.pixelPitchYUm() == 117 ? 13 : 10));
+    assert(UiMetrics::buttonH() >= my_font_18.line_height + 16);
+    for (int zoom = 0; zoom < 3; ++zoom) {
+        int32_t previousMargin = 0;
+        for (int text = 0; text <= (int)MyFonts::maxFor(profile.width); ++text) {
+            MyFonts::apply((TextSize)text, profile.width, profile.pixelPitchYUm(),
+                           (MyFonts::ScreenZoom)zoom);
+            assert((int)MyFonts::currentZoom() == zoom);
+            const int32_t margin = UiMetrics::marginNormal();
+            if (previousMargin) assert(margin == previousMargin); // Text size is independent of geometry zoom.
+            previousMargin = margin;
+            assert(UiMetrics::buttonH() >= my_font_18.line_height + MyFonts::uiPixels(16));
+            assert(UiMetrics::titleH() >= my_font_24.line_height + MyFonts::uiPixels(12));
+            const int actualPx[] = {my_font_14.line_height, my_font_18.line_height,
+                                   my_font_24.line_height, my_font_36.line_height};
+            for (int role = 0; role < 4; ++role) {
+                const int target = MyFonts::ROLE_PX[text][role] * 117 *
+                                   MyFonts::zoomPercent((MyFonts::ScreenZoom)zoom);
+                const int actual = actualPx[role] * profile.pixelPitchYUm() * 100;
+                assert((actual > target ? actual-target : target-actual)*100 <= target*10);
+            }
+        }
+    }
+    MyFonts::apply(TextSize::NORMAL, profile.width, profile.pixelPitchYUm(),
+                   (MyFonts::ScreenZoom)255);
+    assert(MyFonts::currentZoom() == MyFonts::ScreenZoom::NORMAL);
+    assert(MyFonts::fit(&my_font_24, 16)->line_height <= 16);
     std::puts("font roles OK");
 }
 '''
@@ -142,9 +226,18 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", str(src), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
     (tmp / "lvgl.h").write_text("#pragma once\nstruct lv_font_t { int line_height; };\n"
-                                "#define LV_FONT_DECLARE(n) extern const lv_font_t n;\n")
-    (tmp / "fonts.cpp").write_text(FONTS_TEST.replace("@RAW@", raw))
-    subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I", str(tmp),
-                    "-I", str(ROOT / "components/my_ui/include"), str(tmp / "fonts.cpp"),
-                    str(ROOT / "components/my_ui/my_fonts.cpp"), "-o", str(tmp / "fonts")], check=True)
-    subprocess.run([str(tmp / "fonts")], check=True)
+                                "#define LV_FONT_DECLARE(n) extern const lv_font_t n;\n"
+                                "struct lv_display_t {};\n"
+                                "inline lv_display_t *lv_display_get_default() { return nullptr; }\n"
+                                "inline int lv_display_get_horizontal_resolution(lv_display_t *) { return 0; }\n"
+                                "inline int lv_display_get_vertical_resolution(lv_display_t *) { return 0; }\n")
+    (tmp / "sdkconfig.h").write_text("#pragma once\n")
+    (tmp / "fonts.cpp").write_text(FONTS_TEST.replace("@RAW@", raw).replace(
+        "@CAPS@", ",".join(str(cap_heights[px]) for px in available)))
+    for profile in ("ES3C35P", "P4_43", "S3_35B"):
+        subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I", str(tmp),
+                        "-I", str(ROOT / "components/my_ui/include"), "-I", str(ROOT / "main"),
+                        "-DCONFIG_OTR_HW_PROFILE_" + profile, str(tmp / "fonts.cpp"),
+                        str(ROOT / "components/my_ui/my_fonts.cpp"), str(ROOT / "main/ui_metrics.cpp"),
+                        str(ROOT / "main/hw_profile.cpp"), "-o", str(tmp / "fonts")], check=True)
+        subprocess.run([str(tmp / "fonts")], check=True)

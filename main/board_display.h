@@ -25,6 +25,8 @@ struct Stats {
 };
 
 bool begin();                       // Panel + lv_init + LVGL display (task not started yet)
+// S3 3.5B only: one shared-reset/reinit attempt before the LVGL task starts.
+bool recoverTouchStartup();
 bool ok();
 bool panelOk();                     // Panel IO + init sequence succeeded (LVGL may still have failed)
 const char *failReason();           // Short text for the boot screen / log, "" when ok

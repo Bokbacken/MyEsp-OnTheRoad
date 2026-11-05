@@ -12,6 +12,7 @@ STUB = r'''
 #include <cstdint>
 constexpr int ESP_OK=0, ESP_FAIL=-1;
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 namespace Display {
 #ifdef CONFIG_OTR_HW_PROFILE_P4_43
@@ -29,6 +30,18 @@ inline bool setPanelSleeping(bool sleep) {
     if (failWake) return false;
     asleep=false; return true;
 }
+}
+namespace BoardPower {
+inline bool buttonPressed=false, offRequested=false, shutdownSuccess=true;
+inline int shutdownCalls=0;
+struct Status { bool powerButtonPressed, powerOffRequested; };
+inline Status status() { return {buttonPressed, offRequested}; }
+inline bool powerOff() {
+    ++shutdownCalls;
+    if (shutdownSuccess) offRequested=false;
+    return shutdownSuccess;
+}
+inline void cancelPowerOff() { offRequested=false; }
 }
 namespace MySys { inline uint32_t now=0; inline uint32_t millis() { return now; } }
 namespace MyOta { inline bool updating=false; inline bool busy() { return updating; } }
@@ -92,6 +105,12 @@ static bool sample(uint32_t now, bool pressed) {
     MySys::now=now; return MyLvgl::filter(pressed);
 }
 static void tick(uint32_t now) { MySys::now=now; timerTick(nullptr); }
+static int powerMessageCount=0;
+static UiScreenPower::PowerMessage lastPowerMessage=UiScreenPower::PowerMessage::FAILED;
+static void capturePowerMessage(UiScreenPower::PowerMessage message) {
+    lastPowerMessage=message;
+    ++powerMessageCount;
+}
 int main() {
     assert(!ScreenPowerPolicy::shouldSleep(30, 30000, true, false));
     assert(!ScreenPowerPolicy::shouldSleep(30, 29999, false, false));
@@ -103,6 +122,7 @@ int main() {
     assert(configuredPin==PIN_LCD_BL && inverted==LCD_BL_ACTIVE_LOW);
     const uint32_t normalDuty=duty;
     UiScreenPower::begin();
+    UiScreenPower::setPowerMessageHandler(capturePowerMessage);
     UiScreenPower::begin(); // One filter and timer only.
     tick(60000); // Disabled by default.
     assert(!Backlight::sleeping());
@@ -150,6 +170,40 @@ int main() {
     assert(!sample(1500260,false)); // Exactly 250 ms.
     assert(sample(1500261,true));
     assert(!sample(1500262,false));
+    UiScreenPower::sleepNow();
+    BoardPower::buttonPressed=true;
+    tick(1500270);
+    assert(!Backlight::sleeping()); // A short PWR press wakes the dark screen.
+    BoardPower::buttonPressed=false;
+    assert(!sample(1500521,false)); // Release the wake guard before wraparound checks.
+    MyOta::updating=true;
+    BoardPower::offRequested=true;
+    int shutdownCalls=BoardPower::shutdownCalls;
+    tick(2000000);
+    assert(BoardPower::offRequested && BoardPower::shutdownCalls==shutdownCalls);
+    tick(2029999);
+    assert(BoardPower::offRequested && BoardPower::shutdownCalls==shutdownCalls);
+    MyOta::updating=false;
+    tick(2030000);
+    assert(BoardPower::shutdownCalls==shutdownCalls+1); // Active OTA ended before the timeout.
+
+    AppWebFiles::transferring=true;
+    BoardPower::offRequested=true;
+    shutdownCalls=BoardPower::shutdownCalls;
+    tick(3000000);
+    tick(3029999);
+    assert(BoardPower::offRequested && BoardPower::shutdownCalls==shutdownCalls);
+    tick(3030000);
+    assert(!BoardPower::offRequested && BoardPower::shutdownCalls==shutdownCalls);
+    assert(powerMessageCount==1 && lastPowerMessage==UiScreenPower::PowerMessage::CANCELLED);
+    AppWebFiles::transferring=false;
+
+    BoardPower::offRequested=true;
+    BoardPower::shutdownSuccess=false;
+    tick(3040000);
+    assert(!BoardPower::offRequested);
+    assert(powerMessageCount==2 && lastPowerMessage==UiScreenPower::PowerMessage::FAILED);
+    BoardPower::shutdownSuccess=true;
     // Millisecond wraparound cannot make the cooldown or timeout end early.
     Config::get().screenOffSeconds=30;
     assert(sample(UINT32_MAX-100,true));
@@ -248,22 +302,22 @@ with tempfile.TemporaryDirectory(prefix="otr-screen-power-") as directory:
     work = pathlib.Path(directory)
     (work / "stubs.h").write_text(STUB)
     for name in ["my_sys.h", "my_ota.h", "my_lvgl.h", "esp_log.h",
-                 "driver/gpio.h", "driver/ledc.h", "sdkconfig.h", "adv_live.h",
+                 "driver/gpio.h", "driver/ledc.h", "sdkconfig.h", "adv_live.h", "board_power.h",
                  "board_audio.h", "app_web_files.h", "board_display.h"]:
         header = work / name
         header.parent.mkdir(parents=True, exist_ok=True)
         header.write_text('#include "stubs.h"\n')
     (work / "test.cpp").write_text(TEST)
     (work / "screen.cpp").write_text((ROOT / "main/ui_screen_power.cpp").read_text())
-    for p4 in [False, True]:
-        binary = work / f"power-{p4}"
+    for profile in ["ES3C35P", "P4_43", "S3_35B"]:
+        binary = work / f"power-{profile}"
         subprocess.run([
             "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
-            * (["-DCONFIG_OTR_HW_PROFILE_P4_43=1"] if p4 else []),
+            f"-DCONFIG_OTR_HW_PROFILE_{profile}=1",
             f"-I{work}", f"-I{ROOT / 'main'}", f"-I{ROOT / 'components/my_wifi/include'}",
             f"-I{ROOT / 'components/otr_midi/include'}",
             str(work / "screen.cpp"), str(ROOT / "main/board_backlight.cpp"),
             str(work / "test.cpp"), "-o", str(binary),
         ], check=True)
         subprocess.run([str(binary)], check=True)
-print("S3/P4 screen power: idle/manual off, touch release + 250 ms, OTA, brightness, wrap and polarity passed")
+print("ES3C35P/P4/S3_35B screen power: backlight wake, touch release + 250 ms, OTA, brightness and polarity passed")

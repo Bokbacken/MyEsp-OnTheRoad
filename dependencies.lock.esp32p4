@@ -10,8 +10,36 @@ dependencies:
       type: service
     version: 1.7.19~2
   espressif/esp_hosted:
-    component_hash: c88052665d8df3c7185cb5e34327d77674599006bbbbe4bfdb43c44f9a2a73a3
+    component_hash: 22b08509494d4465f0e2f91ee16973d76fe90d5a930fa3910b7a43615db001bf
     dependencies:
+    - name: cherry-embedded/cherryusb
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32p4]
+      - if: $CONFIG{ESP_HOSTED_HOST_USB_CHERRYUSB_MANIFEST} == 1
+      version: '>=1.6.0'
+    - name: espressif/esp_tinyusb
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32s2, esp32s3, esp32s31]
+      - if: $CONFIG{ESP_HOSTED_CP_TINYUSB_MANIFEST} == 1
+      version: '*'
+    - name: espressif/iot_usbh_rndis
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32p4]
+      - if: $CONFIG{ESP_HOSTED_HOST_USB_RNDIS_MANIFEST} == 1
+      version: ^0.5.2
+    - name: espressif/usb_host_cdc_acm
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32p4]
+      - if: $CONFIG{ESP_HOSTED_HOST_USB_CDC_ACM_MANIFEST} == 1
+      version: '*'
     - name: idf
       require: private
       version: '>=5.5'
@@ -20,9 +48,10 @@ dependencies:
       type: service
     targets:
     - esp32
-    - esp32c2
     - esp32s2
     - esp32s3
+    - esp32s31
+    - esp32c2
     - esp32c3
     - esp32c5
     - esp32c6
@@ -31,7 +60,17 @@ dependencies:
     - esp32h4
     - esp32h21
     - esp32p4
-    version: 3.0.10
+    version: 3.1.0
+  espressif/esp_websocket_client:
+    component_hash: dc00233af846f3a744ada283a300e0d586040aadc3ee67361645ecdce4523672
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.8.0
   espressif/led_strip:
     component_hash: 027f68f2b57b0dca1d68dff6cc1139d9093825aa808c2bc3ca42bb2ce530fce9
     dependencies:
@@ -43,7 +82,7 @@ dependencies:
       type: service
     version: 3.1.1
   espressif/mdns:
-    component_hash: ef0766474b37459f6ad22461e453a8713e780e831a7c993b16919d817988dff6
+    component_hash: 2fa43caa78cc170842255bc7bf71f306bc815cae12e9496bfb12372423019ac7
     dependencies:
     - name: idf
       require: private
@@ -51,7 +90,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.14.1
+    version: 1.15.1
   idf:
     source:
       type: idf
@@ -90,10 +129,11 @@ dependencies:
 direct_dependencies:
 - espressif/cjson
 - espressif/esp_hosted
+- espressif/esp_websocket_client
 - espressif/led_strip
 - espressif/mdns
 - idf
 - lvgl/lvgl
-manifest_hash: 9062cc49cc2a8368e2cb0a12aeb37d822bc870420a6543f0175f4fb24cbc2042
+manifest_hash: 34b500c289c2f4aa38df61153aed1c25a37e4e2a6b2a49e54ed6ea9790e8b199
 target: esp32p4
 version: 3.0.0

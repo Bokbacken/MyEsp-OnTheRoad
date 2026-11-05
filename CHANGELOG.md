@@ -8,6 +8,161 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.13
+
+- Ends the owner-accepted S3_35B touch investigation: disables raw capture by
+  default and silently discards uniform idle reports, including `0x37`.
+  Real I2C/parser failures still have counters and rate-limited warnings.
+- Restores movement/read-error click suppression: drags exceeding 20 px
+  cannot become clicks on release; ordinary taps and release events remain.
+  Opt-in raw diagnostics now preserve this protection and print all 14 bytes.
+- Retains the shared task (touch each 20 ms, PWR after every fifth sample),
+  cached LVGL state, 14-byte/two-point report and locked STOP-separated I2C.
+
+## v0.25.12
+
+- Updates P4's exact ESP-Hosted dependency and the pinned C6 OTA example to
+  release 3.1.0. Upstream changes include SDIO receive-buffer preallocation
+  and capacity handling, packet-mode support, task-stack sizing corrections
+  and a detached-task PSRAM heap fix. No board-level speed improvement has
+  been measured; the shared SD/C6 clock remains 40 MHz.
+- C6 CI checks the Wi-Fi coprocessor configuration and OTA slot size and
+  includes its generated configuration in the radio artifact.
+
+## v0.25.11
+
+- Pins the P4 ESP-Hosted dependency exactly to the already locked 3.0.10.
+  This avoids older dependency managers collecting USB Kconfig requirements
+  from an unselected newer release. SDIO transport and C6 firmware are unchanged.
+- Firmware CI stops immediately on a failed configure/build rather than
+  continuing to image validation and merge commands without an application.
+
+## v0.25.10
+
+- Taller Sudoku keypad and tool buttons on both S3 profiles (minimum 36 px
+  in portrait, previously 30) and P4 (minimum 50 px, previously 40).
+  Landscape controls grow from 42 to 48 px; larger fonts can increase these
+  heights further. The board remains fitted to the available space.
+- Removes Sudoku's brief control-hint overlays and their settings switch.
+  Save failures instead show a dismissible modal popup; failed saves still
+  keep the game open for retry. Touch sampling is unchanged.
+
+## v0.25.9 (diagnostic)
+
+- S3_35B samples touch and the PWR expander in one task: touch every 20 ms,
+  then TCA9554 EXIO6 on every fifth pass (nominally 100 ms). PMIC refresh stays
+  nominally at ten seconds. LVGL consumes cached touch state.
+- Restores the 14-byte, two-point touch report so deliberate two-finger
+  gestures remain representable. Raw capture records 512 consecutive reports
+  without suppressing expander reads. Physical comparison pending.
+
+## v0.25.8 (diagnostic)
+
+- During the 512-read raw touch capture, skip TCA9554 input-register reads;
+  automatically resume after the last sample. The power button is unavailable
+  for the capture window (typically about 20-25 seconds); its held timer and
+  pressed status reset at capture start. PMIC refresh and all other behavior
+  continue normally. Touch protocol/timing and TCA's 109 ms task delay are
+  unchanged. Physical comparison pending.
+
+## v0.25.7 (diagnostic)
+
+- S3_35B changes only the TCA9554/PWR polling delay from 100 to 109 ms to
+  compare touch-error periodicity. The 1 kHz RTOS tick preserves this value;
+  actual intervals also include bus work and scheduling. The 2000 ms hold
+  threshold remains (19 nominal samples instead of 20); nominal PMIC refresh
+  is 92 samples, 10.028 s. Touch retains the 8-byte STOP-separated request,
+  shared lock/100 us gaps, 30 ms poll limit and existing diagnostic capture.
+  Physical comparison pending; this does not guarantee fewer coincidences.
+
+## v0.25.6 (diagnostic)
+
+- S3_35B keeps the 8-byte single-point touch request but sends the command
+  and reads the response as separate I2C transfers with STOP between,
+  following Espressif's transfer structure. One shared mutex covers both;
+  the existing minimum 100 us bus gap also applies after the command.
+  Clock, poll intervals, parser, dropout bound and diagnostic capture/bypass
+  remain unchanged. Physical comparison pending.
+
+## v0.25.5 (diagnostic)
+
+- S3_35B requests and reads an 8-byte single-point touch report instead of
+  14 bytes, matching Espressif AXS15231B 2.1.1's report size. Raw capture and
+  invalid-report logs contain all 8 bytes. The combined command/read (no STOP
+  between), 400 kHz clock, 30/100 ms touch/PWR polling, shared mutex/100 us gap,
+  60 ms dropout bound and diagnostic click bypass are unchanged.
+  Physical comparison pending; this is not a switch to Espressif's driver.
+
+## v0.25.4 (diagnostic)
+
+- S3_35B shared I2C users now take an explicit mutex and leave at least 100 us
+  between transaction completions and the next start, including failed calls
+  and probes. Applies to touch, TCA9554, AXP2101, PCF85063 and ES8311.
+  The touch command/read remains one combined transaction; 400 kHz, touch
+  polling at 30 ms, PWR polling at 100 ms and parser behavior are unchanged.
+  Other board profiles retain their direct I2C calls. Physical comparison pending.
+- Raw touch `dt_us` includes waiting for the new mutex/gap, not just the
+  driver's transfer time; it is not an on-wire bus-occupancy measurement.
+
+## v0.25.3 (diagnostic)
+
+- S3_35B limits touch I2C polling to one read per 30 ms instead of 15 ms,
+  for comparison with the factory example's observed cadence. Actual intervals
+  still depend on LVGL scheduling and display transfers. PWR polling remains
+  100 ms; protocol, 60 ms gap bound and raw capture are unchanged.
+  Physical comparison pending.
+
+## v0.25.2 (diagnostic)
+
+- S3_35B polls the PWR-button expander every 100 ms instead of 20 ms,
+  reducing its nominal I2C polling rate from 50 to 10 reads/second.
+  The two-second shutdown hold and ten-second PMIC sampling period remain
+  unchanged. Touch polling and the buffered capture are unchanged to isolate
+  the effect of reduced expander traffic. Hardware comparison pending.
+
+## v0.25.1 (diagnostic)
+
+- S3_35B captures 512 raw touch reads in RAM after the first valid contact and
+  prints them only after recording, with timestamps, transfer duration, transport
+  status and all 14 bytes. Live touch diagnostic output is disabled during this
+  comparison. Reset to rearm; dumping temporarily pauses the UI.
+- Retains the disabled extra click veto and existing startup/gap handling.
+  No touch protocol, IDF or LVGL version changes. Physical comparison pending.
+
+## v0.25.0 (unreleased)
+
+- Added the separate `S3_35B` Waveshare ESP32-S3-Touch-LCD-3.5B build:
+  AXS15231B QSPI display/touch, TCA9554 shared reset, AXP2101 power monitoring,
+  1-bit SDMMC, ES8311 audio and PCF85063 RTC. Hardware verification remains
+  required; the owner's PCB revision is not confirmed.
+- A completely erased (all logical bytes 0xFF) FFat volume is formatted on
+  first boot, including after an earlier failed mount initialized wear-levelling
+  metadata. Volumes containing any data are never formatted automatically;
+  failed-mount wear-levelling handles are released before retry or explicit repair.
+- S3_35B touch follows Waveshare's board-specific factory BSP: a combined
+  command/read transaction and 14-byte report. Contact event 3 is accepted;
+  corrupt/out-of-bounds reports are rejected rather than clamped into edge taps.
+  Logs distinguish I2C failures from invalid reports and include the report bytes.
+- S3_35B's exact all-`0x37` touch report is treated as no point, with the existing
+  release debounce. The owner confirmed it occurs without contact and stops during
+  contact. Other malformed reports and I2C failures remain errors.
+- Battery voltage, USB presence, charging/completion and valid fuel-gauge
+  percentage are read from the PMIC without ADC-divider calibration. Existing
+  ADC-based boards retain their calibration and voltage-derived estimates.
+  AXP2101 voltage is read directly in millivolts (the earlier 1.1 multiplier
+  overstated it by 10%). Charger settings and supply voltages are not blindly
+  overwritten.
+- Independent screen zoom (85/100/115%) and text size in device/web settings,
+  using P4's existing physical Normal typography and spacing as the reference.
+  Missing zoom settings migrate to Normal. Menus/settings/results reflow or
+  scroll; Sudoku, adventure HUD and karaoke text follow physical font roles
+  while game boards remain fitted. Nominal panel dimensions still need
+  measurement; integer font steps prevent exact equality.
+- OTA images now carry a board identity and reject cross-board uploads,
+  including the two incompatible ESP32-S3 boards. Once installed, this
+  firmware also rejects old untagged images: reverting to them requires USB
+  flashing. Initial upgrade from older firmware must use the correct board image.
+
 ## v0.24.7 (unreleased)
 
 - Web song picker defaults to folder browsing (immediate subfolders and direct

@@ -5,7 +5,14 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+#include "board_power.h"
+#define BOARD_BATTERY_PMIC 1
+#elif defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4)
+#define BOARD_BATTERY_ADC 1
+#endif
+
+#if defined(BOARD_BATTERY_ADC)
 #include "board_pins.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
@@ -18,12 +25,12 @@
 namespace BoardBattery {
 namespace {
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(BOARD_BATTERY_ADC)
 static constexpr const char *TAG = "battery";
 #endif
 static Status s_status{};
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(BOARD_BATTERY_ADC)
 static portMUX_TYPE s_statusMux = portMUX_INITIALIZER_UNLOCKED;
 static adc_oneshot_unit_handle_t s_adc = nullptr;
 static adc_cali_handle_t s_adcCali = nullptr;
@@ -88,7 +95,26 @@ static void sampleTask(void *)
 
 bool begin()
 {
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(BOARD_BATTERY_PMIC)
+    const BoardPower::Status power = BoardPower::status();
+    Status initial{};
+    initial.supported = power.supported;
+    initial.initialized = power.initialized;
+    initial.sampleValid = power.sampleValid;
+    initial.powerManaged = true;
+    initial.batteryConnected = power.batteryConnected;
+    initial.usbPresent = power.usbPresent;
+    initial.charging = power.charging;
+    initial.chargeDone = power.chargeDone;
+    initial.pmicVoltageValid = power.batteryVoltageValid;
+    initial.pmicMillivolts = power.batteryMillivolts;
+    initial.pmicPercentValid = power.percentValid;
+    initial.pmicPercent = power.percent;
+    initial.raw = power.batteryVoltageValid ? power.batteryMillivolts : -1;
+    initial.errors = power.errors;
+    s_status = initial;
+    return initial.initialized && initial.supported;
+#elif defined(BOARD_BATTERY_ADC)
     if (s_status.initialized) return true;
 
     Status initial{};
@@ -163,13 +189,46 @@ bool begin()
 
 Status status()
 {
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(BOARD_BATTERY_PMIC)
+    const BoardPower::Status power = BoardPower::status();
+    Status current{};
+    current.supported = power.supported;
+    current.initialized = power.initialized;
+    current.sampleValid = power.sampleValid;
+    current.powerManaged = true;
+    current.batteryConnected = power.batteryConnected;
+    current.usbPresent = power.usbPresent;
+    current.charging = power.charging;
+    current.chargeDone = power.chargeDone;
+    current.pmicVoltageValid = power.batteryVoltageValid;
+    current.pmicMillivolts = power.batteryMillivolts;
+    current.pmicPercentValid = power.percentValid;
+    current.pmicPercent = power.percent;
+    current.raw = power.batteryVoltageValid ? power.batteryMillivolts : -1;
+    current.errors = power.errors;
+    return current;
+#elif defined(BOARD_BATTERY_ADC)
     portENTER_CRITICAL(&s_statusMux);
     const Status copy = s_status;
     portEXIT_CRITICAL(&s_statusMux);
     return copy;
 #else
     return s_status;
+#endif
+}
+
+bool voltageMillivolts(uint16_t scalePermille, uint16_t &outMillivolts)
+{
+#if defined(BOARD_BATTERY_PMIC)
+    (void)scalePermille;
+    const BoardPower::Status power = BoardPower::status();
+    if (!power.sampleValid || !power.batteryVoltageValid) return false;
+    outMillivolts = power.batteryMillivolts;
+    return true;
+#else
+    const Status current = status();
+    return current.supported && current.sampleValid && current.adcCalibrated &&
+           BatteryMath::batteryMillivolts(current.adcMillivolts, scalePermille, outMillivolts);
 #endif
 }
 

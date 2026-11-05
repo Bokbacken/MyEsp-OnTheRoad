@@ -15,6 +15,219 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
+
+Aktuell touchstatus (2026-11-05): ägaren accepterar touchfunktionen efter
+gemensam touch/PWR-task och högre Sudoku-knappar. Undersökningen avslutas;
+återöppna vid regression. v0.25.13 stänger av extraloggen och återaktiverar
+"drag är inte klick". Historiska diagnostiksteg nedan är inte aktuell drift.
+
+- [x] Separat `S3_35B`-profil och byggartefakt: AXS15231B-skärm/touch,
+  AXP2101, TCA9554, PCF85063, ES8311 och 1-bitars SDMMC.
+- [x] Tidig initiering av delad I2C/strömkrets före SD och skärm; laddarens
+  inställningar och spänningsnivåer skrivs inte över på chans.
+- [x] PMIC-spänning/laddstatus/batterimätare i diagnos och inställningar;
+  direkt spänning används i batteriloggen. ADC-kalibrering döljs för PMIC.
+- [x] Fysiskt pitchskalade teckensnitt och gemensamma UI-mått; större P4-
+  typsnitt, med värdtester för verkliga glyphöjder och relevanta layouter.
+- [x] Oberoende skärmzoom (85/100/115 procent) och textstorlek i enhet/webb.
+  P4:s befintliga fysiska Normal är referens; spelplaner anpassas till
+  skärmen medan spel-/karaoketext följer fysiska teckensnittsroller.
+  Större text får mer utrymme eller rullningsbar vy, inte global bildzoom.
+- [x] Sudokus ångra/gör om-symboler finns i samtliga genererade fontstorlekar;
+  värdtest kontrollerar symbolerna efter varje byte av zoom/textstorlek.
+- [x] Inställningarnas reglage skiljer vertikalt scrollsvep från horisontellt
+  reglage-drag före värdeändring. Vanliga tryck på skalan och tangentstyrning
+  behålls; värdtest med riktig LVGL täcker båda riktningarna och snabba släpp.
+- [x] S3-touch: begränsade återförsök vid ogiltigt startsvar, atomisk
+  kommando/läsning på den delade I2C-bussen och avbrutet klick
+  om läsningen fallerar under ett tryck.
+- [x] Korta touchläsfel bryggas med senaste giltiga punkt i högst 60 ms,
+  utan att felen förlänger tidsgränsen. Touch kör åter Waveshares 400 kHz;
+  100 kHz-provet ändrade inte startresultatet.
+- [ ] Verifiera touchändringen fysiskt vid upprepade kallstarter och drag;
+  ägarloggen visar upprepade byte vid start och förskjutna paket under drift,
+  men grundorsaken är inte bekräftad.
+- [x] Efter fem misslyckade touchstartsvar: en delad LCD/touch-reset och
+  full panelåterinitiering innan ytterligare fem läsförsök. Ingen automatisk
+  MCU-omstart eller ändring av PMIC-spänningar; fel rapporteras fortfarande.
+- [x] Grundorsak till "touch not found": utan beröring svarar kontrollern med
+  fjorton likadana utfyllnadsbyte vars värde varierar mellan starter
+  (`02`, `13`, `17`, `37`, `57`, `D7`). Endast `37` accepterades, övriga
+  räknades som fel. Waveshares BSP ignorerar dem tyst; alla helt enhetliga
+  rapporter tolkas nu som ingen punkt, vid start och under drift.
+- [ ] Verifiera på kortet: touch hittas vid varje kallstart utan finger på
+  skärmen, och knappflimmer/avbrutna klick minskar.
+- [x] Diagnostikbygge för S3: `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS` aktiverad i
+  kortprofilen. Extra klickspärr för rörelse/läsfel förbikopplas; startfix och
+  60 ms-gräns behålls. `touch: DIAG` visar koordinater, lässtatus, hypotetisk
+  spärr samt LVGL-klick och observerad scroll. Svep kan tillfälligt ge felklick.
+- [x] Ägaren har provat vidare och accepterar touchkänslan, inklusive förbättrat
+  Sudoku. Detaljerade kallstarts-/tvåfingersscenarier är inte därmed verifierade.
+  Ägaren bekräftar bra touch i Waveshares originalexempel på samma kort;
+  någon specifik ESP-IDF-/LVGL-inkompatibilitet är ännu inte påvisad.
+- [x] v0.25.1: rålogga 512 läsningar i RAM efter första beröring, skriv först
+  efter inspelningen. Löpande touchutskrifter avstängda; samma klickbypass och
+  start-/bortfallshantering som föregående diagnostikbygge. Reset återaktiverar.
+- [x] Jämfört v0.25.1-råpaket och läsintervall med fabriksexemplets inspelning:
+  appen har många fler förskjutningsliknande paket och oftast 16 ms mellan
+  läsningarna mot fabrikens 30 ms. Inga transportfel i dessa inspelningar;
+  byteförskjutningens orsak är fortfarande inte fastställd.
+- [x] v0.25.2: PWR/EXIO6-pollning sänkt från 20 till 100 ms, med oförändrad
+  tvåsekundersgräns och PMIC-period. Touchpollning/råcapture lämnas oförändrade.
+- [x] Ägaren upplever bättre touch på v0.25.2. Två kompletta 512-läsnings-
+  inspelningar visar 88 parseravvisningar på v0.25.1 mot 36 på v0.25.2,
+  utan transportfel. Giltiga kontakt-/släpprapporter: 122 mot 266; enhetliga
+  tomrapporter: 300 mot 209. Olika beröringsförlopp begränsar jämförelsen.
+  Medianpollning är fortfarande 16 ms; grundorsaken är inte bevisad.
+- [ ] Prova PWR-väckning samt långt tryck på v0.25.2.
+  Mycket korta tryck mellan två 100 ms-samplingar kan missas.
+- [x] v0.25.3: enbart touchpollgränsen ändrad från 15 till 30 ms;
+  PWR kvar på 100 ms, samma protokoll, 60 ms-bortfallsgräns och RAM-capture.
+- [ ] Jämför känsla och råpaket på v0.25.3 med v0.25.2 och fabriksprovet.
+- [x] v0.25.3-loggen bekräftar cirka 32 ms pollning, kvarvarande förskjutnings-
+  liknande paket och luckor upp till cirka 320 ms. 512 I2C-anrop tog
+  686-997 us, medel 788,8 us inklusive eventuell väntan i IDF-drivrutinen.
+  Mestadels tomrapporter; lägre felantal bevisar därför inte en lösning.
+- [x] v0.25.4: gemensam mutex och minst 100 us paus efter varje avslutad
+  I2C-transaktion, även fel/probe. Alla S3-bussanvändare omfattas, utan paus
+  inne i touchens kombinerade kommando/svar. Touch/PWR kvar på 30/100 ms.
+- [x] v0.25.4-dragloggen `S3-New-20261105-105144-261.log`: 512 läsningar
+  under 20,454 s, 385 accepterade kontakt-/släpprapporter, 78 enhetliga
+  tomrapporter, 45 parseravvisningar och fyra avvikande nollpunktpaket.
+  Fyra accepterade kontaktrapporter har dessutom avvikande svans.
+  Inga transportfel. Anropstid 695-1092 us, medel 827,6 us, median 836 us;
+  pollmedian 32,014 ms, max 89,015 ms. Mutex/100 us löser inte rapportfelen.
+- [x] v0.25.5: begär och läs 8 byte för en touchpunkt i stället för 14.
+  Behåll kombinerad transaktion utan STOP, 400 kHz, touch/PWR 30/100 ms,
+  mutex/100 us paus, 60 ms-bryggning och diagnostisk klickbypass.
+- [x] v0.25.5-loggen: 512 läsningar under 20,916 s, 236 accepterade kontakt-/
+  släpprapporter, 254 enhetliga tomrapporter, 21 parseravvisningar och ett
+  avvikande nollpunktpaket; inga transportfel. Anropstid 559-898 us,
+  medel 689,1 us, median 699 us; pollmedian 32,012 ms, max 329,089 ms.
+  Förskjutningsliknande paket och blandad FF/37 finns kvar med 8-bytebegäran.
+- [x] v0.25.6: samma 8-bytebegäran, men STOP mellan kommando och läsning.
+  Gemensamt lås över båda anropen; befintlig 100 us paus även efter kommandot.
+  Övrig touch-/PWR-timing och parser oförändrade.
+- [x] v0.25.6-loggen: 512 läsningar under 21,580 s, 241 accepterade kontakt-/
+  släpprapporter, 235 enhetliga tomrapporter, 35 parseravvisningar och ett
+  avvikande nollpunktpaket; inga transportfel. Anropstid 719-14357 us,
+  medel 875,5 us, median 849 us; pollmedian 32,013 ms, max 291,681 ms.
+  n236-281 har tio förskjutningsliknande fel var femte läsning, cirka 200 ms.
+  Samband med varannan nominell TCA-poll är misstänkt, inte tidsverifierat.
+- [x] v0.25.7: ändra enbart TCA/PWR-taskens paus från 100 till 109 ms.
+  Touch kvar på 8 byte/STOP, 30 ms och mutex/100 us paus.
+  PWR-gräns 2000 ms kvar (19 samplingar); PMIC nominellt 10,028 s.
+- [x] v0.25.7-loggen: 512 läsningar under 22,983 s, 264 accepterade kontakt-/
+  släpprapporter, 214 enhetliga tomrapporter, 33 parseravvisningar och ett
+  avvikande nollpunktpaket; inga transportfel. Anropstid 717-1156 us,
+  medel 846,9 us; pollmedian 32,014 ms, max 297,316 ms.
+  Förskjutningspaket samlas kring cirka 109,45 ms mot cirka 100,28 ms i v0.25.6.
+  Starkt stöd för TCA-samband, men exakt sammanfall saknas.
+- [x] v0.25.8: under 512-read capture hoppa över enbart TCA9554 input reads.
+  PWR-knappens status/hold återställs vid start; PWR-övervakning pausas cirka
+  20-25 s. PMIC-refresh och 109 ms-taskrytm fortsätter. TCA läsning återupptas
+  automatiskt efter sista provet. Touchens 8-byte/STOP och övriga timing kvar.
+- [x] v0.25.9: samma task läser touch var 20 ms och EXIO6/PWR var femte pass
+  (nominellt 100 ms); LVGL använder cachat touch-tillstånd. Återställ 14-byte-
+  rapport och tvåpunktsstöd; capture innehåller även utlösande rapport och
+  pausar inte TCA-pollning. PMIC-refresh fortsatt nominellt 10 s.
+- [ ] Jämför v0.25.9 på kortet med samma avsiktliga en- och tvåfingerdrag.
+  Bedöm om 0x37- och 0xFF-rapporter/timing förändras när touch och PWR läses
+  sekventiellt i samma task. Andra I2C-klienter delar fortsatt bussen.
+- [x] v0.25.9: ägarens enfingerlogg visar 261 kontakt-/släpprapporter och 251
+  tomrapporter under 11,127 s, inga transportfel eller synliga förskjutnings-
+  starter. Ägaren upplever förbättrad touchkänsla efter vidare användning.
+  Bara åtta av fjorton byte skrevs ut; rapporternas svans är inte verifierad.
+- [x] v0.25.10: Sudoku får högre siffer-/verktygsknappar: minst 36 px på båda
+  S3 i stående läge, 50 px på P4 och 48 px i liggande läge. Hjälpöverlägg och
+  dess inställningsreglage tas bort; sparfel visas som kvitterbar modal popup.
+- [x] Ägaren bekräftar att Sudoku fungerar klart bättre på S3_35B med
+  v0.25.10. Loggen `S3-New-20261105-130817-353.log` innehåller 512 lyckade
+  touchläsningar under 10,879 s: 216 enpunktsrapporter och 296 tomrapporter,
+  inga synligt felaktiga starter i de åtta utskrivna byten.
+- [ ] Prova särskilt Sudokus nedersta knapprad på ES3C35P och P4 med de högre
+  knapparna; förbättringen är hittills ägarbekräftad endast för S3_35B.
+- [x] v0.25.10 bygger för båda S3-profilerna; P4 stoppas fortfarande före
+  kompilering av saknade USB-manifestsymboler i ESP-Hosted-beroendehanteringen.
+- [x] v0.25.11: lås ESP-Hosted exakt till befintlig 3.0.10 i stället för
+  versionsintervall, så att nyare kandidaters USB-villkor inte blandas in.
+  SDIO/C6-version och radiobeteende lämnas oförändrade.
+- [x] v0.25.11: P4-jobbet bygger åter igenom med exakt Hosted-låsning.
+- [x] v0.25.12: uppdatera P4 Hosted och C6 OTA-exemplet tillsammans till
+  3.1.0, med exakt komponentversion och pinnad taggcommit.
+- [ ] Verifiera kompletta P4/C6-bilder för 3.1.0 och prova Wi-Fi, radio-OTA
+  och samtidig SD-trafik på kortet. Ingen prestandaförbättring är uppmätt.
+- [x] v0.25.12: P4, båda S3-profilerna och C6 byggda i CI
+  (`42034204303`). P4-/C6-bildhuvuden och C6:s 1,75 MiB-slotgräns
+  kontrollerade; genererade beroendelås sparade från artefakterna.
+  C6-appversionen är upstream-revision `235aca9`, inte versionssträngen
+  `3.1.0`; radioprotokollets version och faktisk radiofunktion provas på kortet.
+- [x] v0.25.13: extraloggen av, enhetliga `37`-tomrapporter ignoreras tyst;
+  verkliga buss-/parserfel räknas och varnas fortfarande. Rörelse över 20 px
+  eller läsfel under en gest spärrar klick, även vid opt-in diagnostik.
+- [x] Gemensam touch/PWR-task dokumenterad i hårdvarureferensen och
+  repositoryinstruktionerna, inklusive cachad LVGL-läsning och I2C-låsning.
+- [x] v0.25.13: P4, båda S3-profilerna och C6 byggda i CI
+  (`42039990374`). S3_35B-bygget kontrollerar att extradiagnostiken är av.
+  Återställd klickspärr är ännu inte separat bekräftad på hårdvaran.
+- [ ] P4 efter radiobytet: ägarens stora SF2-uppladdning misslyckas fortfarande
+  med SD-skrivfel, mottagningsläge och återmontering vid 40 MHz.
+  En mindre SF2-fil (29 258 148 byte) går igenom på 70,556 s,
+  cirka 0,415 MB/s; mottagningsanrop tar 68,576 s, buffertväntan 28 ms
+  och SD-låsväntan 124 ms. Mottagnings- och skrivtider överlappar.
+  Ingen visad Wi-Fi-frånkoppling eller watchdog; SD-grundfelet kvarstår
+  och mottagningshastighetens begränsning är inte isolerad till radion.
+  Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
+- [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
+  värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
+- [x] Kortidentitet i OTA-bilden. Fel kort och äldre bilder utan identitet
+  avvisas; återgång till äldre firmware kräver USB.
+- [x] Alla tre firmwarebyggen och värdtester är gröna i CI-körning
+  [41844848779](https://github.com/Bokbacken/MyEsp-OnTheRoad/actions/runs/41844848779)
+  för `ca6c3d7`. Verkliga appbilder har verifierad kortidentitet vid offset 288.
+  Tre separata v0.25.0-artefakter finns; nytt kort är fortfarande hårdvaruoverifierat.
+- [x] Första USB-flash (ägarlogg): skärm, touch-start, SD, ES8311, PCF85063,
+  Wi-Fi och SNTP fungerade. Tom FFat på nytt kort monterades inte, och
+  AXS15231B-läsningar gav upprepade `ESP_ERR_INVALID_RESPONSE` vid användning.
+- [x] Uppföljande ägarlogg: SD monteras, men FFat misslyckas fortfarande.
+  Touch rapporterar upprepade `37`-bytes; PMIC visar 4484 mV/100 procent.
+- [x] Korrigerad åtgärd: kontrollera hela logiska FFat-volymen efter WL-init,
+  inte råpartitionen vars metadata redan skrivits. Endast helt raderade
+  logiska volymer formateras automatiskt. Städa misslyckade WL-monteringar.
+  Touch följer Waveshares kortspecifika kombinerade 14-byte-protokoll och
+  accepterar kontakthändelse 3; felaktiga koordinater klampas inte till tryck.
+  PMIC-värdet är direkt mV: den felaktiga faktorn 1,1 är borttagen, så den
+  rapporterade mätningen motsvarar cirka 4076 mV, inte 4484 mV.
+- [ ] Bekräfta åtgärden på kortet: FFat monterad, inga touchläsfel.
+- [x] Ägarlogg efter uppdatering: FFat och SD monteras, sparad spelare läses,
+  start utan fel och batterispänning 4090 mV. Touch fungerar, men hela
+  `37`-rapporter räknades fortfarande som fel.
+- [x] Ägaren bekräftar att `37`-varningarna upphör under hållen beröring och
+  återkommer efter släpp. Exakt fjorton `0x37`-bytes hanteras därför som ingen
+  punkt, med befintlig släppdebounce. Andra rapportfel och bussfel behålls.
+- [x] Ägarens senaste logg efter `a105ab7`: start utan fel, FFat/SD och
+  spelarsparning fungerar, batteri cirka 4,17 V och Karaoke utan ljudunderrun.
+  `37`-varningsflödet är borta. En blandad felaktig touchrapport avvisas
+  fortfarande korrekt; orsaken är inte fastställd.
+- [ ] Färgtest, touch i hörn/rotation och
+  karaoke-landskap, SD, ljud, Wi-Fi, RTC efter omstart och SNTP-synk.
+- [ ] Prova USB med/utan batteri samt laddning/laddning klar; jämför PMIC-
+  spänning mot multimeter. PCB-revision är obekräftad, möjligen V1.
+- [x] S3-skärmsläckning släcker endast bakbelysningen så att den I2C-pollade
+  touchen kan väcka skärmen; fysisk PWR-knapp väcker också utan att korttryck
+  släcker skärmen. Två sekunders hålltryck begär kontrollerad AXP2101-avstängning,
+  som väntar högst 30 sekunder på OTA/filöverföring/formatering och visar skäl
+  om avstängningen avbryts. Touchdrag över 20 px avbryter LVGL-klicket.
+  Värdtester täcker beteendena.
+- [ ] Prova fysisk skärmväckning med touch/PWR, två sekunders PWR-avstängning,
+  rätt/fel OTA-bild och RTC-tidhållning med verklig ström-/batterikoppling.
+- [ ] Mät aktiv skärmyta och jämför Liten/Normal/Stor i mm på alla tre kort.
+  Nuvarande fysiska mått är uppskattningar, inte nya panelmätningar.
+
+Se [hårdvarureferensen](Waveshare_ESP32-S3-Touch-LCD-3.5B_Hardware_Reference.md)
+för verifierade källor, signaler, PMIC-data och uttryckliga begränsningar.
+
 ### Native Yatzy och skatteditor, v0.24.4–0.24.6
 
 - [x] ESP-klienter använder den inbyggda Yatzy-vyn; värden är ensam

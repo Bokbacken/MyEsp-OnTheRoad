@@ -77,6 +77,21 @@ async function page(file, data) {
     assert.equal(diag.element('wifi').innerHTML.includes('3.0.10'), p4);
     assert(diag.element('battery').innerHTML.includes('3636 mV'));
     assert(diag.element('raw').textContent.includes('scale_permille'));
+    const adcBattery = data.battery;
+    data.battery = {supported:true, initialized:true, sample_valid:true, power_managed:true,
+      source:'AXP2101', battery_connected:true, usb_present:true, charging:true, charge_done:false,
+      gauge_percent:67, battery_mv:3980, estimated_percent:-1, raw_adc:-1, errors:0};
+    await diag.run('refresh()');
+    assert(diag.element('battery').innerHTML.includes('AXP2101'));
+    assert(diag.element('battery').innerHTML.includes('67%'));
+    assert(!diag.element('battery').innerHTML.includes('Rå ADC'));
+    data.battery.sample_valid = false;
+    data.battery.gauge_percent = -1;
+    data.battery.battery_mv = -1;
+    await diag.run('refresh()');
+    assert(!diag.element('battery').innerHTML.includes('67%'));
+    assert(diag.element('battery').innerHTML.includes('okänd'));
+    data.battery = adcBattery;
     await diag.run('sdLogRefresh()');
     await diag.run('logConfigRefresh()');
     assert.equal(diag.element('log-level').value, 'info');
@@ -194,6 +209,18 @@ async function page(file, data) {
   assert.equal(submitted.get('menu_animations'), '0');
   assert.equal(submitted.get('text_size'), '3');
   assert.equal(element('toast').textContent, 'Inställningar sparade');
+  sandbox.fetch = async () => ({ok:true, json:async () => ({
+    wifi:{status:'connected', connected:true, hostname:'otr', bars:3},
+    clock:{epoch:1793282400, source:'NTP', certain:true},
+    battery:{supported:true, initialized:true, sample_valid:true, power_managed:true,
+      battery_connected:true, usb_present:true, charging:true, charge_done:false,
+      battery_mv:3980, gauge_percent:67},
+  })});
+  await vm.runInContext('status()', sandbox);
+  assert(element('battery-form').hidden);
+  assert(element('battery-full-form').hidden);
+  assert(element('battery-info').textContent.includes('AXP2101'));
+  assert(element('battery-info').textContent.includes('67%'));
 
   for (const file of fs.readdirSync('main/web').filter(name => name.endsWith('.html'))) {
     assert.match(fs.readFileSync(`main/web/${file}`, 'utf8'), /rel="icon"[^>]+href="\/favicon\.svg"/);

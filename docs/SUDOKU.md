@@ -12,18 +12,17 @@ immediately, including both cells in a conflicting pair. Check also marks
 entered digits that do not match the solution and ignores notes. Taps on fixed
 clues do nothing. In **Settings → Game → Sudoku**, choose a 0–8 px inactive
 border on every cell edge (default 2 px); the red illustration previews the
-centered active area and updates with the setting. Brief control hints appear
-when selecting a digit, notes, check, erase, undo/redo or pause. They overlay
-the game briefly instead of taking a permanent layout row; turn them off with
-**Show Sudoku help hints** in the same settings section.
+centered active area and updates with the setting. Control hints no longer
+overlay the keypad, and their settings switch has been removed.
 A keypad digit is grayed out when all nine copies are on the board.
 Tapping a cell with the currently selected digit toggles that entry off;
 replacing it with a different digit asks for confirmation. Solving the puzzle
 shows a randomly selected, animated encouragement over the board for 3.7
 seconds, followed by a prompt with Back on the left and Next on the right.
 Pause hides the board and stops the elapsed timer, including time since the
-last timer tick. If saving fails when leaving, the game stays open so the
-warning remains visible and the save can be retried.
+last timer tick. Save failures show a modal popup that stays until dismissed
+or a save succeeds. Repeated failures do not stack popups. If saving fails
+when leaving, the game stays open so saving can be retried.
 When placing a digit, matching notes are removed from its row, column and
 3×3 box. Puzzle number, difficulty and elapsed time are shown in a larger status
 line above the board. Undo and redo use curved back/forward arrows.
@@ -39,8 +38,12 @@ It does not erase other settings, puzzle files or SD index caches.
 Finishing unlocks the next puzzle in that difficulty. There is no hint solver
 or automatic candidate elimination.
 
-Portrait and landscape layouts adapt to S3/P4 screen sizes. The board uses the
-available portrait width, and the keypad is shorter on compact displays. A
+Portrait and landscape layouts adapt to S3/P4 screen sizes. Portrait keypad
+and tool buttons are at least 36 px tall on both 320×480 S3 profiles and 50 px
+on the 480×800 P4; landscape buttons are at least 48 px. Larger text can
+increase those heights further. The board uses the available width where
+height permits and otherwise shrinks in whole cells to keep all controls
+on screen. A
 back icon is in the game header; its title alternates between Sudoku and the
 current difficulty, puzzle number and time. The animated home icon is a
 miniature grid where a pencil note becomes a digit and other digits appear. It

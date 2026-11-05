@@ -296,10 +296,8 @@ void task(void *)
         else if (game.active && GameLive::started(game) && !GameLive::finished(game))
             activity = static_cast<unsigned>(game.gameType);
         const auto audio = Audio::status();
-        const auto battery = BoardBattery::status();
         uint16_t mv = 0;
-        if (battery.supported && battery.sampleValid && battery.adcCalibrated)
-            BatteryMath::batteryMillivolts(battery.adcMillivolts, cfg.batteryScalePermille, mv);
+        BoardBattery::voltageMillivolts(cfg.batteryScalePermille, mv);
         previous = {activity, !Backlight::sleeping(), MyWifi::connected(), audio.ampOn,
                     UiScreenPower::ecoSleeping(), Backlight::get(), cfg.sfxVol, cfg.musicVol, mv};
         const size_t free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);

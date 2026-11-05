@@ -39,9 +39,8 @@ uint32_t s_sdGeneration = UINT32_MAX;
 std::atomic<bool> s_sdScanRunning{false}, s_sdScanReady{false};
 char s_sdBlock[Sudoku::BLOCK_SIZE][Sudoku::CELL_COUNT + 1]{};
 uint32_t s_sdBlockDifficulty = UINT32_MAX, s_sdBlockNumber = UINT32_MAX, s_sdBlockCount = 0;
-lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_help = nullptr;
+lv_obj_t *s_board = nullptr, *s_info = nullptr, *s_saveDialog = nullptr;
 lv_obj_t *s_gameScreen = nullptr, *s_listScreen = nullptr;
-lv_timer_t *s_helpTimer = nullptr;
 lv_obj_t *s_digits[9]{}, *s_noteButton = nullptr, *s_eraseButton = nullptr, *s_pauseButton = nullptr;
 lv_obj_t *s_replaceDialog = nullptr, *s_cheer = nullptr, *s_winPrompt = nullptr, *s_winNext = nullptr;
 lv_obj_t *s_resetMessage = nullptr;
@@ -81,28 +80,33 @@ constexpr const char *SUDOKU_SYMBOL_REDO = "\xef\x8b\xb9";
 void startNew(unsigned difficulty);
 void showWinPrompt();
 
-void hideHelp(lv_timer_t *timer)
+void showSaveError()
 {
-    auto *label = static_cast<lv_obj_t *>(lv_timer_get_user_data(timer));
-    if (label && lv_obj_is_valid(label)) lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
-    lv_timer_pause(timer);
-}
-
-void showHelp(Str message, bool force = false)
-{
-    if (!s_help) return;
-    if (!force && !Config::get().sudokuHelpHints) {
-        lv_obj_add_flag(s_help, LV_OBJ_FLAG_HIDDEN);
-        if (s_helpTimer) lv_timer_pause(s_helpTimer);
-        return;
-    }
-    lv_label_set_text(s_help, tr(message));
-    lv_obj_clear_flag(s_help, LV_OBJ_FLAG_HIDDEN);
-    if (!s_helpTimer) s_helpTimer = lv_timer_create(hideHelp, 2200, s_help);
-    if (s_helpTimer) {
-        lv_timer_reset(s_helpTimer);
-        lv_timer_resume(s_helpTimer);
-    }
+    if (!s_gameScreen || s_saveDialog) return;
+    s_saveDialog = lv_obj_create(s_gameScreen);
+    lv_obj_remove_style_all(s_saveDialog);
+    lv_obj_set_size(s_saveDialog, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_saveDialog, Theme::c(Theme::BG), 0);
+    lv_obj_set_style_bg_opa(s_saveDialog, LV_OPA_80, 0);
+    lv_obj_add_flag(s_saveDialog, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_saveDialog, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_saveDialog, [](lv_event_t *event) {
+        if (lv_event_get_target(event) == lv_event_get_current_target(event) &&
+            lv_event_get_current_target_obj(event) == s_saveDialog)
+            s_saveDialog = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
+    auto *box = Theme::card(s_saveDialog, UiMetrics::screenW() - 40, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(box, UiMetrics::marginNormal(), 0);
+    lv_obj_center(box);
+    auto *message = Theme::label(box, tr(Str::SUDOKU_SAVE_FAILED), &my_font_14);
+    lv_obj_set_width(message, LV_PCT(100));
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    auto *ok = Theme::button(box, tr(Str::ADV_TALK_OK), LV_PCT(100),
+                             UiMetrics::buttonH(), Theme::ACCENT);
+    lv_obj_add_event_cb(ok, [](lv_event_t *) {
+        lv_obj_delete(s_saveDialog);
+    }, LV_EVENT_CLICKED, nullptr);
 }
 
 uint32_t available(unsigned difficulty)
@@ -362,11 +366,12 @@ void save()
     if (!h || !h.setBlob("game", &data, sizeof(data)) || !h.commit()) {
         ESP_LOGE("sudoku", "cannot save game");
         s_saveFailed = true;
-        showHelp(Str::SUDOKU_SAVE_FAILED, true);
+        showSaveError();
         return;
     }
     s_saveFailed = false;
     s_dirty = false;
+    if (s_saveDialog) lv_obj_delete(s_saveDialog);
 }
 
 bool restore()
@@ -486,7 +491,7 @@ void draw(lv_event_t *event)
             lv_draw_label_dsc_init(&d);
             d.text = text;
             d.text_local = true;
-            d.font = cell >= 42 ? &my_font_raw_32 : &my_font_raw_24;
+            d.font = MyFonts::fit(&my_font_24, cell - 4);
             d.color = Theme::c(s_game.fixed(i) ? 0x172339 : 0x1468A0);
             d.align = LV_TEXT_ALIGN_CENTER;
             lv_area_t a{x, y + (cell - d.font->line_height) / 2, x + cell - 1, y + cell - 1};
@@ -554,7 +559,6 @@ void refresh()
                  (unsigned long)(s_elapsed / 60000), (unsigned long)(s_elapsed / 1000 % 60));
     }
     lv_label_set_text(s_info, text);
-    if (s_saveFailed) showHelp(Str::SUDOKU_SAVE_FAILED, true);
     lv_obj_invalidate(s_board);
 }
 
@@ -677,31 +681,25 @@ void boardClick(lv_event_t *event)
 void tool(lv_event_t *event)
 {
     const auto action = static_cast<unsigned>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
-    Str hint = Str::SUDOKU_MODE_DIGIT;
     if (action == 5) {
         const uint32_t now = MySys::millis();
         if (!s_paused && !s_game.complete() && !Backlight::sleeping())
             s_elapsed += now - s_tick;
         s_paused = !s_paused;
-        hint = s_paused ? Str::SUDOKU_MODE_PAUSE : Str::SUDOKU_MODE_DIGIT;
         s_tick = now;
         s_dirty = true;
         save();
     } else if (!s_paused && !s_game.complete()) {
-        if (action == 0) { if (s_game.undo()) s_dirty = true; s_checked = false; hint = Str::SUDOKU_MODE_UNDO; }
-        if (action == 1) { if (s_game.redo()) s_dirty = true; s_checked = false; hint = Str::SUDOKU_MODE_REDO; }
-        if (action == 2) { s_checked = true; hint = Str::SUDOKU_MODE_CHECK; }
+        if (action == 0) { if (s_game.undo()) s_dirty = true; s_checked = false; }
+        if (action == 1) { if (s_game.redo()) s_dirty = true; s_checked = false; }
+        if (action == 2) { s_checked = true; }
         if (action == 3) {
             s_notes = !s_notes; s_erase = false;
-            hint = s_notes ? Str::SUDOKU_MODE_NOTES : Str::SUDOKU_MODE_DIGIT;
         }
         if (action == 4) {
             s_erase = !s_erase;
-            hint = s_erase ? Str::SUDOKU_MODE_ERASE :
-                   s_notes ? Str::SUDOKU_MODE_NOTES : Str::SUDOKU_MODE_DIGIT;
         }
     }
-    showHelp(hint);
     refresh();
 }
 
@@ -710,7 +708,6 @@ void digitClick(lv_event_t *event)
     s_digit = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
     s_erase = false;
     refresh();
-    showHelp(s_notes ? Str::SUDOKU_MODE_NOTES : Str::SUDOKU_MODE_DIGIT);
 }
 
 void tick(lv_timer_t *timer)
@@ -737,8 +734,9 @@ void play()
     const int w = UiMetrics::screenW(), h = UiMetrics::screenH();
     const int margin = 4, gap = 3;
     const bool landscape = w > h;
-    const int top = UiMetrics::titleH() + 4;
-    const int buttonH = landscape ? 42 : (h <= 500 ? 30 : 40);
+    const int top = LV_MAX(UiMetrics::titleH(), Theme::headerHeight()) + 4;
+    const int buttonH = LV_MAX(landscape ? 48 : (h <= 500 ? 36 : 50),
+                              my_font_24.line_height + 4);
     const int controlsH = 3 * buttonH + 2 * gap;
     int side = landscape ? h - top - 8 : h - top - controlsH - gap - margin;
     const int widthSide = (w - 2) / 9 * 9;
@@ -753,8 +751,8 @@ void play()
     lv_obj_set_pos(back, 6, 6);
     lv_obj_add_event_cb(back, [](lv_event_t *) { leave(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_pos(s_info, 44, 6);
-    lv_obj_set_size(s_info, LV_MAX(1, w - Theme::STATUS_BAR_RESERVED_WIDTH - 50), 32);
-    lv_obj_set_style_text_font(s_info, &my_font_raw_12, 0);
+    lv_obj_set_size(s_info, LV_MAX(1, w - Theme::statusReservedWidth() - 50), my_font_14.line_height);
+    lv_obj_set_style_text_font(s_info, &my_font_14, 0);
     lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
     s_board = lv_obj_create(screen);
     lv_obj_remove_style_all(s_board);
@@ -772,7 +770,7 @@ void play()
             const unsigned id = digit ? row * 3 + col : row + (col == 4 ? 3 : 0);
             char label[2] = {static_cast<char>('0' + id), 0};
             auto *b = Theme::button(screen, digit ? label : tools[id], buttonW, buttonH, Theme::LINE);
-            lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_raw_24, 0);
+            lv_obj_set_style_text_font(lv_obj_get_child(b, 0), &my_font_24, 0);
             lv_obj_set_pos(b, controlsX + col * (buttonW + gap), controlsY + row * (buttonH + gap));
             lv_obj_add_event_cb(b, digit ? digitClick : tool, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(id)));
             if (digit) s_digits[id - 1] = b;
@@ -781,18 +779,6 @@ void play()
             else if (id == 5) s_pauseButton = b;
         }
     }
-    s_help = Theme::label(screen, "", &my_font_raw_12, Theme::MUTED);
-    lv_obj_set_width(s_help, w - 16);
-    lv_obj_set_style_text_align(s_help, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_bg_color(s_help, Theme::c(Theme::PANEL), 0);
-    lv_obj_set_style_bg_opa(s_help, LV_OPA_90, 0);
-    lv_obj_set_style_radius(s_help, 8, 0);
-    lv_obj_set_style_pad_hor(s_help, 6, 0);
-    lv_obj_set_style_pad_ver(s_help, 4, 0);
-    lv_obj_align(s_help, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_add_flag(s_help, LV_OBJ_FLAG_FLOATING);
-    lv_obj_add_flag(s_help, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_long_mode(s_help, LV_LABEL_LONG_MODE_WRAP);
     s_tick = s_savedAt = MySys::millis();
     s_paused = false;
     auto *timer = lv_timer_create(tick, 1000, screen);
@@ -803,23 +789,17 @@ void play()
             if (lv_event_get_current_target_obj(event) == s_gameScreen) {
                 s_running = false;
                 save();
-                s_board = s_help = s_gameScreen = nullptr;
+                s_board = s_gameScreen = nullptr;
                 s_cheer = s_winPrompt = nullptr;
                 s_winNext = nullptr;
                 s_info = nullptr;
-                if (s_helpTimer) lv_timer_pause(s_helpTimer);
             }
             lv_timer_pause(timer);
         } else if (lv_event_get_code(event) == LV_EVENT_DELETE) {
             lv_timer_delete(timer);
-            if (s_helpTimer) {
-                lv_timer_delete(s_helpTimer);
-                s_helpTimer = nullptr;
-            }
         }
     }, LV_EVENT_ALL, timer);
     refresh();
-    showHelp(s_paused ? Str::SUDOKU_MODE_PAUSE : Str::SUDOKU_MODE_DIGIT);
     Theme::loadScreen(screen);
 }
 

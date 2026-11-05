@@ -123,6 +123,13 @@ static void diagDisplay(cJSON *o)
     cJSON_AddStringToObject(o, "bus", LCD_BUS_DESC);
     cJSON_AddNumberToObject(o, "width", LCD_H_RES);
     cJSON_AddNumberToObject(o, "height", LCD_V_RES);
+    const auto &profile = HwProfile::active();
+    cJSON_AddStringToObject(o, "board", profile.name);
+    cJSON_AddNumberToObject(o, "active_width_um", profile.displayActiveWidthUm);
+    cJSON_AddNumberToObject(o, "active_height_um", profile.displayActiveHeightUm);
+    cJSON_AddNumberToObject(o, "pixel_pitch_um", profile.pixelPitchYUm());
+    cJSON_AddNumberToObject(o, "ppi", profile.ppiY());
+    cJSON_AddBoolToObject(o, "physical_dimensions_estimated", true);
     cJSON_AddNumberToObject(o, "fps_x10", (int)(ds.fps * 10));
     cJSON_AddNumberToObject(o, "flushes", ds.flushes);
     cJSON_AddNumberToObject(o, "frames", ds.frames);
@@ -152,6 +159,8 @@ static void diagTouch(cJSON *o)
     char fw[24];
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
     snprintf(fw, sizeof(fw), "0x%04X (GT%.4s)", ti.fwVersion, (const char *)ti.fwRevision);
+#elif defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+    snprintf(fw, sizeof(fw), "not reported");
 #else
     snprintf(fw, sizeof(fw), "%u (%u.%u.%u.%u)", ti.fwVersion, ti.fwRevision[0], ti.fwRevision[1], ti.fwRevision[2],
              ti.fwRevision[3]);
@@ -275,17 +284,22 @@ static void diagBattery(cJSON *o)
     cJSON_AddBoolToObject(o, "initialized", s.initialized);
     cJSON_AddBoolToObject(o, "sample_valid", s.sampleValid);
     cJSON_AddBoolToObject(o, "adc_calibrated", s.adcCalibrated);
-    cJSON_AddNumberToObject(o, "raw_adc", s.sampleValid ? s.raw : -1);
+    cJSON_AddStringToObject(o, "source", s.powerManaged ? "AXP2101" : "ADC");
+    cJSON_AddBoolToObject(o, "power_managed", s.powerManaged);
+    cJSON_AddBoolToObject(o, "battery_connected", s.sampleValid && s.batteryConnected);
+    cJSON_AddBoolToObject(o, "usb_present", s.sampleValid && s.usbPresent);
+    cJSON_AddBoolToObject(o, "charging", s.sampleValid && s.charging);
+    cJSON_AddBoolToObject(o, "charge_done", s.sampleValid && s.chargeDone);
+    cJSON_AddNumberToObject(o, "gauge_percent", s.sampleValid && s.pmicPercentValid ? s.pmicPercent : -1);
+    cJSON_AddNumberToObject(o, "raw_adc", s.sampleValid && !s.powerManaged ? s.raw : -1);
     cJSON_AddNumberToObject(o, "adc_mv", s.adcCalibrated ? s.adcMillivolts : -1);
     cJSON_AddNumberToObject(o, "scale_permille", Config::get().batteryScalePermille);
     cJSON_AddNumberToObject(o, "full_reference_mv", Config::get().batteryFullMv);
     uint16_t batteryMv = 0;
-    const bool voltageValid = s.supported && s.sampleValid && s.adcCalibrated &&
-                              BatteryMath::batteryMillivolts(s.adcMillivolts, Config::get().batteryScalePermille,
-                                                             batteryMv);
+    const bool voltageValid = BoardBattery::voltageMillivolts(Config::get().batteryScalePermille, batteryMv);
     uint8_t percent = 0;
     const bool percentValid =
-        voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent);
+        !s.powerManaged && voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent);
     cJSON_AddNumberToObject(o, "battery_mv", voltageValid ? batteryMv : -1);
     cJSON_AddNumberToObject(o, "estimated_percent", percentValid ? percent : -1);
     cJSON_AddNumberToObject(o, "errors", s.errors);
@@ -395,6 +409,7 @@ static cJSON *configJson()
         cJSON_AddItemToArray(zones, item);
     }
     cJSON_AddNumberToObject(o, "text_size", c.textSize);
+    cJSON_AddNumberToObject(o, "screen_zoom", c.screenZoom);
     cJSON_AddNumberToObject(o, "text_size_max", maxTextSize());
     cJSON_AddNumberToObject(o, "led_brightness", c.ledBrightness);
     cJSON_AddBoolToObject(o, "led_enabled", c.ledEnabled);
@@ -444,6 +459,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         else next.screenOffSeconds = static_cast<uint16_t>(v);
     }
     if (q.getInt("text_size", 0, maxTextSize(), v, bad)) next.textSize = (uint8_t)v;
+    if (q.getInt("screen_zoom", 0, SCREEN_ZOOM_COUNT - 1, v, bad)) next.screenZoom = (uint8_t)v;
     if (q.getBool("eco_sleep", b)) next.ecoSleep = b;
     if (q.getBool("power_log", b)) next.powerLog = b;
     if (q.getBool("menu_animations", b)) next.menuAnimations = b;
@@ -460,6 +476,9 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
     if (q.getInt("sfx_vol", 0, 100, v, bad)) next.sfxVol = (uint8_t)v;
     if (q.getInt("master_vol", 0, 100, v, bad)) next.masterVol = (uint8_t)v;
     if (q.getInt("music_vol", 0, 100, v, bad)) next.musicVol = (uint8_t)v;
+    if (BoardBattery::status().powerManaged &&
+        (q.has("battery_scale_permille") || q.has("battery_full_mv") || q.has("battery_reference_mv")))
+        return MyWeb::sendError(r, 400, tr(Str::BATTERY_CALIBRATION_FAILED));
     if (q.getInt("battery_scale_permille", 0, BatteryMath::SCALE_MAX_PERMILLE, v, bad)) {
         if (!BatteryMath::validScale(static_cast<uint16_t>(v))) bad = true;
         else next.batteryScalePermille = static_cast<uint16_t>(v);
@@ -471,7 +490,7 @@ static esp_err_t handleConfigPost(httpd_req_t *r)
         if (q.getInt("battery_reference_mv", BatteryMath::BATTERY_MIN_MV, BatteryMath::BATTERY_MAX_MV, v, bad)) {
             const BoardBattery::Status bs = BoardBattery::status();
             uint16_t scale = 0;
-            if (!bs.supported || !bs.sampleValid || !bs.adcCalibrated ||
+            if (bs.powerManaged || !bs.supported || !bs.sampleValid || !bs.adcCalibrated ||
                 !BatteryMath::scaleFromReference(static_cast<int32_t>(v), bs.adcMillivolts, scale))
                 batteryCalibrationFailed = true;
             else

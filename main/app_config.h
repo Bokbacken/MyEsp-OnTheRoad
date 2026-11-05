@@ -24,6 +24,7 @@ struct AppConfig {
     bool powerLog;           // Five-minute usage/battery CSV on SD
     bool menuAnimations;     // Animated artwork on the home screen
     uint8_t textSize;        // 0 small, 1 normal (default), 2 large, 3 extra large (MyFonts::TextSize)
+    uint8_t screenZoom;      // 0 small (85%), 1 normal P4 physical size, 2 large (115%)
     uint8_t ledBrightness;   // RGB LED 0..255
     bool ledEnabled;
     uint8_t defaultVariant;  // 0 Yatzy, 1 Maxi, 2/3 ordered, 4 Midi, 5 Midi ordered
@@ -66,13 +67,14 @@ struct AppConfig {
     // Approximate battery-full point for the generic LiPo percentage curve (mV).
     uint16_t batteryFullMv;
     uint8_t sudokuDeadZone;    // Inactive edge width in pixels (0..8, default 2)
-    bool sudokuHelpHints;      // Show brief Sudoku control hints
+    bool sudokuHelpHints;      // Legacy persisted preference; control hints are no longer shown
 };
 
 // Joystick limits shared by the UI and the web API.
 constexpr uint16_t JOY_MS_MIN = 60, JOY_MS_MAX = 600, JOY_HOLD_MIN = 100, JOY_HOLD_MAX = 600;
 constexpr uint16_t SCREEN_OFF_SECONDS[] = {0, 30, 60, 120, 300, 600, 1800, 3600};
 constexpr uint8_t TEXT_SIZE_COUNT = 4, TEXT_SIZE_DEFAULT = 1;
+constexpr uint8_t SCREEN_ZOOM_COUNT = 3, SCREEN_ZOOM_DEFAULT = 1;
 constexpr uint8_t SUDOKU_DEAD_ZONE_MIN = 0, SUDOKU_DEAD_ZONE_MAX = 8, SUDOKU_DEAD_ZONE_DEFAULT = 2;
 
 namespace Config {

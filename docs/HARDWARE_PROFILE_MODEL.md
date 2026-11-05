@@ -39,6 +39,10 @@ not independent panel measurements or a newly verified manufacturer drawing:
 |---|---:|---:|---:|---:|
 | `ES3C35P` | 320 × 480 | 49.312 × 73.968 mm | about 154 µm | about 165 PPI |
 | `P4_43` | 480 × 800 | 56.208 × 93.680 mm | about 117 µm | about 217 PPI |
+| `S3_35B` | 320 × 480 | 49.312 × 73.968 mm | about 154 µm | about 165 PPI |
+
+`S3_35B` uses a nominal active area derived from a 3.5-inch 2:3 diagonal,
+not an independently verified measurement.
 
 These are approximate starting values, marked as such in the respective
 hardware references. Confirm them against an authoritative panel datasheet or
@@ -50,11 +54,29 @@ zero. PPI (pixels per inch) is the accurate display term; the colloquial
 "DPI" is often used for the same idea. These helpers report axis PPI, not
 LVGL's diagonal-DPI convention.
 
-The immediate purpose is to make the physical information available and
-testable. Existing `UiMetrics` still scales from logical resolution. Do not
-silently switch the entire UI to physical scaling: a later change should
-choose which dimensions benefit from density scaling, preserve usable touch
-targets, and verify both reference screens.
+`MyFonts::apply()` uses **P4's existing physical Normal sizes** as the reference:
+117 µm per pixel, with 18/24/32/48 px small/body/title/display fonts at Normal
+text size and Normal zoom. Screen zoom (85/100/115%) changes physical text,
+menu icons, spacing and controls; the independent text-size setting changes
+font roles further. Each panel selects the nearest generated font by its
+actual capital-A bitmap height, rather than its nominal pixel size.
+Existing P4 integer `UiMetrics` dimensions are the Normal geometry baseline;
+text containers can grow to avoid clipping. Old settings without `screen_zoom`
+migrate to Normal, independently of saved text size.
+
+Device changes apply on Save; Cancel preserves both choices. Web changes
+apply when returning to the device's main menu, not during an active game.
+Scrollable menus/results remain reachable at large settings. Game boards,
+joysticks and art stay fitted to available space rather than receiving a
+global magnification transform. Game and karaoke text uses physical font
+roles, including Sudoku digits (bounded by their fixed cells); adventure HUD
+rows reserve the selected line height before allocating the viewport canvas.
+Host checks compare actual capital-A bitmap heights (within 12% of the P4
+physical target across zoom/text combinations) across generated font
+steps and exercise boot, Wi-Fi, Sudoku, adventure, menu and karaoke
+layouts. Physical panel measurement and on-device readability checks remain
+necessary before promising exact millimetres. Smaller panels still cap text
+size at Large; P4 additionally offers Extra Large.
 
 For square visual assets, a future UI helper may calculate pixels for a
 target physical length from `pixelPitchXUm()`; horizontal and vertical

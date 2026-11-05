@@ -191,7 +191,12 @@ static void inside(lv_obj_t *o, lv_obj_t *parent, int line = __builtin_LINE()) {
 }
 static void fitsText(lv_obj_t *b, int line = __builtin_LINE()) {
     inside(lv_obj_get_child(b, 0), b, line);
-    assert(lv_obj_get_height(b) >= 42 && lv_obj_get_width(b) >= 44);
+    if (lv_obj_get_height(b) < UiMetrics::buttonH() || lv_obj_get_width(b) < MyFonts::p4Pixels(44))
+        fprintf(stderr,"small button line=%d text=%s actual=%dx%d min=%dx%d\n",line,
+                lv_label_get_text(lv_obj_get_child(b,0)),int(lv_obj_get_width(b)),int(lv_obj_get_height(b)),
+                int(MyFonts::p4Pixels(44)),int(UiMetrics::buttonH()));
+    assert(lv_obj_get_height(b) >= UiMetrics::buttonH() &&
+           lv_obj_get_width(b) >= MyFonts::p4Pixels(44));
 }
 static lv_obj_t *hit(lv_obj_t *b) {
     lv_area_t a; lv_obj_get_coords(b, &a);
@@ -234,7 +239,8 @@ static void makeLyrics(const char *word) {
 static void checkBattery(lv_obj_t *battery) {
     auto *body = lv_obj_get_child(battery, 0);
     auto *percent = lv_obj_get_child(body, 0);
-    assert(lv_obj_get_width(battery) == Theme::BATTERY_STATUS_WIDTH && lv_obj_get_height(battery) == 32);
+    assert(lv_obj_get_width(battery) == Theme::batteryStatusWidth() &&
+           lv_obj_get_height(battery) == Theme::statusControlSize());
     assert(lv_obj_get_child_count(battery) == 2 && lv_obj_get_child_count(body) == 1);
     for (unsigned value : {0, 4, 5, 9, 10, 30, 31, 50, 100, 101}) {
         batterySample = {true, uint8_t(value)};
@@ -330,7 +336,7 @@ static void checkDrawnVolumeKnob() {
 static void checkPlayer() {
     const auto l = layout();
     assert(P.scr == lv_screen_active());
-    assert(l.lyricsH >= 150 && (l.w != 800 || l.lyricsH >= 290));
+    assert(l.lyricsH >= my_font_24.line_height * 2);
     assert(l.visibleLines == KaraokeLayout::visibleLyricLines(l.w, l.lyricsH, my_font_24.line_height, l.gap));
     inside(P.lyrics, P.scr);
     assert((int)P.before.size() + (int)P.after.size() + 1 == l.visibleLines);
@@ -571,22 +577,30 @@ int main(int argc, char **) {
     auto *display = lv_display_create(320,480);
     if (argc > 1) {
         for (auto size : {lv_point_t{320,480}, lv_point_t{480,800}})
+            for (int zoom = 0; zoom < 3; ++zoom)
+            for (int text = 0; text <= (int)MyFonts::maxFor(size.x); ++text)
             for (bool flip : {false,true}) for (const char *language : {"sv","en"}) {
                 lv_display_set_rotation(display, LV_DISPLAY_ROTATION_0);
                 lv_display_set_resolution(display, size.x, size.y);
                 Lang::setLang(language);
                 Config::get().soundOn = true; Config::get().karaFlip = flip;
+                MyFonts::apply((MyFonts::TextSize)text,size.x,size.x>=480 ? 117 : 154,
+                               (MyFonts::ScreenZoom)zoom);
                 checkPlainSheet();
             }
         puts("Scrollable plain lyrics: first line reachable and vertical scrolling on S3/P4 layouts passed");
         return 0;
     }
     for (auto size : {lv_point_t{320,480}, lv_point_t{480,800}}) {
+        for (int zoom = 0; zoom < 3; ++zoom)
+        for (int text = 0; text <= (int)MyFonts::maxFor(size.x); ++text)
         for (bool flip : {false,true}) for (const char *language : {"sv","en"}) {
             lv_display_set_rotation(display, LV_DISPLAY_ROTATION_0);
             lv_display_set_resolution(display, size.x, size.y);
             Lang::setLang(language);
             Config::get().soundOn = true; Config::get().karaFlip = flip;
+            MyFonts::apply((MyFonts::TextSize)text,size.x,size.x>=480 ? 117 : 154,
+                           (MyFonts::ScreenZoom)zoom);
             Karaoke::library.clear();
             for (int i = 0; i < 1521; ++i) {
                 char path[80], artist[40];
@@ -746,8 +760,8 @@ add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB
  LV_MEM_SIZE=262144 LV_USE_ASSERT_MALLOC=1)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp
- "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
-  
+ "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_10.c" "{ROOT}/components/my_ui/fonts/my_font_raw_26.c" "{ROOT}/components/my_ui/fonts/my_font_raw_64.c" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" "{ROOT}/components/my_ui/fonts/my_font_raw_48.c" "{ROOT}/components/my_ui/fonts/my_font_raw_52.c" "{ROOT}/components/my_ui/fonts/my_font_raw_56.c" "{ROOT}/components/my_ui/fonts/my_font_raw_60.c"
+
  "{ROOT}/components/my_ui/my_textinput.cpp" "{ROOT}/components/my_ui/my_charwheel.cpp"
  "{ROOT}/main/kara_index.cpp" "{ROOT}/components/otr_midi/otr_midi.cpp" "{ROOT}/components/otr_midi/otr_midi_gm.cpp"
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp"

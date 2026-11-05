@@ -8,6 +8,18 @@ on:
         description: Build C6 radio firmware too
         type: boolean
         default: false
+      build_waveshare_factory:
+        description: Build Waveshare's ESP-IDF factory touch test
+        type: boolean
+        default: false
+      waveshare_ref:
+        description: Waveshare repository ref for the factory test
+        type: string
+        default: main
+      waveshare_touch_trace:
+        description: Buffer raw factory touch reads; Refresh dumps them to serial
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,6 +30,90 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  build-waveshare-factory:
+    name: Build Waveshare factory test
+    if: github.event_name == 'workflow_dispatch' && inputs.build_waveshare_factory
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout trace tooling
+        if: inputs.waveshare_touch_trace
+        uses: actions/checkout@v4
+        with:
+          path: trace-tools
+          persist-credentials: false
+
+      - name: Checkout Waveshare example
+        uses: actions/checkout@v4
+        with:
+          repository: waveshareteam/ESP32-S3-Touch-LCD-3.5B
+          ref: ${{ inputs.waveshare_ref }}
+          path: waveshare
+          persist-credentials: false
+
+      - name: Record source revision
+        id: source
+        run: echo "sha=$(git -C waveshare rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Instrument factory touch reads
+        if: inputs.waveshare_touch_trace
+        run: |
+          python3 -m unittest discover -s trace-tools/tests -p test_instrument_waveshare_touch.py
+          python3 trace-tools/tools/instrument_waveshare_touch.py waveshare/examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c waveshare/examples/esp-idf/01_factory/main/drawing_screen.c
+
+      - name: Build ESP-IDF factory example
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          command: |
+            set -eu
+            cd waveshare/examples/esp-idf/01_factory
+            idf.py --version
+            idf.py set-target esp32s3
+            idf.py build
+            mkdir -p webflash
+            idf.py merge-bin -o merged.bin
+            cp build/flasher_args.json webflash/flash_args.json
+            cp build/*.bin webflash/
+            test -s webflash/merged.bin
+            cat > webflash/README.txt <<'EOF'
+            Waveshare ESP32-S3-Touch-LCD-3.5B factory example
+
+            merged.bin is the complete ESP-IDF image merged for flashing at offset 0x0.
+            In a browser flasher that accepts a local binary, select merged.bin and use
+            flash address 0x0. Do not select merged.bin as an application-only image.
+
+            The build was made from the Waveshare ESP-IDF factory example, not from
+            MyEsp-OnTheRoad. After testing, restore the normal application by flashing
+            its firmware image.
+            EOF
+            echo "Waveshare source commit: ${{ steps.source.outputs.sha }}" >> webflash/README.txt
+            echo "Buffered touch trace enabled: ${{ inputs.waveshare_touch_trace }}" >> webflash/README.txt
+            cp components/esp_bsp/bsp_touch.c webflash/bsp_touch.c
+            cp main/drawing_screen.c webflash/drawing_screen.c
+            python3 - <<'PY'
+            import json
+            with open("webflash/manifest.json", "w", encoding="utf-8") as f:
+                json.dump({
+                    "name": "Waveshare ESP32-S3 Touch LCD 3.5B factory test",
+                    "version": "0.1",
+                    "builds": [{
+                        "chipFamily": "ESP32-S3",
+                        "parts": [{"path": "merged.bin", "offset": 0}]
+                    }]
+                }, f, indent=2)
+                f.write("\n")
+            PY
+
+      - name: Upload web flasher package
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-3.5b-factory${{ inputs.waveshare_touch_trace && '-touch-trace' || '' }}-webflash-${{ steps.source.outputs.sha }}
+          path: waveshare/examples/esp-idf/01_factory/webflash/
+          if-no-files-found: error
+          retention-days: 30
+
   changes:
     name: Select required builds
     runs-on: ubuntu-latest
@@ -71,10 +167,14 @@ jobs:
           esp_idf_version: ${{ needs.changes.outputs.c6_idf }}
           target: esp32c6
           command: |
+            set -eu
             cd esp_hosted/examples/ota/coprocessor_ota/cp
             idf.py --version
             idf.py set-target esp32c6
             idf.py build
+            grep -qx 'CONFIG_ESP_HOSTED_CP=y' sdkconfig
+            grep -qx 'CONFIG_ESP_HOSTED_CP_FEAT_WIFI=y' sdkconfig
+            test "$(stat -c %s build/eh_cp_ota_coprocessor_ota.bin)" -le $((0x1C0000))
             cp build/eh_cp_ota_coprocessor_ota.bin build/host_fw.bin
 
       - name: Upload C6 Host firmware
@@ -85,10 +185,11 @@ jobs:
             esp_hosted/examples/ota/coprocessor_ota/cp/build/host_fw.bin
             esp_hosted/examples/ota/coprocessor_ota/cp/build/eh_cp_ota_coprocessor_ota.elf
             esp_hosted/examples/ota/coprocessor_ota/cp/build/partition_table/partition-table.bin
+            esp_hosted/examples/ota/coprocessor_ota/cp/sdkconfig
           if-no-files-found: error
 
   build:
-    name: build-${{ matrix.target }}
+    name: build-${{ matrix.board }}
     needs: changes
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.firmware == 'true')
     runs-on: ubuntu-latest
@@ -98,11 +199,20 @@ jobs:
       matrix:
         include:
           - board: es3c35p
+            identity: ES3C35P
             target: esp32s3
             label: ""
+            defaults: "sdkconfig.defaults;sdkconfig.defaults.esp32s3"
           - board: p4-43
+            identity: P4_43
             target: esp32p4
             label: "-unverified"
+            defaults: "sdkconfig.defaults;sdkconfig.defaults.esp32p4"
+          - board: s3-35b
+            identity: S3_35B
+            target: esp32s3
+            label: "-unverified"
+            defaults: "sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.defaults.s3-35b"
 
     steps:
       - name: Require successful build selection
@@ -116,13 +226,17 @@ jobs:
           persist-credentials: false
 
       - name: Test release tooling (no publication)
-        if: matrix.target == 'esp32s3'
+        if: matrix.board == 'es3c35p'
         run: python3 -m unittest discover -s tests -p test_firmware_release.py
 
       - name: Test board peripherals (host)
-        if: matrix.target == 'esp32s3'
+        if: matrix.board == 'es3c35p'
         run: |
           python3 tests/test_board_peripherals.py
+          python3 tests/test_board_power_math.py
+          python3 tests/test_s3_35b_board_power.py
+          python3 tests/test_i2c_pacing.py
+          python3 tests/test_rtc_pcf85063.py
           python3 -m unittest discover -s tests -p test_idf_spi_fix.py
           python3 tests/test_sd_log_diagnostics.py
           python3 tests/test_sd_clock.py
@@ -195,18 +309,26 @@ jobs:
           esp_idf_version: v6.1
           target: ${{ matrix.target }}
           command: |
+            set -eu
             idf.py --version
-            idf.py set-target ${{ matrix.target }}
+            idf.py -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}" set-target ${{ matrix.target }}
+            if [ "${{ matrix.board }}" = s3-35b ]; then
+              grep -qx 'CONFIG_OTR_HW_PROFILE_S3_35B=y' sdkconfig
+              grep -qx "# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set" sdkconfig
+            fi
             grep -qx 'CONFIG_LOG_DEFAULT_LEVEL=3' sdkconfig
             grep -qx 'CONFIG_LOG_MAXIMUM_LEVEL=4' sdkconfig
             grep -qx 'CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y' sdkconfig
             idf.py build
+            python3 tools/check_firmware_board.py build/MyEsp_OnTheRoad.bin ${{ matrix.identity }}
             idf.py merge-bin -o merged.bin
 
-      - name: Test Sudoku and menu layouts (host LVGL)
-        if: matrix.target == 'esp32s3'
+      - name: Test display, touch and UI layouts (host LVGL)
+        if: matrix.board == 'es3c35p'
         run: |
+          python3 tests/test_s3_35b_display_touch.py
           python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
+          python3 tests/test_adv_game_layout.py /tmp/adventure-layout
           python3 tests/test_yatzy_layout.py /tmp/menu-layout
           python3 tests/test_karaoke_layout.py /tmp/karaoke-layout
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_karaoke_geometry.cpp -o /tmp/test_karaoke_geometry
@@ -216,7 +338,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.target }}-v${{ steps.firmware.outputs.version }}${{ matrix.label }}
+          name: firmware-${{ matrix.target }}-${{ matrix.board }}-v${{ steps.firmware.outputs.version }}${{ matrix.label }}
           path: |
             build/merged.bin
             build/*.bin

@@ -207,6 +207,10 @@ static void checkKeys() {
     assert(!strcmp(lv_label_get_text(s_flashLvl),"3") && !strcmp(lv_label_get_text(s_pogoLvl),"3"));
     const auto suction=AdvUi::gameBounds(s_item[H_SUCTION]);
     assert(!hidden(s_item[H_SUCTION]) && contains(s_layout.controls,suction));
+    if (!separate(strip,suction) || !separate(items,suction))
+        fprintf(stderr,"items %d,%d %dx%d suction %d,%d %dx%d keys %d,%d %dx%d font=%d\n",
+                items.x,items.y,items.w,items.h,suction.x,suction.y,suction.w,suction.h,
+                strip.x,strip.y,strip.w,strip.h,my_font_14.line_height);
     assert(separate(strip,suction) && separate(items,suction));
     for (auto *level : {s_flashLvl,s_pogoLvl}) {
         assert(lv_obj_get_style_text_font(level,LV_PART_MAIN)==&my_font_14);
@@ -321,13 +325,18 @@ int main() {
     lv_indev_set_read_cb(indev, [](lv_indev_t *, lv_indev_data_t *data) { data->point = pointer; data->state = state; });
     for (auto size : {lv_point_t{320, 480}, lv_point_t{480, 800}, lv_point_t{481, 801}}) {
         lv_display_set_resolution(display, size.x, size.y);
+        for (int zoom=0;zoom<3;++zoom)
+        for (int text=0;text<=(int)MyFonts::maxFor(size.x);++text)
         for (const char *language : {"sv","en"}) for (int visit = 0; visit < 2; ++visit) {
+            MyFonts::apply((MyFonts::TextSize)text,size.x,size.x>=480 ? 117 : 154,
+                           (MyFonts::ScreenZoom)zoom);
             assert(Lang::setLang(language));
             const bool mine = visit != 0;
             const char *map[]={"S."};
             auto rules=Otr::CLASSIC_RULES; rules.mineLevel=mine ? 1 : 0;
             assert(world.load(Otr::MapDef{90,map,1,rules,nullptr,0,nullptr,0,nullptr,0,7}));
-            s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH());
+            s_layout = Game::layout(UiMetrics::screenW(), UiMetrics::screenH(),
+                                    LV_MAX(Game::HUD_HEIGHT,2*my_font_14.line_height+12));
             const auto stride = lv_draw_buf_width_to_stride(s_layout.view.w, LV_COLOR_FORMAT_RGB565);
             s_fbStride = stride / sizeof(uint16_t);
             std::vector<uint16_t> frame(Game::frameBytes(stride, s_layout.view.h) / sizeof(uint16_t));
@@ -338,8 +347,8 @@ int main() {
             lv_obj_update_layout(s_scr);
             auto root = AdvUi::gameBounds(s_gameRoot), canvas = AdvUi::gameBounds(s_canvas);
             assert(root.x == 0 && root.y == 0 && root.w == size.x && root.h == size.y);
-            assert(canvas.x == 0 && canvas.y == Game::HUD_HEIGHT && canvas.w == size.x &&
-                   canvas.h == size.y - size.x / 2 - Game::HUD_HEIGHT);
+            assert(canvas.x == 0 && canvas.y == s_layout.hud.h && canvas.w == size.x &&
+                   canvas.h == size.y - size.x / 2 - s_layout.hud.h);
             const auto *drawBuffer = lv_canvas_get_draw_buf(s_canvas);
             assert(drawBuffer->header.stride == stride && drawBuffer->data == reinterpret_cast<uint8_t *>(s_fb));
             auto stage = AdvUi::gameBounds(s_stageLabel);
@@ -355,14 +364,14 @@ int main() {
             lv_label_set_text(s_progressLabel, "Steps:2147483647  Par:2147483647");
             lv_obj_update_layout(s_scr);
             auto progress = AdvUi::gameBounds(s_progressLabel);
-            assert(progress.x == 4 && progress.y == 24);
+            assert(progress.x == 4 && progress.y == my_font_14.line_height + 8);
             assert(contains(hud, progress) && separate(progress, canvas));
             assert(lv_obj_get_y(s_stageLabel) + lv_obj_get_height(s_stageLabel) <= progress.y);
             lv_obj_set_hidden(s_timerLabel, false);
             lv_label_set_text(s_timerLabel, "Gate steps: 0:65535 A:0 Z:65535");
             lv_obj_update_layout(s_scr);
             const auto timer = AdvUi::gameBounds(s_timerLabel);
-            assert(timer.x == size.x / 2 + 2 && timer.y == 24);
+            assert(timer.x == size.x / 2 + 2 && timer.y == my_font_14.line_height + 8);
             assert(contains(hud, timer) && separate(timer, canvas) && separate(progress, timer));
             assert(lv_label_get_long_mode(s_timerLabel) == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
             assert(lv_obj_get_parent(s_toast) == s_gameRoot);
@@ -378,17 +387,18 @@ int main() {
             lv_obj_get_content_coords(controlPanel, &content);
             const int rightX = s_layout.joystick.x + s_layout.joystick.w;
             assert(action.x == rightX && action.w == size.x - rightX - px(4));
-            assert(action.y == content.y1 + px(mine ? 8 : 28));
-            assert(action.h == px(mine ? 56 : 36));
+            assert(action.y >= content.y1 + px(4));
+            assert(action.h >= my_font_18.line_height + 4);
+            assert(action.y + action.h <= AdvUi::gameBounds(s_bar).y);
             auto *menu = lv_obj_get_child(controlPanel, 1);
             assert(lv_obj_get_x(menu) == px(4) && lv_obj_get_y(menu) == controlBounds.h - px(48));
             assert(lv_obj_get_width(menu) == px(36) && lv_obj_get_height(menu) == px(40));
             assert(lv_obj_get_x(s_muteBtn) == px(43) && lv_obj_get_height(s_muteBtn) == px(40));
-            assert(lv_obj_get_y(s_bar) == px(74) && lv_obj_get_height(s_bar) == px(18));
+            assert(lv_obj_get_height(s_bar) >= my_font_14.line_height + 2);
             assert(lv_obj_get_parent(s_bombCancel) == controlPanel);
             assert(lv_obj_get_x(s_bombCancel) == rightX && lv_obj_get_y(s_bombCancel) == px(106));
             assert(lv_obj_get_height(s_bombCancel) == px(36));
-            assert(!s_swapBtn || lv_obj_get_height(s_swapBtn) == px(18));
+            assert(!s_swapBtn || lv_obj_get_height(s_swapBtn) >= my_font_14.line_height + 4);
             checkPad(indev);
             talkBuild();
             lv_obj_update_layout(s_scr);
@@ -426,7 +436,7 @@ int main() {
             lv_obj_delete(blank);
         }
     }
-    assert(deletions == 12);
+    assert(deletions == 132);
     lv_indev_delete(indev);
     lv_display_delete(display);
     lv_deinit();
@@ -458,7 +468,8 @@ set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_DPI_DEF=130 LV_USE_LODEPNG=1)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
-add_executable(layout test.cpp "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" 
+add_executable(layout test.cpp "{ROOT}/components/my_ui/my_fonts.cpp" "{ROOT}/components/my_ui/fonts/my_font_raw_12.c" "{ROOT}/components/my_ui/fonts/my_font_raw_14.c" "{ROOT}/components/my_ui/fonts/my_font_raw_16.c" "{ROOT}/components/my_ui/fonts/my_font_raw_18.c" "{ROOT}/components/my_ui/fonts/my_font_raw_20.c" "{ROOT}/components/my_ui/fonts/my_font_raw_22.c" "{ROOT}/components/my_ui/fonts/my_font_raw_24.c" "{ROOT}/components/my_ui/fonts/my_font_raw_28.c" "{ROOT}/components/my_ui/fonts/my_font_raw_32.c" "{ROOT}/components/my_ui/fonts/my_font_raw_36.c" "{ROOT}/components/my_ui/fonts/my_font_raw_40.c" "{ROOT}/components/my_ui/fonts/my_font_raw_44.c" "{ROOT}/components/my_ui/fonts/my_font_raw_48.c" "{ROOT}/components/my_ui/fonts/my_font_raw_52.c" "{ROOT}/components/my_ui/fonts/my_font_raw_56.c" "{ROOT}/components/my_ui/fonts/my_font_raw_60.c"
+ "{ROOT}/components/my_ui/fonts/my_font_raw_10.c" "{ROOT}/components/my_ui/fonts/my_font_raw_26.c" "{ROOT}/components/my_ui/fonts/my_font_raw_64.c"
  "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp" "{ROOT}/main/adv_resource_art.cpp"
  "{ROOT}/components/otr_engine/otr_world.cpp" "{ROOT}/main/lang/lang.cpp"
  "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")

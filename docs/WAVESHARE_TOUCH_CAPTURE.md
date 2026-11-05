@@ -1,0 +1,75 @@
+# Waveshare factory touch capture
+
+## Application comparison: v0.25.1 and later
+
+Normal builds disable `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS` from v0.25.13.
+The owner accepted the shared touch/PWR task after testing v0.25.9-v0.25.10.
+Enable this option explicitly only if investigating a new regression.
+Capture no longer bypasses the movement/read-error click filter.
+Current dumps include all 14 bytes; v0.25.9-v0.25.12 read 14 but accidentally
+printed only the first eight, so those logs cannot validate report tails.
+
+The S3_35B application diagnostic build records the same raw fields, without
+live touch-event/sample logs. Reset with serial logging open at 115200 baud.
+The `touch_raw: ARMED` message precedes recording. First valid contact starts the 512-read capture, including that triggering
+report: hold still for two seconds, drag slowly and release.
+Wait for `touch_raw: END capture` and save the complete log. This is automatic,
+not triggered by the application's clear-log button. Reset to repeat.
+Dumping briefly pauses input after measurement. Other application module logs
+remain enabled. Transport success in this trace does not imply a valid report.
+
+`dt_us` measures the synchronous call's elapsed time, not pure on-wire bus
+occupancy. From v0.25.4 it also includes any wait for the application's shared
+bus mutex and 100 us inter-transaction gap. Through v0.25.8 touch was polled
+at a 30 ms minimum and PWR at 100 ms (109 ms in v0.25.7-v0.25.8). In v0.25.9
+one task samples touch every 20 ms and checks PWR after every fifth touch
+sample, nominally 100 ms. An idle bus does not necessarily incur the extra
+100 us: only the unelapsed portion is waited.
+
+From v0.25.5 through v0.25.8 the application requested and recorded 8-byte
+single-point reports instead of 14-byte reports. In v0.25.9 it restores the
+14-byte, two-point report. The factory capture below also uses 14-byte reports.
+Compare malformed starts and contact continuity as well as parser errors.
+
+From v0.25.6 the same 8-byte request uses separate command and receive
+transfers with STOP between. The shared mutex covers both transfers, and
+the minimum 100 us gap also applies between them. `dt_us` includes both
+transfers, the intervening gap and any initial mutex/pacing wait.
+
+In v0.25.8 raw capture paused TCA reads. From v0.25.9 touch is
+sampled first every 20 ms, followed by a TCA9554 read every fifth pass. Thus
+the trace captures touch/PWR interleaving under this shared-task cadence, not
+an isolated touch-only bus. The trigger report is the first captured sample.
+
+## Factory comparison
+
+The optional `waveshare_touch_trace` input to the manual firmware workflow
+instruments `examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c`.
+The original I2C command, clock, timeout, report parsing and LVGL handling
+are unchanged. The artifact includes the instrumented source and upstream SHA.
+The instrumentation adds the BSP's explicit `esp_timer` build dependency for
+timestamp collection.
+
+The most recent 512 reads are continuously saved in a RAM ring buffer, including
+empty reports and transport errors. Pressing the drawing screen's Refresh/clear
+button prints the buffer in chronological order as `touch_raw` lines and empties
+it for the next measurement. The button still clears the canvas. Each line includes the read
+start time since boot (`t_us`), I2C transaction duration (`dt_us`), transport
+result and all 14 bytes. Bytes on failed transfers are not valid touch data.
+There is a small RAM/timestamp overhead during capture, but no per-sample
+serial output until Refresh is pressed. Dumping can briefly pause the UI.
+
+1. Back up application data before replacing the partition table.
+2. Flash the trace artifact's `merged.bin` at `0x0` using USB.
+3. Keep the factory example's required FAT32 SD card inserted.
+4. Open serial logging at 115200 baud and reset, keeping fingers off the screen.
+5. Hold a finger still for about two seconds, drag slowly, then release.
+   Promptly press Refresh/clear to dump the recent reads. Wait until
+   `touch_raw: END capture` appears and save the complete log. Older reads
+   are overwritten after 512 new reads; the time window depends on polling rate.
+6. Repeat and press Refresh again for another capture. The capture is not written to SD and cannot be downloaded
+   through the normal application's web log page.
+
+This is a diagnostic build of the factory example, not controller firmware
+and not an application OTA image. Restoring MyEsp-OnTheRoad requires its
+S3 3.5B merged image over USB because the partition layouts differ.

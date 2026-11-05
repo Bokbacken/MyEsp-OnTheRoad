@@ -108,6 +108,14 @@
     <legend>Display och LED</legend>
     <label for="brightness">Skärmljusstyrka: <b id="brightness-val">–</b> %</label>
     <input type="range" id="brightness" name="brightness" min="5" max="100" step="1">
+    <label for="screen_zoom">Skärmzoom på enheten</label>
+    <select id="screen_zoom" name="screen_zoom">
+      <option value="0">Liten (85 %)</option>
+      <option value="1">Normal (100 %)</option>
+      <option value="2">Stor (115 %)</option>
+    </select>
+    <p class="muted">Zoom ändrar menyer, kontroller och text med P4:s fysiska Normal-storlek som referens.
+      Spelplaner anpassas till skärmen. Textstorlek nedan justerar texten separat, även i spel och karaoke.</p>
     <label for="text_size">Textstorlek på enheten</label>
     <select id="text_size" name="text_size">
       <option value="0">Liten</option>
@@ -344,6 +352,7 @@ function fill(c) {
   $('menu_animations').checked = c.menu_animations !== false;
   for (const o of $('text_size').options) o.hidden = o.disabled = Number(o.value) > (c.text_size_max ?? 2);
   $('text_size').value = c.text_size ?? 1;
+  $('screen_zoom').value = c.screen_zoom ?? 1;
   if (c.rotation !== undefined) $('rotation').value = c.rotation;
   $('led_brightness').value = c.led_brightness; updL();
   $('led_enabled').checked = c.led_enabled;
@@ -397,8 +406,16 @@ async function status() {
     }
     if (info.battery) {
       const b = info.battery;
+      $('battery-form').hidden = !!b.power_managed;
+      $('battery-full-form').hidden = !!b.power_managed;
       $('battery-info').textContent = !b.supported ? 'Mätning saknas på detta kort' :
-        !b.sample_valid ? 'Väntar på giltig ADC-mätning' :
+        !b.initialized ? 'Batterimätningen kunde inte startas' :
+        !b.sample_valid ? 'Väntar på giltig batterimätning' :
+        b.power_managed ? 'AXP2101 · ' + (b.battery_connected ?
+          'batteri ' + (b.battery_mv >= 0 ? b.battery_mv + ' mV' : 'okänd spänning') :
+          'inget batteri') + ' · USB ' + (b.usb_present ? 'ansluten' : 'frånkopplad') +
+          ' · laddar ' + (b.charging ? 'ja' : 'nej') + ' · laddning klar ' + (b.charge_done ? 'ja' : 'nej') +
+          ' · batterimätare ' + (b.gauge_percent >= 0 ? b.gauge_percent + '%' : 'okänd') :
         'ADC ' + b.raw_adc + (b.adc_calibrated ? ' · ' + b.adc_mv + ' mV' : ' · fabrikskalibrering saknas') +
         (b.battery_mv >= 0 ? ' · batteri ' + b.battery_mv + ' mV · ungefär ' + b.estimated_percent + '%' :
           ' · batterispänning okänd · skala ' + b.scale_permille + ' ‰') +
@@ -590,6 +607,7 @@ $('cfg-form').addEventListener('submit', async e => {
     power_log: $('power_log').checked ? '1' : '0',
     menu_animations: $('menu_animations').checked ? '1' : '0',
     text_size: $('text_size').value,
+    screen_zoom: $('screen_zoom').value,
     rotation: $('rotation').value,
     led_brightness: $('led_brightness').value,
     led_enabled: $('led_enabled').checked ? '1' : '0',

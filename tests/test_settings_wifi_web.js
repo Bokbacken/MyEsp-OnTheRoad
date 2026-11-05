@@ -71,5 +71,28 @@ class Element {
 
   const scan = script.slice(script.indexOf('async function scan()'));
   assert.match(scan, /await loadNets\(\)/, 'an authenticated scan refreshes the saved network data');
+  const fillSizes = script.slice(script.indexOf("  for (const o of $('text_size').options)"),
+                                script.indexOf('  if (c.rotation !== undefined)'));
+  const dataStart = script.indexOf('  const data = {', script.indexOf("$('cfg-form').addEventListener"));
+  const dataEnd = script.indexOf('\n  };', dataStart) + '\n  };'.length;
+  for (let zoom = 0; zoom < 3; ++zoom) {
+    for (let text = 0; text < 4; ++text) {
+      sandbox.$('text_size').options = [0, 1, 2, 3].map(value => ({value}));
+      sandbox.c = {text_size: text, screen_zoom: zoom, text_size_max: 3};
+      vm.runInContext(fillSizes, sandbox);
+      assert.equal(sandbox.$('text_size').value, text);
+      assert.equal(sandbox.$('screen_zoom').value, zoom);
+      sandbox.$('tz').value = 'UTC0';
+      sandbox.host = 'ontheroad';
+      const payload = vm.runInContext(`(() => { ${script.slice(dataStart, dataEnd)} return data; })()`, sandbox);
+      assert.equal(payload.text_size, text);
+      assert.equal(payload.screen_zoom, zoom);
+    }
+  }
+  sandbox.c = {};
+  vm.runInContext(fillSizes, sandbox);
+  assert.equal(sandbox.$('text_size').value, 1);
+  assert.equal(sandbox.$('screen_zoom').value, 1);
   console.log('Saved Wi-Fi networks: PIN-gated loading can be retried after cancel or rejection');
+  console.log('Text size and screen zoom: independent load/save values and Normal migration');
 })().catch(error => { console.error(error); process.exitCode = 1; });

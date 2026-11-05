@@ -3,6 +3,7 @@
 #include "app_config.h"
 #include "board_backlight.h"
 #include "board_display.h"
+#include "board_power.h"
 #include "my_lvgl.h"
 #include "my_ota.h"
 #include "my_sys.h"
@@ -18,12 +19,16 @@
 #include <atomic>
 
 namespace {
+constexpr uint32_t POWER_OFF_WAIT_MS = 30000;
 uint32_t s_lastActivity = 0;
 uint32_t s_wakeAt = 0;
 bool s_blockTouch = false;
 std::atomic<bool> s_eco{false};
 bool s_wakePending = false;
 uint32_t s_wakeRetryAt = 0;
+bool s_powerOffPending = false;
+uint32_t s_powerOffStarted = 0;
+UiScreenPower::PowerMessageHandler s_powerMessageHandler = nullptr;
 
 bool ecoBlocked()
 {
@@ -75,10 +80,46 @@ bool filterPointer(bool pressed)
     return pressed;
 }
 
+void handlePowerOffRequest(uint32_t now)
+{
+    const BoardPower::Status power = BoardPower::status();
+    if (!power.powerOffRequested) {
+        s_powerOffPending = false;
+        return;
+    }
+
+    if (!s_powerOffPending) {
+        s_powerOffPending = true;
+        s_powerOffStarted = now;
+        ESP_LOGI("screen", "shutdown requested; waiting for OTA/file operations/formatting");
+    }
+
+    if (MyOta::busy() || AppWebFiles::busy()) {
+        if (now - s_powerOffStarted < POWER_OFF_WAIT_MS) return;
+        BoardPower::cancelPowerOff();
+        s_powerOffPending = false;
+        ESP_LOGW("screen", "shutdown canceled: active operation did not finish in 30 seconds");
+        if (s_powerMessageHandler) s_powerMessageHandler(UiScreenPower::PowerMessage::CANCELLED);
+        return;
+    }
+
+    ESP_LOGI("screen", "active operations complete; requesting AXP2101 shutdown");
+    if (!BoardPower::powerOff()) {
+        BoardPower::cancelPowerOff();
+        s_powerOffPending = false;
+        ESP_LOGE("screen", "AXP2101 shutdown request failed");
+        if (s_powerMessageHandler) s_powerMessageHandler(UiScreenPower::PowerMessage::FAILED);
+    } else {
+        s_powerOffPending = false;
+    }
+}
+
 void tick(lv_timer_t *)
 {
     const uint32_t now = MySys::millis();
     Audio::setMusicPaused(MyOta::busy());   // No background music while firmware is written
+    if (BoardPower::status().powerButtonPressed && Backlight::sleeping()) wake(now);
+    handlePowerOffRequest(now);
     if (s_wakePending) {
         if (now - s_wakeRetryAt >= 1000) wake(now);
         if (s_wakePending) return;
@@ -103,6 +144,11 @@ void tick(lv_timer_t *)
 }  // namespace
 
 namespace UiScreenPower {
+void setPowerMessageHandler(PowerMessageHandler handler)
+{
+    s_powerMessageHandler = handler;
+}
+
 void begin()
 {
     static bool started = false;

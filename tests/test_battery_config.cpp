@@ -124,6 +124,24 @@ int main()
     CHECK(Config::get().screenOffSeconds == 0);
 
     CHECK(defaults.textSize == TEXT_SIZE_DEFAULT);
+    CHECK(defaults.screenZoom == SCREEN_ZOOM_DEFAULT);
+    TestNvs::numbers.erase("screen_zoom");
+    Config::begin();
+    CHECK(Config::get().screenZoom == SCREEN_ZOOM_DEFAULT);
+    for (uint8_t zoom = 0; zoom < SCREEN_ZOOM_COUNT; ++zoom) {
+        Config::get().screenZoom = zoom;
+        Config::get().textSize = 2;
+        CHECK(Config::save());
+        CHECK(TestNvs::numbers["screen_zoom"] == zoom);
+        Config::begin();
+        CHECK(Config::get().screenZoom == zoom && Config::get().textSize == 2);
+    }
+    TestNvs::numbers["screen_zoom"] = 255;
+    Config::begin();
+    CHECK(Config::get().screenZoom == SCREEN_ZOOM_DEFAULT);
+    Config::get().screenZoom = 255;
+    CHECK(Config::save());
+    CHECK(Config::get().screenZoom == SCREEN_ZOOM_DEFAULT);
     for (uint8_t size = 0; size < TEXT_SIZE_COUNT; ++size) {
         Config::get().textSize = size;
         CHECK(Config::save());

@@ -6,10 +6,13 @@ menu "OnTheRoad hardware profile"
         default OTR_HW_PROFILE_ES3C35P
         help
             Selects the board. Each profile is bound to its chip target, so the profile follows
-            `idf.py set-target`.
+            `idf.py set-target`. The two ESP32-S3 boards need an explicit profile.
 
         config OTR_HW_PROFILE_ES3C35P
             bool "ES3C35P (ESP32-S3, ST77922 QSPI 320x480)"
+            depends on IDF_TARGET_ESP32S3
+        config OTR_HW_PROFILE_S3_35B
+            bool "Waveshare ESP32-S3-Touch-LCD-3.5B (AXS15231B QSPI 320x480)"
             depends on IDF_TARGET_ESP32S3
         config OTR_HW_PROFILE_P4_43
             bool "P4_43 (Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3, ST7701 MIPI-DSI 480x800)"
@@ -19,6 +22,16 @@ menu "OnTheRoad hardware profile"
 endmenu
 
 menu "OnTheRoad diagnostics"
+    config OTR_S3_TOUCH_DIAGNOSTICS
+        bool "S3 3.5B buffered raw touch diagnostics"
+        depends on OTR_HW_PROFILE_S3_35B
+        default n
+        help
+            Records 512 raw reports in RAM after the first contact, then
+            prints them to serial. Disabled for normal builds. Gesture click
+            suppression, shared touch/PWR sampling, startup validation and
+            bounded read-gap handling remain unchanged.
+
     config OTR_SD_50MHZ_EXPERIMENT
         bool "Experimental 50 MHz SD card and C6 SDIO clocks"
         depends on OTR_HW_PROFILE_P4_43

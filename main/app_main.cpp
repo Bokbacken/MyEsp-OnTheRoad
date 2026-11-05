@@ -34,6 +34,9 @@
 #include "my_time.h"
 #include "my_wifi.h"
 #include "hw_profile.h"
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+#include "board_power.h"
+#endif
 #if defined(CONFIG_OTR_HW_PROFILE_P4_43)
 #include "host_ota.h"
 #endif
@@ -98,8 +101,9 @@ static Theme::BatteryIndicator batteryIndicator()
     uint16_t batteryMv = 0;
     uint8_t percent = 0;
     const uint16_t scale = Config::get().batteryScalePermille;
-    const bool voltageValid = status.supported && status.sampleValid && status.adcCalibrated &&
-                              BatteryMath::batteryMillivolts(status.adcMillivolts, scale, batteryMv);
+    if (status.powerManaged)
+        return {status.sampleValid && status.batteryConnected && status.pmicPercentValid, status.pmicPercent};
+    const bool voltageValid = BoardBattery::voltageMillivolts(scale, batteryMv);
     return {voltageValid && BatteryMath::estimatePercent(batteryMv, Config::get().batteryFullMv, percent), percent};
 }
 
@@ -116,6 +120,13 @@ static void showStatusMessage(const char *text)
     lv_msgbox_add_text(box, text);
     lv_msgbox_add_close_button(box);
     Theme::msgboxFonts(box);
+}
+
+static void showPowerMessage(UiScreenPower::PowerMessage message)
+{
+    const Str text = message == UiScreenPower::PowerMessage::CANCELLED ? Str::POWER_OFF_CANCELLED :
+                     Str::POWER_OFF_FAILED;
+    showStatusMessage(tr(text));
 }
 
 static void statusOpenMenu()
@@ -163,6 +174,9 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "=== %s v%s ===", FW_NAME, FW_VERSION);
     const bool fsOk = MyFat::mount("ffat", "/ffat", false);   // Never erase profiles on a mount failure.
     if (fsOk) MyLog::setEventFile("/ffat/events.log", 256 * 1024);
+#if defined(CONFIG_OTR_HW_PROFILE_S3_35B)
+    if (!BoardPower::begin()) ESP_LOGE(TAG, "Board power initialization FAILED; inspect PMIC/EXIO diagnostics");
+#endif
     const bool sdOk = BoardSd::begin();   // microSD at /sdcard (4-bit, 1-bit fallback); optional
     Config::begin();
     Theme::setBatteryIndicatorReader(batteryIndicator);
@@ -184,7 +198,7 @@ extern "C" void app_main(void)
 
     Display::setRotation(cfg.rotation == 180);   // Sent as MADCTL with the init sequence (v0.5.6)
     Touch::setRotation(cfg.rotation == 180);
-    const bool displayOk = Display::begin();
+    bool displayOk = Display::begin();
     const bool panelOk = Display::panelOk();
     ESP_LOGI(TAG, "display %s (panel %s%s%s)", displayOk ? "ok" : "FAILED", panelOk ? "ok" : "FAILED",
              displayOk ? "" : ", reason: ", Display::failReason());
@@ -212,6 +226,10 @@ extern "C" void app_main(void)
     if (displayOk) Rgb::setBase(0, 0, 25);   // Dim blue: touch / UI stage
     const bool touchOk = displayOk && Touch::begin();   // Registers the LVGL pointer device
     ESP_LOGI(TAG, "touch %s", touchOk ? "ok" : "not found");
+    if (displayOk && !Display::ok()) {
+        displayOk = false;
+        ESP_LOGE(TAG, "display failed during touch recovery: %s", Display::failReason());
+    }
 
     if (displayOk) {
         UiSettings::applyTextSize();
@@ -271,7 +289,7 @@ extern "C" void app_main(void)
             snprintf(buf, sizeof(buf), "%s", MyRtc::stateText(rs.state));
         }
         bool waiting = false;
-#if defined(CONFIG_OTR_HW_PROFILE_P4_43)
+#if defined(CONFIG_OTR_HW_PROFILE_P4_43) || defined(CONFIG_OTR_HW_PROFILE_S3_35B)
         waiting = !MyRtc::temperatureAvailable() && rs.present && rs.ticking &&
                   rs.state == MyRtc::State::TIME_INVALID;
 #endif
@@ -379,6 +397,7 @@ extern "C" void app_main(void)
         else if (wifiOk) UiWifi::showNetworks();
         else UiYatzy::showMenu();
         UiOta::begin();
+        UiScreenPower::setPowerMessageHandler(showPowerMessage);
         UiScreenPower::begin();
     }
 
@@ -394,11 +413,14 @@ extern "C" void app_main(void)
         uint16_t batteryMv = 0;
         const AppConfig &currentConfig = Config::get();
         const bool batteryVoltageValid =
-            battery.supported && battery.sampleValid && battery.adcCalibrated &&
-            BatteryMath::batteryMillivolts(battery.adcMillivolts, currentConfig.batteryScalePermille, batteryMv);
+            BoardBattery::voltageMillivolts(currentConfig.batteryScalePermille, batteryMv);
         if (BatteryMath::batteryLogDue(batteryVoltageValid, now, lastBatteryLog)) {
             lastBatteryLog = now;
-            MyLog::event("battery", "battery_mV=%u adc_mV=%u raw=%ld scale_permille=%u",
+            if (battery.powerManaged)
+                MyLog::event("battery", "source=AXP2101 battery_mV=%u usb=%d charging=%d done=%d gauge_pct=%d",
+                             static_cast<unsigned>(batteryMv), battery.usbPresent, battery.charging,
+                             battery.chargeDone, battery.pmicPercentValid ? battery.pmicPercent : -1);
+            else MyLog::event("battery", "battery_mV=%u adc_mV=%u raw=%ld scale_permille=%u",
                          static_cast<unsigned>(batteryMv), static_cast<unsigned>(battery.adcMillivolts),
                          static_cast<long>(battery.raw), static_cast<unsigned>(currentConfig.batteryScalePermille));
         }

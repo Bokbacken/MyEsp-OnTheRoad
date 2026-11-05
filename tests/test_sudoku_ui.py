@@ -151,8 +151,17 @@ int main() {
       lv_display_set_resolution(display,size.x,size.y);
       for (int language=0;language<2;++language) {
         Lang::setLang(language==0 ? "sv" : "en");
-        for (auto textSize : {MyFonts::TextSize::NORMAL,MyFonts::TextSize::LARGE,MyFonts::TextSize::XLARGE}) {
-        MyFonts::apply(textSize,size.x<size.y?size.x:size.y);
+        for (int zoom=0;zoom<3;++zoom)
+        for (auto textSize : {MyFonts::TextSize::SMALL,MyFonts::TextSize::NORMAL,MyFonts::TextSize::LARGE,MyFonts::TextSize::XLARGE}) {
+        const int shortSide = size.x<size.y?size.x:size.y;
+        MyFonts::apply(textSize,shortSide,shortSide>=480 ? 117 : 154,(MyFonts::ScreenZoom)zoom);
+        for (const auto *font : {&my_font_14, &my_font_18, &my_font_24, &my_font_36}) {
+            for (uint32_t symbol : {0xF0E2u, 0xF2F9u}) {
+                lv_font_glyph_dsc_t glyph{};
+                assert(lv_font_get_glyph_dsc(font, &glyph, symbol, 0));
+                assert(glyph.box_w && glyph.box_h);
+            }
+        }
         UiSudoku::s_game.start(Sudoku::Difficulty::EASY,0);
         for(auto &next : UiSudoku::s_next) next=0;
         UiSudoku::s_ready=true;
@@ -186,19 +195,31 @@ int main() {
         assert(UiSudoku::cellAtPoint(40,24,432,8)==-1);
         inside(UiSudoku::s_board,size.x,size.y);
         inside(UiSudoku::s_info,size.x,size.y);
-        inside(UiSudoku::s_help,size.x,size.y);
+        assert(!UiSudoku::s_saveDialog);
         lv_area_t infoArea, boardArea;
         lv_obj_get_coords(UiSudoku::s_info,&infoArea);
         lv_obj_get_coords(UiSudoku::s_board,&boardArea);
         assert(infoArea.y2 < boardArea.y1);
-        if(size.x<size.y) assert(lv_obj_get_width(UiSudoku::s_board)>=size.x-8);
-        UiSudoku::showHelp(Str::SUDOKU_MODE_NOTES);
-        assert(!lv_obj_has_flag(UiSudoku::s_help,LV_OBJ_FLAG_HIDDEN));
-        Config::get().sudokuHelpHints=false;
-        UiSudoku::showHelp(Str::SUDOKU_MODE_DIGIT);
-        assert(lv_obj_has_flag(UiSudoku::s_help,LV_OBJ_FLAG_HIDDEN));
-        Config::get().sudokuHelpHints=true;
-        for(auto *digit : UiSudoku::s_digits) inside(digit,size.x,size.y);
+        assert(lv_obj_get_width(UiSudoku::s_board) >= 9 * 20);
+        assert(lv_obj_get_width(UiSudoku::s_board) == lv_obj_get_height(UiSudoku::s_board));
+        const auto *cellFont = MyFonts::fit(&my_font_24,lv_obj_get_width(UiSudoku::s_board)/9-4);
+        assert(cellFont->line_height <= lv_obj_get_width(UiSudoku::s_board)/9-4);
+        for(auto *digit : UiSudoku::s_digits) {
+            inside(digit,size.x,size.y);
+            assert(lv_obj_get_style_text_font(lv_obj_get_child(digit,0),LV_PART_MAIN)==&my_font_24);
+            assert(lv_obj_get_height(digit)>=my_font_24.line_height+4);
+            assert(lv_obj_get_height(digit)>=(size.x>size.y ? 48 : (size.y<=500 ? 36 : 50)));
+            lv_area_t digitArea;
+            lv_obj_get_coords(digit,&digitArea);
+            assert(size.x>size.y ? digitArea.x1>boardArea.x2 : digitArea.y1>boardArea.y2);
+            for(auto *other : UiSudoku::s_digits) {
+                if(other==digit) continue;
+                lv_area_t otherArea;
+                lv_obj_get_coords(other,&otherArea);
+                assert(digitArea.x2<otherArea.x1 || otherArea.x2<digitArea.x1 ||
+                       digitArea.y2<otherArea.y1 || otherArea.y2<digitArea.y1);
+            }
+        }
         inside(UiSudoku::s_noteButton,size.x,size.y);
         inside(UiSudoku::s_pauseButton,size.x,size.y);
         unsigned empty=0;
@@ -214,6 +235,7 @@ int main() {
         assert(UiSudoku::s_game.notes(empty)==0);
         event(0); assert(UiSudoku::s_game.notes(empty)==128);
         event(4);
+        assert(!UiSudoku::s_saveDialog);
         unsigned replacement=0;
         while(replacement<Sudoku::CELL_COUNT &&
               (replacement==empty || UiSudoku::s_game.fixed(replacement))) ++replacement;
@@ -293,8 +315,29 @@ int main() {
         MyNvs::fail=true;
         UiSudoku::s_dirty=true; UiSudoku::save();
         assert(UiSudoku::s_dirty && UiSudoku::s_saveFailed);
+        auto *saveDialog=UiSudoku::s_saveDialog;
+        assert(saveDialog && lv_obj_get_parent(saveDialog)==UiSudoku::s_gameScreen);
+        UiSudoku::save(); UiSudoku::refresh(); settle();
+        assert(UiSudoku::s_saveDialog==saveDialog); // Repeated failures do not stack popups.
+        auto *saveBox=lv_obj_get_child(saveDialog,0);
+        auto *saveMessage=lv_obj_get_child(saveBox,0);
+        auto *saveOk=lv_obj_get_child(saveBox,1);
+        inside(saveDialog,size.x,size.y);
+        inside(saveBox,size.x,size.y);
+        inside(saveMessage,size.x,size.y);
+        inside(saveOk,size.x,size.y);
+        lv_area_t messageArea, okArea;
+        lv_obj_get_coords(saveMessage,&messageArea);
+        lv_obj_get_coords(saveOk,&okArea);
+        assert(messageArea.y2<okArea.y1);
+        assert(strcmp(lv_label_get_text(saveMessage),tr(Str::SUDOKU_SAVE_FAILED))==0);
+        lv_obj_send_event(saveOk,LV_EVENT_CLICKED,nullptr);
+        UiSudoku::refresh();
+        assert(!UiSudoku::s_saveDialog && UiSudoku::s_saveFailed);
+        UiSudoku::save();
+        assert(UiSudoku::s_saveDialog);
         MyNvs::fail=false; UiSudoku::save();
-        assert(!UiSudoku::s_dirty && !UiSudoku::s_saveFailed);
+        assert(!UiSudoku::s_dirty && !UiSudoku::s_saveFailed && !UiSudoku::s_saveDialog);
         unsigned target=0;
         while(target<Sudoku::CELL_COUNT &&
               (UiSudoku::s_game.fixed(target) || target==empty ||
@@ -383,6 +426,7 @@ int main() {
         auto *gameScreen=UiSudoku::s_gameScreen;
         UiSudoku::leave();
         assert(UiSudoku::s_gameScreen==gameScreen && UiSudoku::s_board && UiSudoku::s_saveFailed);
+        assert(UiSudoku::s_saveDialog);
         MyNvs::fail=false;
         UiSudoku::leave();
         settle();
