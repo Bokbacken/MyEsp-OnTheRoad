@@ -33,6 +33,10 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   kort-ID/release/partitioner och power-historik. Fysiska tester står kvar.
 - [x] Firmware-CI för båda S3-profilerna och P4:
   `42056620797`, kodrevision `e798b36`. Ingen ny C6-radio behövs.
+- [x] P4, ägarprovning 2026-11-05: avbruten karaokeradering, avbruten
+  återuppladdning och ny uppladdning/avbrott tills borttagna filer var tillbaka
+  fungerar bra. Loggen visar avbruten radering efter 100 poster och fortsatta
+  uppladdningar utan SD-fel. Detta bekräftar inte temporärfilstädning eller S3.
 - [ ] Hårdvara: avbryt under mappförberedelse, aktiv överföring och rekursiv
   radering; kontrollera original/temporärfiler, partiellt resultat och nya
   operationer efteråt. Följ RTC-loggen över flera tiominuterskontroller.
