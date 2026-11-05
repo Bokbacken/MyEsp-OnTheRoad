@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>OnTheRoad – Spellistor</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/device-name.js"></script>
+<style>
+.top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.langs button { padding: .3rem .6rem; font-size: .9rem; }
+.langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
+.actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
+.actions select, .actions input { flex: 1; min-width: 8rem; }
+.hint { color: var(--otr-muted); font-size: .85rem; }
+#status { color: var(--otr-muted); min-height: 1.3em; font-size: .9rem; }
+#notice { color: var(--otr-orange); min-height: 1.3em; position: sticky; top: 0;
+  background: var(--otr-panel); z-index: 1; }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; align-items: center; gap: .7rem; padding: .7rem .6rem; border-bottom: 1px solid var(--otr-line);
+  border-radius: .5rem; }
+ul.list li:hover { background: var(--otr-panel); }
+ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+li button { padding: .3rem .5rem; font-size: .85rem; }
+dialog { max-width: min(90vw, 36rem); border: 1px solid var(--otr-line); border-radius: .7rem;
+  background: var(--otr-panel); color: inherit; }
+dialog::backdrop { background: #0009; }
+</style>
+</head>
+<body>
+<nav><a href="/karaoke/songs" data-t="songs"></a> &nbsp; <a href="/karaoke.html">&#127908; <span data-t="karaoke"></span></a></nav>
+<div class="top">
+  <h1>&#127926; <span data-t="playlists"></span></h1>
+  <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
+</div>
+<div id="notice" role="status" aria-live="polite"></div>
+<p class="hint" data-t="hint"></p>
+<div class="actions">
+  <select id="playlist" aria-label="Spellista"></select>
+  <button id="delete-list" class="secondary" onclick="deleteList()" data-t="delete"></button>
+  <button id="rename-list" class="secondary" onclick="beginRename()" data-t="rename"></button>
+</div>
+<form class="actions" id="list-form">
+  <input id="list-name" maxlength="48" autocomplete="off">
+  <button id="save-list" type="submit" data-t="create"></button>
+  <button id="cancel-edit" type="button" class="secondary" onclick="cancelEdit()" hidden data-t="cancel"></button>
+</form>
+<div id="status"></div>
+<ul class="list" id="playlist-songs"></ul>
+<dialog id="draft-dialog">
+  <p data-t="unsaved"></p>
+  <div class="actions">
+    <button data-choice="save" data-t="save"></button>
+    <button data-choice="discard" class="secondary" data-t="discard"></button>
+    <button data-choice="" class="secondary" data-t="cancel"></button>
+  </div>
+</dialog>
+<script>
+const T = {
+  sv: { songs: '← Till låtar', karaoke: 'Webbkaraoke', playlists: 'Spellistor', create: 'Skapa', rename: 'Spara namn',
+    delete: 'Radera spellista', remove: 'Ta bort', cancel: 'Avbryt', noLists: 'Välj eller skapa en spellista',
+    name: 'Spellistans namn', listName: 'Spellistans namn (max 48 UTF-8-byte)',
+    deleteList: 'Radera spellistan "{0}"? Låtfilerna behålls.', hint: 'Ändra spellistans låtar och ordning här. Lägg till låtar från låtvyn.',
+    noSongs: 'Spellistan är tom. Lägg till låtar från låtvyn.', songsCount: '{0} låtar', missingPath: 'Saknar sökväg – lägg till låten igen',
+    saved: 'Sparat', failed: 'Kunde inte öppna: {0}', neterr: 'Ingen kontakt med enheten', busy: 'Vänta tills ändringen är klar',
+    unsaved: 'Den öppna låten har osparade inställningar. Spara eller kasta dem?', save: 'Spara', discard: 'Kasta ändringar',
+    up: 'Flytta upp', down: 'Flytta ned' },
+  en: { songs: '← Back to songs', karaoke: 'Web karaoke', playlists: 'Playlists', create: 'Create', rename: 'Save name',
+    delete: 'Delete playlist', remove: 'Remove', cancel: 'Cancel', noLists: 'Choose or create a playlist',
+    name: 'Playlist name', listName: 'Playlist name (max 48 UTF-8 bytes)',
+    deleteList: 'Delete playlist "{0}"? Song files are kept.', hint: 'Manage playlist contents and order here. Add songs from the song view.',
+    noSongs: 'This playlist is empty. Add songs from the song view.', songsCount: '{0} songs', missingPath: 'No path – add this song again',
+    saved: 'Saved', failed: 'Could not open: {0}', neterr: 'No contact with the device', busy: 'Wait for the change to finish',
+    unsaved: 'The open song has unsaved settings. Save or discard them?', save: 'Save', discard: 'Discard changes',
+    up: 'Move up', down: 'Move down' }
+};
+let L = 'sv', playlists = [], entries = [], busy = false, editId = 0, seq = 0;
+const $ = id => document.getElementById(id);
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+function setLang(l, save) {
+  if (!T[l]) return;
+  L = l; document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  $('playlist').setAttribute('aria-label', t('playlists'));
+  $('list-name').placeholder = t('name');
+  $('save-list').textContent = t(editId ? 'rename' : 'create');
+  $('l-sv').classList.toggle('on', l === 'sv'); $('l-en').classList.toggle('on', l === 'en');
+  if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
+  render();
+}
+function el(tag, cls, text) {
+  const e = document.createElement(tag); if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text; return e;
+}
+async function request(url, data) {
+  const r = await fetch(url, data === undefined ? { cache: 'no-store' } :
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const j = await r.json();
+  if (!r.ok || !j.ok) { const e = new Error(j.error || String(r.status)); e.code = j.code; e.current = j.current; throw e; }
+  return j;
+}
+function rememberPlaylist() {
+  try { localStorage.setItem('otr_playlist', $('playlist').value); } catch (e) {}
+}
+function renderOptions(selected) {
+  const select = $('playlist'); select.textContent = '';
+  if (!playlists.length) {
+    const option = el('option', '', t('noLists')); option.value = ''; select.appendChild(option);
+  }
+  playlists.forEach(p => {
+    const option = el('option', '', p.name + ' (' + p.count + ')'); option.value = String(p.id); select.appendChild(option);
+  });
+  if (playlists.some(p => String(p.id) === String(selected))) select.value = String(selected);
+  else if (playlists.length) select.value = String(playlists[0].id);
+  $('delete-list').disabled = $('rename-list').disabled = !playlists.length;
+  $('list-name').disabled = busy;
+  rememberPlaylist();
+}
+async function loadPlaylists(selected) {
+  const j = await request('/api/karaoke/playlists'); playlists = j.playlists;
+  let saved = '';
+  try { saved = localStorage.getItem('otr_playlist') || ''; } catch (e) {}
+  renderOptions(selected || saved);
+  await loadPlaylist();
+}
+async function loadPlaylist() {
+  const my = ++seq, id = Number($('playlist').value);
+  entries = []; $('playlist-songs').textContent = ''; $('status').textContent = '';
+  if (!id) { $('status').textContent = t('noLists'); return; }
+  try {
+    let count = 0;
+    do {
+      const j = await request('/api/karaoke/playlists?id=' + id + '&offset=' + entries.length);
+      if (my !== seq) return;
+      const p = j.playlists[0]; count = p.count; entries = entries.concat(p.songs);
+      if (!p.songs.length && entries.length < count) throw new Error(t('neterr'));
+    } while (entries.length < count);
+    if (my !== seq) return;
+    $('status').textContent = t('songsCount', entries.length);
+    render();
+  } catch (e) { if (my === seq) $('notice').textContent = e.message || t('neterr'); }
+}
+function render() {
+  const list = $('playlist-songs'); list.textContent = '';
+  if (!entries.length) { if (Number($('playlist').value)) $('status').textContent = t('noSongs'); return; }
+  const id = Number($('playlist').value);
+  entries.forEach((s, index) => {
+    const li = el('li'), name = el('span', 'tx', s.path ? (s.artist ? s.artist + ' – ' : '') + s.title : t('missingPath'));
+    li.appendChild(name);
+    if (s.path) { li.tabIndex = 0; li.onclick = () => openSong(s, li); li.onkeydown = e => { if (e.key === 'Enter') openSong(s, li); }; }
+    for (const [action, label, disabled] of [
+      ['up', '↑', index === 0], ['down', '↓', index + 1 === entries.length], ['remove', t('remove'), false]
+    ]) {
+      const b = el('button', 'secondary', label); b.disabled = disabled || busy;
+      b.setAttribute('aria-label', action === 'remove' ? t('remove') : t(action));
+      b.onclick = e => { e.stopPropagation(); return mutate({ action, id, crc: s.crc, size: s.size }); };
+      li.appendChild(b);
+    }
+    list.appendChild(li);
+  });
+}
+async function mutate(data) {
+  if (busy) { $('notice').textContent = t('busy'); return; }
+  busy = true;
+  try { const j = await request('/api/karaoke/playlists', data); await loadPlaylists(j.id); }
+  catch (e) { $('notice').textContent = e.message || t('neterr'); }
+  finally { busy = false; renderOptions($('playlist').value); render(); }
+}
+function beginRename() {
+  const p = playlists.find(p => String(p.id) === $('playlist').value);
+  if (!p) return;
+  editId = p.id; $('list-name').value = p.name; $('save-list').textContent = t('rename');
+  $('cancel-edit').hidden = false; $('list-name').focus();
+}
+function cancelEdit() {
+  editId = 0; $('list-name').value = ''; $('save-list').textContent = t('create'); $('cancel-edit').hidden = true;
+}
+$('list-form').onsubmit = async e => {
+  e.preventDefault();
+  const name = $('list-name').value.trim(); if (!name) return;
+  const action = editId ? 'rename' : 'create', id = editId;
+  try {
+    const j = await request('/api/karaoke/playlists', { action, id, name });
+    cancelEdit(); await loadPlaylists(j.id); $('notice').textContent = t('saved');
+  } catch (error) { $('notice').textContent = error.message || t('neterr'); }
+};
+$('playlist').addEventListener('change', () => {
+  cancelEdit();
+  rememberPlaylist(); loadPlaylist();
+});
+async function deleteList() {
+  const id = Number($('playlist').value), p = playlists.find(p => p.id === id);
+  if (!p || !confirm(t('deleteList', p.name))) return;
+  try { await request('/api/karaoke/playlists', { action: 'delete', id }); cancelEdit(); await loadPlaylists(); }
+  catch (e) { $('notice').textContent = e.message || t('neterr'); }
+}
+function chooseDraft() {
+  const d = $('draft-dialog');
+  return new Promise(resolve => {
+    let decision = '';
+    d.querySelectorAll('[data-choice]').forEach(b => { b.onclick = () => { decision = b.dataset.choice; d.close(); }; });
+    d.onclose = () => resolve(decision); d.showModal();
+  });
+}
+async function openSong(s, li) {
+  if (busy) return;
+  busy = true; li.classList.add('busy');
+  try {
+    try { await request('/api/karaoke/open', { path: s.path }); }
+    catch (error) {
+      if (error.code !== 'unsaved') throw error;
+      const decision = await chooseDraft();
+      if (!decision) return;
+      await request('/api/karaoke/open', { path: s.path, decision, current: error.current });
+    }
+    $('notice').textContent = t('saved');
+  } catch (e) { $('notice').textContent = t('failed', e.message || t('neterr')); }
+  finally { busy = false; li.classList.remove('busy'); }
+}
+let saved = null;
+try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
+loadPlaylists().catch(e => { $('notice').textContent = e.message || t('neterr'); });
+</script>
+</body>
+</html>

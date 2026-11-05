@@ -116,6 +116,31 @@ struct Player {
 };
 Player P{};
 
+struct LeaveDialogContext {
+    lv_obj_t *dialog;
+    lv_timer_t *timer;
+    std::string songPath;
+    uint32_t externalGen;
+    bool closing;
+};
+
+bool sameSong(const LeaveDialogContext *context)
+{
+    const Karaoke::SongFile current = Karaoke::current();
+    return current.path == context->songPath && Karaoke::externalOpenGen() == context->externalGen;
+}
+
+void closeLeaveDialog(LeaveDialogContext *context)
+{
+    if (context->closing) return;
+    context->closing = true;
+    if (context->timer) {
+        lv_timer_delete(context->timer);
+        context->timer = nullptr;
+    }
+    lv_msgbox_close_async(context->dialog);
+}
+
 void syncVolumeControls()
 {
     P.updatingVolumeControls = true;
@@ -259,7 +284,7 @@ size_t s_firstSong = 0;                // Index of the first song entry in s_ent
 lv_obj_t *s_list = nullptr, *s_info = nullptr, *s_searchLbl = nullptr, *s_jumpCol = nullptr, *s_rescanBtn = nullptr;
 lv_obj_t *s_input = nullptr;
 
-void renderList(int scrollTo = -1);
+void renderList(int scrollTo = -1, bool rebuild = true);
 
 std::string parentDir(const std::string &d)
 {
@@ -312,7 +337,8 @@ void buildEntries()
         if (s_mode == ListMode::SEARCH) {
             songs = lib.search(s_query.c_str());
         } else {
-            std::vector<std::string> dirs = lib.subdirs(s_dir);
+            std::vector<std::string> dirs;
+            if (s_mode == ListMode::ROOT || !s_dir.empty()) dirs = lib.subdirs(s_dir);
             if (s_mode == ListMode::ROOT && dirs.empty()) s_mode = ListMode::DIR;   // No folders: songs directly
             if (s_mode == ListMode::DIR && !s_dir.empty() && lib.songsIn(s_dir).empty()) {   // Folder gone
                 s_dir.clear();
@@ -458,10 +484,10 @@ void updateInfo()
 }
 
 // Rebuilds the visible page. scrollTo: entry index to scroll into view (A-Ö jump), -1 = top.
-void renderList(int scrollTo)
+void renderList(int scrollTo, bool rebuild)
 {
     if (!s_list) return;
-    buildEntries();
+    if (rebuild) buildEntries();
     const size_t pages = s_entries.empty() ? 1 : (s_entries.size() + PAGE - 1) / PAGE;
     if (scrollTo >= 0) s_page = (size_t)scrollTo / PAGE;
     if (s_page >= pages) s_page = pages - 1;
@@ -534,15 +560,34 @@ void renderList(int scrollTo)
 
 void jumpTo(uint16_t rank)
 {
-    size_t i = 0;
+    if (Karaoke::libraryGen() != s_gen) buildEntries();
+    if (s_firstSong >= s_entries.size()) return;
+    size_t target = s_firstSong;
+    uint16_t bestRank = 0;
+    bool selected = rank == 0;
+    std::string name;
+    bool found = false;
     Karaoke::withLibrary([&](const KaraIndex::Library &lib, uint32_t gen) {
         if (gen != s_gen) return;
-        std::vector<uint16_t> view;
-        for (size_t e = s_firstSong; e < s_entries.size(); e++) view.push_back(s_entries[e].idx);
-        i = KaraIndex::jumpIndex(lib, view, rank);
-        if (i == view.size() && i) i--;   // Nothing at/after the letter: the last song
+        found = true;
+        for (size_t e = s_firstSong; e < s_entries.size(); e++) {
+            const uint16_t candidate = lib.rank(s_entries[e].idx);
+            if (candidate >= rank && (!selected || candidate < bestRank)) {
+                target = e;
+                bestRank = candidate;
+                selected = true;
+            } else if (!selected && candidate >= bestRank) {
+                target = e;
+                bestRank = candidate;
+            }
+        }
+        name = lib.sortName(s_entries[target].idx);
     });
-    renderList((int)(s_firstSong + i));
+    if (!found) { renderList(); return; }
+    ESP_LOGI("kara-ui", "jump rank=%u entry=%u/%u page=%u sort=%s", (unsigned)rank,
+             (unsigned)(target - s_firstSong + 1), (unsigned)(s_entries.size() - s_firstSong),
+             (unsigned)(target / PAGE + 1), name.c_str());
+    renderList((int)target, false);
 }
 
 void searchDone(const char *text, bool confirmed, void *)
@@ -1301,7 +1346,7 @@ void updateMelodyButton()
 void showPlayerMenu()
 {
     const auto l = layout();
-    lv_obj_t *body = sheetBase(LV_SYMBOL_LIST, l.buttonH * 4 + 56);
+    lv_obj_t *body = sheetBase(LV_SYMBOL_LIST, l.buttonH * 7 + 56);
     auto item = [&](const char *text, lv_event_cb_t cb) {
         lv_obj_t *b = ctlButton(body, text, 0, 0, 1, l.buttonH, Theme::TEAL, cb);
         lv_obj_set_width(b, LV_PCT(100));
@@ -1325,7 +1370,78 @@ void showPlayerMenu()
     else snprintf(track, sizeof(track), tr(Str::KARA_CH_FMT), ch + 1);
     snprintf(text, sizeof(text), "%s  %s", tr(Str::KARA_BTN_TRACK), track);
     item(text, [](lv_event_t *) { lv_async_call([](void *) { showTracks(); }, nullptr); });
+    item(tr(Str::KARA_FONT_SONG), [](lv_event_t *) {
+        lv_async_call([](void *) { showFonts(true); }, nullptr);
+    });
+    item(tr(Str::KARA_SAVE_SONG), [](lv_event_t *) {
+        const auto err = Karaoke::saveSongSettings();
+        if (err != Karaoke::Err::OK) msg(Karaoke::errText(err));
+        else closeSheet();
+    });
+    item(tr(Str::KARA_DISCARD), [](lv_event_t *) {
+        const auto err = Karaoke::discardSongSettings();
+        if (err != Karaoke::Err::OK) msg(Karaoke::errText(err));
+        else {
+            closeSheet();
+            refreshSteppers();
+            updateMelodyButton();
+        }
+    });
     updateMelodyButton();
+}
+
+void leavePlayer()
+{
+    if (!Karaoke::songSettingsDirty()) {
+        Karaoke::close();
+        showList();
+        return;
+    }
+    closeSheet();
+    lv_obj_t *q = lv_msgbox_create(nullptr);
+    auto *context = new LeaveDialogContext{q, nullptr, Karaoke::current().path,
+                                           Karaoke::externalOpenGen(), false};
+    lv_msgbox_add_text(q, tr(Str::KARA_UNSAVED));
+    lv_msgbox_add_close_button(q);
+    lv_obj_t *save = lv_msgbox_add_footer_button(q, tr(Str::BTN_SAVE));
+    lv_obj_t *discard = lv_msgbox_add_footer_button(q, tr(Str::KARA_DISCARD));
+    lv_obj_add_event_cb(save, [](lv_event_t *e) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_event_get_user_data(e));
+        if (!sameSong(context)) {
+            closeLeaveDialog(context);
+            return;
+        }
+        const auto err = Karaoke::saveSongSettings();
+        if (err != Karaoke::Err::OK) { msg(Karaoke::errText(err)); return; }
+        closeLeaveDialog(context);
+        Karaoke::close();
+        showList();
+    }, LV_EVENT_CLICKED, context);
+    lv_obj_add_event_cb(discard, [](lv_event_t *e) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_event_get_user_data(e));
+        if (!sameSong(context)) {
+            closeLeaveDialog(context);
+            return;
+        }
+        closeLeaveDialog(context);
+        Karaoke::close();   // An explicit discard must not reload the old bank before leaving.
+        showList();
+    }, LV_EVENT_CLICKED, context);
+    lv_obj_add_event_cb(q, [](lv_event_t *e) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_event_get_user_data(e));
+        if (context->timer) lv_timer_delete(context->timer);
+        delete context;
+    }, LV_EVENT_DELETE, context);
+    context->timer = lv_timer_create([](lv_timer_t *timer) {
+        auto *context = static_cast<LeaveDialogContext *>(lv_timer_get_user_data(timer));
+        if (!context->closing && !sameSong(context)) closeLeaveDialog(context);
+    }, 200, context);
+    Theme::msgboxFonts(q);
+    const auto l = layout();
+    lv_obj_set_width(q, std::min<int32_t>(l.w - 2 * l.inset, 600));
+    lv_obj_set_style_max_height(q, l.h - 2 * l.inset, 0);
+    lv_obj_set_scroll_dir(lv_msgbox_get_content(q), LV_DIR_VER);
+    lv_obj_center(q);
 }
 
 void showPlayer()
@@ -1356,8 +1472,7 @@ void showPlayer()
     static uint32_t backLast = 0;
     lv_obj_add_event_cb(backButton(scr), [](lv_event_t *) {
         if (!Theme::debounce(backLast, DEBOUNCE_MS)) return;
-        Karaoke::close();
-        showList();
+        leavePlayer();
     }, LV_EVENT_CLICKED, nullptr);
 
     // Info line: artist | active sound bank | voices + CPU

@@ -52,7 +52,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   480×320 / 800×480, wrapping scrollable lyrics, one primary transport row and hamburger settings;
   multiple SoundFonts (song-list global default, existing per-song registry overrides), plays `.mid`/`.kar` from the SD card through a SoundFont synth
   (TinySoundFont) with the lyrics on screen, word-by-word highlighting, tempo/key/volume, melody on/off and a
-  per-song melody-track choice stored in `karaoke.reg`. Silent text-only mode without a SoundFont.
+  per-song melody-track choice stored in `karaoke.reg` after explicit confirmation.
+  The web song picker supports playlist creation/editing/deletion and per-song SF2 selection;
+  songs in playlists are started individually. Silent text-only mode without a SoundFont.
   MIDI without lyrics can use a matching [`.lyr` text/LRC sidecar](docs/KARAOKE_LYRICS.md).
   Web karaoke and its song picker share the responsive web content width;
   the connection button is centered beneath the lyrics.

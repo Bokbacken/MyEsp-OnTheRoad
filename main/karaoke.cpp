@@ -57,6 +57,7 @@ std::string s_fileName;
 int s_melody = -1;
 bool s_melodyReg = false, s_melodyMuted = false;
 uint8_t s_songVolume = 100;
+Midi::RegEntry s_savedSettings;
 
 volatile FontState s_fontState = FontState::NONE;
 volatile Err s_fontErr = Err::OK;
@@ -100,6 +101,21 @@ struct Lock {
     ~Lock() { xSemaphoreGive(s_mux); }
 };
 
+SemaphoreHandle_t registryMux()
+{
+    static SemaphoreHandle_t mux = xSemaphoreCreateMutex();
+    configASSERT(mux);
+    return mux;
+}
+
+struct RegistryLock {
+    RegistryLock()
+    {
+        xSemaphoreTake(registryMux(), portMAX_DELAY);
+    }
+    ~RegistryLock() { xSemaphoreGive(registryMux()); }
+};
+
 bool hasExt(const char *name, const char *const *exts)
 {
     const char *dot = strrchr(name, '.');
@@ -131,54 +147,69 @@ void renderCb(int32_t *acc, int n, int gainQ8, void *)
     xSemaphoreGive(s_mux);
 }
 
-void loadRegistry()
+Err loadRegistry()
 {
-    if (s_regLoaded) return;
-    s_regLoaded = true;
+    if (s_regLoaded) return Err::OK;
     BoardSd::Guard g;
+    if (!BoardSd::mounted()) return Err::NO_SD;
     FILE *f = fopen(REG_FILE, "rb");
-    if (!f) return;
+    if (!f) {
+        if (errno != ENOENT) {
+            ESP_LOGE(TAG, "Cannot read registry: %s", strerror(errno));
+            return Err::FILE_BAD;
+        }
+        s_regLoaded = true;
+        return Err::OK;
+    }
     std::string text;
     char buf[512];
     size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0 && text.size() < 256 * 1024) text.append(buf, n);
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0 && text.size() <= 256 * 1024) text.append(buf, n);
+    const bool ok = !ferror(f) && text.size() <= 256 * 1024;
     fclose(f);
+    if (!ok) {
+        ESP_LOGE(TAG, "Cannot read registry completely or registry too large");
+        return Err::FILE_BAD;
+    }
     s_reg.load(text);
+    s_regLoaded = true;
     ESP_LOGI(TAG, "register: %u songs", (unsigned)s_reg.size());
+    return Err::OK;
 }
 
-// Updates the entry of the open song and returns the new file text (caller holds s_mux).
-std::string updateRegistry()
+// Caller holds s_mux; includes a pending transpose while the samples are loading.
+Midi::RegEntry currentSettings()
 {
-    if (!s_open) return std::string();
     Midi::RegEntry e;
     e.crc = s_crc, e.size = s_size;
     e.melody = (int8_t)s_melody;
-    e.transpose = (int8_t)s_synth.transpose();
+    e.transpose = (int8_t)s_pendingTr;
     e.tempo = (uint8_t)s_player.tempo();
     e.melodyMuted = s_melodyMuted;
     e.volume = s_songVolume;
     e.sf2 = s_songSf2;
     e.name = s_fileName;
-    s_reg.set(e);
-    return s_reg.save();
+    return e;
 }
 
 // Written without holding s_mux so the mixer keeps playing during the SD write.
-void writeRegistry(const std::string &text)
+bool writeRegistry(const std::string &text)
 {
-    if (text.empty()) return;
+    if (text.empty() || text.size() > 256 * 1024) {
+        ESP_LOGE(TAG, "Registry exceeds storage limit");
+        return false;
+    }
     BoardSd::Guard g;
     if (!BoardSd::mounted() || !BoardSd::ensureDir(DIR_SONGS)) {
         ESP_LOGE(TAG, "Cannot save registry: SD directory unavailable");
-        return;
+        return false;
     }
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "%s.tmp", REG_FILE);
     FILE *f = fopen(tmp, "wb");
     if (!f) {
         ESP_LOGE(TAG, "Cannot open registry temporary file");
-        return;
+        return false;
     }
     bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
     if (fflush(f) != 0 || ferror(f)) ok = false;
@@ -188,7 +219,9 @@ void writeRegistry(const std::string &text)
     if (!ok || FsUpload::install(tmp, REG_FILE, backup, true) != FsUpload::InstallResult::INSTALLED) {
         ESP_LOGE(TAG, "Cannot save registry %s", REG_FILE);
         FsUpload::discard(tmp);
+        return false;
     }
+    return true;
 }
 
 void applyMelodyMute()   // Caller holds s_mux
@@ -391,7 +424,6 @@ void fontTask(void *)
         }
     }
     // Samples for the open song; repeats while the user opens another song meanwhile
-    std::string regText;   // Register update after an accepted transpose
     for (;;) {
         Midi::Song scan;   // Copy of the events: open()/close() may run during the read
         uint32_t gen;
@@ -404,7 +436,6 @@ void fontTask(void *)
                     applyMelodyMute();
                     s_player.seek(s_player.position(), s_synth);
                     if (s_trReload && err == Err::OK) {
-                        regText = updateRegistry();
                         if (s_resumePlay) s_player.play(true);   // Continues where it stopped
                     }
                 }
@@ -445,7 +476,6 @@ void fontTask(void *)
             err = mapLoadErr(le);   // Memory or card trouble: stop here
         }
     }
-    writeRegistry(regText);
     memoryMark("bank-task-end");
     vTaskDelete(nullptr);
 }
@@ -827,15 +857,10 @@ const char *songFont() { return s_songSf2.c_str(); }
 
 void setSongFont(const char *name)
 {
-    std::string text;
-    {
-        Lock l;
-        if (!s_open) return;
-        s_songSf2 = name ? name : "";
-        if (s_songSf2.size() > 47) s_songSf2.resize(47);
-        text = updateRegistry();
-    }
-    writeRegistry(text);
+    Lock l;
+    if (!s_open) return;
+    s_songSf2 = name ? name : "";
+    if (s_songSf2.size() > 47) s_songSf2.resize(47);
 }
 
 FontState fontState() { return s_fontState; }
@@ -893,8 +918,11 @@ void setEffects(const Effects &e)
 Err open(const SongFile &sf)
 {
     memoryMark("song-open-start");
+    if (songSettingsDirty()) return Err::UNSAVED;
+    RegistryLock registryLock;
+    const Err registryErr = loadRegistry();
+    if (registryErr != Err::OK) return registryErr;
     close();
-    loadRegistry();
     std::vector<uint8_t> data;
     {
         BoardSd::Guard g;
@@ -1028,6 +1056,9 @@ Err open(const SongFile &sf)
         applyMelodyMute();
     }
     s_open = true;
+    s_savedSettings = currentSettings();
+    const std::string rel = sf.path.substr(strlen(DIR_SONGS) + 1);
+    s_reg.rememberSongPath(s_crc, s_size, rel.c_str());
     s_cur = sf;
     s_autoPlay = false;
     // Same bank as loaded: load this song's samples now. A different bank is started by the UI
@@ -1096,21 +1127,14 @@ void seekRel(int ms)
 
 void setTempo(int pct)
 {
-    std::string text;
-    {
-        Lock l;
-        if (!s_open) return;
-        s_player.setTempo(pct);
-        text = updateRegistry();
-    }
-    writeRegistry(text);
+    Lock l;
+    if (s_open) s_player.setTempo(pct);
 }
 
 int tempo() { return s_player.tempo(); }
 
 void setTranspose(int semis)
 {
-    std::string text;
     {
         Lock l;
         if (!s_open || synthBusy()) return;
@@ -1118,7 +1142,7 @@ void setTranspose(int semis)
         if (semis == s_synth.transpose()) return;
         if (s_synth.selective() && s_synth.loaded()) {
             // Only the keys of the current transpose are loaded: prepare again (short silence, the
-            // song continues from the same position; the register is written once it fits)
+            // song continues from the same position once the samples fit)
             s_prevTr = s_synth.transpose();
             s_pendingTr = semis;
             s_trReload = true;
@@ -1129,9 +1153,7 @@ void setTranspose(int semis)
         }
         s_synth.setTranspose(semis);   // Whole bank in memory (or silent mode): just shift
         s_pendingTr = s_synth.transpose();
-        text = updateRegistry();
     }
-    writeRegistry(text);
 }
 
 int transpose() { return s_open ? s_pendingTr : s_synth.transpose(); }
@@ -1152,16 +1174,11 @@ bool takeOverloadStopped()
 
 void setMelody(int ch)
 {
-    std::string text;
-    {
-        Lock l;
-        if (!s_open || synthBusy() || ch < -1 || ch > 15) return;
-        s_melody = ch;
-        s_melodyReg = ch != s_song.melody;
-        applyMelodyMute();
-        text = updateRegistry();
-    }
-    writeRegistry(text);
+    Lock l;
+    if (!s_open || synthBusy() || ch < -1 || ch > 15) return;
+    s_melody = ch;
+    s_melodyReg = ch != s_song.melody;
+    applyMelodyMute();
 }
 
 int melody() { return s_melody; }
@@ -1169,14 +1186,9 @@ bool melodyFromRegister() { return s_melodyReg; }
 
 void setMelodyMuted(bool m)
 {
-    std::string text;
-    {
-        Lock l;
-        s_melodyMuted = m;
-        if (s_open && !synthBusy()) applyMelodyMute();
-        text = updateRegistry();
-    }
-    writeRegistry(text);
+    Lock l;
+    s_melodyMuted = m;
+    if (s_open && !synthBusy()) applyMelodyMute();
 }
 
 bool melodyMuted() { return s_melodyMuted; }
@@ -1185,14 +1197,217 @@ uint8_t songVolume() { return s_songVolume; }
 
 void setSongVolume(uint8_t v)
 {
-    std::string text;
+    Lock l;
+    if (s_open) s_songVolume = v > 200 ? 200 : v;
+}
+
+bool songSettingsDirty()
+{
+    Lock l;
+    if (!s_open) return false;
+    const Midi::RegEntry e = currentSettings();
+    return e.melody != s_savedSettings.melody || e.transpose != s_savedSettings.transpose ||
+           e.tempo != s_savedSettings.tempo || e.melodyMuted != s_savedSettings.melodyMuted ||
+           e.volume != s_savedSettings.volume || e.sf2 != s_savedSettings.sf2;
+}
+
+Err saveSongSettings()
+{
+    RegistryLock registryLock;
+    Midi::RegEntry entry;
     {
         Lock l;
-        if (!s_open) return;
-        s_songVolume = v > 200 ? 200 : v;
-        text = updateRegistry();
+        if (!s_open) return Err::NO_FILE;
+        if (synthBusy()) return Err::BUSY;
+        entry = currentSettings();
     }
-    writeRegistry(text);
+    Midi::Registry next = s_reg;
+    next.set(entry);
+    const std::string rel = s_cur.path.substr(strlen(DIR_SONGS) + 1);
+    next.rememberSongPath(entry.crc, entry.size, rel.c_str());
+    if (!writeRegistry(next.save())) return Err::SAVE_FAILED;
+    s_reg = std::move(next);
+    {
+        Lock l;
+        s_savedSettings = entry;
+    }
+    return Err::OK;
+}
+
+Err discardSongSettings()
+{
+    Midi::RegEntry saved;
+    {
+        Lock l;
+        if (!s_open) return Err::NO_FILE;
+        if (synthBusy()) return Err::BUSY;
+        saved = s_savedSettings;
+        s_player.setTempo(saved.tempo);
+        s_melody = saved.melody;
+        s_melodyReg = s_melody != s_song.melody;
+        s_melodyMuted = saved.melodyMuted;
+        s_songVolume = saved.volume;
+        s_songSf2 = saved.sf2;
+        s_pendingTr = saved.transpose;
+        s_trReload = false;
+        s_resumePlay = false;
+        s_trRejected = false;
+        if (!synthBusy()) {
+            s_synth.setTranspose(saved.transpose);
+            s_player.seek(s_player.position(), s_synth);
+            applyMelodyMute();
+        }
+    }
+    ensureFont(true);
+    return Err::OK;
+}
+
+namespace {
+Err songKeyByPath(const char *path, Midi::SongKey &key)
+{
+    if (!path || !KaraIndex::safeRel(path) || !KaraIndex::songExt(path)) return Err::BAD_INPUT;
+    BoardSd::Guard guard;
+    if (!BoardSd::mounted()) return Err::NO_SD;
+    const std::string full = std::string(DIR_SONGS) + "/" + path;
+    FILE *f = fopen(full.c_str(), "rb");
+    if (!f) return Err::NO_FILE;
+    key = Midi::SongKey{};
+    key.path = path;
+    uint8_t buf[1024];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) != 0) {
+        key.size += (uint32_t)n;
+        if (key.size > Midi::MAX_FILE) { fclose(f); return Err::FILE_TOO_BIG; }
+        key.crc = Midi::crc32(buf, n, key.crc);
+    }
+    const bool ok = !ferror(f) && key.size > 0;
+    fclose(f);
+    return ok ? Err::OK : Err::FILE_BAD;
+}
+
+Err validateSongFont(const char *font)
+{
+    if (!font || strlen(font) > 47 || strpbrk(font, "/\\\r\n\t")) return Err::BAD_INPUT;
+    if (!*font) return Err::OK;
+    std::vector<FontFile> fonts;
+    const Err err = scanFonts(fonts);
+    if (err != Err::OK) return err;
+    return std::any_of(fonts.begin(), fonts.end(), [font](const FontFile &f) {
+        return f.name == font && f.err == Err::OK;
+    }) ? Err::OK : Err::BAD_INPUT;
+}
+}
+
+Err playlists(std::vector<PlaylistView> &out, uint16_t detailId, size_t offset)
+{
+    RegistryLock registryLock;
+    const Err err = loadRegistry();
+    if (err == Err::OK) {
+        out.clear();
+        for (const auto &list : s_reg.playlists()) {
+            if (detailId && detailId != list.id) continue;
+            out.push_back(PlaylistView{list.id, list.name, list.songs.size(), {}});
+            if (detailId) {
+                const size_t from = std::min(offset, list.songs.size());
+                const size_t to = std::min(from + 100, list.songs.size());
+                out.back().songs.assign(list.songs.begin() + from, list.songs.begin() + to);
+            }
+        }
+    }
+    return err;
+}
+
+Err editPlaylist(const char *action, uint16_t &id, const char *name,
+                 const char *path, uint32_t crc, uint32_t size)
+{
+    RegistryLock registryLock;
+    Err err = loadRegistry();
+    if (err != Err::OK) return err;
+    Midi::Registry next = s_reg;
+    bool ok = false;
+    if (!strcmp(action, "create")) { id = next.createPlaylist(name); ok = id != 0; }
+    else if (!strcmp(action, "rename")) ok = next.renamePlaylist(id, name);
+    else if (!strcmp(action, "delete")) ok = next.deletePlaylist(id);
+    else if (!strcmp(action, "add")) {
+        Midi::SongKey key;
+        err = songKeyByPath(path, key);
+        if (err != Err::OK) return err;
+        ok = next.setPlaylistSong(id, key.crc, key.size, true, key.path.c_str());
+    } else if (!strcmp(action, "remove")) {
+        ok = next.setPlaylistSong(id, crc, size, false);
+    } else if (!strcmp(action, "up") || !strcmp(action, "down")) {
+        ok = next.movePlaylistSong(id, crc, size, !strcmp(action, "up") ? -1 : 1);
+    }
+    if (!ok) return Err::BAD_INPUT;
+    if (!writeRegistry(next.save())) return Err::SAVE_FAILED;
+    s_reg = std::move(next);
+    return Err::OK;
+}
+
+Err songFontByPath(const char *path, std::string &font)
+{
+    RegistryLock registryLock;
+    Err err = loadRegistry();
+    if (err != Err::OK) return err;
+    Midi::SongKey key;
+    err = songKeyByPath(path, key);
+    if (err != Err::OK) return err;
+    const Midi::RegEntry *entry = s_reg.find(key.crc, key.size);
+    font = entry ? entry->sf2 : "";
+    return Err::OK;
+}
+
+Err saveSongFontByPath(const char *path, const char *font)
+{
+    const Err fontErr = validateSongFont(font);
+    if (fontErr != Err::OK) return fontErr;
+    RegistryLock registryLock;
+    Err err = loadRegistry();
+    if (err != Err::OK) return err;
+    Midi::SongKey key;
+    err = songKeyByPath(path, key);
+    if (err != Err::OK) return err;
+    bool active;
+    {
+        Lock l;
+        active = s_open && s_crc == key.crc && s_size == key.size;
+        if (active && synthBusy()) return Err::BUSY;
+    }
+    if (active && songSettingsDirty()) return Err::UNSAVED;
+    Midi::RegEntry entry;
+    if (const Midi::RegEntry *saved = s_reg.find(key.crc, key.size)) entry = *saved;
+    else {
+        // Preserve automatic melody detection when assigning a bank before a song's first play.
+        std::vector<uint8_t> data(key.size);
+        BoardSd::Guard guard;
+        const std::string full = std::string(DIR_SONGS) + "/" + path;
+        FILE *f = fopen(full.c_str(), "rb");
+        if (!f) return Err::NO_FILE;
+        const bool ok = fread(data.data(), 1, data.size(), f) == data.size() && !ferror(f);
+        fclose(f);
+        if (!ok || Midi::crc32(data.data(), data.size()) != key.crc) return Err::FILE_BAD;
+        Midi::Song song;
+        if (Midi::parse(data.data(), data.size(), song) != Midi::Err::OK) return Err::FILE_BAD;
+        entry.melody = song.melody;
+    }
+    entry.crc = key.crc;
+    entry.size = key.size;
+    entry.name = path;
+    entry.sf2 = font;
+    Midi::Registry next = s_reg;
+    next.set(entry);
+    next.rememberSongPath(key.crc, key.size, path);
+    if (!writeRegistry(next.save())) return Err::SAVE_FAILED;
+    s_reg = std::move(next);
+    if (active) {
+        {
+            Lock l;
+            s_songSf2 = font;
+            s_savedSettings.sf2 = font;
+        }
+        ensureFont();
+    }
+    return Err::OK;
 }
 
 View view()
@@ -1232,6 +1447,9 @@ const char *errText(Err e)
     case Err::BUSY: return tr(Str::KARA_WAIT_FONT);
     case Err::LYRICS_BAD: return tr(Str::KARA_ERR_LYRICS_BAD);
     case Err::LYRICS_TOO_BIG: return tr(Str::KARA_ERR_LYRICS_BIG);
+    case Err::SAVE_FAILED: return tr(Str::SET_SAVE_FAILED);
+    case Err::UNSAVED: return tr(Str::KARA_UNSAVED);
+    case Err::BAD_INPUT: return tr(Str::KARA_ERR_SETTINGS);
     }
     return "";
 }

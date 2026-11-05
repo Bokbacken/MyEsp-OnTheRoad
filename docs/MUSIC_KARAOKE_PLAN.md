@@ -41,6 +41,72 @@ en sjungande profil med noter, överlagrad med röd cirkel och snedstreck när m
 På den mindre 480×320-layouten är reglagen en tredjedel smalare och ligger vid skärmkanterna;
 värdena visas som procent utan rubrik. Höjden och 800×480-layouten är oförändrade.
 
+### Spellistor, ljudbank och bekräftad låtsparning (v0.24.7)
+
+På `/karaoke/songs` finns spellistor **under den befintliga låtlistan**.
+Skapa, byt namn eller radera en lista; välj den och använd **+ Lista** vid en låt.
+I listan kan låtar tas bort och flyttas upp/ned. Radering tar aldrig bort låtfiler.
+Tryck på en låt för att starta den; automatisk köuppspelning ingår inte i detta steg.
+Nya spellistor begränsas till 32 och nya medlemmar till 500 låtar per lista;
+totalt högst 256 KiB registertext. Redan sparade äldre listor över dessa gränser
+bevaras vid läsning/sparning, och deras innehåll hämtas i 100-låtssidor.
+Tomma/dubbla namn och överskridna gränser för nya poster ger klientfel, inte ett
+skenbart lyckat svar. Listnamn får vara högst 48 UTF-8-byte.
+
+**SF2** vid en låt öppnar ett val av tillgängliga ljudbanker. **Spara** bekräftar
+valet för just den låten; Avbryt skriver ingenting. Övriga sparade låtval och
+den globala standardbanken behålls. Om den öppna låten har en osparad ändring
+måste den först sparas eller kastas; pågående bankladdning ger ett väntafel.
+
+På enheten förhandslyssnas melodispår, melodi av/på, tonläge, tempo, MIDI-volym och
+låtens ljudbank. De sparas tillsammans via **Spara låtinställningar** i låtmenyn.
+**Kasta ändringar** återställer de senast sparade värdena. Tillbakaknappen och
+webbens låtbyte kräver Spara/Kasta/Avbryt när något är ändrat. Även webbsidan
+visar Spara/Kasta för den öppna låten vid inläsning eller när fliken återfår fokus.
+Mastervolymen är fortfarande global och sparas direkt; den ingår inte i låtutkastet.
+Utkast överlever inte omstart/strömavbrott.
+Om en fjärröppning byter låt medan enhetens Spara/Kasta-dialog är öppen stängs
+dialogen; dess knappar får aldrig spara eller stänga en annan låt.
+
+Lagring: befintliga `karaoke.reg` behålls. Spellistor använder CRC32 + filstorlek
+som identitet och en valfri procentkodad relativ sökväg i `#playlist-song`-posten.
+Gamla poster utan sökväg går att ta bort eller komplettera genom att lägga till
+låten igen. Vid flytt/namnbyte håller låtinställningarna identiteten; listans
+sökväg uppdateras när samma innehåll öppnas eller läggs till på den nya platsen
+(uppdateringen skrivs vid nästa bekräftade registerändring). Ingen helbiblioteks-
+hashning görs vid sidvisning. Registerändringar är serialiserade; det gamla
+registret förblir aktivt om en SD-skrivning misslyckas, och felet visas.
+
+API: `GET/POST /api/karaoke/playlists` ger listöversikt respektive
+create/rename/delete/add/remove/up/down. `GET ?id=...&offset=...` hämtar högst
+100 listlåtar per svar. `GET /api/karaoke/song?path=...` hämtar sparad bank och
+spelbara banker; `POST` med action `font` sparar ett uttryckligt bankval,
+`save`/`discard` hanterar den öppna låtens utkast. Ett skyddat låtbyte svarar
+409 med `code: "unsaved"` och aktuell låtsökväg; nästa `open` kan innehålla
+`decision: "save"|"discard"` och samma `current`-sökväg. Som befintliga
+uppspelnings-API:er används detta på enhetens betrodda lokala nätverk, utan PIN.
+Favoriter/sångarval har ännu inte fått något nytt UI i detta steg.
+Webbens låtväljare har separata lägen för filstruktur och alla låtar (filstruktur
+är standard och visar endast direkt underkataloger/låtar i vald katalog).
+Spellista väljs och skapas ovanför låtlistan; en separat
+`/karaoke/playlists`-sida hanterar innehåll, ordning, namn och radering.
+
+### Aktuell kontrollista
+
+- [x] Ägaren har bekräftat reglagen på P4 och den smalare S3-layouten.
+- [x] Hosttest: spellisters lagring/ordning, SF2-val, sparfel och Spara/Kasta/Avbryt.
+- [x] **Alla låtar** visar bara låtar. Mapparna finns kvar i rotvyn; med 145
+  mappar låg de tidigare före låtarna även i Alla-vyn.
+- [x] Hosttest: 1 521 låtar i 145 mappar, separat mappnavigering, bokstavsbyte
+  mellan sidor, faktiskt synligt mål och högst 40 låtknappar.
+- [x] S3: ägaren har bekräftat att bokstavshoppen fungerar med det verkliga
+  biblioteket. Loggen visade att en Ö-post kunde ligga före A–V och fånga
+  tröskelhopp; hoppet väljer nu den minsta initialranken som uppfyller bokstaven.
+- [x] Webb: filstruktur och alla låtar är separata lägen; spellisteval och
+  skapande ligger ovanför låtlistan och innehållet hanteras på egen sida.
+- [ ] S3/P4: skapa/ändra/radera spellistor, byt SF2 och prova
+  Spara/Kasta/Avbryt på enheten och via webben; kontrollera efter omstart.
+
 Batteriindikeringen kan bara visa spänning efter att både ADC-fabriks/eFuse-kalibrering finns och användaren
 har sparat en engångsskala från en multimetermätning. GPIO8:s spänningsdelare är inte verifierad; utan
 kalibrering visas okänt, aldrig en uppskattad procent eller laddsymbol. Se
@@ -49,8 +115,8 @@ kalibrering visas okänt, aldrig en uppskattad procent eller laddsymbol. Se
 Återstående hårdvarutest: på S3-kortet, kontrollera reglagets touchyta och separation från text/knappar i
 90° och 270° Karaoke-läge; ändra volym både med reglaget och stegreglaget, verifiera omedelbart ljud,
 sound-on/mute och webbljudets policy samt lyssna efter överstyrning. Upprepa batteriets multimetermätning
-och kontrollera ADC/volymstabilitet med ljud aktivt och USB ansluten/frånkopplad. P4-layouten är hosttestad
-som 800×480 logisk yta, inte fysiskt verifierad eller portad.
+och kontrollera ADC/volymstabilitet med ljud aktivt och USB ansluten/frånkopplad.
+Ägarens bekräftelse ovan gäller reglage/layout, inte dessa återstående ljud- och ADC-mätningar.
 
 ## 2. Arkitektur (v0.13.0, selektiv laddning och effekter v0.13.2)
 

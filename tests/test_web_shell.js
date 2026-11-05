@@ -111,7 +111,7 @@ async function check(path, existingHeader, {cachedName = '', fetchFails = false,
   assert.equal(document.title, 'kitchen-console – Inställningar');
   assert.equal(footer.textContent, 'kitchen-console');
   const nav = document.querySelector('nav.otr-nav');
-  assert.equal(nav.children.length, 12);
+  assert.equal(nav.children.length, 13);
   assert.equal(document.querySelectorAll('.otr-chrome').length, 1);
   assert.equal(nav.children.filter(c => c.attributes['aria-current'] === 'page').length, 1);
   wifi = {...wifi, hostname: 'road-unit'};
@@ -134,7 +134,8 @@ async function check(path, existingHeader, {cachedName = '', fetchFails = false,
 (async () => {
   const expected = await check('/settings', true);
   for (const path of ['/', '/game', '/play', '/adventure', '/adventure-editor', '/karaoke',
-    '/karaoke/songs', '/players', '/diag', '/files', '/update', '/songs_picker.html']) {
+    '/karaoke/songs', '/karaoke/playlists', '/players', '/diag', '/files', '/update',
+    '/songs_picker.html', '/playlists.html']) {
     assert.deepEqual(await check(path, !path.includes('karaoke')), expected);
     assert.deepEqual(await check(path, !path.includes('karaoke'), {cachedName: 'previous-name'}), expected);
   }

@@ -538,6 +538,33 @@ void nameFromFile(const std::string &fileName, std::string &title, std::string &
 }
 
 // ---- Registry ---------------------------------------------------------------------------------
+namespace {
+std::string encodeToken(const std::string &text)
+{
+    std::string out;
+    char hex[4];
+    for (unsigned char c : text) {
+        if (isalnum(c) || c == '_' || c == '-' || c == '/' || c == '.') out += (char)c;
+        else { snprintf(hex, sizeof(hex), "%%%02X", c); out += hex; }
+    }
+    return out;
+}
+
+std::string decodeToken(const std::string &text)
+{
+    std::string out;
+    for (size_t i = 0; i < text.size(); i++) {
+        if (text[i] == '%' && i + 2 < text.size() &&
+            isxdigit((unsigned char)text[i + 1]) && isxdigit((unsigned char)text[i + 2])) {
+            const long value = strtol(text.substr(i + 1, 2).c_str(), nullptr, 16);
+            if (value > 0) out += (char)value;
+            i += 2;
+        } else out += text[i];
+    }
+    return out;
+}
+}
+
 void Registry::load(const std::string &text)
 {
     entries_.clear();
@@ -557,17 +584,8 @@ void Registry::load(const std::string &text)
             char encoded[256] = {};
             if (sscanf(line.c_str() + 10, "%u %255s", &id, encoded) != 2 || !id || id > UINT16_MAX)
                 continue;
-            std::string name;
-            for (size_t i = 0; encoded[i]; i++) {
-                if (encoded[i] == '%' && encoded[i + 1] && encoded[i + 2] &&
-                    isxdigit((unsigned char)encoded[i + 1]) && isxdigit((unsigned char)encoded[i + 2])) {
-                    char hex[] = {encoded[i + 1], encoded[i + 2], 0};
-                    const long value = strtol(hex, nullptr, 16);
-                    if (value > 0) name += (char)value;
-                    i += 2;
-                } else name += encoded[i];
-            }
-            if (!name.empty() && name.size() <= 48 &&
+            const std::string name = decodeToken(encoded);
+            if (!name.empty() && name.size() <= 48 && !strpbrk(name.c_str(), "\r\n\t") &&
                 std::none_of(playlists_.begin(), playlists_.end(),
                              [id](const Playlist &p) { return p.id == id; })) {
                 playlists_.push_back(Playlist{(uint16_t)id, name, {}});
@@ -577,10 +595,19 @@ void Registry::load(const std::string &text)
         }
         if (line.compare(0, 9, "#playlist") == 0) {
             unsigned id = 0, crc = 0, size = 0;
-            if (sscanf(line.c_str(), "#playlist-song %u %8x %u", &id, &crc, &size) == 3 && id && id <= UINT16_MAX) {
-                for (Playlist &playlist : playlists_)
-                    if (playlist.id == id && !hasPlaylistSong((uint16_t)id, crc, size))
-                        playlist.songs.push_back(SongKey{crc, size});
+            int used = 0;
+            if (sscanf(line.c_str(), "#playlist-song %u %8x %u %n", &id, &crc, &size, &used) == 3 &&
+                id && id <= UINT16_MAX) {
+                std::string path = used > 0 ? decodeToken(line.substr((size_t)used)) : "";
+                if (path.size() > 255 || strpbrk(path.c_str(), "\r\n\t")) path.clear();
+                for (Playlist &playlist : playlists_) {
+                    if (playlist.id != id) continue;
+                    const auto it = std::find_if(playlist.songs.begin(), playlist.songs.end(),
+                        [crc, size](const SongKey &song) { return song.crc == crc && song.size == size; });
+                    if (it == playlist.songs.end()) playlist.songs.push_back(SongKey{crc, size, path});
+                    else if (!path.empty()) it->path = std::move(path);
+                    break;
+                }
             }
             continue;
         }
@@ -648,18 +675,14 @@ std::string Registry::save() const
     for (const Playlist &playlist : playlists_) {
         snprintf(buf, sizeof(buf), "#playlist %u ", (unsigned)playlist.id);
         o += buf;
-        for (unsigned char c : playlist.name) {
-            if (isalnum(c) || c == '_' || c == '-') o += (char)c;
-            else {
-                snprintf(buf, sizeof(buf), "%%%02X", c);
-                o += buf;
-            }
-        }
+        o += encodeToken(playlist.name);
         o += '\n';
         for (const SongKey &song : playlist.songs) {
-            snprintf(buf, sizeof(buf), "#playlist-song %u %08x %u\n", (unsigned)playlist.id,
+            snprintf(buf, sizeof(buf), "#playlist-song %u %08x %u", (unsigned)playlist.id,
                      (unsigned)song.crc, (unsigned)song.size);
             o += buf;
+            if (!song.path.empty()) o += " " + encodeToken(song.path);
+            o += '\n';
         }
     }
     for (const Favorite &favorite : favorites_) {
@@ -708,6 +731,7 @@ void Registry::set(const RegEntry &e)
 
 uint16_t Registry::createPlaylist(const char *name)
 {
+    if (playlists_.size() >= 32) return 0;
     if (!name || !*name || strlen(name) > 48 || strpbrk(name, "\r\n\t")) return 0;
     for (const Playlist &playlist : playlists_)
         if (strcasecmp(playlist.name.c_str(), name) == 0) return 0;
@@ -743,20 +767,45 @@ bool Registry::deletePlaylist(uint16_t id)
     return true;
 }
 
-bool Registry::setPlaylistSong(uint16_t id, uint32_t crc, uint32_t size, bool included)
+bool Registry::setPlaylistSong(uint16_t id, uint32_t crc, uint32_t size, bool included, const char *path)
 {
+    if (!path || strlen(path) > 255 || strpbrk(path, "\r\n\t")) return false;
     for (Playlist &playlist : playlists_) {
         if (playlist.id != id) continue;
         auto it = std::find_if(playlist.songs.begin(), playlist.songs.end(),
                                [crc, size](const SongKey &song) { return song.crc == crc && song.size == size; });
         if (included) {
-            if (it == playlist.songs.end()) playlist.songs.push_back(SongKey{crc, size});
+            if (it == playlist.songs.end()) {
+                if (playlist.songs.size() >= 500) return false;
+                playlist.songs.push_back(SongKey{crc, size, path});
+            } else if (*path) it->path = path;
         } else if (it != playlist.songs.end()) {
             playlist.songs.erase(it);
         }
         return true;
     }
     return false;
+}
+
+bool Registry::movePlaylistSong(uint16_t id, uint32_t crc, uint32_t size, int direction)
+{
+    if (direction != -1 && direction != 1) return false;
+    for (Playlist &playlist : playlists_) {
+        if (playlist.id != id) continue;
+        for (size_t i = 0; i < playlist.songs.size(); i++) {
+            if (playlist.songs[i].crc != crc || playlist.songs[i].size != size) continue;
+            if ((direction < 0 && i == 0) || (direction > 0 && i + 1 == playlist.songs.size())) return false;
+            std::swap(playlist.songs[i], playlist.songs[(size_t)((int)i + direction)]);
+            return true;
+        }
+    }
+    return false;
+}
+
+void Registry::rememberSongPath(uint32_t crc, uint32_t size, const char *path)
+{
+    for (Playlist &playlist : playlists_)
+        if (hasPlaylistSong(playlist.id, crc, size)) setPlaylistSong(playlist.id, crc, size, true, path);
 }
 
 bool Registry::hasPlaylistSong(uint16_t id, uint32_t crc, uint32_t size) const
