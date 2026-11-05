@@ -54,6 +54,17 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   flash-kryptering eller löfte om skydd vid full flashåtkomst.
 - [ ] BLE för Spela tillsammans: idéstadium, alla kort som mål.
   Gemensamt spelprotokoll med alternativ transport; P4 kräver BT-stöd i C6.
+- [ ] Rörelsesensor/IMU i nya S3_35B: verifiera modell, axlar och anslutning
+  mot kortrevisionen; läs acceleration/rotation utan att störa touch på delad
+  I2C-buss. Prova neutralställeskalibrering, filtrering och låg styrfördröjning.
+  Första spelidé: luta en kullabyrint, undvik hål och nå målet; alternativ
+  touchstyrning på kort utan sensor.
+- [ ] Miniarkad, idéstadium: egna spel inspirerade av labyrintjakt,
+  Space Invaders och Parsec-liknande sidscrollande rymdspel i liggande läge.
+  Prova även Breakout/Pong. Prioritera stora tydliga objekt, få reglage,
+  styrning utan att skymma spelplanen och stabil bild-/inmatningsrytm på S3.
+  Verifiera samtidiga styr-/skjutgester innan spel kräver flerfingerstyrning;
+  överväg automatisk eld. Egna namn, banor, grafik och ljud.
 - [ ] SD/Wi-Fi-grundfelsökning, USB-lagring och ytterligare strömsparning
   följs separat i respektive avsnitt; inte småfixar i denna PR.
 
