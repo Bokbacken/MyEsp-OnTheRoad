@@ -45,11 +45,20 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 
 Separata framtida arbeten (ingår inte i uppsamlingen):
 
-- [ ] Översyn av ESP-UI, möjlig nästa UX-leverans: enhetlig placering och
-  funktion för Tillbaka/navigering så man hittar ut konsekvent i menyer och
-  undersidor. Inställningar öppnade från ett aktivt spel ska återvända till
-  oförändrat spel med bevarat tillstånd; bara en ändring som faktiskt kräver
-  omstart får avbryta/spela klart med tydlig förklaring.
+- [ ] Översyn av ESP-UI, möjlig nästa UX-leverans. Börja med inventering av
+  alla inställningar: stabil kategori/underkategori, ägare (globalt,
+  spelkategori eller specifikt spel), var den visas (huvudmeny,
+  spelkategori, aktivt spel) och när ändringen träder i kraft (direkt,
+  nästa omgång/start eller omstart). En inställning har ett enda kanoniskt
+  värde; flera menyer är genvägar till samma inställning, inte kopior.
+  Spelkategorins värden bör vara standardvärden för nya spel och ett specifikt
+  spels värde ett explicit undantag. Gruppera globalt exempelvis skärm/
+  tillgänglighet, ljud, kontroller och enhet/administration; visa endast
+  relevanta kategorier i spelvyerna. Enhetlig Tillbaka-/navigeringsplacering.
+  Ändringar som kan göras under spel bevarar aktuell spelstatus; ändringar
+  som kräver ny omgång/omstart märks tydligt och får inte tyst kasta bort
+  en aktiv session. Följ upp med provning av varje inställnings ägare,
+  synlighet, sparning och effekt på samtliga tre ytor.
 - [ ] Nätlägen i Administration på ESP:n: STA, AP och Hotspot (AP+STA med NAT),
   20 MHz kanalbredd, SSID/lösenord och samma fyra adressnätsval som i
   `Bokbacken/MyPi-Hotspot`. Återanvänd lämpliga delar; kontrollera faktisk
