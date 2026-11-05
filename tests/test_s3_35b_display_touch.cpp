@@ -29,11 +29,13 @@ bool powerReady = true;
 bool powerInitialized = true;
 bool panelResetSuccess = true;
 int panelResetCalls = 0;
+bool powerCaptureActive = false;
 namespace BoardPower {
 struct Status { bool initialized; };
 void *bus() { return powerReady ? reinterpret_cast<void *>(1) : nullptr; }
 Status status() { return {powerInitialized}; }
 bool resetPanel() { ++panelResetCalls; return panelResetSuccess; }
+bool setTouchCaptureActive(bool active) { powerCaptureActive = active; return true; }
 }
 
 struct lv_display_t {};
@@ -487,6 +489,9 @@ int main(int argc, char **argv) {
         for (bool failRead : {false, true}) {
             setPoint(100, 100);
             assert(poll(x, y));
+#ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
+            if (g_rawCount == 0) assert(powerCaptureActive);
+#endif
             if (failRead) {
                 reportError = ESP_ERR_TIMEOUT;
                 assert(poll(x, y));
@@ -517,8 +522,10 @@ int main(int argc, char **argv) {
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
         static_assert(sizeof(RawSample::bytes) == 8);
         assert(g_rawStarted && !g_rawDumped);
+        assert(powerCaptureActive);
         assert(g_rawSamples[0].bytes[1] == 1);
-        assert(g_rawSamples[2].bytes[2] == 0x40); // Release packet retained verbatim.
+        assert(std::any_of(g_rawSamples, g_rawSamples + g_rawCount,
+                          [](const RawSample &sample) { return sample.bytes[2] >> 6 == 1; }));
         assert(std::any_of(g_rawSamples, g_rawSamples + g_rawCount,
                           [](const RawSample &sample) { return sample.result == ESP_ERR_TIMEOUT; }));
         const auto beforeDump = logFormats.size();
@@ -526,6 +533,7 @@ int main(int argc, char **argv) {
         assert(logFormats.size() == beforeDump); // No per-read logging.
         poll(x, y);
         assert(g_rawDumped && g_rawCount == 512);
+        assert(!powerCaptureActive);
         assert(logFormats.size() == beforeDump + 514);
         for (int i = 0; i < 1000; ++i) poll(x, y);
         assert(g_rawCount == 512 && logFormats.size() == beforeDump + 514);

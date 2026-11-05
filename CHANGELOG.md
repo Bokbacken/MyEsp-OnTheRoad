@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.8 (diagnostic)
+
+- During the 512-read raw touch capture, skip TCA9554 input-register reads;
+  automatically resume after the last sample. The power button is unavailable
+  for the capture window (typically about 20-25 seconds); its held timer and
+  pressed status reset at capture start. PMIC refresh and all other behavior
+  continue normally. Touch protocol/timing and TCA's 109 ms task delay are
+  unchanged. Physical comparison pending.
+
 ## v0.25.7 (diagnostic)
 
 - S3_35B changes only the TCA9554/PWR polling delay from 100 to 109 ms to

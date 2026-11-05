@@ -65,7 +65,12 @@ void recordRaw(int64_t start, int64_t duration, esp_err_t result,
     if (g_rawDumped) return;
     if (!g_rawStarted) {
         if (result != ESP_OK || !down) return;
+        if (!BoardPower::setTouchCaptureActive(true)) {
+            ESP_LOGE("touch_raw", "could not pause TCA polling; capture not started");
+            return;
+        }
         g_rawStarted = true;
+        return;
     }
     RawSample &sample = g_rawSamples[g_rawCount++];
     sample.timeUs = start;
@@ -74,7 +79,9 @@ void recordRaw(int64_t start, int64_t duration, esp_err_t result,
     memcpy(sample.bytes, bytes, REPORT_LEN);
     if (g_rawCount != 512) return;
     g_rawDumped = true;
-    ESP_LOGI("touch_raw", "BEGIN 512 buffered reads; first contact triggered capture; "
+    if (!BoardPower::setTouchCaptureActive(false))
+        ESP_LOGE("touch_raw", "could not resume TCA polling after capture");
+    ESP_LOGI("touch_raw", "BEGIN 512 buffered reads after first contact; TCA input polling paused; "
              "t_us=boot time, dt_us=I2C duration; no serial logging during capture");
     for (unsigned i = 0; i < g_rawCount; ++i) {
         const RawSample &s = g_rawSamples[i];
@@ -353,7 +360,7 @@ bool begin()
         ESP_LOGW(TAG, "DIAG touch: extra movement/read-error click veto DISABLED; "
                  "LVGL handles clicks/scroll, swipes may activate buttons");
     if (BUFFERED_TRACE)
-        ESP_LOGI("touch_raw", "ARMED: first contact records 512 reads in RAM, then dumps; "
+        ESP_LOGI("touch_raw", "ARMED: first contact pauses TCA input polling, then records next 512 reads in RAM; "
                  "live touch traces disabled; reset to rearm");
     // No documented firmware-identification command: version fields remain unknown (zero).
     ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz STOP-separated I2C, 8-byte single-point report, polled (no IRQ/reset GPIO)",

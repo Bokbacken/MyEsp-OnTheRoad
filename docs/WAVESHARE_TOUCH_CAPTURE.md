@@ -4,8 +4,8 @@
 
 The S3_35B application diagnostic build records the same raw fields, without
 live touch-event/sample logs. Reset with serial logging open at 115200 baud.
-The `touch_raw: ARMED` message precedes recording. First valid contact starts
-512 consecutive reads: hold still for two seconds, drag slowly and release.
+The `touch_raw: ARMED` message precedes recording. First valid contact arms 512 consecutive reads (from the next poll): hold still
+for two seconds, drag slowly and release.
 Wait for `touch_raw: END capture` and save the complete log. This is automatic,
 not triggered by the application's clear-log button. Reset to repeat.
 Dumping briefly pauses input after measurement. Other application module logs
@@ -29,6 +29,15 @@ From v0.25.6 the same 8-byte request uses separate command and receive
 transfers with STOP between. The shared mutex covers both transfers, and
 the minimum 100 us gap also applies between them. `dt_us` includes both
 transfers, the intervening gap and any initial mutex/pacing wait.
+
+From v0.25.8, the 512-read capture also suppresses TCA9554 input reads, then
+automatically resumes them after the final sample. The PWR button is
+unavailable during capture (typically 20-25 seconds); its pressed status and
+hold accumulator reset when capture starts. PMIC refresh and the power task's
+109 ms cadence continue, so this isolates the TCA input read, not all other
+shared-bus traffic. The contact report that arms capture is omitted; the gate
+waits for any in-flight TCA input read to finish before the first captured
+touch poll.
 
 ## Factory comparison
 

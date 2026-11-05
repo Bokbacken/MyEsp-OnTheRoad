@@ -59,6 +59,14 @@ The unchanged 2000 ms hold accumulator crosses its threshold on sample 19
 PMIC refresh remains approximately ten seconds: 92 samples, nominally 10.028 s.
 Very short taps between samples may be missed; a short press wakes the backlight if the screen is off and does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.
 
+During the v0.25.8 raw touch capture only, TCA9554 input reads are skipped to
+isolate their bus activity. PWR-button monitoring is unavailable for the
+512-sample window (typically 20-25 seconds); its published pressed state and
+hold accumulator reset at capture start. TCA polling resumes automatically
+after sample 512. The triggering touch report is not included: TCA polling is
+quiesced first, so all recorded samples occur after any in-flight TCA read has
+completed. PMIC refresh remains active.
+
 The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`. The manufacturer's [Arduino touch driver](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/esp_lcd_touch_axs15231b/esp_lcd_touch_axs15231b.cpp) uses the same command/report size, but ends the write with STOP before a separate read. An initial firmware experiment adopted that variant; owner logs still showed five consecutive `0xD7` and then ten `0x13` reports after power-on, including after a shared LCD/touch reset. Touch now uses the factory BSP's atomic combined transaction, avoiding a possible interleaving between the two transfers and the concurrent PWR polling task. The race was possible but is not confirmed as the cause. Owner logs also showed that neither 100 kHz nor the shared reset changed the startup result, so touch is back at the manufacturer's 400 kHz. Those startup frames were not corruption; see the no-contact filler rule below.
 
 From v0.25.5, the diagnostic application instead requests and reads 8 bytes

@@ -21,6 +21,8 @@ int transactionCount = 0;
 int delayedMs = 0;
 TaskFunction_t scheduledTask = nullptr;
 bool pacingReady = false;
+bool stopTaskDelay = false;
+struct TaskStopped {};
 
 }  // namespace
 
@@ -70,7 +72,14 @@ esp_err_t i2c_master_transmit(i2c_master_dev_handle_t device, const uint8_t *tx,
     return ESP_OK;
 }
 
-void vTaskDelay(int ticks) { delayedMs += ticks; }
+void vTaskDelay(int ticks)
+{
+    delayedMs += ticks;
+    if (stopTaskDelay) {
+        stopTaskDelay = false;
+        throw TaskStopped{};
+    }
+}
 
 int xTaskCreatePinnedToCore(TaskFunction_t entry, const char *, int, void *, int, void *, int)
 {
@@ -128,7 +137,6 @@ int main()
     assert((expanderOutputWrites[1] & (1U << 1)) != 0);
     assert(delayedMs == 300);
     assert(scheduledTask != nullptr);
-
     const BoardPower::Status sample = BoardPower::status();
     assert(sample.sampleValid && sample.batteryConnected && sample.batteryVoltageValid);
     assert(sample.batteryMillivolts == 4076);
@@ -172,6 +180,24 @@ int main()
     assert(!BoardPower::status().powerOffRequested);
     BoardPower::handlePowerButton(false);
     assert(!BoardPower::status().powerButtonPressed);
+
+    auto sampleOnce = [] {
+        stopTaskDelay = true;
+        try {
+            scheduledTask(nullptr);
+            assert(false);
+        } catch (const TaskStopped &) {
+        }
+    };
+    const int beforeButtonSample = transactionCount;
+    sampleOnce();
+    assert(transactionCount == beforeButtonSample + 1);
+    assert(BoardPower::setTouchCaptureActive(true));
+    sampleOnce();
+    assert(transactionCount == beforeButtonSample + 1);
+    assert(BoardPower::setTouchCaptureActive(false));
+    sampleOnce();
+    assert(transactionCount == beforeButtonSample + 2);
 
     puts("S3 3.5B bus, expander-reset, and cached PMIC checks passed");
     return 0;

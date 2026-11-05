@@ -112,8 +112,18 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.7: ändra enbart TCA/PWR-taskens paus från 100 till 109 ms.
   Touch kvar på 8 byte/STOP, 30 ms och mutex/100 us paus.
   PWR-gräns 2000 ms kvar (19 samplingar); PMIC nominellt 10,028 s.
-- [ ] Jämför v0.25.7 på kortet med samma stillahållning och långsamma drag.
-  Kontrollera om felens cirka 200 ms-rytm flyttar sig med TCA-pollningen.
+- [x] v0.25.7-loggen: 512 läsningar under 22,983 s, 264 accepterade kontakt-/
+  släpprapporter, 214 enhetliga tomrapporter, 33 parseravvisningar och ett
+  avvikande nollpunktpaket; inga transportfel. Anropstid 717-1156 us,
+  medel 846,9 us; pollmedian 32,014 ms, max 297,316 ms.
+  Förskjutningspaket samlas kring cirka 109,45 ms mot cirka 100,28 ms i v0.25.6.
+  Starkt stöd för TCA-samband, men exakt sammanfall saknas.
+- [x] v0.25.8: under 512-read capture hoppa över enbart TCA9554 input reads.
+  PWR-knappens status/hold återställs vid start; PWR-övervakning pausas cirka
+  20-25 s. PMIC-refresh och 109 ms-taskrytm fortsätter. TCA läsning återupptas
+  automatiskt efter sista provet. Touchens 8-byte/STOP och övriga timing kvar.
+- [ ] Jämför v0.25.8 på kortet med samma beröringsförlopp. Jämför avvisnings-
+  och nollpunktantal samt timing mot v0.25.7; PMIC/övrig bussaktivitet kvarstår.
   Kortare svar döljer vissa svansavvikelser; färre parserfel ensamt räcker inte.
   Behåll touchpollgränsen tills förbättring är bekräftad.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.

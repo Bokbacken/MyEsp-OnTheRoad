@@ -32,5 +32,7 @@ i2c_master_bus_handle_t bus();
 Status status();
 bool powerOff();
 void cancelPowerOff();
+// Diagnostic capture temporarily suppresses only TCA9554 input reads.
+bool setTouchCaptureActive(bool active);
 
 }  // namespace BoardPower

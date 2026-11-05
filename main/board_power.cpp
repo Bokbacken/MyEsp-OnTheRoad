@@ -12,6 +12,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 namespace BoardPower {
@@ -49,6 +50,8 @@ portMUX_TYPE s_statusMux = portMUX_INITIALIZER_UNLOCKED;
 uint32_t s_buttonHeldMs = 0;
 uint32_t s_buttonReadErrors = 0;
 bool s_buttonShutdownIssued = false;
+bool s_touchCaptureActive = false;
+SemaphoreHandle_t s_captureGate = nullptr;
 
 bool addDevice(uint8_t address, i2c_master_dev_handle_t *device)
 {
@@ -211,9 +214,16 @@ void sampleTask(void *)
 {
     uint32_t pmicElapsedMs = 0;
     for (;;) {
-        bool pressed = false;
-        if (readPowerButton(pressed)) handlePowerButton(pressed);
-        else handlePowerButton(false);
+        if (xSemaphoreTake(s_captureGate, portMAX_DELAY) == pdTRUE) {
+            if (!s_touchCaptureActive) {
+                bool pressed = false;
+                if (readPowerButton(pressed)) handlePowerButton(pressed);
+                else handlePowerButton(false);
+            }
+            xSemaphoreGive(s_captureGate);
+        } else {
+            ESP_LOGE(TAG, "touch-capture gate unavailable; skipping power-button read");
+        }
         pmicElapsedMs += BUTTON_POLL_MS;
         if (pmicElapsedMs >= 10000) {
             pmicElapsedMs = 0;
@@ -232,6 +242,14 @@ bool begin()
         Status next = {};
         next.errors = 1;
         publish(next);
+        return false;
+    }
+    if (!s_captureGate) s_captureGate = xSemaphoreCreateMutex();
+    if (!s_captureGate) {
+        Status next = {};
+        next.errors = 1;
+        publish(next);
+        ESP_LOGE(TAG, "touch-capture gate allocation failed");
         return false;
     }
 
@@ -313,6 +331,24 @@ void cancelPowerOff()
     portEXIT_CRITICAL(&s_statusMux);
 }
 
+bool setTouchCaptureActive(bool active)
+{
+    if (!s_captureGate || xSemaphoreTake(s_captureGate, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "touch-capture gate unavailable; TCA polling state unchanged");
+        return false;
+    }
+    s_touchCaptureActive = active;
+    if (active) {
+        portENTER_CRITICAL(&s_statusMux);
+        s_status.powerButtonPressed = false;
+        portEXIT_CRITICAL(&s_statusMux);
+        s_buttonHeldMs = 0;
+        s_buttonShutdownIssued = false;
+    }
+    xSemaphoreGive(s_captureGate);
+    return true;
+}
+
 }  // namespace BoardPower
 #else
 namespace BoardPower {
@@ -323,6 +359,7 @@ i2c_master_bus_handle_t bus() { return nullptr; }
 Status status() { return {}; }
 bool powerOff() { return false; }
 void cancelPowerOff() {}
+bool setTouchCaptureActive(bool) { return true; }
 
 }  // namespace BoardPower
 #endif
