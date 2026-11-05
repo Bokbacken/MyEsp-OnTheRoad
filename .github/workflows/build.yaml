@@ -16,6 +16,10 @@ on:
         description: Waveshare repository ref for the factory test
         type: string
         default: main
+      waveshare_touch_trace:
+        description: Record 512 raw factory touch reads in RAM, then dump to serial
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +36,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Checkout trace tooling
+        if: inputs.waveshare_touch_trace
+        uses: actions/checkout@v4
+        with:
+          path: trace-tools
+          persist-credentials: false
+
       - name: Checkout Waveshare example
         uses: actions/checkout@v4
         with:
@@ -43,6 +54,12 @@ jobs:
       - name: Record source revision
         id: source
         run: echo "sha=$(git -C waveshare rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Instrument factory touch reads
+        if: inputs.waveshare_touch_trace
+        run: |
+          python3 -m unittest discover -s trace-tools/tests -p test_instrument_waveshare_touch.py
+          python3 trace-tools/tools/instrument_waveshare_touch.py waveshare/examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c
 
       - name: Build ESP-IDF factory example
         uses: espressif/esp-idf-ci-action@v1
@@ -72,6 +89,8 @@ jobs:
             its firmware image.
             EOF
             echo "Waveshare source commit: ${{ steps.source.outputs.sha }}" >> webflash/README.txt
+            echo "Buffered touch trace enabled: ${{ inputs.waveshare_touch_trace }}" >> webflash/README.txt
+            cp components/esp_bsp/bsp_touch.c webflash/bsp_touch.c
             python3 - <<'PY'
             import json
             with open("webflash/manifest.json", "w", encoding="utf-8") as f:
@@ -89,7 +108,7 @@ jobs:
       - name: Upload web flasher package
         uses: actions/upload-artifact@v4
         with:
-          name: waveshare-3.5b-factory-webflash-${{ steps.source.outputs.sha }}
+          name: waveshare-3.5b-factory${{ inputs.waveshare_touch_trace && '-touch-trace' || '' }}-webflash-${{ steps.source.outputs.sha }}
           path: waveshare/examples/esp-idf/01_factory/webflash/
           if-no-files-found: error
           retention-days: 30
