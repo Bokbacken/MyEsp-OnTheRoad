@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.12
+
+- Updates P4's exact ESP-Hosted dependency and the pinned C6 OTA example to
+  release 3.1.0. Upstream changes include SDIO receive-buffer preallocation
+  and capacity handling, packet-mode support, task-stack sizing corrections
+  and a detached-task PSRAM heap fix. No board-level speed improvement has
+  been measured; the shared SD/C6 clock remains 40 MHz.
+- C6 CI checks the Wi-Fi coprocessor configuration and OTA slot size and
+  includes its generated configuration in the radio artifact.
+
 ## v0.25.11
 
 - Pins the P4 ESP-Hosted dependency exactly to the already locked 3.0.10.

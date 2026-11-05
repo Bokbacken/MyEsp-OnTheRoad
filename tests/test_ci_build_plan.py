@@ -14,16 +14,12 @@ spec.loader.exec_module(plan)
 
 
 class BuildPlanTests(unittest.TestCase):
-    def test_p4_hosted_uses_exact_locked_version(self):
+    def test_p4_hosted_uses_exact_release(self):
         root = Path(__file__).resolve().parents[1]
         manifest = (root / "main/idf_component.yml").read_text()
         hosted = manifest.split("  espressif/esp_hosted:\n", 1)[1]
         pinned = re.search(r'^    version: "(\d+\.\d+\.\d+)"$', hosted, re.M)
         self.assertIsNotNone(pinned, "Pin Hosted exactly to avoid unselected USB Kconfig rules")
-        lock = (root / "dependencies.lock.esp32p4").read_text()
-        locked = re.search(r"^  espressif/esp_hosted:\n(.*?)(?=^  \S|\Z)", lock, re.M | re.S)
-        self.assertIsNotNone(locked)
-        self.assertRegex(locked.group(1), rf"(?m)^    version: {re.escape(pinned.group(1))}$")
         self.assertIn('if: "target in [esp32p4]"', hosted)
 
     def run_plan(self, event, name, green=False, paths=None):

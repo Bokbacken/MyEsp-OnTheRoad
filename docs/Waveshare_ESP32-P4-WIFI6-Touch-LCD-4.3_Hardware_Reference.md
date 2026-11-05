@@ -418,19 +418,24 @@ On ESP-IDF, Wi-Fi/BT on the ESP32-P4 is driven **remotely** through the C6:
 - With ESP-IDF 6.1+, `esp_wifi` routes through ESP-Hosted; older ESP-IDF
   versions may also need `espressif/esp_wifi_remote`.
 
-The application pins ESP-Hosted exactly to the locked 3.0.10, not a compatible
-version range. Older Component Manager versions can collect missing Kconfig
-references from an unselected newer candidate: 3.1.0 introduces USB manifest
-selectors that 3.0.10 does not define. The exact pin keeps this SDIO build on
-the existing component without inventing USB configuration or changing C6
-firmware. A future upgrade must validate host/C6 compatibility and refresh
-the target-specific dependency locks together.
+The application pins ESP-Hosted exactly to 3.1.0 and builds the C6 OTA example
+from the matching upstream tag's commit `235aca95b52e3501b55eeb610b0275d288edc8c2`.
+Older Component Manager versions can collect missing Kconfig references from
+an unselected newer candidate, so do not replace the exact version with a
+compatible range without checking clean builds. Release 3.1.0 improves SDIO
+receive-buffer allocation/capacity handling and task-stack/PSRAM handling.
+The board still uses SDIO at 40 MHz; performance improvements require physical
+measurement. Host and C6 must be upgraded as a pair.
 
 The C6 runs its own "slave"/hosted firmware. Keep the P4 host firmware and the C6 slave firmware versions compatible — a mismatch is a common cause of Wi-Fi not coming up. Official examples: `04_wifistation` (station via the hosted link). The factory image also bundles ESP-Hosted Wi-Fi.
 
 The application CI builds `host_fw.bin` from the pinned Espressif
 ESP-Hosted MCU coprocessor-OTA example. On a working P4 Host-radio connection,
 upload that C6 app image under **Uppdatera → ESP32-C6 Host-radio (OTA)**.
+Use `host_fw.bin`, not the P4 application or a merged USB image. The 3.1.0
+example retains the previous two `0x1C0000` OTA slots. Install the matching
+P4 application first, then update C6 through the radio OTA page and confirm
+both reported ESP-Hosted versions after restart.
 The uploader checks the ESP32-C6 image header and queries the running C6
 firmware before using the ESP-Hosted OTA RPCs. If the installed firmware
 cannot report its version or is older than v2.6.0, OTA still proceeds but

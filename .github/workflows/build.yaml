@@ -167,10 +167,14 @@ jobs:
           esp_idf_version: ${{ needs.changes.outputs.c6_idf }}
           target: esp32c6
           command: |
+            set -eu
             cd esp_hosted/examples/ota/coprocessor_ota/cp
             idf.py --version
             idf.py set-target esp32c6
             idf.py build
+            grep -qx 'CONFIG_ESP_HOSTED_CP=y' sdkconfig
+            grep -qx 'CONFIG_ESP_HOSTED_CP_FEAT_WIFI=y' sdkconfig
+            test "$(stat -c %s build/eh_cp_ota_coprocessor_ota.bin)" -le $((0x1C0000))
             cp build/eh_cp_ota_coprocessor_ota.bin build/host_fw.bin
 
       - name: Upload C6 Host firmware
@@ -181,6 +185,7 @@ jobs:
             esp_hosted/examples/ota/coprocessor_ota/cp/build/host_fw.bin
             esp_hosted/examples/ota/coprocessor_ota/cp/build/eh_cp_ota_coprocessor_ota.elf
             esp_hosted/examples/ota/coprocessor_ota/cp/build/partition_table/partition-table.bin
+            esp_hosted/examples/ota/coprocessor_ota/cp/sdkconfig
           if-no-files-found: error
 
   build:

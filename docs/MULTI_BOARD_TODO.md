@@ -136,14 +136,22 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.10: Sudoku får högre siffer-/verktygsknappar: minst 36 px på båda
   S3 i stående läge, 50 px på P4 och 48 px i liggande läge. Hjälpöverlägg och
   dess inställningsreglage tas bort; sparfel visas som kvitterbar modal popup.
-- [ ] Prova särskilt Sudokus nedersta knapprad på båda S3 och P4 med de högre
-  knapparna. Fysisk träffsäkerhet är ännu inte verifierad.
+- [x] Ägaren bekräftar att Sudoku fungerar klart bättre på S3_35B med
+  v0.25.10. Loggen `S3-New-20261105-130817-353.log` innehåller 512 lyckade
+  touchläsningar under 10,879 s: 216 enpunktsrapporter och 296 tomrapporter,
+  inga synligt felaktiga starter i de åtta utskrivna byten.
+- [ ] Prova särskilt Sudokus nedersta knapprad på ES3C35P och P4 med de högre
+  knapparna; förbättringen är hittills ägarbekräftad endast för S3_35B.
 - [x] v0.25.10 bygger för båda S3-profilerna; P4 stoppas fortfarande före
   kompilering av saknade USB-manifestsymboler i ESP-Hosted-beroendehanteringen.
 - [x] v0.25.11: lås ESP-Hosted exakt till befintlig 3.0.10 i stället för
   versionsintervall, så att nyare kandidaters USB-villkor inte blandas in.
   SDIO/C6-version och radiobeteende lämnas oförändrade.
-- [ ] Verifiera att P4 åter bygger en komplett appbild med exakt Hosted-låsning.
+- [x] v0.25.11: P4-jobbet bygger åter igenom med exakt Hosted-låsning.
+- [x] v0.25.12: uppdatera P4 Hosted och C6 OTA-exemplet tillsammans till
+  3.1.0, med exakt komponentversion och pinnad taggcommit.
+- [ ] Verifiera kompletta P4/C6-bilder för 3.1.0 och prova Wi-Fi, radio-OTA
+  och samtidig SD-trafik på kortet. Ingen prestandaförbättring är uppmätt.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
