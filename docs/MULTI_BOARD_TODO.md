@@ -129,6 +129,15 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [ ] Jämför v0.25.9 på kortet med samma avsiktliga en- och tvåfingerdrag.
   Bedöm om 0x37- och 0xFF-rapporter/timing förändras när touch och PWR läses
   sekventiellt i samma task. Andra I2C-klienter delar fortsatt bussen.
+- [x] v0.25.9: ägarens enfingerlogg visar 261 kontakt-/släpprapporter och 251
+  tomrapporter under 11,127 s, inga transportfel eller synliga förskjutnings-
+  starter. Ägaren upplever förbättrad touchkänsla efter vidare användning.
+  Bara åtta av fjorton byte skrevs ut; rapporternas svans är inte verifierad.
+- [x] v0.25.10: Sudoku får högre siffer-/verktygsknappar: minst 36 px på båda
+  S3 i stående läge, 50 px på P4 och 48 px i liggande läge. Hjälpöverlägg och
+  dess inställningsreglage tas bort; sparfel visas som kvitterbar modal popup.
+- [ ] Prova särskilt Sudokus nedersta knapprad på båda S3 och P4 med de högre
+  knapparna. Fysisk träffsäkerhet är ännu inte verifierad.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.

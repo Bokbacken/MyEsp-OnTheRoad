@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.10
+
+- Taller Sudoku keypad and tool buttons on both S3 profiles (minimum 36 px
+  in portrait, previously 30) and P4 (minimum 50 px, previously 40).
+  Landscape controls grow from 42 to 48 px; larger fonts can increase these
+  heights further. The board remains fitted to the available space.
+- Removes Sudoku's brief control-hint overlays and their settings switch.
+  Save failures instead show a dismissible modal popup; failed saves still
+  keep the game open for retry. Touch sampling is unchanged.
+
 ## v0.25.9 (diagnostic)
 
 - S3_35B samples touch and the PWR expander in one task: touch every 20 ms,
