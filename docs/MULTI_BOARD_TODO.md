@@ -168,6 +168,16 @@ gemensam touch/PWR-task och högre Sudoku-knappar. Undersökningen avslutas;
   eller läsfel under en gest spärrar klick, även vid opt-in diagnostik.
 - [x] Gemensam touch/PWR-task dokumenterad i hårdvarureferensen och
   repositoryinstruktionerna, inklusive cachad LVGL-läsning och I2C-låsning.
+- [x] v0.25.13: P4, båda S3-profilerna och C6 byggda i CI
+  (`42039990374`). S3_35B-bygget kontrollerar att extradiagnostiken är av.
+  Återställd klickspärr är ännu inte separat bekräftad på hårdvaran.
+- [ ] P4 efter radiobytet: ägarens stora SF2-uppladdning misslyckas fortfarande
+  med SD-skrivfel, mottagningsläge och återmontering vid 40 MHz.
+  En mindre SF2-fil (29 258 148 byte) går igenom på 70,556 s,
+  cirka 0,415 MB/s; mottagningsanrop tar 68,576 s, buffertväntan 28 ms
+  och SD-låsväntan 124 ms. Mottagnings- och skrivtider överlappar.
+  Ingen visad Wi-Fi-frånkoppling eller watchdog; SD-grundfelet kvarstår
+  och mottagningshastighetens begränsning är inte isolerad till radion.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.
