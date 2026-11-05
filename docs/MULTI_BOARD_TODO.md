@@ -59,6 +59,23 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   som kräver ny omgång/omstart märks tydligt och får inte tyst kasta bort
   en aktiv session. Följ upp med provning av varje inställnings ägare,
   synlighet, sparning och effekt på samtliga tre ytor.
+- [ ] Utforska utdragbar snabbpanel från överkanten som frigör skärmyta:
+  kort drag visar nivå 1, längre sammanhängande drag expanderar nivå 2;
+  uppåtgest eller tryck utanför stänger. Nivå 1 visar status och snabba,
+  kontextrelevanta kontroller (ljusstyrka, volym/ljud, Wi-Fi/BLE/spela
+  tillsammans, batteri och vid behov skärmviloläge). Nivå 2 visar relevanta
+  spelinställningar i aktivt spel, annars relevanta globala/administrativa
+  inställningar. Genvägar ändrar alltid inställningens kanoniska värde.
+  Avgränsa startgesten till överkanten och testa scrollvyer, spelgester,
+  liggande läge och samtliga skärmstorlekar så panelen inte öppnas av misstag.
+  Panelen fångar input medan den är öppen och återgår till samma spel/session
+  när den stängs; lägg inte omstartskrävande eller destruktiva åtgärder bland
+  omedelbara reglage.
+- [ ] UI-inventering ska även täcka navigering/Tillbaka, skärmzoom och
+  textstorlek, ljusstyrka/viloläge, ljud och volym, Wi-Fi/BLE och
+  Spela tillsammans, batteri/laddning, touch/kontroller,
+  uppdatering/omstart samt SD-/filstatus. Håll avancerad administration och
+  diagnostik åtkomlig men skild från snabba spelreglage.
 - [ ] Nätlägen i Administration på ESP:n: STA, AP och Hotspot (AP+STA med NAT),
   20 MHz kanalbredd, SSID/lösenord och samma fyra adressnätsval som i
   `Bokbacken/MyPi-Hotspot`. Återanvänd lämpliga delar; kontrollera faktisk
