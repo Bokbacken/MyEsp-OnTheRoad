@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 import tempfile
 import unittest
@@ -30,8 +31,12 @@ class BuildPlanTests(unittest.TestCase):
         disabled = "# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set"
         self.assertIn(disabled, (root / "sdkconfig.defaults.s3-35b").read_text().splitlines())
         workflow = (root / ".github/workflows/build.yaml").read_text()
-        self.assertIn(f"grep -qx '{disabled}' sdkconfig", workflow)
+        self.assertIn(f'grep -qx "{disabled}" sdkconfig', workflow)
         self.assertNotIn("grep -qx 'CONFIG_OTR_S3_TOUCH_DIAGNOSTICS=y'", workflow)
+        build = workflow.split("- name: Build with ESP-IDF v6.1", 1)[1]
+        command = build.split("command: |\n", 1)[1].split("\n      - name:", 1)[0]
+        # The IDF action embeds its command in a single-quoted bash -c argument.
+        self.assertEqual(len(shlex.split(f"bash -c '{command}'")), 3)
 
     def run_plan(self, event, name, green=False, paths=None):
         with tempfile.TemporaryDirectory() as tmp:

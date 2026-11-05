@@ -314,7 +314,7 @@ jobs:
             idf.py -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}" set-target ${{ matrix.target }}
             if [ "${{ matrix.board }}" = s3-35b ]; then
               grep -qx 'CONFIG_OTR_HW_PROFILE_S3_35B=y' sdkconfig
-              grep -qx '# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set' sdkconfig
+              grep -qx "# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set" sdkconfig
             fi
             grep -qx 'CONFIG_LOG_DEFAULT_LEVEL=3' sdkconfig
             grep -qx 'CONFIG_LOG_MAXIMUM_LEVEL=4' sdkconfig
