@@ -14,7 +14,8 @@ remain enabled. Transport success in this trace does not imply a valid report.
 `dt_us` measures the synchronous call's elapsed time, not pure on-wire bus
 occupancy. From v0.25.4 it also includes any wait for the application's shared
 bus mutex and 100 us inter-transaction gap. Touch remains at a 30 ms minimum
-poll interval and PWR at 100 ms for this comparison. An idle bus does not
+poll interval and PWR at 100 ms through v0.25.6, then 109 ms in v0.25.7.
+An idle bus does not
 necessarily incur the extra 100 us: only the unelapsed portion is waited.
 
 From v0.25.5 the application requests and records 8-byte single-point reports

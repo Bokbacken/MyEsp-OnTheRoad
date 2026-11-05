@@ -103,7 +103,17 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.6: samma 8-bytebegäran, men STOP mellan kommando och läsning.
   Gemensamt lås över båda anropen; befintlig 100 us paus även efter kommandot.
   Övrig touch-/PWR-timing och parser oförändrade.
-- [ ] Jämför v0.25.6 på kortet med samma stillahållning och långsamma drag.
+- [x] v0.25.6-loggen: 512 läsningar under 21,580 s, 241 accepterade kontakt-/
+  släpprapporter, 235 enhetliga tomrapporter, 35 parseravvisningar och ett
+  avvikande nollpunktpaket; inga transportfel. Anropstid 719-14357 us,
+  medel 875,5 us, median 849 us; pollmedian 32,013 ms, max 291,681 ms.
+  n236-281 har tio förskjutningsliknande fel var femte läsning, cirka 200 ms.
+  Samband med varannan nominell TCA-poll är misstänkt, inte tidsverifierat.
+- [x] v0.25.7: ändra enbart TCA/PWR-taskens paus från 100 till 109 ms.
+  Touch kvar på 8 byte/STOP, 30 ms och mutex/100 us paus.
+  PWR-gräns 2000 ms kvar (19 samplingar); PMIC nominellt 10,028 s.
+- [ ] Jämför v0.25.7 på kortet med samma stillahållning och långsamma drag.
+  Kontrollera om felens cirka 200 ms-rytm flyttar sig med TCA-pollningen.
   Kortare svar döljer vissa svansavvikelser; färre parserfel ensamt räcker inte.
   Behåll touchpollgränsen tills förbättring är bekräftad.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.

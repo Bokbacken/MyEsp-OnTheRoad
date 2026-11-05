@@ -155,13 +155,13 @@ int main()
     bool pressed = false;
     registers[0x20][0x00] = 1U << 6; // Vendor BSP confirms PWR press is active high.
     assert(BoardPower::readPowerButton(pressed) && pressed);
-    static_assert(BoardPower::BUTTON_POLL_MS == 100);
+    static_assert(BoardPower::BUTTON_POLL_MS == 109);
     static_assert(BoardPower::BUTTON_POWER_OFF_MS == 2000);
-    for (int i = 0; i < 19; ++i) BoardPower::handlePowerButton(true);
+    for (int i = 0; i < 18; ++i) BoardPower::handlePowerButton(true);
     assert(!BoardPower::status().powerOffRequested);
     BoardPower::handlePowerButton(false);
     assert(!BoardPower::status().powerOffRequested);
-    for (int i = 0; i < 19; ++i) BoardPower::handlePowerButton(true);
+    for (int i = 0; i < 18; ++i) BoardPower::handlePowerButton(true);
     assert(!BoardPower::status().powerOffRequested);
     assert((registers[0x34][0x10] & 0x01) == 0);
     BoardPower::handlePowerButton(true);

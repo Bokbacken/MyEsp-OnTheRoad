@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.7 (diagnostic)
+
+- S3_35B changes only the TCA9554/PWR polling delay from 100 to 109 ms to
+  compare touch-error periodicity. The 1 kHz RTOS tick preserves this value;
+  actual intervals also include bus work and scheduling. The 2000 ms hold
+  threshold remains (19 nominal samples instead of 20); nominal PMIC refresh
+  is 92 samples, 10.028 s. Touch retains the 8-byte STOP-separated request,
+  shared lock/100 us gaps, 30 ms poll limit and existing diagnostic capture.
+  Physical comparison pending; this does not guarantee fewer coincidences.
+
 ## v0.25.6 (diagnostic)
 
 - S3_35B keeps the 8-byte single-point touch request but sends the command
