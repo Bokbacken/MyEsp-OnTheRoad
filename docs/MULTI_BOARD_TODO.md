@@ -31,7 +31,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   DS3231/PCF85063; granska interna RTC utan att ändra retention/VBAT.
 - [x] Städa dubbla implementeringspunkter: LFN, C6-versionsdiagnostik,
   kort-ID/release/partitioner och power-historik. Fysiska tester står kvar.
-- [ ] Firmware-CI för båda S3-profilerna och P4.
+- [x] Firmware-CI för båda S3-profilerna och P4:
+  `42056620797`, kodrevision `e798b36`. Ingen ny C6-radio behövs.
 - [ ] Hårdvara: avbryt under mappförberedelse, aktiv överföring och rekursiv
   radering; kontrollera original/temporärfiler, partiellt resultat och nya
   operationer efteråt. Följ RTC-loggen över flera tiominuterskontroller.
