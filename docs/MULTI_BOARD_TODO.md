@@ -65,6 +65,12 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   styrning utan att skymma spelplanen och stabil bild-/inmatningsrytm på S3.
   Verifiera samtidiga styr-/skjutgester innan spel kräver flerfingerstyrning;
   överväg automatisk eld. Egna namn, banor, grafik och ljud.
+- [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
+  prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
+  firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.
+- [ ] Flipperspel på önskelistan: undersök om S3 kan ge tillräckligt jämn
+  uppdatering och låg fördröjning för bollfysik, flipperkontroller och ljud.
+  Börja med enkel egen spelplan och grafik.
 - [ ] SD/Wi-Fi-grundfelsökning, USB-lagring och ytterligare strömsparning
   följs separat i respektive avsnitt; inte småfixar i denna PR.
 
