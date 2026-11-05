@@ -4,8 +4,8 @@
 
 The S3_35B application diagnostic build records the same raw fields, without
 live touch-event/sample logs. Reset with serial logging open at 115200 baud.
-The `touch_raw: ARMED` message precedes recording. First valid contact arms 512 consecutive reads (from the next poll): hold still
-for two seconds, drag slowly and release.
+The `touch_raw: ARMED` message precedes recording. First valid contact starts the 512-read capture, including that triggering
+report: hold still for two seconds, drag slowly and release.
 Wait for `touch_raw: END capture` and save the complete log. This is automatic,
 not triggered by the application's clear-log button. Reset to repeat.
 Dumping briefly pauses input after measurement. Other application module logs
@@ -13,31 +13,26 @@ remain enabled. Transport success in this trace does not imply a valid report.
 
 `dt_us` measures the synchronous call's elapsed time, not pure on-wire bus
 occupancy. From v0.25.4 it also includes any wait for the application's shared
-bus mutex and 100 us inter-transaction gap. Touch remains at a 30 ms minimum
-poll interval and PWR at 100 ms through v0.25.6, then 109 ms in v0.25.7.
-An idle bus does not
-necessarily incur the extra 100 us: only the unelapsed portion is waited.
+bus mutex and 100 us inter-transaction gap. Through v0.25.8 touch was polled
+at a 30 ms minimum and PWR at 100 ms (109 ms in v0.25.7-v0.25.8). In v0.25.9
+one task samples touch every 20 ms and checks PWR after every fifth touch
+sample, nominally 100 ms. An idle bus does not necessarily incur the extra
+100 us: only the unelapsed portion is waited.
 
-From v0.25.5 the application requests and records 8-byte single-point reports
-instead of 14-byte reports. The command's requested length is also 8; the
-command/read remains combined with no intervening STOP. The factory capture
-below still uses its original 14-byte reports. Compare malformed starts and
-contact continuity as well as parser errors: fewer captured bytes also hide
-some tail anomalies, and a zero point count may mask an abnormal report.
+From v0.25.5 through v0.25.8 the application requested and recorded 8-byte
+single-point reports instead of 14-byte reports. In v0.25.9 it restores the
+14-byte, two-point report. The factory capture below also uses 14-byte reports.
+Compare malformed starts and contact continuity as well as parser errors.
 
 From v0.25.6 the same 8-byte request uses separate command and receive
 transfers with STOP between. The shared mutex covers both transfers, and
 the minimum 100 us gap also applies between them. `dt_us` includes both
 transfers, the intervening gap and any initial mutex/pacing wait.
 
-From v0.25.8, the 512-read capture also suppresses TCA9554 input reads, then
-automatically resumes them after the final sample. The PWR button is
-unavailable during capture (typically 20-25 seconds); its pressed status and
-hold accumulator reset when capture starts. PMIC refresh and the power task's
-109 ms cadence continue, so this isolates the TCA input read, not all other
-shared-bus traffic. The contact report that arms capture is omitted; the gate
-waits for any in-flight TCA input read to finish before the first captured
-touch poll.
+From v0.25.8 the raw capture no longer pauses TCA reads. In v0.25.9 touch is
+sampled first every 20 ms, followed by a TCA9554 read every fifth pass. Thus
+the trace captures touch/PWR interleaving under this shared-task cadence, not
+an isolated touch-only bus. The trigger report is the first captured sample.
 
 ## Factory comparison
 

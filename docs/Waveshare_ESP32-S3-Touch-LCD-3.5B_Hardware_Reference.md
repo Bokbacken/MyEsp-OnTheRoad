@@ -14,7 +14,7 @@ The manufacturer factory BSP source [`bsp_board.cpp`](https://github.com/wavesha
 |---|---|
 | MCU/display | ESP32-S3, AXS15231B QSPI panel, 320 × 480 |
 | I2C | SDA GPIO8, SCL GPIO7; all devices including touch at 400 kHz |
-| Touch | AXS15231B, I2C address `0x3B`; polled with locked STOP-separated command/read and experimental 8-byte single-point report (v0.25.6) |
+| Touch | AXS15231B, I2C address `0x3B`; v0.25.9 samples a 14-byte, two-point report every 20 ms |
 | Audio codec | ES8311, I2C address `0x18` |
 | Expander | TCA9554, I2C address `0x20` |
 | Panel reset | TCA9554 EXIO1; active-low pulse during board initialization |
@@ -49,32 +49,26 @@ No touch priority or pause within an individual IDF transfer is introduced.
 
 `BoardPower::begin()` creates the shared I2C bus and performs the expander reset before display/touch initialization. Display and touch reuse `BoardPower::bus()`; neither creates another bus. Reset remains owned by `BoardPower`, including the bounded startup recovery described below. The PMIC voltage-monitoring and fuel-gauge values are read periodically and exposed from a cached status snapshot, so UI and web diagnostics do not perform I2C transactions.
 
-The PWR button is polled through TCA9554 EXIO6 with a 109 ms task delay
-from v0.25.7 (previously 100 ms since v0.25.2, originally 20 ms).
-The RTOS tick is 1 ms; actual intervals include bus work and scheduling.
-This tests whether the observed approximately 200 ms touch-error rhythm moves
-with expander traffic, not a guarantee of fewer overlaps.
-The unchanged 2000 ms hold accumulator crosses its threshold on sample 19
-(18 samples accumulate 1962 ms, 19 accumulate 2071 ms).
-PMIC refresh remains approximately ten seconds: 92 samples, nominally 10.028 s.
+In v0.25.9 touch and PWR share one task: touch is sampled every 20 ms, then the
+TCA9554 EXIO6 input is read every fifth pass (nominally 100 ms). Actual
+intervals include bus work and scheduling. This tests sequenced reads in one
+task; it does not prevent other shared-bus clients from running between their
+individual I2C transactions. The 2000 ms button hold is accumulated as 100 ms
+per PWR sample; PMIC refresh remains nominally ten seconds.
 Very short taps between samples may be missed; a short press wakes the backlight if the screen is off and does not put an awake screen to sleep. Holding the button for two seconds requests shutdown. OTA, file transfers, downloads, and SD formatting are allowed up to 30 seconds to finish first; if still active, shutdown is cancelled with an on-screen explanation. Otherwise bit 0 of the AXP2101 common-configuration register is set, following the manufacturer library's shutdown implementation.
 
-During the v0.25.8 raw touch capture only, TCA9554 input reads are skipped to
-isolate their bus activity. PWR-button monitoring is unavailable for the
-512-sample window (typically 20-25 seconds); its published pressed state and
-hold accumulator reset at capture start. TCA polling resumes automatically
-after sample 512. The triggering touch report is not included: TCA polling is
-quiesced first, so all recorded samples occur after any in-flight TCA read has
-completed. PMIC refresh remains active.
+The v0.25.9 raw 512-report capture does not suppress TCA9554 reads. Touch is
+sampled first, and PWR is read on every fifth pass while recording; PMIC
+refresh continues on its normal cadence. The first valid touch report is
+included in the capture.
 
 The board-specific factory BSP uses an 11-byte command requesting 14 bytes and `i2c_master_transmit_receive`. The manufacturer's [Arduino touch driver](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5B/blob/c7dd63c70258da7e3b6dae0c621f30ca62b1e1c9/examples/arduino/libraries/esp_lcd_touch_axs15231b/esp_lcd_touch_axs15231b.cpp) uses the same command/report size, but ends the write with STOP before a separate read. An initial firmware experiment adopted that variant; owner logs still showed five consecutive `0xD7` and then ten `0x13` reports after power-on, including after a shared LCD/touch reset. Touch now uses the factory BSP's atomic combined transaction, avoiding a possible interleaving between the two transfers and the concurrent PWR polling task. The race was possible but is not confirmed as the cause. Owner logs also showed that neither 100 kHz nor the shared reset changed the startup result, so touch is back at the manufacturer's 400 kHz. Those startup frames were not corruption; see the no-contact filler rule below.
 
-From v0.25.5, the diagnostic application instead requests and reads 8 bytes
-for one point, following the report length in Espressif's AXS15231B 2.1.1 driver.
-Unlike that driver's separate write/read, our transaction remains combined.
-This isolates the report-size experiment; the clock, polling, pacing, event
-interpretation and dropout handling remain unchanged. Two-point counts are
-rejected for this single-point report. Physical comparison is pending.
+From v0.25.5 through v0.25.8, the diagnostic application requested and read 8
+bytes for one point, following the report length in Espressif's AXS15231B 2.1.1
+driver. Two-point counts were rejected during that single-point experiment.
+v0.25.9 restores the 14-byte report and accepts up to two points, parsing the
+first point for the existing pointer interface.
 
 From v0.25.6, the 8-byte experiment uses separate transmit and receive calls
 with STOP between, like Espressif's driver. `OtrI2c::transmitThenReceive`

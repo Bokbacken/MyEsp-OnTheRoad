@@ -122,10 +122,13 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   PWR-knappens status/hold återställs vid start; PWR-övervakning pausas cirka
   20-25 s. PMIC-refresh och 109 ms-taskrytm fortsätter. TCA läsning återupptas
   automatiskt efter sista provet. Touchens 8-byte/STOP och övriga timing kvar.
-- [ ] Jämför v0.25.8 på kortet med samma beröringsförlopp. Jämför avvisnings-
-  och nollpunktantal samt timing mot v0.25.7; PMIC/övrig bussaktivitet kvarstår.
-  Kortare svar döljer vissa svansavvikelser; färre parserfel ensamt räcker inte.
-  Behåll touchpollgränsen tills förbättring är bekräftad.
+- [x] v0.25.9: samma task läser touch var 20 ms och EXIO6/PWR var femte pass
+  (nominellt 100 ms); LVGL använder cachat touch-tillstånd. Återställ 14-byte-
+  rapport och tvåpunktsstöd; capture innehåller även utlösande rapport och
+  pausar inte TCA-pollning. PMIC-refresh fortsatt nominellt 10 s.
+- [ ] Jämför v0.25.9 på kortet med samma avsiktliga en- och tvåfingerdrag.
+  Bedöm om 0x37- och 0xFF-rapporter/timing förändras när touch och PWR läses
+  sekventiellt i samma task. Andra I2C-klienter delar fortsatt bussen.
   Skärmöverföringarnas påverkan på långa luckor är fortfarande omätt.
 - [ ] Prova kombinationerna av zoom och textstorlek på alla tre fysiska kort;
   värdtester ersätter inte avläsbarhet och uppmätt skärmyta i mm.

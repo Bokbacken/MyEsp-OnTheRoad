@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "freertos/task.h"
 #include "my_lvgl.h"
 #include "sdkconfig.h"
@@ -22,7 +23,6 @@ constexpr int I2C_TIMEOUT_MS = 100;
 constexpr uint32_t TOUCH_I2C_HZ = 400000;  // Waveshare factory BSP rate
 constexpr unsigned STARTUP_ATTEMPTS = 5;
 constexpr uint32_t STARTUP_RETRY_MS = 50;
-constexpr uint32_t POLL_MS = 30;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
 constexpr uint32_t TAP_SLOP_PX = 20;
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
@@ -31,16 +31,16 @@ constexpr bool TOUCH_DIAGNOSTICS = true;
 constexpr bool TOUCH_DIAGNOSTICS = false;
 #endif
 // The shared lock keeps other devices out between the STOP-separated transfers.
-constexpr size_t REPORT_LEN = 8;
+constexpr size_t REPORT_LEN = 14;
 constexpr uint8_t READ_COMMAND[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, REPORT_LEN, 0, 0, 0};
-constexpr uint8_t MAX_POINTS = 1;
+constexpr uint8_t MAX_POINTS = 2;
 
 Touch::Info g_info = {};
+portMUX_TYPE g_infoMux = portMUX_INITIALIZER_UNLOCKED;
 uint8_t g_scan[0x78 - 0x08];
 int g_scanCount = 0;
 i2c_master_dev_handle_t g_dev = nullptr;
 lv_indev_t *g_indev = nullptr;
-uint32_t g_lastPoll = 0;
 uint32_t g_lastDown = 0;
 bool g_gap = false;
 bool g_idleReportLogged = false;
@@ -65,12 +65,7 @@ void recordRaw(int64_t start, int64_t duration, esp_err_t result,
     if (g_rawDumped) return;
     if (!g_rawStarted) {
         if (result != ESP_OK || !down) return;
-        if (!BoardPower::setTouchCaptureActive(true)) {
-            ESP_LOGE("touch_raw", "could not pause TCA polling; capture not started");
-            return;
-        }
         g_rawStarted = true;
-        return;
     }
     RawSample &sample = g_rawSamples[g_rawCount++];
     sample.timeUs = start;
@@ -79,9 +74,7 @@ void recordRaw(int64_t start, int64_t duration, esp_err_t result,
     memcpy(sample.bytes, bytes, REPORT_LEN);
     if (g_rawCount != 512) return;
     g_rawDumped = true;
-    if (!BoardPower::setTouchCaptureActive(false))
-        ESP_LOGE("touch_raw", "could not resume TCA polling after capture");
-    ESP_LOGI("touch_raw", "BEGIN 512 buffered reads after first contact; TCA input polling paused; "
+    ESP_LOGI("touch_raw", "BEGIN 512 buffered reads; first contact triggered capture; "
              "t_us=boot time, dt_us=I2C duration; no serial logging during capture");
     for (unsigned i = 0; i < g_rawCount; ++i) {
         const RawSample &s = g_rawSamples[i];
@@ -136,7 +129,10 @@ void cancelMovedClick(lv_event_t *event)
         }
         return;
     }
-    if (!g_tapCancelled ||
+    portENTER_CRITICAL(&g_infoMux);
+    const bool tapCancelled = g_tapCancelled;
+    portEXIT_CRITICAL(&g_infoMux);
+    if (!tapCancelled ||
         (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED &&
          code != LV_EVENT_SINGLE_CLICKED && code != LV_EVENT_DOUBLE_CLICKED &&
          code != LV_EVENT_TRIPLE_CLICKED)) return;
@@ -223,74 +219,85 @@ void scanBus()
     ESP_LOGI(TAG, "shared I2C scan: %d devices", g_scanCount);
 }
 
+void sampleTouch()
+{
+    if (!g_dev) return;
+    bool down = false, released = false;
+    portENTER_CRITICAL(&g_infoMux);
+    uint16_t x = g_info.lastX, y = g_info.lastY;
+    portEXIT_CRITICAL(&g_infoMux);
+    const esp_err_t err = readPoint(down, released, x, y);
+    const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
+    portENTER_CRITICAL(&g_infoMux);
+    const bool wasPressed = g_info.pressed;
+    const bool wasCancelled = g_tapCancelled;
+    if (err != ESP_OK) {
+        g_info.readErrors++;
+        if (g_info.pressed) g_tapCancelled = true;
+        if (g_info.pressed && sampledAt - g_lastDown < RELEASE_HOLD_MS) {
+            g_gap = true;
+        } else {
+            g_info.pressed = false;
+            g_gap = false;
+        }
+    } else {
+        if ((down || released) && g_info.pressed) {
+            const int32_t dx = int32_t(x) - g_touchStartX;
+            const int32_t dy = int32_t(y) - g_touchStartY;
+            if (dx * dx + dy * dy > int32_t(TAP_SLOP_PX * TAP_SLOP_PX))
+                g_tapCancelled = true;
+        }
+        if (down) {
+            if (!g_info.pressed) {
+                g_info.touchCount++;
+                g_touchStartX = x;
+                g_touchStartY = y;
+                g_tapCancelled = false;
+            }
+            if (g_gap) g_info.bridgedGaps++;
+            g_gap = false;
+            g_info.lastX = x;
+            g_info.lastY = y;
+            g_info.pressed = true;
+            g_lastDown = sampledAt;
+        } else if (released || sampledAt - g_lastDown >= RELEASE_HOLD_MS) {
+            if (released && g_info.pressed) {
+                g_info.lastX = x;
+                g_info.lastY = y;
+            }
+            g_info.pressed = false;
+            g_gap = false;
+        } else if (g_info.pressed) {
+            g_gap = true;
+        }
+    }
+    const bool isPressed = g_info.pressed;
+    const bool isCancelled = g_tapCancelled;
+    const bool inGap = g_gap;
+    const uint16_t startX = g_touchStartX, startY = g_touchStartY;
+    portEXIT_CRITICAL(&g_infoMux);
+    if (TOUCH_DIAGNOSTICS && !BUFFERED_TRACE &&
+        (wasPressed != isPressed || wasCancelled != isCancelled ||
+         ((wasPressed || isPressed) && sampledAt - g_lastTrace >= 100))) {
+        ESP_LOGI(TAG, "DIAG sample x=%u y=%u down=%u release=%u pressed=%u gap=%u "
+                 "read=%s extra_veto_would_cancel=%u dx=%ld dy=%ld",
+                 unsigned(x), unsigned(y), unsigned(down), unsigned(released),
+                 unsigned(isPressed), unsigned(inGap), esp_err_to_name(err),
+                 unsigned(isCancelled), long(int32_t(x) - startX),
+                 long(int32_t(y) - startY));
+        g_lastTrace = sampledAt;
+    }
+}
+
 bool pointerRead(int16_t *outX, int16_t *outY)
 {
     if (TOUCH_DIAGNOSTICS && !BUFFERED_TRACE) traceScroll();
-    const uint32_t now = uint32_t(esp_timer_get_time() / 1000);
-    if (g_dev && now - g_lastPoll >= POLL_MS) {
-        g_lastPoll = now;
-        bool down = false, released = false;
-        uint16_t x = g_info.lastX, y = g_info.lastY;
-        const esp_err_t err = readPoint(down, released, x, y);
-        const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
-        const bool wasPressed = g_info.pressed;
-        const bool wasCancelled = g_tapCancelled;
-        if (err != ESP_OK) {
-            g_info.readErrors++;
-            // A corrupt frame must not turn a held gesture into an accidental click.
-            if (g_info.pressed) g_tapCancelled = true;
-            if (g_info.pressed && sampledAt - g_lastDown < RELEASE_HOLD_MS) {
-                g_gap = true;
-            } else {
-                g_info.pressed = false;
-                g_gap = false;
-            }
-        } else {
-            if ((down || released) && g_info.pressed) {
-                const int32_t dx = int32_t(x) - g_touchStartX;
-                const int32_t dy = int32_t(y) - g_touchStartY;
-                if (dx * dx + dy * dy > int32_t(TAP_SLOP_PX * TAP_SLOP_PX))
-                    g_tapCancelled = true;
-            }
-            if (down) {
-                if (!g_info.pressed) {
-                    g_info.touchCount++;
-                    g_touchStartX = x;
-                    g_touchStartY = y;
-                    g_tapCancelled = false;
-                }
-                if (g_gap) g_info.bridgedGaps++;
-                g_gap = false;
-                g_info.lastX = x;
-                g_info.lastY = y;
-                g_info.pressed = true;
-                g_lastDown = sampledAt;
-            } else if (released || sampledAt - g_lastDown >= RELEASE_HOLD_MS) {
-                if (released && g_info.pressed) {
-                    g_info.lastX = x;
-                    g_info.lastY = y;
-                }
-                g_info.pressed = false;
-                g_gap = false;
-            } else if (g_info.pressed) {
-                g_gap = true;
-            }
-        }
-        if (TOUCH_DIAGNOSTICS && !BUFFERED_TRACE &&
-            (wasPressed != g_info.pressed || wasCancelled != g_tapCancelled ||
-             ((wasPressed || g_info.pressed) && sampledAt - g_lastTrace >= 100))) {
-            ESP_LOGI(TAG, "DIAG sample x=%u y=%u down=%u release=%u pressed=%u gap=%u "
-                     "read=%s extra_veto_would_cancel=%u dx=%ld dy=%ld",
-                     unsigned(x), unsigned(y), unsigned(down), unsigned(released),
-                     unsigned(g_info.pressed), unsigned(g_gap), esp_err_to_name(err),
-                     unsigned(g_tapCancelled), long(int32_t(x) - g_touchStartX),
-                     long(int32_t(y) - g_touchStartY));
-            g_lastTrace = sampledAt;
-        }
-    }
+    portENTER_CRITICAL(&g_infoMux);
     *outX = int16_t(g_info.lastX);
     *outY = int16_t(g_info.lastY);
-    return g_info.pressed;
+    const bool pressed = g_info.pressed;
+    portEXIT_CRITICAL(&g_infoMux);
+    return pressed;
 }
 
 bool fail(const char *what, esp_err_t err)
@@ -360,11 +367,13 @@ bool begin()
         ESP_LOGW(TAG, "DIAG touch: extra movement/read-error click veto DISABLED; "
                  "LVGL handles clicks/scroll, swipes may activate buttons");
     if (BUFFERED_TRACE)
-        ESP_LOGI("touch_raw", "ARMED: first contact pauses TCA input polling, then records next 512 reads in RAM; "
+        ESP_LOGI("touch_raw", "ARMED: first contact records 512 reads in RAM, then dumps; "
                  "live touch traces disabled; reset to rearm");
     // No documented firmware-identification command: version fields remain unknown (zero).
-    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz STOP-separated I2C, 8-byte single-point report, polled (no IRQ/reset GPIO)",
+    ESP_LOGI(TAG, "AXS15231B at 0x%02X, %ux%u, %u Hz STOP-separated I2C, 14-byte two-point report, polled (no IRQ/reset GPIO)",
              TOUCH_I2C_ADDR, g_info.maxX, g_info.maxY, (unsigned)TOUCH_I2C_HZ);
+    if (!BoardPower::setTouchSampleCallback(sampleTouch))
+        return fail("shared touch/power sampler registration", ESP_ERR_INVALID_STATE);
     return true;
 }
 
@@ -387,6 +396,12 @@ bool deviceFound(uint8_t addr)
 i2c_master_bus_handle_t bus() { return BoardPower::bus(); }
 lv_indev_t *indev() { return g_indev; }
 void setRotation(bool) {}  // All orientations, including 180 degrees, are mapped by LVGL once.
-Info info() { return g_info; }
+Info info()
+{
+    portENTER_CRITICAL(&g_infoMux);
+    const Info snapshot = g_info;
+    portEXIT_CRITICAL(&g_infoMux);
+    return snapshot;
+}
 
 }  // namespace Touch

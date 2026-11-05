@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "../main/board_pins_s3_35b.h"
+#include "host_stubs/freertos/portmacro.h"
 
 using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_ERR_INVALID_STATE = 1, ESP_ERR_NO_MEM = 2,
@@ -29,13 +30,19 @@ bool powerReady = true;
 bool powerInitialized = true;
 bool panelResetSuccess = true;
 int panelResetCalls = 0;
-bool powerCaptureActive = false;
 namespace BoardPower {
 struct Status { bool initialized; };
+constexpr uint32_t TOUCH_SAMPLE_PERIOD_MS = 20;
+constexpr uint32_t POWER_BUTTON_EVERY_N_SAMPLES = 5;
+using TouchSampleCallback = void (*)();
+TouchSampleCallback touchSampleCallback = nullptr;
 void *bus() { return powerReady ? reinterpret_cast<void *>(1) : nullptr; }
 Status status() { return {powerInitialized}; }
 bool resetPanel() { ++panelResetCalls; return panelResetSuccess; }
-bool setTouchCaptureActive(bool active) { powerCaptureActive = active; return true; }
+bool setTouchSampleCallback(TouchSampleCallback callback) {
+    touchSampleCallback = callback;
+    return true;
+}
 }
 
 struct lv_display_t {};
@@ -212,7 +219,7 @@ int esp_lcd_panel_io_tx_color(void *io, uint32_t cmd, const void *p, size_t n) {
 using i2c_master_dev_handle_t = void *;
 constexpr int I2C_ADDR_BIT_LEN_7 = 0;
 struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_speed_hz = 0; };
-uint8_t report[8] = {};
+uint8_t report[14] = {};
 int reportError = ESP_OK, addError = ESP_OK, reads = 0, removes = 0, probes = 0;
 int commandError = ESP_OK, writes = 0, startupFailures = 0, delays = 0;
 int transactionDelayMs = 0;
@@ -238,7 +245,7 @@ int i2c_master_bus_add_device(void *b, const i2c_device_config_t *c, void **out)
 }
 int i2c_master_bus_rm_device(void *) { removes++; return ESP_OK; }
 int i2c_master_transmit(void *d, const uint8_t *cmd, size_t len, int timeout) {
-    const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 8, 0, 0, 0};
+    const uint8_t expected[] = {0xB5, 0xAB, 0xA5, 0x5A, 0, 0, 0, 14, 0, 0, 0};
     assert(d && len == sizeof(expected) && !std::memcmp(cmd, expected, len));
     assert(timeout == 100 && !commandPending);
     writes++;
@@ -419,7 +426,12 @@ void setPoint(int x, int y, int event = 0) {
     report[4] = uint8_t(y >> 8);
     report[5] = uint8_t(y);
 }
-bool poll(int16_t &x, int16_t &y) { clockUs += 30000; return MyLvgl::pointer(&x, &y); }
+bool poll(int16_t &x, int16_t &y) {
+    clockUs += BoardPower::TOUCH_SAMPLE_PERIOD_MS * 1000;
+    assert(BoardPower::touchSampleCallback);
+    BoardPower::touchSampleCallback();
+    return MyLvgl::pointer(&x, &y);
+}
 int main(int argc, char **argv) {
     assert(argc == 2);
     const std::string mode = argv[1];
@@ -475,7 +487,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     assert(ready && Touch::info().present && Touch::info().address == 0x3B);
-    assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 1);
+    assert(Touch::info().maxX == 320 && Touch::info().maxY == 480 && Touch::info().maxTouches == 2);
     assert(Touch::info().fwVersion == 0 && Touch::info().irqCount == 0);
     assert(Touch::begin() && probes == 112 && reads == 1);
     assert(pointerEventCallback);
@@ -490,7 +502,6 @@ int main(int argc, char **argv) {
             setPoint(100, 100);
             assert(poll(x, y));
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
-            if (g_rawCount == 0) assert(powerCaptureActive);
 #endif
             if (failRead) {
                 reportError = ESP_ERR_TIMEOUT;
@@ -516,13 +527,13 @@ int main(int argc, char **argv) {
         setPoint(100, 100);
         assert(poll(x, y));
         reportError = ESP_ERR_TIMEOUT;
-        assert(poll(x, y)); // The first missing read is at 30 ms.
+        assert(poll(x, y));
+        assert(poll(x, y));
         assert(!poll(x, y)); // Diagnostics must not remove the bounded failure release.
         reportError = ESP_OK;
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
-        static_assert(sizeof(RawSample::bytes) == 8);
+        static_assert(sizeof(RawSample::bytes) == 14);
         assert(g_rawStarted && !g_rawDumped);
-        assert(powerCaptureActive);
         assert(g_rawSamples[0].bytes[1] == 1);
         assert(std::any_of(g_rawSamples, g_rawSamples + g_rawCount,
                           [](const RawSample &sample) { return sample.bytes[2] >> 6 == 1; }));
@@ -533,7 +544,6 @@ int main(int argc, char **argv) {
         assert(logFormats.size() == beforeDump); // No per-read logging.
         poll(x, y);
         assert(g_rawDumped && g_rawCount == 512);
-        assert(!powerCaptureActive);
         assert(logFormats.size() == beforeDump + 514);
         for (int i = 0; i < 1000; ++i) poll(x, y);
         assert(g_rawCount == 512 && logFormats.size() == beforeDump + 514);
@@ -546,12 +556,9 @@ int main(int argc, char **argv) {
     }
     setPoint(0, 0);
     assert(poll(x, y) && x == 0 && y == 0 && Touch::info().touchCount == 1);
-    static_assert(POLL_MS == 30);
-    const int readsBeforeLimit = reads;
-    clockUs += 29000;
-    assert(MyLvgl::pointer(&x, &y) && reads == readsBeforeLimit);
-    clockUs += 1000;
-    assert(MyLvgl::pointer(&x, &y) && reads == readsBeforeLimit + 1);
+    static_assert(BoardPower::TOUCH_SAMPLE_PERIOD_MS == 20);
+    const int readsBeforeCachedPointer = reads;
+    assert(MyLvgl::pointer(&x, &y) && reads == readsBeforeCachedPointer);
     setPoint(319, 479, 2);
     Touch::setRotation(true);
     assert(poll(x, y) && x == 319 && y == 479 && Touch::info().touchCount == 1);
@@ -619,8 +626,8 @@ int main(int argc, char **argv) {
     assert(!poll(x, y));
     setPoint(42, 300, 2);
     report[1] = 2;
-    assert(!poll(x, y));
-    assert(Touch::info().readErrors == errorsBeforeIdle + 1);
+    assert(poll(x, y) && x == 42 && y == 300);
+    assert(Touch::info().readErrors == errorsBeforeIdle);
     setPoint(42, 300, 2);
     assert(poll(x, y) && x == 42 && y == 300);
 
@@ -718,9 +725,9 @@ int main(int argc, char **argv) {
         pointerEventCallback(&releasedClick);
         assert(!releasedClick.stopped && !pointerMock.stopProcessing);
     }
-    const uint8_t corruptReports[][8] = {
-        {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD},
-        {0x01, 0x80, 0x68, 0x01, 0x5D, 0x11, 0x12, 0xFF},
+    const uint8_t corruptReports[][14] = {
+        {0x37, 0x37, 0x00, 0x01, 0x80, 0x5C, 0x01, 0xCD, 0x65, 0x66, 0xFF, 0xFF, 0xFF, 0xFF},
+        {0x01, 0x80, 0x68, 0x01, 0x5D, 0x11, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64},
     };
     for (const auto &corrupt : corruptReports) {
         setPoint(125, 115);
@@ -768,6 +775,7 @@ int main(int argc, char **argv) {
     assert(poll(x, y));
     reportError = ESP_ERR_TIMEOUT;
     assert(poll(x, y));
+    assert(poll(x, y));
     assert(!poll(x, y));
     for (int i = 0; i < 10; ++i) assert(!poll(x, y));
     reportError = ESP_OK;
@@ -784,6 +792,7 @@ int main(int argc, char **argv) {
     setPoint(100, 100);
     assert(poll(x, y));
     std::memcpy(report, corruptReports[0], sizeof(report));
+    assert(poll(x, y));
     assert(poll(x, y));
     assert(!poll(x, y));
     setPoint(100, 100);

@@ -21,8 +21,9 @@ int transactionCount = 0;
 int delayedMs = 0;
 TaskFunction_t scheduledTask = nullptr;
 bool pacingReady = false;
-bool stopTaskDelay = false;
-struct TaskStopped {};
+std::vector<char> taskOrder;
+
+void touchSampleMock() { taskOrder.push_back('T'); }
 
 }  // namespace
 
@@ -57,6 +58,7 @@ esp_err_t i2c_master_transmit_receive(i2c_master_dev_handle_t device, const uint
     const uint8_t address = static_cast<FakeDevice *>(device)->address;
     if (!present[address]) return ESP_FAIL;
     ++transactionCount;
+    if (address == 0x20 && tx[0] == 0x00) taskOrder.push_back('P');
     for (size_t i = 0; i < rxSize; ++i) rx[i] = registers[address][static_cast<uint8_t>(tx[0] + i)];
     return ESP_OK;
 }
@@ -72,14 +74,7 @@ esp_err_t i2c_master_transmit(i2c_master_dev_handle_t device, const uint8_t *tx,
     return ESP_OK;
 }
 
-void vTaskDelay(int ticks)
-{
-    delayedMs += ticks;
-    if (stopTaskDelay) {
-        stopTaskDelay = false;
-        throw TaskStopped{};
-    }
-}
+void vTaskDelay(int ticks) { delayedMs += ticks; }
 
 int xTaskCreatePinnedToCore(TaskFunction_t entry, const char *, int, void *, int, void *, int)
 {
@@ -163,13 +158,13 @@ int main()
     bool pressed = false;
     registers[0x20][0x00] = 1U << 6; // Vendor BSP confirms PWR press is active high.
     assert(BoardPower::readPowerButton(pressed) && pressed);
-    static_assert(BoardPower::BUTTON_POLL_MS == 109);
+    static_assert(BoardPower::BUTTON_POLL_MS == 100);
     static_assert(BoardPower::BUTTON_POWER_OFF_MS == 2000);
-    for (int i = 0; i < 18; ++i) BoardPower::handlePowerButton(true);
+    for (int i = 0; i < 19; ++i) BoardPower::handlePowerButton(true);
     assert(!BoardPower::status().powerOffRequested);
     BoardPower::handlePowerButton(false);
     assert(!BoardPower::status().powerOffRequested);
-    for (int i = 0; i < 18; ++i) BoardPower::handlePowerButton(true);
+    for (int i = 0; i < 19; ++i) BoardPower::handlePowerButton(true);
     assert(!BoardPower::status().powerOffRequested);
     assert((registers[0x34][0x10] & 0x01) == 0);
     BoardPower::handlePowerButton(true);
@@ -181,23 +176,17 @@ int main()
     BoardPower::handlePowerButton(false);
     assert(!BoardPower::status().powerButtonPressed);
 
-    auto sampleOnce = [] {
-        stopTaskDelay = true;
-        try {
-            scheduledTask(nullptr);
-            assert(false);
-        } catch (const TaskStopped &) {
-        }
-    };
+    assert(BoardPower::setTouchSampleCallback(touchSampleMock));
     const int beforeButtonSample = transactionCount;
-    sampleOnce();
+    taskOrder.clear();
+    uint32_t sampleCount = 0, pmicElapsedMs = 0;
+    for (int i = 0; i < 4; ++i) BoardPower::sampleOnce(sampleCount, pmicElapsedMs);
+    assert(transactionCount == beforeButtonSample && taskOrder == std::vector<char>({'T', 'T', 'T', 'T'}));
+    BoardPower::sampleOnce(sampleCount, pmicElapsedMs);
     assert(transactionCount == beforeButtonSample + 1);
-    assert(BoardPower::setTouchCaptureActive(true));
-    sampleOnce();
-    assert(transactionCount == beforeButtonSample + 1);
-    assert(BoardPower::setTouchCaptureActive(false));
-    sampleOnce();
-    assert(transactionCount == beforeButtonSample + 2);
+    assert(taskOrder == std::vector<char>({'T', 'T', 'T', 'T', 'T', 'P'}));
+    assert(BoardPower::TOUCH_SAMPLE_PERIOD_MS == 20 &&
+           BoardPower::POWER_BUTTON_EVERY_N_SAMPLES == 5);
 
     puts("S3 3.5B bus, expander-reset, and cached PMIC checks passed");
     return 0;

@@ -12,7 +12,6 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 namespace BoardPower {
@@ -39,7 +38,8 @@ constexpr uint8_t AXP2101_REG_BAT_ADC_LOW = 0x35;
 constexpr uint8_t AXP2101_REG_BAT_PERCENT = 0xA4;
 constexpr uint8_t AXP2101_CHIP_ID = 0x4A;
 constexpr int I2C_TIMEOUT_MS = 30;
-constexpr uint32_t BUTTON_POLL_MS = 109;
+constexpr uint32_t BUTTON_POLL_MS =
+    TOUCH_SAMPLE_PERIOD_MS * POWER_BUTTON_EVERY_N_SAMPLES;
 constexpr uint32_t BUTTON_POWER_OFF_MS = 2000;
 
 i2c_master_bus_handle_t s_bus = nullptr;
@@ -50,8 +50,7 @@ portMUX_TYPE s_statusMux = portMUX_INITIALIZER_UNLOCKED;
 uint32_t s_buttonHeldMs = 0;
 uint32_t s_buttonReadErrors = 0;
 bool s_buttonShutdownIssued = false;
-bool s_touchCaptureActive = false;
-SemaphoreHandle_t s_captureGate = nullptr;
+TouchSampleCallback s_touchSampleCallback = nullptr;
 
 bool addDevice(uint8_t address, i2c_master_dev_handle_t *device)
 {
@@ -210,26 +209,33 @@ void handlePowerButton(bool pressed)
     }
 }
 
+void sampleOnce(uint32_t &sampleCount, uint32_t &pmicElapsedMs)
+{
+    TouchSampleCallback touchSample = nullptr;
+    portENTER_CRITICAL(&s_statusMux);
+    touchSample = s_touchSampleCallback;
+    portEXIT_CRITICAL(&s_statusMux);
+    if (touchSample) touchSample();
+    if (++sampleCount == POWER_BUTTON_EVERY_N_SAMPLES) {
+        sampleCount = 0;
+        bool pressed = false;
+        if (readPowerButton(pressed)) handlePowerButton(pressed);
+        else handlePowerButton(false);
+    }
+    pmicElapsedMs += TOUCH_SAMPLE_PERIOD_MS;
+    if (pmicElapsedMs >= 10000) {
+        pmicElapsedMs = 0;
+        refreshPmic();
+    }
+}
+
 void sampleTask(void *)
 {
     uint32_t pmicElapsedMs = 0;
+    uint32_t sampleCount = 0;
     for (;;) {
-        if (xSemaphoreTake(s_captureGate, portMAX_DELAY) == pdTRUE) {
-            if (!s_touchCaptureActive) {
-                bool pressed = false;
-                if (readPowerButton(pressed)) handlePowerButton(pressed);
-                else handlePowerButton(false);
-            }
-            xSemaphoreGive(s_captureGate);
-        } else {
-            ESP_LOGE(TAG, "touch-capture gate unavailable; skipping power-button read");
-        }
-        pmicElapsedMs += BUTTON_POLL_MS;
-        if (pmicElapsedMs >= 10000) {
-            pmicElapsedMs = 0;
-            refreshPmic();
-        }
-        vTaskDelay(pdMS_TO_TICKS(BUTTON_POLL_MS));
+        sampleOnce(sampleCount, pmicElapsedMs);
+        vTaskDelay(pdMS_TO_TICKS(TOUCH_SAMPLE_PERIOD_MS));
     }
 }
 
@@ -244,15 +250,6 @@ bool begin()
         publish(next);
         return false;
     }
-    if (!s_captureGate) s_captureGate = xSemaphoreCreateMutex();
-    if (!s_captureGate) {
-        Status next = {};
-        next.errors = 1;
-        publish(next);
-        ESP_LOGE(TAG, "touch-capture gate allocation failed");
-        return false;
-    }
-
     i2c_master_bus_config_t config = {};
     config.i2c_port = I2C_NUM_0;
     config.sda_io_num = PIN_I2C_SDA;
@@ -331,21 +328,12 @@ void cancelPowerOff()
     portEXIT_CRITICAL(&s_statusMux);
 }
 
-bool setTouchCaptureActive(bool active)
+bool setTouchSampleCallback(TouchSampleCallback callback)
 {
-    if (!s_captureGate || xSemaphoreTake(s_captureGate, portMAX_DELAY) != pdTRUE) {
-        ESP_LOGE(TAG, "touch-capture gate unavailable; TCA polling state unchanged");
-        return false;
-    }
-    s_touchCaptureActive = active;
-    if (active) {
-        portENTER_CRITICAL(&s_statusMux);
-        s_status.powerButtonPressed = false;
-        portEXIT_CRITICAL(&s_statusMux);
-        s_buttonHeldMs = 0;
-        s_buttonShutdownIssued = false;
-    }
-    xSemaphoreGive(s_captureGate);
+    if (!status().initialized) return false;
+    portENTER_CRITICAL(&s_statusMux);
+    s_touchSampleCallback = callback;
+    portEXIT_CRITICAL(&s_statusMux);
     return true;
 }
 
@@ -359,7 +347,7 @@ i2c_master_bus_handle_t bus() { return nullptr; }
 Status status() { return {}; }
 bool powerOff() { return false; }
 void cancelPowerOff() {}
-bool setTouchCaptureActive(bool) { return true; }
+bool setTouchSampleCallback(TouchSampleCallback) { return false; }
 
 }  // namespace BoardPower
 #endif

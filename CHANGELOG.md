@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.9 (diagnostic)
+
+- S3_35B samples touch and the PWR expander in one task: touch every 20 ms,
+  then TCA9554 EXIO6 on every fifth pass (nominally 100 ms). PMIC refresh stays
+  nominally at ten seconds. LVGL consumes cached touch state.
+- Restores the 14-byte, two-point touch report so deliberate two-finger
+  gestures remain representable. Raw capture records 512 consecutive reports
+  without suppressing expander reads. Physical comparison pending.
+
 ## v0.25.8 (diagnostic)
 
 - During the 512-read raw touch capture, skip TCA9554 input-register reads;

@@ -6,6 +6,11 @@
 
 namespace BoardPower {
 
+constexpr uint32_t TOUCH_SAMPLE_PERIOD_MS = 20;
+constexpr uint32_t POWER_BUTTON_EVERY_N_SAMPLES = 5;
+
+using TouchSampleCallback = void (*)();
+
 struct Status {
     bool supported;
     bool initialized;
@@ -32,7 +37,6 @@ i2c_master_bus_handle_t bus();
 Status status();
 bool powerOff();
 void cancelPowerOff();
-// Diagnostic capture temporarily suppresses only TCA9554 input reads.
-bool setTouchCaptureActive(bool active);
+bool setTouchSampleCallback(TouchSampleCallback callback);
 
 }  // namespace BoardPower
