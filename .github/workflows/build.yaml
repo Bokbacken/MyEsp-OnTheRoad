@@ -56,10 +56,10 @@ jobs:
             idf.py set-target esp32s3
             idf.py build
             mkdir -p webflash
-            idf.py merge-bin -o webflash/merged.bin
-            cp build/webflash/merged.bin webflash/merged.bin
+            idf.py merge-bin -o merged.bin
             cp build/flasher_args.json webflash/flash_args.json
             cp build/*.bin webflash/
+            test -s webflash/merged.bin
             cat > webflash/README.txt <<'EOF'
             Waveshare ESP32-S3-Touch-LCD-3.5B factory example
 
