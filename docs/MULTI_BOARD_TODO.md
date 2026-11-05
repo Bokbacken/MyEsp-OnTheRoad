@@ -36,7 +36,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] P4, ägarprovning 2026-11-05: avbruten karaokeradering, avbruten
   återuppladdning och ny uppladdning/avbrott tills borttagna filer var tillbaka
   fungerar bra. Loggen visar avbruten radering efter 100 poster och fortsatta
-  uppladdningar utan SD-fel. Detta bekräftar inte temporärfilstädning eller S3.
+  uppladdningar utan SD-fel. Detta bekräftar inte temporärfilstädning.
+- [x] S3_35B och ES3C35P, ägarprovning 2026-11-05: samma
+  avbryt-/återupptagningsflöde rapporteras fungera även på nya och gamla S3.
 - [ ] Hårdvara: avbryt under mappförberedelse, aktiv överföring och rekursiv
   radering; kontrollera original/temporärfiler, partiellt resultat och nya
   operationer efteråt. Följ RTC-loggen över flera tiominuterskontroller.
