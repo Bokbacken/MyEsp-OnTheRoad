@@ -35,7 +35,18 @@ void read(void) {
             with self.assertRaises(ValueError):
                 module.instrument(source)
 
-    def test_buffers_before_logging_and_stops_after_one_capture(self):
+    def test_drawing_patch_preserves_clear_handler(self):
+        source = "void btn_clear_event_handler(lv_event_t *e)\n{\n    clear_canvas();\n}\n"
+        patched = module.instrument_drawing(source)
+        self.assertIn("raw_touch_dump();\n    clear_canvas();", patched)
+        self.assertEqual(patched.replace("extern void raw_touch_dump(void);\n\n", "").replace(
+            "\n    raw_touch_dump();", ""), source)
+        with self.assertRaises(ValueError):
+            module.instrument_drawing(patched)
+        with self.assertRaises(ValueError):
+            module.instrument_drawing("")
+
+    def test_ring_capture_only_logs_on_refresh_and_rearms(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "esp_timer.h").write_text("int64_t esp_timer_get_time(void);\n")
@@ -55,18 +66,26 @@ const char *esp_err_to_name(int result) { return result ? "error" : "ok"; }
 int main(void) {
     uint8_t bytes[14] = {0};
     raw_touch_record(0, ESP_OK, bytes);
-    assert(!raw_touch_started && log_lines == 0);
+    assert(raw_touch_count == 1 && log_lines == 0);
     bytes[1] = 1;
-    for (unsigned i = 0; i < 511; ++i) {
+    for (unsigned i = 0; i < 1024; ++i) {
         raw_touch_record(now, i == 1 ? 3 : ESP_OK, bytes);
         assert(log_lines == 0);
     }
-    assert(raw_touch_samples[1].result == 3);
+    assert(raw_touch_count == 512 && raw_touch_next == 1);
+    assert(raw_touch_samples[raw_touch_next].time_us == 513);
+    assert(raw_touch_samples[0].time_us == 1024);
     assert(raw_touch_samples[0].duration_us == 1);
+    raw_touch_dump();
+    assert(log_lines == 514 && raw_touch_count == 0 && raw_touch_next == 0);
+    raw_touch_record(now, 3, bytes);
+    assert(raw_touch_samples[0].result == 3);
+    assert(log_lines == 514 && raw_touch_count == 1);
     raw_touch_record(now, ESP_OK, bytes);
-    assert(raw_touch_dumped && log_lines == 514 && raw_touch_count == 512);
-    for (int i = 0; i < 1000; ++i) raw_touch_record(now, ESP_OK, bytes);
-    assert(log_lines == 514 && raw_touch_count == 512);
+    raw_touch_dump();
+    assert(log_lines == 518 && raw_touch_count == 0);
+    raw_touch_dump();
+    assert(log_lines == 520 && raw_touch_count == 0);
     return 0;
 }
 """

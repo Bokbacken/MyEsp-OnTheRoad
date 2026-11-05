@@ -17,7 +17,7 @@ on:
         type: string
         default: main
       waveshare_touch_trace:
-        description: Record 512 raw factory touch reads in RAM, then dump to serial
+        description: Buffer raw factory touch reads; Refresh dumps them to serial
         type: boolean
         default: false
 
@@ -59,7 +59,7 @@ jobs:
         if: inputs.waveshare_touch_trace
         run: |
           python3 -m unittest discover -s trace-tools/tests -p test_instrument_waveshare_touch.py
-          python3 trace-tools/tools/instrument_waveshare_touch.py waveshare/examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c
+          python3 trace-tools/tools/instrument_waveshare_touch.py waveshare/examples/esp-idf/01_factory/components/esp_bsp/bsp_touch.c waveshare/examples/esp-idf/01_factory/main/drawing_screen.c
 
       - name: Build ESP-IDF factory example
         uses: espressif/esp-idf-ci-action@v1
@@ -91,6 +91,7 @@ jobs:
             echo "Waveshare source commit: ${{ steps.source.outputs.sha }}" >> webflash/README.txt
             echo "Buffered touch trace enabled: ${{ inputs.waveshare_touch_trace }}" >> webflash/README.txt
             cp components/esp_bsp/bsp_touch.c webflash/bsp_touch.c
+            cp main/drawing_screen.c webflash/drawing_screen.c
             python3 - <<'PY'
             import json
             with open("webflash/manifest.json", "w", encoding="utf-8") as f:
