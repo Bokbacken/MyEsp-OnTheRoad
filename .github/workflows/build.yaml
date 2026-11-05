@@ -8,6 +8,14 @@ on:
         description: Build C6 radio firmware too
         type: boolean
         default: false
+      build_waveshare_factory:
+        description: Build Waveshare's ESP-IDF factory touch test
+        type: boolean
+        default: false
+      waveshare_ref:
+        description: Waveshare repository ref for the factory test
+        type: string
+        default: main
 
 permissions:
   contents: read
@@ -18,6 +26,76 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  build-waveshare-factory:
+    name: Build Waveshare factory test
+    if: github.event_name == 'workflow_dispatch' && inputs.build_waveshare_factory
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Waveshare example
+        uses: actions/checkout@v4
+        with:
+          repository: waveshareteam/ESP32-S3-Touch-LCD-3.5B
+          ref: ${{ inputs.waveshare_ref }}
+          path: waveshare
+          persist-credentials: false
+
+      - name: Record source revision
+        id: source
+        run: echo "sha=$(git -C waveshare rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build ESP-IDF factory example
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          command: |
+            set -eu
+            cd waveshare/examples/esp-idf/01_factory
+            idf.py --version
+            idf.py set-target esp32s3
+            idf.py build
+            mkdir -p webflash
+            idf.py merge-bin -o webflash/merged.bin
+            cp build/flasher_args.json webflash/flash_args.json
+            cp build/*.bin webflash/
+            cat > webflash/README.txt <<'EOF'
+            Waveshare ESP32-S3-Touch-LCD-3.5B factory example
+
+            merged.bin is the complete ESP-IDF image merged for flashing at offset 0x0.
+            In a browser flasher that accepts a local binary, select merged.bin and use
+            flash address 0x0. Do not select merged.bin as an application-only image.
+
+            The build was made from the Waveshare ESP-IDF factory example, not from
+            MyEsp-OnTheRoad. After testing, restore the normal application by flashing
+            its firmware image.
+            EOF
+            python3 - <<'PY'
+            import json
+            with open("webflash/manifest.json", "w", encoding="utf-8") as f:
+                json.dump({
+                    "name": "Waveshare ESP32-S3 Touch LCD 3.5B factory test",
+                    "version": "0.1",
+                    "builds": [{
+                        "chipFamily": "ESP32-S3",
+                        "parts": [{"path": "merged.bin", "offset": 0}]
+                    }]
+                }, f, indent=2)
+                f.write("\n")
+            PY
+
+      - name: Include exact upstream revision
+        run: |
+          echo "Waveshare source commit: ${{ steps.source.outputs.sha }}" >> waveshare/examples/esp-idf/01_factory/webflash/README.txt
+
+      - name: Upload web flasher package
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-3.5b-factory-webflash-${{ steps.source.outputs.sha }}
+          path: waveshare/examples/esp-idf/01_factory/webflash/
+          if-no-files-found: error
+          retention-days: 30
+
   changes:
     name: Select required builds
     runs-on: ubuntu-latest
