@@ -229,15 +229,7 @@ samma kanoniska värde.
   spelet.
 - Visa omedelbar, nästa omgång eller omstartspåverkan före spara.
 
-### PR E — Migrering och konsistens
-
-- Migrera återstående nuvarande reglage ett område i taget, inte som en enda
-  stor omskrivning.
-- Behåll NVS- och web-API-kompatibilitet; låt webbytan fortsätta redigera
-  samma kanoniska värde.
-- Städa gamla genvägar först när ersättningen är fysiskt accepterad.
-
-### Separat touchdiagnostik-PR
+### PR E — Touchdiagnostik och kalibreringsunderlag
 
 - Touchpointer och diagnos-Sudoku är ett avgränsat verktyg/PR efter UX-
   kontraktet, inte ett krav att först migrera alla menyer.
@@ -245,6 +237,14 @@ samma kanoniska värde.
   till separat 9×9- och tangentbordsprov, träfflogg, värmekarta och explicit
   export/granskning. Först efter ägarens fysiska prov kan en eventuell
   profilspecifik kalibrerings-/kompenseringsmodell planeras.
+
+### PR F — Migrering och konsistens
+
+- Migrera återstående nuvarande reglage ett område i taget, inte som en enda
+  stor omskrivning.
+- Behåll NVS- och web-API-kompatibilitet; låt webbytan fortsätta redigera
+  samma kanoniska värde.
+- Städa gamla genvägar först när ersättningen är fysiskt accepterad.
 
 ## Acceptanskriterier
 
