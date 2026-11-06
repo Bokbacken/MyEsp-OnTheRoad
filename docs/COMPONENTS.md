@@ -14,7 +14,7 @@ skickas in som parametrar/callbacks.
 | `my_log` | Ringbuffer-logg, beständig händelselogg, `my_sys.h` (millis, uptime) | ESP-IDF (log, esp_timer) | – | alla |
 | `my_storage` | NVS-hjälp, FAT-montering (wear levelling), atomisk filskrivning (tmp + rename) | nvs_flash, fatfs | – | spelarfil, sparningar |
 | `my_time` | SNTP, POSIX-tidszon, manuell tid, RTC som källa, senaste tid i NVS | my_log, my_storage, lwip (RTC kopplas in av appen) | – | klocka, logg |
-| `my_rtc` | DS3231 på delad `i2c_master`-buss, UTC-läs/skriv på sekundflank, driftsynk | esp_driver_i2c, my_log | `my_rtc_time.h` (test_rtc) | klocka |
+| `my_rtc` | DS3231/PCF85063 på delad I²C-buss eller intern P4-RTC; UTC, osäkerhetsmedveten driftsynk | esp_driver_i2c, my_log | `my_rtc_time.h`, `my_rtc_sync.h` (test_rtc, test_rtc_sync) | klocka |
 | `my_diag` | System/heap/PSRAM/partitioner/återstartsorsak som JSON, tasklista | cJSON, my_log, my_storage | – | `/api/info` |
 | `my_wifi` | STA med sparade nät (`net_list.h`), starkaste BSSID, roaming (`roam_policy.h`), mDNS | esp_wifi, mdns, my_log | `net_list.h`, `roam_policy.h` (test_core) | Wi-Fi |
 | `my_ota` | OTA till inaktiv slot, rollback/mark-valid | app_update, my_log | – | `/update` |
@@ -25,6 +25,25 @@ skickas in som parametrar/callbacks.
 | `otr_midi` (v0.13.0) | MIDI/KAR: SMF-parser, tempokarta, text/lyrics → stavelser och rader, kanalstatistik, melodispårsdetektering, `Player` (sekvenserare: sök, tempo, transponering, tysta kanal), register `karaoke.reg` (CRC32+storlek; v0.13.1: valfri `sf2=` per låt), artist/titel ur filnamn | ingen (ren C++17) | test_midi | karaoke |
 | `otr_synth` (v0.13.0) | SoundFont-synt: vendrad TinySoundFont (`tsf.h`, MIT) patchad för int16-sampel, float-filter, fixpunkt-mono, röststöld; `Sf::Synth` tar MIDI-händelser och renderar int16 mono; v0.13.1: `Sf::probe/probeFile` avvisar SF3 och icke-RIFF/sfbk; v0.13.2: `open()` läser bara hydran, `prepare(låt)` laddar bara låtens sampel (budget 6 MB, hastighetslager/en zon per tangent vid behov), `otr_fx` (Freeverb-reverb + chorus, mono-send via CC91/CC93), `setEffects()`; v0.13.3: 2:1-halvering av ≥ 44,1 kHz-sampel vid laddning; v0.13.4: halveringen ersatt av omsampling av allt > utfrekvensen (polyfas Kaiser-sinc, loopkompenserad float-`sample_rate`), `setResampling()`, exakta tangenter (ingen ±12-marginal), dynamisk budget (största PSRAM-block − 512 kB), `setMaxVoices()` | otr_midi; på enheten `heap` (allokering i PSRAM) | test_sfsynth | karaoke |
 | `otr_engine` | Äventyrsmotorn: `otr_world` (rutnät, terräng/objekt, regler, skatter, sparformat, A*-planerare Pro/Assist), `otr_maps` (inbyggda världar), `otr_joystick.h` (zoner, takt, diagonal) | ingen (ren C++17) | test_adventure, test_joystick | äventyret |
+
+### RTC-synkronisering
+
+`syncFromSystem()` läser systemtid med delsekunder före och efter RTC-läsningen.
+Ett RTC-värde `r` i hela sekunder motsvarar intervallet `[r, r+1)`, inte
+en exakt tidpunkt. Om systemtiden före/efter är `B`/`A` blir det möjliga
+driftintervallet `[r-A, r+1-B]`. En automatisk korrigering kräver att hela
+intervallet visar minst en sekund för fort eller för långsamt.
+En tvetydig differens på ±1 hel sekund leder därför inte ensam till skrivning.
+`lastDriftS` är fortfarande en avrundad/kvantiserad diagnostikobservation,
+inte en mätning av kristallens frekvensfel.
+
+Monotona tidsstämplar hjälper till att avvisa systemtidshopp under mätningen.
+Ogiltig RTC-tid och uttryckligt tvingad synk hanteras separat; verkliga läs-/
+skrivfel förblir fel. Skrivningarna väntar tick-medvetet över nästa systemsekund
+och använder den faktiskt observerade sekunden utan avrundning framåt.
+Schemaläggning och I²C-latens innebär att exakt fasöverensstämmelse inte
+garanteras. Uppstartens val av tidskälla, intern RTC-ankare och VBAT-policy
+ändras inte av denna korrigering.
 
 ### Nytt sedan v0.10.0
 - `Theme::debounce(uint32_t &last, uint32_t ms = 500)` i `my_ui/include/my_theme.h` – generellt skydd

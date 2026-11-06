@@ -15,6 +15,101 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### Uppsamlings-PR utan speländringar, v0.25.15
+
+- [x] Avbryt fil-/mappuppladdning: stoppa kö och aktiva HTTP-anrop; visa
+  bekräftat klara filer separat från osäkra pågående utfall. Behåll färdiga
+  filer/mappar och befintligt original vid ofullständig temporär uppladdning.
+- [x] Avbryt rekursiv radering även på servern, inte bara i webbläsaren.
+  Bakgrundsjobb, admin-skyddad status/avbryt och räknare för partiellt resultat;
+  redan raderat kan inte återställas.
+- [x] Kvitterbara fel-/avbrottsresultat i filhanteraren; ingen migrering av
+  spelens dialoger eller andra ändringar i spelvyer/regler/protokoll.
+- [x] Uppladdningslogg med begärda, mottagna, stdio-accepterade och installerade
+  byte. Detta är bättre diagnostik, inte en lösning på SD-skrivfelet/hastigheten.
+- [x] RTC: korrigera sekundkvantisering och skrivningens sekundgräns för
+  DS3231/PCF85063; granska interna RTC utan att ändra retention/VBAT.
+- [x] Städa dubbla implementeringspunkter: LFN, C6-versionsdiagnostik,
+  kort-ID/release/partitioner och power-historik. Fysiska tester står kvar.
+- [x] Firmware-CI för båda S3-profilerna och P4:
+  `42056620797`, kodrevision `e798b36`. Ingen ny C6-radio behövs.
+- [x] P4, ägarprovning 2026-11-05: avbruten karaokeradering, avbruten
+  återuppladdning och ny uppladdning/avbrott tills borttagna filer var tillbaka
+  fungerar bra. Loggen visar avbruten radering efter 100 poster och fortsatta
+  uppladdningar utan SD-fel. Detta bekräftar inte temporärfilstädning.
+- [x] S3_35B och ES3C35P, ägarprovning 2026-11-05: samma
+  avbryt-/återupptagningsflöde rapporteras fungera även på nya och gamla S3.
+- [x] RTC, ägarprovning natt 2026-11-05/06: en korrigering på nya S3, inga
+  återkommande korrigeringar; enheten med DS3231 hade inga korrigeringar alls.
+  Bedöms rimligt med DS3231:s högre noggrannhet. Inga tiominutersvisa
+  sekundavrundningskorrigeringar observerades.
+- [ ] Hårdvara: avbryt under mappförberedelse och aktiv filöverföring samt
+  rekursiv
+  radering; kontrollera original/temporärfiler, partiellt resultat och nya
+  operationer efteråt.
+
+Separata framtida arbeten (ingår inte i uppsamlingen):
+
+- [ ] Översyn av ESP-UI, möjlig nästa UX-leverans. Börja med inventering av
+  alla inställningar: stabil kategori/underkategori, ägare (globalt,
+  spelkategori eller specifikt spel), var den visas (huvudmeny,
+  spelkategori, aktivt spel) och när ändringen träder i kraft (direkt,
+  nästa omgång/start eller omstart). En inställning har ett enda kanoniskt
+  värde; flera menyer är genvägar till samma inställning, inte kopior.
+  Spelkategorins värden bör vara standardvärden för nya spel och ett specifikt
+  spels värde ett explicit undantag. Gruppera globalt exempelvis skärm/
+  tillgänglighet, ljud, kontroller och enhet/administration; visa endast
+  relevanta kategorier i spelvyerna. Enhetlig Tillbaka-/navigeringsplacering.
+  Ändringar som kan göras under spel bevarar aktuell spelstatus; ändringar
+  som kräver ny omgång/omstart märks tydligt och får inte tyst kasta bort
+  en aktiv session. Följ upp med provning av varje inställnings ägare,
+  synlighet, sparning och effekt på samtliga tre ytor.
+- [ ] Utforska utdragbar snabbpanel från överkanten som frigör skärmyta:
+  kort drag visar nivå 1, längre sammanhängande drag expanderar nivå 2;
+  uppåtgest eller tryck utanför stänger. Nivå 1 visar status och snabba,
+  kontextrelevanta kontroller (ljusstyrka, volym/ljud, Wi-Fi/BLE/spela
+  tillsammans, batteri och vid behov skärmviloläge). Nivå 2 visar relevanta
+  spelinställningar i aktivt spel, annars relevanta globala/administrativa
+  inställningar. Genvägar ändrar alltid inställningens kanoniska värde.
+  Avgränsa startgesten till överkanten och testa scrollvyer, spelgester,
+  liggande läge och samtliga skärmstorlekar så panelen inte öppnas av misstag.
+  Panelen fångar input medan den är öppen och återgår till samma spel/session
+  när den stängs; lägg inte omstartskrävande eller destruktiva åtgärder bland
+  omedelbara reglage.
+- [ ] UI-inventering ska även täcka navigering/Tillbaka, skärmzoom och
+  textstorlek, ljusstyrka/viloläge, ljud och volym, Wi-Fi/BLE och
+  Spela tillsammans, batteri/laddning, touch/kontroller,
+  uppdatering/omstart samt SD-/filstatus. Håll avancerad administration och
+  diagnostik åtkomlig men skild från snabba spelreglage.
+- [ ] Nätlägen i Administration på ESP:n: STA, AP och Hotspot (AP+STA med NAT),
+  20 MHz kanalbredd, SSID/lösenord och samma fyra adressnätsval som i
+  `Bokbacken/MyPi-Hotspot`. Återanvänd lämpliga delar; kontrollera faktisk
+  AP/STA-kanalbindning, adresskonflikter, DHCP/DNS och publik captive portal.
+- [ ] Kryptera sparade nätuppgifter så en kopierad inställningsfil inte
+  avslöjar lösenord; enhetsspecifik nyckel utanför filen, inte permanent
+  flash-kryptering eller löfte om skydd vid full flashåtkomst.
+- [ ] BLE för Spela tillsammans: idéstadium, alla kort som mål.
+  Gemensamt spelprotokoll med alternativ transport; P4 kräver BT-stöd i C6.
+- [ ] Rörelsesensor/IMU i nya S3_35B: verifiera modell, axlar och anslutning
+  mot kortrevisionen; läs acceleration/rotation utan att störa touch på delad
+  I2C-buss. Prova neutralställeskalibrering, filtrering och låg styrfördröjning.
+  Första spelidé: luta en kullabyrint, undvik hål och nå målet; alternativ
+  touchstyrning på kort utan sensor.
+- [ ] Miniarkad, idéstadium: egna spel inspirerade av labyrintjakt,
+  Space Invaders och Parsec-liknande sidscrollande rymdspel i liggande läge.
+  Prova även Breakout/Pong. Prioritera stora tydliga objekt, få reglage,
+  styrning utan att skymma spelplanen och stabil bild-/inmatningsrytm på S3.
+  Verifiera samtidiga styr-/skjutgester innan spel kräver flerfingerstyrning;
+  överväg automatisk eld. Egna namn, banor, grafik och ljud.
+- [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
+  prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
+  firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.
+- [ ] Flipperspel på önskelistan: undersök om S3 kan ge tillräckligt jämn
+  uppdatering och låg fördröjning för bollfysik, flipperkontroller och ljud.
+  Börja med enkel egen spelplan och grafik.
+- [ ] SD/Wi-Fi-grundfelsökning, USB-lagring och ytterligare strömsparning
+  följs separat i respektive avsnitt; inte småfixar i denna PR.
+
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
 - [x] v0.25.14: gemensam "drag/släp är inte klick"-spärr i MyLvgl för
@@ -24,6 +119,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] v0.25.14: båda S3-profilerna och P4 byggda i CI (`42047601853`);
   gemensam spärr verifierad med riktig LVGL-händelseleverans.
 - [ ] Bekräfta v0.25.14 på alla kort: rena tryck, drag, scroll och snabba släpp.
+  Ägaren godkänner funktionen efter provning 2026-11-05; exakt testade kort
+  och moment är inte specificerade. PR #58 är mergad.
 
 Aktuell touchstatus (2026-11-05): ägaren accepterar touchfunktionen efter
 gemensam touch/PWR-task och högre Sudoku-knappar. Undersökningen avslutas;
@@ -545,11 +642,12 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   pin-matrisen inte städas korrekt. Fastställ vilken operation som först
   aktiverar återhämtningsläget och rapportera det ursprungliga SD-felet
   separat från Wi-Fi-roaming/avbruten HTTP-uppladdning.
-- [ ] Långa FAT-filnamn på båda korten: höj/verifiera LFN-gränsen och
+- [x] Långa FAT-filnamn på båda korten: höj/verifiera LFN-gränsen och
   samordna filhanterarens validering med FAT-konfigurationen och temporära
   uppladdningsnamn. Avvisa för långa namn med tydligt fel före skrivning.
   Lägg regressionstest för de två rapporterade namnen, gränsfall och
   `.part`-suffix; verifiera att befintliga filer inte skadas vid fel.
+  Implementerat i v0.23.2; fysisk gränsfallsprovning följs i avsnitt X punkt 8.
 - [ ] **Hårdvara:** SD läses/skrivs, ljud hörs, batteriprocent rimlig.
 - [x] **Hårdvara v0.22.2:** SD-läsning för Adventure/Karaoke, ljud och
   batterimätning bekräftade av ägaren. Längre SD-stabilitetstest återstår.
@@ -562,7 +660,8 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   Wi-Fi-anslutning bekräftad av ägaren med v0.22.0.
 - [x] `my_wifi`, mDNS, webbserver, NTP och app-webb-OTA fungerar på P4.
   Ägaren bekräftar båda kortens senaste firmware efter v0.22.6-test.
-- [ ] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
+- [x] Visa C6-firmwareversion och värd/slav-kompatibilitet i diagnostik.
+  Implementerat enligt avsnitt X punkt 1; fysisk mismatch-provning återstår.
 - [x] Webb-OTA kontrollerar nu C6-version och kräver firmware ≥2.6.0
   innan en uppdatering kan aktiveras; system-RPC saknas/är för gammal ger
   ett tydligt fel med hänvisning till återställningskontakten.
@@ -578,7 +677,7 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   källrevision `78b1c1c43c02b0c4e898cf87f94679278b1ddaff` i den separata
   artefakten `host-fw-esp32c6-78b1c1c`. C6-byggprojektets dubbla OTA-slots
   är 0x1C0000 byte; webb-OTA avvisar större filer.
-- [ ] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
+- [x] Kontrollera C6-version och värd/slav-kompatibilitet i diagnostiken
   vid uppstart. Flyttad till avsnitt X punkt 1.
 - [ ] Dokumentera återställning via C6:s 4-poliga flashkontakt.
 - [x] **Hårdvara:** C6-OTA från fabriksfirmware till 3.0.10 verifierad av
@@ -623,9 +722,9 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
 
 ## VII. Release, app-OTA och säkerhet mot fel kort
 
-- [ ] Kort-ID i firmware; web-OTA avvisar bild för annat kort.
-- [ ] `tools/firmware_release.py` och release-workflow per kort.
-- [ ] Partitionstabell för 32 MB på P4 (större app/FAT, ev. C6-bild).
+- [x] Kort-ID i firmware; web-OTA avvisar bild för annat kort.
+- [x] `tools/firmware_release.py` och release-workflow per kort.
+- [x] Partitionstabell för 32 MB på P4 (större app/FAT, separat C6-artefakt).
 
 ## VIII. Prestanda och P4-möjligheter
 
@@ -757,7 +856,7 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
 - [ ] Mät faktisk förbrukning och batteritid med skärmen släckt på båda
   korten. Touch-väckning innebär fortsatt aktiv elektronik; lova inte
   deep-sleep-förbrukning eller beräkna drifttid linjärt från batteriprocent.
-- [ ] Inför femminutershistorik på SD för batterispänning, tidskälla,
+- [x] Inför femminutershistorik på SD för batterispänning, tidskälla,
   boot-ID/drifttid, aktiv tid per spel, bakgrundsbelysning/skärmtid,
   Wi-Fi-status, lagringsöverföringar och ljud/volym. Komplettera med
   händelser, filrotation och synliga tappade poster. Batterispänning är
@@ -769,6 +868,7 @@ tröskeln för att lägga till nya gemensamma deskriptorer beskrivs i
   Ägaren rapporterar (2026-11-01) att SD-loggningen är igång och att
   CSV-filerna ser bra ut; analys av en längre körning återstår.
   Se [mätfält och begränsningar](POWER_HISTORY.md).
+  Implementation klar; separat hårdvaruchecklista för retention nedan kvarstår.
 - [x] v0.24.3: ersätt power-loggens 16-filsring med UTC-dagsfiler,
   bootfil vid osäker tid och gallring till högst 150 matchande loggfiler
   när en ny fil skapas. Behåll CSV-schema och femminutersintervall.

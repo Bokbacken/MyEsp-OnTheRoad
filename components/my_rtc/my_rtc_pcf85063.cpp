@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "my_log.h"
 #include "my_rtc_pcf85063_time.h"
+#include "my_rtc_sync.h"
 #include "otr_i2c.h"
 
 namespace MyRtc {
@@ -142,12 +143,11 @@ bool write(time_t utcNow)
 {
     if (!s_dev) return false;
     (void)utcNow;
-    timeval tv = {};
-    gettimeofday(&tv, nullptr);
-    const uint32_t waitMs = static_cast<uint32_t>((1000000 - tv.tv_usec) / 1000);
-    if (waitMs > 0 && waitMs <= 1000) vTaskDelay(pdMS_TO_TICKS(waitMs));
-    gettimeofday(&tv, nullptr);
-    const time_t utc = tv.tv_sec + (tv.tv_usec >= 500000 ? 1 : 0);
+    time_t utc = 0;
+    if (!MyRtcSync::alignedSystemTime(utc, MIN_T, MAX_T)) {
+        ++s_st.errors;
+        return false;
+    }
 
     uint8_t registers[7];
     MyRtcPcf85063Time::encode(utc, registers);
@@ -165,18 +165,22 @@ bool write(time_t utcNow)
 bool syncFromSystem(bool force)
 {
     if (!s_st.present || !s_dev || s_st.state == State::NOT_TICKING) return false;
-    const time_t systemTime = time(nullptr);
-    if (systemTime < MIN_T || systemTime >= MAX_T) return false;
+    MyRtcSync::Sample before = {}, after = {};
+    if (!MyRtcSync::sample(before, MIN_T, MAX_T)) return false;
     time_t rtcTime = 0;
-    uint8_t seconds = 0;
-    if (read(rtcTime)) {
-        const int64_t drift = static_cast<int64_t>(rtcTime) - systemTime;
-        s_st.lastDriftS = static_cast<int32_t>(drift);
-        if (!force && drift > -1 && drift < 1) return true;
+    const uint32_t errors = s_st.errors;
+    const bool ok = read(rtcTime);
+    if (!MyRtcSync::sample(after, MIN_T, MAX_T)) return false;
+    if (s_st.errors != errors) return false;
+    int32_t confirmedDrift = 0;
+    if (!MyRtcSync::compare(rtcTime, before, after, confirmedDrift)) return false;
+    if (ok) {
+        s_st.lastDriftS = confirmedDrift;
+        if (!force && confirmedDrift == 0) return true;
     }
     const bool wasValid = s_st.timeValid;
     const int32_t drift = s_st.lastDriftS;
-    if (!write(systemTime)) return false;
+    if (!write(0)) return false;
     if (wasValid) MyLog::event(TAG, "RTC updated from system clock (drift %ld s)", static_cast<long>(drift));
     else MyLog::event(TAG, "RTC set from system clock (was invalid)");
     return true;

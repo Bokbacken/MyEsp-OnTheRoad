@@ -70,6 +70,7 @@ void run(bool sd,int fail,bool initiallyHealthy,int expectedError,int expectedWr
     errno=ENOSPC; // Stale errno must not turn a peer's recovery into a disk-full error.
     uploadWriterTask(&pipeline);
     assert(finished && pipeline.error==expectedError && writes==expectedWrites);
+    assert(pipeline.writtenBytes==size_t(expectedError ? (expectedWrites ? expectedWrites-1 : 0)*4 : 12));
     assert(available.items.size()==3 && BoardSd::depth==0);
     assert(BoardSd::recoveryCalls==(sd && expectedError==EIO ? 1:0));
 }

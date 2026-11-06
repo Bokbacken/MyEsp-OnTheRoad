@@ -23,6 +23,8 @@ inline const char *esp_err_to_name(int e) { return e ? "test error" : "ESP_OK"; 
 #define ESP_LOGE(...) ((void)0)
 #define RTC_NOINIT_ATTR
 #define pdMS_TO_TICKS(v) (v)
+using TickType_t = uint32_t;
+constexpr uint32_t configTICK_RATE_HZ = 1000;
 constexpr int pdPASS=1, portMAX_DELAY=-1;
 inline uint64_t ticks=1000000;
 inline bool stopSample=false;
@@ -38,6 +40,11 @@ inline esp_reset_reason_t resetReason=ESP_RST_POWERON;
 inline esp_reset_reason_t esp_reset_reason() { return resetReason; }
 inline uint64_t esp_rtc_get_time_us() { return ticks; }
 inline int setSystemTime(const timeval *, const void *) { return 0; }
+inline int getSystemTime(timeval *tv, void *) {
+    tv->tv_sec = 1793500000 + ticks / 1000000;
+    tv->tv_usec = ticks % 1000000;
+    return 0;
+}
 using portMUX_TYPE=int;
 #define portMUX_INITIALIZER_UNLOCKED 0
 #define portENTER_CRITICAL(p) ((void)(p))
@@ -238,10 +245,12 @@ inline int i2c_master_transmit_receive(void *, const uint8_t *reg, size_t, uint8
 inline int i2c_master_transmit(void *, const uint8_t *, size_t, int) { ++writes; return ESP_OK; }
 namespace MyLog { inline void event(const char *, const char *, ...) {} }
 #define settimeofday setSystemTime
+#define gettimeofday getSystemTime
 #include "components/my_rtc/my_rtc.cpp"
 #include "components/my_rtc/my_rtc_internal.cpp"
 #include "components/my_rtc/my_rtc_auto.cpp"
 #undef settimeofday
+#undef gettimeofday
 int main() {
     time_t out = 0;
     void *bus = reinterpret_cast<void *>(1);
@@ -277,8 +286,10 @@ int main() {
 
 RTC = r'''
 #define settimeofday setSystemTime
+#define gettimeofday getSystemTime
 #include "components/my_rtc/my_rtc_internal.cpp"
 #undef settimeofday
+#undef gettimeofday
 int main() {
     using namespace MyRtc;
     using MyRtc::Internal::begin;

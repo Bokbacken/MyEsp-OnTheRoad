@@ -16,7 +16,7 @@ assert.match(script, /\/api\/sd\/format\/status/);
 const formatStart = script.indexOf("$('format-btn').onclick");
 const formatEnd = script.indexOf("$('repair-btn').onclick", formatStart);
 const formatCode = script.slice(formatStart, formatEnd);
-const start = script.indexOf('function uploadOne');
+const start = script.indexOf('function beginFileOperation');
 const end = script.indexOf("$('pick-btn')", start);
 const uploadCode = script.slice(start, end);
 
@@ -54,7 +54,7 @@ async function formatStatusFlow(statuses, expectedToast) {
   assert.deepEqual(toasts, [expectedToast]);
 }
 
-async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = [], uploadSlots = 4) {
+async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', relativePaths = [], uploadSlots = 4, cancelAt = '') {
   const elements = new Map();
   const labels = [];
   const element = id => {
@@ -74,6 +74,7 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   const toasts = [];
   let response = 0;
   let active = 0, maxActive = 0;
+  let aborted = 0, reloads = 0;
   class XMLHttpRequest {
     constructor() { this.upload = {}; }
     open(method, url) { this.url = url; }
@@ -83,28 +84,45 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
       active++;
       maxActive = Math.max(maxActive, active);
       const body = responses[response++];
-      setTimeout(() => {
+      this.timer = setTimeout(() => {
+        if (this.aborted) return;
         this.upload.onprogress({lengthComputable: true, loaded: file.size, total: file.size});
         this.status = body.status || 200;
         this.responseText = JSON.stringify(body);
         active--;
         this.onload();
       }, 0);
+      if (cancelAt === 'active') queueMicrotask(() => element('cancel-btn').onclick());
+    }
+    abort() {
+      if (this.aborted) return;
+      this.aborted = true;
+      clearTimeout(this.timer);
+      active--;
+      aborted++;
+      this.onabort();
     }
   }
   const sandbox = {
     $, document: {}, XMLHttpRequest, URLSearchParams, root: uploadRoot, path: '/songs', uploadSlots,
     join: (dir, name) => dir + '/' + name, qs: obj => new URLSearchParams(obj).toString(),
     size: bytes => bytes + ' B', guarded: fn => fn().catch(err => toasts.push(err.message)),
-    toast: msg => toasts.push(msg), load: async () => {},
+    toast: msg => toasts.push(msg), load: async () => { reloads++; },
     sendJson: async (method, url, data) => {
       mkdirs.push({url, body: JSON.stringify(data)});
+      if (cancelAt === 'mkdir') await element('cancel-btn').onclick();
       return {ok: true};
     },
     fetch: async (url, options) => {
       return {ok: true, status: 200, json: async () => ({ok: true})};
     },
-    setTimeout, clearTimeout,
+    setTimeout: (callback, ms) => {
+      if (ms === 1000 && cancelAt === 'retry') {
+        element('cancel-btn').onclick();
+        return setTimeout(callback, 0);
+      }
+      return setTimeout(callback, ms);
+    }, clearTimeout,
   };
   function $(id) { return element(id); }
   vm.createContext(sandbox);
@@ -114,7 +132,8 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
     webkitRelativePath: relativePaths[i] || ''
   }));
   await vm.runInContext('upload(files)', Object.assign(sandbox, {files}));
-  return {requests, mkdirs, toasts, maxActive, labels, progress: element('prog').value};
+  return {requests, mkdirs, toasts, maxActive, labels, aborted, reloads,
+    cancelHidden: element('cancel-btn').hidden, progress: element('prog').value};
 }
 
 (async () => {
@@ -171,6 +190,20 @@ async function uploadWith(policy, responses, fileCount = 2, uploadRoot = 'sd', r
   assert.equal(tooDeep.requests.length, 0, 'directory uploads beyond three levels are rejected');
   assert.equal(tooDeep.mkdirs.length, 0);
   assert.match(tooDeep.toasts[0], /högst 3 mappnivåer/);
+
+  const cancelled = await uploadWith('skip', Array(6).fill({ok: true}), 6, 'sd', [], 4, 'active');
+  assert.equal(cancelled.requests.length, 4, 'cancel prevents queued files from starting');
+  assert.equal(cancelled.aborted, 4, 'cancel aborts every in-flight XHR');
+  assert.match(cancelled.toasts[0], /Uppladdningen avbröts.*0\/6.*Pågående filer kan ha hunnit/);
+  assert.equal(cancelled.reloads, 1);
+  assert(cancelled.cancelHidden);
+  const cancelledFolders = await uploadWith('skip', [{ok: true}], 1, 'sd', ['A/B/song.mid'], 1, 'mkdir');
+  assert.equal(cancelledFolders.mkdirs.length, 1, 'cancel stops folder preparation');
+  assert.equal(cancelledFolders.requests.length, 0);
+  assert.match(cancelledFolders.toasts[0], /Uppladdningen avbröts/);
+  const cancelledRetry = await uploadWith('skip', [{status: 429, ok: false}], 1, 'sd', [], 1, 'retry');
+  assert.equal(cancelledRetry.requests.length, 1, 'cancel prevents retry after memory backoff');
+  assert.match(cancelledRetry.toasts[0], /Uppladdningen avbröts/);
 
   console.log('File upload policies, concurrent SD/serialized flash uploads, and directory handling passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

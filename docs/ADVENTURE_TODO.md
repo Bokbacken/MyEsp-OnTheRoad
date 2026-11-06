@@ -72,6 +72,15 @@ Bekräftade spelregler för denna leverans:
 
 ## II. Portaler, destinationer och spelbar leverans
 
+### Framtida äventyr inom befintlig motor
+
+- [ ] Indiana Jones-inspirerat äventyr med återanvändbara banobjekt:
+  rullande stenbumling som hot/fälla, avgrunder eller floder och möjliga
+  sätt att ta sig över med piska eller pogo. Återanvänd befintliga rörelse-
+  och objektregler där det går; begränsa motorändringar till små, generella
+  tillägg. Kullalabyrint kan också utforskas som ett separat spelläge med
+  egna rörelseregler, utan att ersätta det rutbaserade äventyret.
+
 Genomförs tillsammans med I så flerkartsstödet går att prova på ESP.
 
 - [x] Filunika namngivna destinationer och portaler inom/mellan kartor.
