@@ -63,6 +63,41 @@ skulle ändra spelet mitt i en tur. Värden som påverkar bara nästa omgång ka
 | Multiplayer och spelare | Spelare hanteras i spelarkatalogen. Delningsstatus är kontextuell; multiplayer är inte en generell radioinställning. | Spelare och Spela tillsammans är separata destinations-/åtgärdsytor; snabbpanel ska inte skapa eller lämna spel tyst. |
 | Navigation och status | Gemensam header har meny, masterljud, Wi-Fi, delning när tillgänglig och batteri. Back-knappar finns i headers, footers och spelverktygsrader. Exempelvis tar nätverksflödet tillbaka till huvudmenyn. | Gemensamma ikoner/placering och konsekvent Tillbaka-destination. Snabbpanel bevarar exakt underliggande vy och session vid stängning. |
 
+## Touchdiagnostik och kalibrering på enheten
+
+Främst för båda 3,5-tumsskärmarna, men utforma resultatet så det kan jämföras
+mot P4 som referens:
+
+- Valbar touchpointer under diagnostik: cirkel med hårkors på senast
+  rapporterade koordinat medan kontakten är nere; rita i panelkoordinater efter
+  samma rotation/skalning som LVGL använder. Visa touch-down separat från
+  pointer-reticle så RELEASED inte ser ut som en kvarhängande kontakt.
+- Lägg till ett fristående **diagnostik-Sudoku**, inte en ändring av vanlig
+  Sudoku eller dess sparade spel. Testaren får en tydligt upplyst cell/knapp i
+  taget och trycker på målets mitt. Blanda testordningen med ett seed som
+  sparas i testsammanfattningen så resultat kan reproduceras utan att alltid
+  öva i samma hörn.
+- Kör separata pass för 9×9-brädet och numeriska tangentbordet. Sifferpasset
+  ska täcka varje knapp minst lika många gånger; brättpasset ska fördela
+  mål över hela aktiva rutytan, inte bara slumpa Sudoku-innehåll.
+- Registrera för varje försök: orientering, panelprofil/upplösning, zoom/text
+  vid behov, målets ID och centrum, faktisk LVGL-hit target/cell/knapp,
+  rapporterad X/Y vid PRESSED, released/cancel-status och resultat
+  träff/miss. Håll rådata åtskild från eventuell korrigerad koordinat.
+- Visa värmekarta per förväntat mål med antal prov och missandel, plus
+  rapporterade tryckpunkter/förskjutningsvektorer relativt målets centrum.
+  Separat vy för Sudoku-bräde och knappfält; visa osäkerhet/sample-count så
+  enstaka fel inte ser ut som en säker korrektion.
+- Samla data i RAM under passet; ingen NVS-skrivning per tryck. Efter passet
+  ska användaren kunna granska, nollställa eller explicit spara/exportera
+  en kompakt sammanfattning till diagnostik. Ingen automatisk touchkalibrering
+  förrän mätningar visar ett stabilt, reproducerbart fel och ägaren granskar
+  jämförelsen mellan rå och korrigerad träff.
+- Kör varje pass i porträtt/landskap där UI stöder båda och vid normal text/
+  zoom; markera hårdvaruprofil och firmware så mätserier inte blandas ihop.
+  Vanlig Sudoku, drag/spärrar, undo/redo, paus och progress ska vara
+  oförändrade efter att diagnostikläget stängs.
+
 ### Fullständig inventering av `AppConfig`
 
 Detta är persistence-inventering, inte påstående om att varje värde redan
@@ -201,6 +236,15 @@ samma kanoniska värde.
 - Behåll NVS- och web-API-kompatibilitet; låt webbytan fortsätta redigera
   samma kanoniska värde.
 - Städa gamla genvägar först när ersättningen är fysiskt accepterad.
+
+### Separat touchdiagnostik-PR
+
+- Touchpointer och diagnos-Sudoku är ett avgränsat verktyg/PR efter UX-
+  kontraktet, inte ett krav att först migrera alla menyer.
+- Börja med pointer och rå koordinatvisning på 3,5-tumskorten. Lägg därefter
+  till separat 9×9- och tangentbordsprov, träfflogg, värmekarta och explicit
+  export/granskning. Först efter ägarens fysiska prov kan en eventuell
+  profilspecifik kalibrerings-/kompenseringsmodell planeras.
 
 ## Acceptanskriterier
 

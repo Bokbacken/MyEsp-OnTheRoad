@@ -25,6 +25,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
   porträtt-/landskapspanel, konsekvent navigering och kontextuella
   inställningar utan att förlora aktiv spelsession.
+- [ ] Separat touchdiagnostik: valbar hårkors-pointer och Sudoku-baserade
+  9×9-/tangentbordspass med råa koordinater, träfflogg och värmekarta;
+  fysisk provning först på båda 3,5-tumskorten. Se UX-planen.
 
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
