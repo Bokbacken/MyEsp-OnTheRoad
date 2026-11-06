@@ -1,6 +1,7 @@
 #include "ui_touch_test.h"
 
 #include <math.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -20,9 +21,6 @@
 #include "touch_test_math.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
-
-LV_FONT_DECLARE(my_font_14);
-LV_FONT_DECLARE(my_font_24);
 
 #ifndef FW_VERSION
 #define FW_VERSION "dev"
@@ -459,7 +457,7 @@ bool exportCsv(char *path, size_t pathCapacity)
     struct stat st{};
     bool available = false;
     for (unsigned attempt = 0; attempt < 100; ++attempt) {
-        const int length = snprintf(path, pathCapacity, "%s/touch_%s_%u.csv",
+        const int length = snprintf(path, pathCapacity, "%s/touch_%s_%" PRIu32 ".csv",
                                    EXPORT_DIR, timestamp, s_exportSequence++);
         if (length < 0 || static_cast<size_t>(length) >= pathCapacity) {
             errno = ENAMETOOLONG;
@@ -669,7 +667,8 @@ void makeScreen()
         lv_obj_remove_style_all(s_canvas);
         lv_obj_set_size(s_canvas, s_canvasW, s_canvasH);
         lv_obj_set_pos(s_canvas, canvasX, canvasY);
-        lv_obj_add_flag(s_canvas, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+        lv_obj_add_flag(s_canvas, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_canvas, LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_remove_flag(s_canvas, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_event_cb(s_canvas, drawGrid, LV_EVENT_DRAW_MAIN, nullptr);
 
