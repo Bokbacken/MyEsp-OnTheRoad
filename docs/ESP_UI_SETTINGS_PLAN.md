@@ -100,6 +100,19 @@ mot P4 som referens:
   avsedda tryck. Kräv tillräckligt med försök nära cellgränser innan
   rekommendation; om datan inte räcker ska resultatet vara "otillräckligt
   underlag", inte en gissad pixelinställning.
+- Ge testsessionen **Ångra senaste provet** och **Kassera testsessionen**.
+  Kassering raderar hela insamlingen och dess heatmap-resultat; inget prov
+  sparas permanent förrän användaren uttryckligen sparar/exporterar
+  sessionen.
+- Vid en tydlig avvikelse (exempelvis trycket hamnar utanför testområdet eller
+  i en annan cell/knapp än det upplysta målet) pausa nästa mål och visa
+  målet plus rapporterad touchpunkt. Fråga om försöket var ett giltigt,
+  avsiktligt felträff som ska behållas, eller ett oavsiktligt tryck som ska
+  tas bort och göras om. Behåll råmätningen tillfälligt medan frågan är öppen;
+  "Behåll" och "Ta bort och prova igen" ska vara tydliga separata val.
+  Användaren kan även välja pausa/avbryt session. Undvik popup för små,
+  normala koordinatavvikelser; tröskeln ska grunda sig på fel mål/utanför
+  aktivt testområde och vara synlig i testresultaten.
 - Samla data i RAM under passet; ingen NVS-skrivning per tryck. Efter passet
   ska användaren kunna granska, nollställa eller explicit spara/exportera
   en kompakt sammanfattning till diagnostik. Ingen automatisk touchkalibrering
@@ -248,9 +261,12 @@ samma kanoniska värde.
 - Börja med pointer och rå koordinatvisning på 3,5-tumskorten. Lägg därefter
   till separat 9×9- och tangentbordsprov, träfflogg, värmekarta,
   kandidatanalys för personlig 0–8 px Sudoku-dödzon och explicit
-  export/granskning. Dödzonsförslag beräknas mot samma råa tryckserie; visa
-  tydligt träff-/miss-/felcellskompromissen och kräv tillräckliga
-  gränsnära prov. Först efter ägarens fysiska prov kan en eventuell
+  export/granskning. Stöd ångra senaste prov och kassera hela sessionen;
+  pausa och fråga vid tryck utanför målområdet eller fel mål, så testaren
+  kan behålla ett giltigt fel eller ta bort ett oavsiktligt tryck och försöka
+  igen. Dödzonsförslag beräknas mot samma råa tryckserie; visa tydligt
+  träff-/miss-/felcellskompromissen och kräv tillräckliga gränsnära prov.
+  Först efter ägarens fysiska prov kan en eventuell
   profilspecifik koordinatkompenseringsmodell planeras.
 
 ### PR F — Migrering och konsistens

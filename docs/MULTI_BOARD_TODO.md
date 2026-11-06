@@ -28,8 +28,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [ ] Separat touchdiagnostik: valbar hårkors-pointer och Sudoku-baserade
   9×9-/tangentbordspass med råa koordinater, träfflogg, värmekarta och
   rekommendation av personlig Sudoku-dödzon 0–8 px genom simulering av samma
-  rådata (inklusive alternativet 0); fysisk provning först på båda
-  3,5-tumskorten. Se UX-planen.
+  rådata (inklusive alternativet 0). Ångra senaste försök, kassera session
+  och fråga vid tydlig felträff om den ska behållas eller göras om; fysisk
+  provning först på båda 3,5-tumskorten. Se UX-planen.
 
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
