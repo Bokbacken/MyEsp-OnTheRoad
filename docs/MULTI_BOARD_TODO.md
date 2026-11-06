@@ -15,6 +15,26 @@ arbetskopia. Ändra inte skyddad `main` direkt.
 Användaren arbetar via GitHub, flashar artefakter från GitHub Actions och
 provar på båda korten. Varje firmwareleverans får en unik version.
 
+### ESP UI-inställningar och snabbpanel
+
+- [x] Kodnära inventering och stegvis UX-/implementeringsplan finns i
+  `docs/ESP_UI_SETTINGS_PLAN.md` (PR #60). Endast planering; ingen firmware
+  ändrad.
+- [ ] Bekräfta ljudkontraktet (master mute, separat spelmusik-/SFX-mute och
+  karaoke MIDI-kanal) innan metadata-/audioändringar.
+- [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
+  porträtt-/landskapspanel, konsekvent navigering och kontextuella
+  inställningar utan att förlora aktiv spelsession.
+- [ ] TIDIG BESLUTSGATE före touchintensiva spel: separat touchdiagnostik,
+  valbar hårkors-pointer och Sudoku-baserade
+  9×9-/tangentbordspass med råa koordinater, träfflogg, värmekarta och
+  rekommendation av personlig Sudoku-dödzon 0–8 px genom simulering av samma
+  rådata (inklusive alternativet 0). Ångra senaste försök, kassera session
+  och fråga vid tydlig felträff om den ska behållas eller göras om. Prova
+  fysiskt på båda 3,5-tumskorten och avgör uttryckligen vilka touchspel och
+  målstorlekar de klarar; jämför med P4. Vänta med touchintensiv spelportning
+  tills ägaren granskat och accepterat resultatet. Se UX-planen.
+
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 
 - [x] v0.25.14: gemensam "drag/släp är inte klick"-spärr i MyLvgl för
