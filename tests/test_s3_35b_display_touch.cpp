@@ -10,12 +10,14 @@
 #include <string>
 #include <vector>
 #include "../main/board_pins_s3_35b.h"
+#include "../main/touch_raw_capture.h"
 #include "host_stubs/freertos/portmacro.h"
 
 using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_ERR_INVALID_STATE = 1, ESP_ERR_NO_MEM = 2,
               ESP_ERR_TIMEOUT = 3, ESP_ERR_INVALID_ARG = 4,
-              ESP_ERR_NOT_FOUND = 5, ESP_ERR_INVALID_RESPONSE = 6;
+              ESP_ERR_NOT_FOUND = 5, ESP_ERR_INVALID_RESPONSE = 6,
+              ESP_ERR_NOT_SUPPORTED = 7;
 const char *esp_err_to_name(int) { return "mock error"; }
 std::vector<std::string> logFormats;
 template<class... Args> void logMock(const char *, const char *format, Args...) {
@@ -216,6 +218,11 @@ int esp_lcd_panel_io_tx_color(void *io, uint32_t cmd, const void *p, size_t n) {
     return ESP_OK;
 }
 #else
+constexpr int MALLOC_CAP_SPIRAM = 1, MALLOC_CAP_8BIT = 2;
+bool failRawAllocation = false;
+void *heap_caps_calloc(size_t count, size_t size, int) {
+    return failRawAllocation ? nullptr : std::calloc(count, size);
+}
 using i2c_master_dev_handle_t = void *;
 constexpr int I2C_ADDR_BIT_LEN_7 = 0;
 struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_speed_hz = 0; };
@@ -425,6 +432,7 @@ void setPoint(int x, int y, int event = 0) {
     report[3] = uint8_t(x);
     report[4] = uint8_t(y >> 8);
     report[5] = uint8_t(y);
+    std::memset(report + 8, 0xFF, 6);
 }
 bool poll(int16_t &x, int16_t &y) {
     clockUs += BoardPower::TOUCH_SAMPLE_PERIOD_MS * 1000;
@@ -460,7 +468,7 @@ int main(int argc, char **argv) {
         assert(!poll(x, y) && Touch::info().readErrors == 0);
         return 0;
     }
-    if (mode != "normal" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
+    if (mode != "normal" && mode != "capture" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
         mode != "startup-corrupt") {
         assert(!ready && !Touch::info().present && !Touch::indev());
         if (mode == "bad-first-report" || mode == "startup-stuck" || mode == "command-failure") {
@@ -496,6 +504,42 @@ int main(int argc, char **argv) {
     assert(Touch::scanResults(nullptr, 4) == 0 && Touch::scanResults(addrs, -1) == 0);
     assert(!Touch::deviceFound(0x55));
     int16_t x = -1, y = -1;
+    if (mode == "capture") {
+        failRawAllocation = true;
+        assert(!TouchRawCapture::start());
+        failRawAllocation = false;
+        assert(TouchRawCapture::start());
+        setPoint(100, 100);
+        assert(poll(x, y));
+        assert(g_sessionRawCount == 1 && g_sessionRaw[0].result == ESP_OK &&
+               g_sessionRaw[0].bytes[1] == 1 && g_sessionRaw[0].bytes[3] == 100 &&
+               g_sessionRaw[0].bytes[5] == 100);
+        reportError = ESP_ERR_TIMEOUT;
+        poll(x, y);
+        assert(g_sessionRaw[1].result == ESP_ERR_TIMEOUT);
+        reportError = ESP_OK;
+        for (unsigned i = 0; i < SESSION_RAW_CAPACITY + 2; ++i) poll(x, y);
+        assert(g_sessionRawCount == SESSION_RAW_CAPACITY && g_sessionRawOverwritten == 4);
+        assert(g_sessionRaw[g_sessionRawStart].timeUs < clockUs);
+        FILE *file = tmpfile();
+        assert(file && !TouchRawCapture::writeCsvComments(file));
+        TouchRawCapture::stop();
+        assert(TouchRawCapture::writeCsvComments(file));
+        rewind(file);
+        char line[256];
+        assert(fgets(line, sizeof(line), file) && std::strstr(line, "overwritten=4"));
+        assert(fgets(line, sizeof(line), file) && std::strstr(line, "raw_read="));
+        assert(fgets(line, sizeof(line), file) && std::strstr(line, "# raw_read="));
+        fclose(file);
+        poll(x, y);
+        assert(g_sessionRawOverwritten == 4);
+        assert(TouchRawCapture::start());
+        poll(x, y);
+        assert(g_sessionRawOverwritten == 5);
+        TouchRawCapture::clear();
+        assert(!g_sessionRawActive && !g_sessionRawCount && !g_sessionRawOverwritten);
+        return 0;
+    }
     if (mode == "diagnostics") {
         assert(TOUCH_DIAGNOSTICS);
         for (bool failRead : {false, true}) {
@@ -607,6 +651,19 @@ int main(int argc, char **argv) {
         assert(!poll(x, y) && Touch::info().readErrors == 7 + i);
         report[i] = 0x37;
     }
+    // A merged/shifted report must be dropped without touching state or the tap veto.
+    setPoint(15, 158);
+    assert(poll(x, y));
+    const uint32_t errorsBeforeMerged = Touch::info().readErrors;
+    const uint32_t cancelledBeforeMerged = pointerMock.stopProcessing;
+    const uint8_t merged[14] = {0x00, 0x01, 0x80, 0x0F, 0x00, 0x00, 0x01, 0x80,
+                                0x0F, 0x00, 0x9E, 0x51, 0x52, 0xFF};
+    std::memcpy(report, merged, sizeof(report));
+    assert(poll(x, y) && x == 15 && y == 158);
+    assert(Touch::info().readErrors == errorsBeforeMerged + 1);
+    assert(pointerMock.stopProcessing == cancelledBeforeMerged);
+    setPoint(15, 160, 1);
+    assert(!poll(x, y));
     // Waveshare accepts contact event 3 as well as events 0 and 2.
     setPoint(5, 6, 3);
     assert(poll(x, y) && x == 5 && y == 6);

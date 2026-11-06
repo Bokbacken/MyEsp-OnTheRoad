@@ -8,6 +8,7 @@
 #include "board_display.h"
 #include "board_power.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -15,6 +16,7 @@
 #include "my_lvgl.h"
 #include "sdkconfig.h"
 #include "otr_i2c.h"
+#include "touch_raw_capture.h"
 
 namespace {
 
@@ -52,6 +54,32 @@ struct RawSample {
     esp_err_t result;
     uint8_t bytes[REPORT_LEN];
 };
+constexpr unsigned SESSION_RAW_CAPACITY = 8192;
+RawSample *g_sessionRaw = nullptr;
+unsigned g_sessionRawStart = 0, g_sessionRawCount = 0;
+uint64_t g_sessionRawOverwritten = 0;
+bool g_sessionRawActive = false;
+
+void recordSessionRaw(int64_t start, int64_t duration, esp_err_t result, const uint8_t *bytes)
+{
+    portENTER_CRITICAL(&g_infoMux);
+    if (g_sessionRawActive) {
+        unsigned index = (g_sessionRawStart + g_sessionRawCount) % SESSION_RAW_CAPACITY;
+        if (g_sessionRawCount == SESSION_RAW_CAPACITY) {
+            index = g_sessionRawStart;
+            g_sessionRawStart = (g_sessionRawStart + 1) % SESSION_RAW_CAPACITY;
+            ++g_sessionRawOverwritten;
+        } else {
+            ++g_sessionRawCount;
+        }
+        RawSample &sample = g_sessionRaw[index];
+        sample.timeUs = start;
+        sample.durationUs = duration;
+        sample.result = result;
+        memcpy(sample.bytes, bytes, REPORT_LEN);
+    }
+    portEXIT_CRITICAL(&g_infoMux);
+}
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
 RawSample g_rawSamples[512];
 unsigned g_rawCount = 0;
@@ -155,6 +183,12 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
     if (idle) return ESP_OK;
     if (data[1] == 0) return ESP_OK;
     if (data[1] > MAX_POINTS || data[0] == 0xFF) return ESP_ERR_INVALID_RESPONSE;
+    // A single-point report ends in six 0xFF bytes. Shifted or merged reads (previous
+    // frame bytes leaking in) fail this and can decode as bogus points such as y=0.
+    if (data[1] == 1) {
+        for (unsigned i = 8; i < REPORT_LEN; ++i)
+            if (data[i] != 0xFF) return ESP_ERR_NOT_SUPPORTED;
+    }
     const uint16_t px = ((data[2] & 0x0F) << 8) | data[3];
     const uint16_t py = ((data[4] & 0x0F) << 8) | data[5];
     if (px >= LCD_H_RES || py >= LCD_V_RES) return ESP_ERR_INVALID_RESPONSE;
@@ -172,6 +206,7 @@ esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool l
     esp_err_t err = OtrI2c::transmitThenReceive(g_dev, READ_COMMAND, sizeof(READ_COMMAND),
                                                 data, sizeof(data), I2C_TIMEOUT_MS);
     const int64_t durationUs = esp_timer_get_time() - startUs;
+    recordSessionRaw(startUs, durationUs, err, data);
     const bool logError = !BUFFERED_TRACE &&
         (logReport || g_info.readErrors == 0 || (g_info.readErrors + 1) % 100 == 0);
 #ifdef CONFIG_OTR_S3_TOUCH_DIAGNOSTICS
@@ -222,6 +257,12 @@ void sampleTouch()
     const esp_err_t err = readPoint(down, released, x, y);
     const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
     portENTER_CRITICAL(&g_infoMux);
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        // Malformed frame: drop it without touching press state or cancelling the tap.
+        g_info.readErrors++;
+        portEXIT_CRITICAL(&g_infoMux);
+        return;
+    }
     const bool wasPressed = g_info.pressed;
     const bool wasCancelled = g_tapCancelled;
     if (err != ESP_OK) {
@@ -397,3 +438,57 @@ Info info()
 }
 
 }  // namespace Touch
+
+namespace TouchRawCapture {
+
+bool start()
+{
+    if (!g_sessionRaw) {
+        g_sessionRaw = static_cast<RawSample *>(
+            heap_caps_calloc(SESSION_RAW_CAPACITY, sizeof(RawSample), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!g_sessionRaw) {
+            ESP_LOGE(TAG, "cannot allocate raw touch capture in PSRAM");
+            return false;
+        }
+    }
+    portENTER_CRITICAL(&g_infoMux);
+    g_sessionRawActive = true;
+    portEXIT_CRITICAL(&g_infoMux);
+    return true;
+}
+
+void stop()
+{
+    portENTER_CRITICAL(&g_infoMux);
+    g_sessionRawActive = false;
+    portEXIT_CRITICAL(&g_infoMux);
+}
+
+void clear()
+{
+    portENTER_CRITICAL(&g_infoMux);
+    g_sessionRawActive = false;
+    g_sessionRawStart = g_sessionRawCount = 0;
+    g_sessionRawOverwritten = 0;
+    portEXIT_CRITICAL(&g_infoMux);
+}
+
+bool writeCsvComments(FILE *file)
+{
+    if (!file || g_sessionRawActive) return false;
+    if (fprintf(file, "# raw_capture=AXS15231B; capacity=%u; count=%u; overwritten=%llu\n"
+                "# raw_read=time_us_since_boot,duration_us,transport_result,14_bytes_hex\n",
+                SESSION_RAW_CAPACITY, g_sessionRawCount,
+                static_cast<unsigned long long>(g_sessionRawOverwritten)) < 0) return false;
+    for (unsigned i = 0; i < g_sessionRawCount; ++i) {
+        const RawSample &sample = g_sessionRaw[(g_sessionRawStart + i) % SESSION_RAW_CAPACITY];
+        if (fprintf(file, "# raw_read=%lld,%lld,%d,", static_cast<long long>(sample.timeUs),
+                    static_cast<long long>(sample.durationUs), int(sample.result)) < 0) return false;
+        for (uint8_t byte : sample.bytes)
+            if (fprintf(file, "%02X", unsigned(byte)) < 0) return false;
+        if (fputc('\n', file) == EOF) return false;
+    }
+    return true;
+}
+
+}  // namespace TouchRawCapture
