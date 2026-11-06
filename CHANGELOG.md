@@ -25,6 +25,11 @@ a published GitHub Release.
   target without advancing it or inventing coordinates. Results separate these
   reports from registered taps, CSV marks them as unregistered with blank touch
   fields, and undo/discard also applies to these reports.
+- Results overlay actual release positions as a point cloud on the target
+  grid, with brightening overlaps across repeated passes in the same RAM
+  session. Registered misses/cancellations are red; manually unregistered
+  attempts have no invented point. Number-key coordinates are mapped from
+  the real 5x3 input layout into the result's 3x3 digit layout.
 - Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
   correct/rejected/misassigned counts. A candidate is shown only with at least
   81 samples, 20 edge samples, zero misassignments and at least 90% accepted.

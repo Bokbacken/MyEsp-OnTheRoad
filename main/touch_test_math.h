@@ -6,6 +6,7 @@
 namespace TouchTest {
 
 constexpr size_t MAX_SAMPLES = 512;
+constexpr int KEYPAD_GAP = 3;
 
 struct Sample {
     uint8_t grid;
@@ -38,6 +39,32 @@ struct ZoneStats {
     unsigned misassigned = 0;
     unsigned edgeSamples = 0;
 };
+
+struct ResultPoint {
+    float x;
+    float y;
+};
+
+inline bool resultPoint(const Sample &sample, int width, int height, ResultPoint &point)
+{
+    if (sample.unregistered || width <= 0 || height <= 0 ||
+        sample.size == 0 || sample.areaH == 0) return false;
+    if (sample.grid == 9) {
+        point = {sample.releaseX * static_cast<float>(width) / sample.size,
+                 sample.releaseY * static_cast<float>(height) / sample.areaH};
+        return true;
+    }
+    if (sample.grid != 3 || sample.target >= 9) return false;
+    const int sourceCellW = (sample.size - 4 * KEYPAD_GAP) / 5;
+    const int sourceCellH = (sample.areaH - 2 * KEYPAD_GAP) / 3;
+    if (sourceCellW <= 0 || sourceCellH <= 0) return false;
+    const int col = sample.target % 3, row = sample.target / 3;
+    const int sourceX = (col + 1) * (sourceCellW + KEYPAD_GAP);
+    const int sourceY = row * (sourceCellH + KEYPAD_GAP);
+    point = {(col + (sample.releaseX - sourceX) / static_cast<float>(sourceCellW)) * width / 3,
+             (row + (sample.releaseY - sourceY) / static_cast<float>(sourceCellH)) * height / 3};
+    return true;
+}
 
 inline int cellAtPoint(int x, int y, int size, int grid, int deadZone)
 {

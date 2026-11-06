@@ -60,6 +60,7 @@ extern const Entry LANG_SV[] = {
     {Str::TOUCH_TEST_DONE, "Klar"},
     {Str::TOUCH_TEST_UNREGISTERED, "Ej touch"},
     {Str::TOUCH_TEST_COUNTS, "%u registrerade, %u rapporterade utan touch"},
+    {Str::TOUCH_TEST_CLOUD_HINT, "Punkter: ljusa=rätt, röda=fel/avbrott. Överlapp blir ljusare. Igen lägger till fler prov i samma session; radera nollställer. Ingen kompensation görs."},
     {Str::TOUCH_TEST_SAVE_OK, "Touchproven sparades till:\n%s"},
     {Str::TOUCH_TEST_SAVE_FAILED, "Kunde inte exportera touchproven (felkod %d). Kontrollera SD-kortet."},
     {Str::SUDOKU_REPLACE, "Ersätta ditt pågående pussel? Det sparade pusslet skrivs över."},

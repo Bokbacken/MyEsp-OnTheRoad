@@ -60,6 +60,7 @@ extern const Entry LANG_EN[] = {
     {Str::TOUCH_TEST_DONE, "Done"},
     {Str::TOUCH_TEST_UNREGISTERED, "No touch"},
     {Str::TOUCH_TEST_COUNTS, "%u registered, %u reported without touch"},
+    {Str::TOUCH_TEST_CLOUD_HINT, "Dots: light=correct, red=miss/cancelled. Overlaps brighten. Again adds samples in this session; discard resets. No compensation is applied."},
     {Str::TOUCH_TEST_SAVE_OK, "Touch samples saved to:\n%s"},
     {Str::TOUCH_TEST_SAVE_FAILED, "Could not export touch samples (error %d). Check the SD card."},
     {Str::SUDOKU_REPLACE, "Replace your current puzzle? The saved puzzle will be overwritten."},

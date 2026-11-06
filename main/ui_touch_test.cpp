@@ -80,7 +80,7 @@ Layout sudokuLayout()
 {
     const int w = screenW(), h = screenH();
     const bool landscape = w > h;
-    const int margin = 4, gap = 3;
+    const int margin = 4, gap = TouchTest::KEYPAD_GAP;
     const int top = LV_MAX(UiMetrics::titleH(), Theme::headerHeight()) + 4;
     const int buttonH = LV_MAX(landscape ? 48 : (h <= 500 ? 36 : 50),
                                my_font_24.line_height + 4);
@@ -105,6 +105,32 @@ void drawFill(lv_layer_t *layer, int x, int y, int w, int h, uint32_t color)
     desc.bg_opa = LV_OPA_COVER;
     lv_area_t area{x, y, x + w - 1, y + h - 1};
     lv_draw_rect(layer, &desc, &area);
+}
+
+void drawResultPoints(lv_layer_t *layer, const lv_area_t &area, const TouchTest::Sample *samples, size_t count)
+{
+    const int grid = static_cast<int>(gridSize());
+    for (int target = 0; target < grid * grid; ++target) {
+        const int centerX = area.x1 + (target % grid) * (s_canvasW / grid) + s_canvasW / grid / 2;
+        const int centerY = area.y1 + (target / grid) * (s_canvasH / grid) + s_canvasH / grid / 2;
+        drawFill(layer, centerX, centerY, 1, 1, Theme::MUTED);
+    }
+    for (size_t i = 0; i < count; ++i) {
+        TouchTest::ResultPoint point{};
+        if (!TouchTest::resultPoint(samples[i], s_canvasW, s_canvasH, point)) continue;
+        if (point.x < 0 || point.y < 0 || point.x >= s_canvasW || point.y >= s_canvasH) continue;
+        lv_draw_rect_dsc_t dot;
+        lv_draw_rect_dsc_init(&dot);
+        dot.bg_color = Theme::c(!samples[i].cancelled && samples[i].actual == samples[i].target
+                                ? Theme::TEXT : Theme::RED);
+        dot.bg_opa = LV_OPA_50;
+        dot.radius = LV_RADIUS_CIRCLE;
+        const int x = area.x1 + static_cast<int>(point.x);
+        const int y = area.y1 + static_cast<int>(point.y);
+        lv_area_t dotArea{LV_MAX(area.x1, x - 1), LV_MAX(area.y1, y - 1),
+                          LV_MIN(area.x2, x + 1), LV_MIN(area.y2, y + 1)};
+        lv_draw_rect(layer, &dot, &dotArea);
+    }
 }
 
 void drawGrid(lv_event_t *event)
@@ -137,9 +163,13 @@ void drawGrid(lv_event_t *event)
                 if (!samples[i].unregistered && !samples[i].cancelled && samples[i].actual == target) ++correct;
             }
             if (attempts) {
-                const uint32_t color = correct == attempts ? Theme::GREEN :
-                                       correct == 0 ? Theme::RED : Theme::GOLD;
-                drawFill(layer, x + 1, y + 1, cellW - 2, cellH - 2, color);
+                lv_draw_rect_dsc_t fill;
+                lv_draw_rect_dsc_init(&fill);
+                fill.bg_color = Theme::c(correct == attempts ? Theme::GREEN :
+                                         correct == 0 ? Theme::RED : Theme::GOLD);
+                fill.bg_opa = LV_OPA_20;
+                lv_area_t cellArea{x + 1, y + 1, x + cellW - 2, y + cellH - 2};
+                lv_draw_rect(layer, &fill, &cellArea);
             }
         } else if (static_cast<unsigned>(target) == s_target) {
             drawFill(layer, x + 1, y + 1, cellW - 2, cellH - 2, Theme::ACCENT);
@@ -163,6 +193,7 @@ void drawGrid(lv_event_t *event)
             drawFill(layer, area.x1, area.y1 + y, s_canvasW, thickness, Theme::LINE);
         }
     }
+    if (results) drawResultPoints(layer, area, samples, count);
     if (!results && s_pointerVisible) {
         lv_draw_line_dsc_t line;
         lv_draw_line_dsc_init(&line);
@@ -670,10 +701,10 @@ void resultSummary()
     unsigned unregistered = 0;
     for (size_t i = 0; i < s_sampleCount[mode]; ++i)
         if (s_samples[mode][i].unregistered) ++unregistered;
-    char counts[96], summary[512];
+    char counts[96], summary[768];
     snprintf(counts, sizeof(counts), tr(Str::TOUCH_TEST_COUNTS),
              static_cast<unsigned>(s_sampleCount[mode]) - unregistered, unregistered);
-    snprintf(summary, sizeof(summary), "%s\n%s", counts, text);
+    snprintf(summary, sizeof(summary), "%s\n%s\n%s", counts, text, tr(Str::TOUCH_TEST_CLOUD_HINT));
     lv_label_set_text(s_summary, summary);
 }
 
@@ -831,16 +862,22 @@ void makeScreen()
             }
             setStatus();
         } else {
-            s_summary = Theme::label(screen, "", &my_font_14, Theme::MUTED);
+            auto *summaryPanel = lv_obj_create(screen);
+            lv_obj_remove_style_all(summaryPanel);
+            lv_obj_set_scroll_dir(summaryPanel, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(summaryPanel, LV_SCROLLBAR_MODE_AUTO);
             if (screenW() > screenH()) {
-                lv_obj_set_width(s_summary, screenW() - s_canvasW - 20);
-                lv_obj_set_height(s_summary, screenH() - layout.top - footer);
-                lv_obj_set_pos(s_summary, s_canvasW + 16, layout.top);
+                lv_obj_set_width(summaryPanel, screenW() - s_canvasW - 20);
+                lv_obj_set_height(summaryPanel, screenH() - layout.top - footer);
+                lv_obj_set_pos(summaryPanel, s_canvasW + 16, layout.top);
             } else {
-                lv_obj_set_width(s_summary, screenW() - 16);
-                lv_obj_set_height(s_summary, screenH() - layout.top - s_canvasH - footer - 8);
-                lv_obj_set_pos(s_summary, 8, layout.top + s_canvasH + 4);
+                lv_obj_set_width(summaryPanel, screenW() - 16);
+                lv_obj_set_height(summaryPanel, screenH() - layout.top - s_canvasH - footer - 8);
+                lv_obj_set_pos(summaryPanel, 8, layout.top + s_canvasH + 4);
             }
+            s_summary = Theme::label(summaryPanel, "", &my_font_14, Theme::MUTED);
+            lv_obj_set_width(s_summary, LV_PCT(100));
+            lv_label_set_long_mode(s_summary, LV_LABEL_LONG_MODE_WRAP);
             resultSummary();
             const int gap = 4;
             const int width = (screenW() - 20 - gap * 3) / 4;

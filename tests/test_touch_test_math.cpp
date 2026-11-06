@@ -35,5 +35,29 @@ int main()
     const auto reported = TouchTest::analyzeZone(samples, 81, 9, 270, 0);
     assert(reported.samples == 80 && reported.correct == 79 && reported.misassigned == 1);
     assert(TouchTest::recommendDeadZone(samples, 81, 270) == -1);
+    TouchTest::ResultPoint point{};
+    Sample board{};
+    board.grid = 9;
+    board.size = board.areaH = 315;
+    board.releaseX = 17;
+    board.releaseY = 30;
+    assert(TouchTest::resultPoint(board, 315, 315, point));
+    assert(point.x == 17 && point.y == 30);
+    assert(TouchTest::resultPoint(board, 630, 630, point));
+    assert(point.x == 34 && point.y == 60);
+    board.unregistered = true;
+    assert(!TouchTest::resultPoint(board, 315, 315, point));
+    Sample key{};
+    key.grid = 3;
+    key.size = 312; // Five 60 px keys and four 3 px gaps.
+    key.areaH = 114; // Three 36 px rows and two 3 px gaps.
+    for (unsigned target = 0; target < 9; ++target) {
+        key.target = static_cast<uint8_t>(target);
+        key.releaseX = static_cast<int16_t>((target % 3 + 1) * 63 + 30);
+        key.releaseY = static_cast<int16_t>(target / 3 * 39 + 18);
+        assert(TouchTest::resultPoint(key, 300, 300, point));
+        assert(point.x == (target % 3) * 100 + 50);
+        assert(point.y == (target / 3) * 100 + 50);
+    }
     return 0;
 }
