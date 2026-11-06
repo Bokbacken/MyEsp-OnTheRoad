@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.19
+
+- AXS15231B single-point reports that do not end in six 0xFF bytes (shifted or
+  merged reads) are dropped without changing press state or cancelling the tap.
+  This removes bogus y=0 positions seen at release.
+
 ## v0.25.18
 
 - The full-screen touch test uses approximately 32x32 pixel cells and tests

@@ -16,7 +16,8 @@
 using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_ERR_INVALID_STATE = 1, ESP_ERR_NO_MEM = 2,
               ESP_ERR_TIMEOUT = 3, ESP_ERR_INVALID_ARG = 4,
-              ESP_ERR_NOT_FOUND = 5, ESP_ERR_INVALID_RESPONSE = 6;
+              ESP_ERR_NOT_FOUND = 5, ESP_ERR_INVALID_RESPONSE = 6,
+              ESP_ERR_NOT_SUPPORTED = 7;
 const char *esp_err_to_name(int) { return "mock error"; }
 std::vector<std::string> logFormats;
 template<class... Args> void logMock(const char *, const char *format, Args...) {
@@ -431,6 +432,7 @@ void setPoint(int x, int y, int event = 0) {
     report[3] = uint8_t(x);
     report[4] = uint8_t(y >> 8);
     report[5] = uint8_t(y);
+    std::memset(report + 8, 0xFF, 6);
 }
 bool poll(int16_t &x, int16_t &y) {
     clockUs += BoardPower::TOUCH_SAMPLE_PERIOD_MS * 1000;
@@ -649,6 +651,19 @@ int main(int argc, char **argv) {
         assert(!poll(x, y) && Touch::info().readErrors == 7 + i);
         report[i] = 0x37;
     }
+    // A merged/shifted report must be dropped without touching state or the tap veto.
+    setPoint(15, 158);
+    assert(poll(x, y));
+    const uint32_t errorsBeforeMerged = Touch::info().readErrors;
+    const uint32_t cancelledBeforeMerged = pointerMock.stopProcessing;
+    const uint8_t merged[14] = {0x00, 0x01, 0x80, 0x0F, 0x00, 0x00, 0x01, 0x80,
+                                0x0F, 0x00, 0x9E, 0x51, 0x52, 0xFF};
+    std::memcpy(report, merged, sizeof(report));
+    assert(poll(x, y) && x == 15 && y == 158);
+    assert(Touch::info().readErrors == errorsBeforeMerged + 1);
+    assert(pointerMock.stopProcessing == cancelledBeforeMerged);
+    setPoint(15, 160, 1);
+    assert(!poll(x, y));
     // Waveshare accepts contact event 3 as well as events 0 and 2.
     setPoint(5, 6, 3);
     assert(poll(x, y) && x == 5 && y == 6);
