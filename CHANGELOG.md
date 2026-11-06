@@ -8,7 +8,7 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
-## v0.25.16
+## v0.25.17
 
 - Adds an isolated touch diagnostic from the Sudoku menu with separate 9x9 and
   number-key target passes, highlighted whole-cell targets, tap undo, discard/retry
