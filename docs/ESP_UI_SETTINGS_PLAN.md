@@ -88,6 +88,18 @@ mot P4 som referens:
   rapporterade tryckpunkter/förskjutningsvektorer relativt målets centrum.
   Separat vy för Sudoku-bräde och knappfält; visa osäkerhet/sample-count så
   enstaka fel inte ser ut som en säker korrektion.
+- Inkludera **personlig Sudoku-dödzonsanalys** för nuvarande `sudokuDeadZone`
+  (0–8 px): detta är en inre kantzon runt varje 9×9-cell, inte en global
+  skärmkant eller touch-controller-inställning. Spara råa mål-/tryckpar under
+  diagnostiken och simulera offline hur varje kandidatvärde 0–8 skulle ha
+  klassificerat samma tryck utan att ändra aktuell inställning. Redovisa per
+  kandidat: avsedda tryck som accepteras i rätt cell, avsedda tryck som
+  blockeras av dödzonen och koordinater som annars skulle hamna i fel cell.
+  Rekommendera 0 om kanten inte ger mätbar förbättring; annars visa den minsta
+  zon som minskar felcellsträffar med acceptabelt antal blockerade
+  avsedda tryck. Kräv tillräckligt med försök nära cellgränser innan
+  rekommendation; om datan inte räcker ska resultatet vara "otillräckligt
+  underlag", inte en gissad pixelinställning.
 - Samla data i RAM under passet; ingen NVS-skrivning per tryck. Efter passet
   ska användaren kunna granska, nollställa eller explicit spara/exportera
   en kompakt sammanfattning till diagnostik. Ingen automatisk touchkalibrering
@@ -234,9 +246,12 @@ samma kanoniska värde.
 - Touchpointer och diagnos-Sudoku är ett avgränsat verktyg/PR efter UX-
   kontraktet, inte ett krav att först migrera alla menyer.
 - Börja med pointer och rå koordinatvisning på 3,5-tumskorten. Lägg därefter
-  till separat 9×9- och tangentbordsprov, träfflogg, värmekarta och explicit
-  export/granskning. Först efter ägarens fysiska prov kan en eventuell
-  profilspecifik kalibrerings-/kompenseringsmodell planeras.
+  till separat 9×9- och tangentbordsprov, träfflogg, värmekarta,
+  kandidatanalys för personlig 0–8 px Sudoku-dödzon och explicit
+  export/granskning. Dödzonsförslag beräknas mot samma råa tryckserie; visa
+  tydligt träff-/miss-/felcellskompromissen och kräv tillräckliga
+  gränsnära prov. Först efter ägarens fysiska prov kan en eventuell
+  profilspecifik koordinatkompenseringsmodell planeras.
 
 ### PR F — Migrering och konsistens
 
