@@ -30,6 +30,11 @@ a published GitHub Release.
   session. Registered misses/cancellations are red; manually unregistered
   attempts have no invented point. Number-key coordinates are mapped from
   the real 5x3 input layout into the result's 3x3 digit layout.
+- Adds a separate full-screen rectangular 9x9 test covering all pixel coordinates
+  including screen edges and corners, without a header or fixed controls.
+  Holding in the centre third opens Continue/No touch/Undo/Done/Discard;
+  this menu gesture is not recorded as a sample. CSV uses a separate screen
+  mode, and its measurements are excluded from Sudoku dead-zone analysis.
 - Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
   correct/rejected/misassigned counts. A candidate is shown only with at least
   81 samples, 20 edge samples, zero misassignments and at least 90% accepted.

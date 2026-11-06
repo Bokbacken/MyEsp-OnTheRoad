@@ -461,7 +461,7 @@ int main() {
         auto *menu=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(menu);++i) inside(lv_obj_get_child(menu,i),size.x,size.y);
         lv_area_t hintArea, menuButtonArea;
-        lv_obj_get_coords(lv_obj_get_child(menu,3),&hintArea);
+        lv_obj_get_coords(lv_obj_get_child(menu,4),&hintArea);
         lv_obj_get_coords(lv_obj_get_child(menu,1),&menuButtonArea);
         assert(hintArea.y2<menuButtonArea.y1);
         lv_obj_send_event(lv_obj_get_child(menu,1),LV_EVENT_CLICKED,nullptr);
@@ -610,6 +610,65 @@ int main() {
         assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS && !UiTouchTest::s_pointerVisible);
         settle();
         assert(!UiTouchTest::s_feedbackTimer);
+        lv_indev_delete(input);
+        UiTouchTest::s_page=UiTouchTest::Page::MENU;
+        UiTouchTest::show(); settle();
+        menu=lv_screen_active();
+        lv_obj_send_event(lv_obj_get_child(menu,3),LV_EVENT_CLICKED,nullptr); settle();
+        assert(UiTouchTest::s_fullScreen && UiTouchTest::modeIndex()==2);
+        assert(lv_obj_get_child_count(lv_screen_active())==1);
+        lv_obj_get_coords(UiTouchTest::s_canvas,&boardArea);
+        assert(boardArea.x1==0 && boardArea.y1==0 && boardArea.x2==size.x-1 && boardArea.y2==size.y-1);
+        input=lv_indev_create();
+        lv_indev_set_type(input,LV_INDEV_TYPE_POINTER);
+        lv_indev_set_display(input,display);
+        lv_indev_set_user_data(input,&pointer);
+        lv_indev_set_read_cb(input,[](lv_indev_t *in,lv_indev_data_t *data) {
+            *data=*static_cast<lv_indev_data_t *>(lv_indev_get_user_data(in));
+        });
+        for(auto corner : {lv_point_t{0,0},lv_point_t{size.x-1,0},
+                            lv_point_t{0,size.y-1},lv_point_t{size.x-1,size.y-1}}) {
+            const int target=TouchTest::screenCellAtPoint(corner.x,corner.y,size.x,size.y);
+            UiTouchTest::s_target=target;
+            const auto before=UiTouchTest::s_sampleCount[2];
+            pointer.point=corner;
+            pointer.state=LV_INDEV_STATE_PRESSED;
+            lv_tick_inc(30); lv_indev_read(input);
+            if(corner.x==0 && corner.y==0) {
+                lv_tick_inc(600); lv_indev_read(input);
+                assert(!UiTouchTest::s_prompt);
+            }
+            pointer.state=LV_INDEV_STATE_RELEASED;
+            lv_tick_inc(30); lv_indev_read(input);
+            assert(UiTouchTest::s_sampleCount[2]==before+1);
+            assert(UiTouchTest::s_samples[2][before].actual==target);
+            assert(UiTouchTest::s_samples[2][before].fullScreen);
+        }
+        const auto beforeMenu=UiTouchTest::s_sampleCount[2];
+        const auto positionBeforeMenu=UiTouchTest::s_position;
+        pointer.point={size.x/2,size.y/2};
+        pointer.state=LV_INDEV_STATE_PRESSED;
+        lv_tick_inc(30); lv_indev_read(input);
+        lv_tick_inc(600); lv_indev_read(input);
+        assert(UiTouchTest::s_prompt && UiTouchTest::s_pending);
+        pointer.state=LV_INDEV_STATE_RELEASED;
+        lv_tick_inc(30); lv_indev_read(input);
+        assert(UiTouchTest::s_sampleCount[2]==beforeMenu);
+        auto *controls=lv_obj_get_child(UiTouchTest::s_prompt,0);
+        for(unsigned i=0;i<lv_obj_get_child_count(controls);++i) inside(lv_obj_get_child(controls,i),size.x,size.y);
+        lv_obj_send_event(lv_obj_get_child(controls,1),LV_EVENT_CLICKED,nullptr);
+        assert(UiTouchTest::s_sampleCount[2]==beforeMenu+1);
+        assert(UiTouchTest::s_samples[2][beforeMenu].unregistered);
+        assert(UiTouchTest::s_position==positionBeforeMenu);
+        pointer.state=LV_INDEV_STATE_PRESSED;
+        lv_tick_inc(30); lv_indev_read(input);
+        lv_tick_inc(600); lv_indev_read(input);
+        assert(UiTouchTest::s_prompt);
+        pointer.state=LV_INDEV_STATE_RELEASED;
+        lv_tick_inc(30); lv_indev_read(input);
+        controls=lv_obj_get_child(UiTouchTest::s_prompt,0);
+        lv_obj_send_event(lv_obj_get_child(controls,3),LV_EVENT_CLICKED,nullptr); settle();
+        assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS);
         lv_indev_delete(input);
         UiTouchTest::s_page=UiTouchTest::Page::MENU;
         UiTouchTest::show(); settle();

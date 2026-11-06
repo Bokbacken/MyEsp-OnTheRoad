@@ -1,4 +1,5 @@
 #include <cassert>
+#include <initializer_list>
 
 #include "touch_test_math.h"
 
@@ -58,6 +59,19 @@ int main()
         assert(TouchTest::resultPoint(key, 300, 300, point));
         assert(point.x == (target % 3) * 100 + 50);
         assert(point.y == (target / 3) * 100 + 50);
+    }
+    for (int width : {320, 480, 800}) {
+        for (int height : {320, 480, 800}) {
+            assert(TouchTest::screenCellAtPoint(0, 0, width, height) == 0);
+            assert(TouchTest::screenCellAtPoint(width - 1, height - 1, width, height) == 80);
+            assert(TouchTest::screenCellAtPoint(width, height - 1, width, height) == -1);
+            for (int row = 0; row < 9; ++row)
+                for (int col = 0; col < 9; ++col) {
+                    assert(TouchTest::screenCellAtPoint(col * width / 9, row * height / 9, width, height) == row * 9 + col);
+                    assert(TouchTest::screenCellAtPoint((col + 1) * width / 9 - 1, (row + 1) * height / 9 - 1,
+                                                       width, height) == row * 9 + col);
+                }
+        }
     }
     return 0;
 }

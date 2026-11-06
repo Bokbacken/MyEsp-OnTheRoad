@@ -30,6 +30,7 @@ struct Sample {
     float maxMovePx = 0;
     uint32_t durationMs = 0;
     bool unregistered = false;
+    bool fullScreen = false;
 };
 
 struct ZoneStats {
@@ -77,6 +78,12 @@ inline int cellAtPoint(int x, int y, int size, int grid, int deadZone)
     return row * grid + column;
 }
 
+inline int screenCellAtPoint(int x, int y, int width, int height)
+{
+    if (width < 9 || height < 9 || x < 0 || y < 0 || x >= width || y >= height) return -1;
+    return ((y + 1) * 9 - 1) / height * 9 + ((x + 1) * 9 - 1) / width;
+}
+
 inline ZoneStats analyzeZone(const Sample *samples, size_t count, int grid, int size, int deadZone)
 {
     ZoneStats stats;
@@ -85,7 +92,8 @@ inline ZoneStats analyzeZone(const Sample *samples, size_t count, int grid, int 
     if (cell <= 0) return stats;
     for (size_t i = 0; i < count; ++i) {
         const Sample &sample = samples[i];
-        if (sample.grid != grid || sample.target >= grid * grid || sample.cancelled || sample.unregistered) continue;
+        if (sample.grid != grid || sample.target >= grid * grid || sample.cancelled ||
+            sample.unregistered || sample.fullScreen) continue;
         ++stats.samples;
         const int sampleSize = sample.size ? sample.size : size;
         const int actual = cellAtPoint(sample.releaseX, sample.releaseY, sampleSize, grid, deadZone);

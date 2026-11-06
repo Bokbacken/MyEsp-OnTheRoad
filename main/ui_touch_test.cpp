@@ -41,6 +41,7 @@ lv_obj_t *s_status = nullptr;
 lv_obj_t *s_summary = nullptr;
 lv_obj_t *s_prompt = nullptr;
 bool s_keypad = false;
+bool s_fullScreen = false;
 bool s_pressed = false;
 bool s_pending = false;
 int16_t s_downX = 0, s_downY = 0;
@@ -61,11 +62,12 @@ unsigned s_targets[81]{};
 unsigned s_targetCount = 0;
 unsigned s_target = 0;
 int16_t s_expectedX = 0, s_expectedY = 0;
-TouchTest::Sample s_samples[2][TouchTest::MAX_SAMPLES]{};
-size_t s_sampleCount[2]{};
+TouchTest::Sample s_samples[3][TouchTest::MAX_SAMPLES]{};
+size_t s_sampleCount[3]{};
 uint32_t s_exportSequence = 0;
 
-unsigned modeIndex() { return s_keypad ? 1u : 0u; }
+unsigned modeIndex() { return s_fullScreen ? 2u : s_keypad ? 1u : 0u; }
+const char *modeName(unsigned mode) { return mode == 2 ? "screen" : mode == 0 ? "board" : "keypad"; }
 unsigned gridSize() { return s_keypad ? 3u : 9u; }
 unsigned sampleCount() { return static_cast<unsigned>(s_sampleCount[modeIndex()]); }
 int screenW() { return UiMetrics::screenW(); }
@@ -111,8 +113,9 @@ void drawResultPoints(lv_layer_t *layer, const lv_area_t &area, const TouchTest:
 {
     const int grid = static_cast<int>(gridSize());
     for (int target = 0; target < grid * grid; ++target) {
-        const int centerX = area.x1 + (target % grid) * (s_canvasW / grid) + s_canvasW / grid / 2;
-        const int centerY = area.y1 + (target / grid) * (s_canvasH / grid) + s_canvasH / grid / 2;
+        const int col = target % grid, row = target / grid;
+        const int centerX = area.x1 + (col * s_canvasW / grid + (col + 1) * s_canvasW / grid) / 2;
+        const int centerY = area.y1 + (row * s_canvasH / grid + (row + 1) * s_canvasH / grid) / 2;
         drawFill(layer, centerX, centerY, 1, 1, Theme::MUTED);
     }
     for (size_t i = 0; i < count; ++i) {
@@ -153,8 +156,12 @@ void drawGrid(lv_event_t *event)
     for (int target = 0; target < grid * grid; ++target) {
         const int col = s_keypad && !results ? target % 3 + 1 : target % grid;
         const int row = s_keypad && !results ? target / 3 : target / grid;
-        const int x = area.x1 + col * (cellW + (s_keypad && !results ? s_gap : 0));
-        const int y = area.y1 + row * (cellH + (s_keypad && !results ? s_gap : 0));
+        const int x = area.x1 + (s_fullScreen ? col * s_canvasW / grid :
+                                   col * (cellW + (s_keypad && !results ? s_gap : 0)));
+        const int y = area.y1 + (s_fullScreen ? row * s_canvasH / grid :
+                                   row * (cellH + (s_keypad && !results ? s_gap : 0)));
+        const int targetW = s_fullScreen ? (col + 1) * s_canvasW / grid - col * s_canvasW / grid : cellW;
+        const int targetH = s_fullScreen ? (row + 1) * s_canvasH / grid - row * s_canvasH / grid : cellH;
         if (results) {
             unsigned attempts = 0, correct = 0;
             for (size_t i = 0; i < count; ++i) {
@@ -168,11 +175,11 @@ void drawGrid(lv_event_t *event)
                 fill.bg_color = Theme::c(correct == attempts ? Theme::GREEN :
                                          correct == 0 ? Theme::RED : Theme::GOLD);
                 fill.bg_opa = LV_OPA_20;
-                lv_area_t cellArea{x + 1, y + 1, x + cellW - 2, y + cellH - 2};
+                lv_area_t cellArea{x + 1, y + 1, x + targetW - 2, y + targetH - 2};
                 lv_draw_rect(layer, &fill, &cellArea);
             }
         } else if (static_cast<unsigned>(target) == s_target) {
-            drawFill(layer, x + 1, y + 1, cellW - 2, cellH - 2, Theme::ACCENT);
+            drawFill(layer, x + 1, y + 1, targetW - 2, targetH - 2, Theme::ACCENT);
         }
     }
     if (s_keypad && !results) {
@@ -186,8 +193,8 @@ void drawGrid(lv_event_t *event)
         }
     } else {
         for (int line = 0; line <= grid; ++line) {
-            const int x = line == grid ? s_canvasW - 1 : line * cellW;
-            const int y = line == grid ? s_canvasH - 1 : line * cellH;
+            const int x = line == grid ? s_canvasW - 1 : line * s_canvasW / grid;
+            const int y = line == grid ? s_canvasH - 1 : line * s_canvasH / grid;
             const int thickness = !s_keypad && line % 3 == 0 ? 3 : 1;
             drawFill(layer, area.x1 + x, area.y1, thickness, s_canvasH, Theme::LINE);
             drawFill(layer, area.x1, area.y1 + y, s_canvasW, thickness, Theme::LINE);
@@ -241,6 +248,12 @@ void setStatus()
 
 void makeTargetPoint()
 {
+    if (s_fullScreen) {
+        const int col = s_target % 9, row = s_target / 9;
+        s_expectedX = static_cast<int16_t>((col * s_canvasW / 9 + (col + 1) * s_canvasW / 9) / 2);
+        s_expectedY = static_cast<int16_t>((row * s_canvasH / 9 + (row + 1) * s_canvasH / 9) / 2);
+        return;
+    }
     const int grid = static_cast<int>(gridSize());
     const bool keypad = s_keypad && s_page == Page::TEST;
     const int cellW = keypad ? (s_canvasW - 4 * s_gap) / 5 : s_canvasW / grid;
@@ -274,9 +287,10 @@ void nextTarget()
     lv_obj_invalidate(s_canvas);
 }
 
-void startPass(bool keypad)
+void startPass(bool keypad, bool fullScreen = false)
 {
     s_keypad = keypad;
+    s_fullScreen = fullScreen;
     if (s_sampleCount[modeIndex()] >= TouchTest::MAX_SAMPLES) {
         s_page = Page::RESULTS;
         UiTouchTest::show();
@@ -369,6 +383,7 @@ TouchTest::Sample *appendSample()
     sample.screenW = static_cast<uint16_t>(screenW());
     sample.screenH = static_cast<uint16_t>(screenH());
     sample.landscape = screenW() > screenH();
+    sample.fullScreen = s_fullScreen;
     return &sample;
 }
 
@@ -391,7 +406,9 @@ void recordTap(int pressX, int pressY, int releaseX, int releaseY, bool cancelle
     const int localX = pressX - area.x1, localY = pressY - area.y1;
     const int releasedX = releaseX - area.x1, releasedY = releaseY - area.y1;
     int actual = -1;
-    if (!s_keypad) {
+    if (s_fullScreen) {
+        actual = TouchTest::screenCellAtPoint(releasedX, releasedY, s_canvasW, s_canvasH);
+    } else if (!s_keypad) {
         actual = TouchTest::cellAtPoint(releasedX, releasedY, s_canvasW, 9, 0);
     } else {
         const int cellW = (s_canvasW - 4 * s_gap) / 5;
@@ -438,16 +455,58 @@ void trackPointer(const lv_point_t &point)
     lv_obj_invalidate(s_canvas);
 }
 
+void undo();
+void askDiscard();
+
+void showScreenControls()
+{
+    s_pressed = false;
+    s_pointerVisible = false;
+    lv_timer_pause(s_feedbackTimer);
+    s_pending = true;
+    s_prompt = lv_obj_create(s_screen);
+    lv_obj_set_size(s_prompt, screenW(), screenH());
+    lv_obj_set_pos(s_prompt, 0, 0);
+    lv_obj_set_style_bg_opa(s_prompt, LV_OPA_80, 0);
+    lv_obj_set_scrollable(s_prompt, false);
+    auto *box = Theme::card(s_prompt, screenW() - 32, 250);
+    lv_obj_center(box);
+    const Str choices[] = {Str::TOUCH_TEST_CONTINUE, Str::TOUCH_TEST_UNREGISTERED,
+                           Str::TOUCH_TEST_UNDO, Str::TOUCH_TEST_DONE, Str::TOUCH_TEST_DISCARD};
+    for (unsigned i = 0; i < 5; ++i) {
+        auto *button = Theme::button(box, tr(choices[i]), LV_PCT(100), 40, Theme::ACCENT);
+        lv_obj_set_pos(button, 0, i * 46);
+        lv_obj_add_event_cb(button, [](lv_event_t *event) {
+            const auto choice = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+            erasePrompt();
+            s_pending = false;
+            if (choice == 1) reportUnregistered();
+            else if (choice == 2) undo();
+            else if (choice == 3) finishPass();
+            else if (choice == 4) askDiscard();
+        }, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(i)));
+    }
+}
+
 void screenInput(lv_event_t *event)
 {
     if (s_page != Page::TEST || s_pending || s_position >= s_targetCount) return;
     const lv_event_code_t code = lv_event_get_code(event);
     if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
-        code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
+        code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST &&
+        code != LV_EVENT_LONG_PRESSED) return;
     lv_indev_t *input = lv_indev_active();
     if (!input) return;
     lv_point_t point;
     lv_indev_get_point(input, &point);
+    if (code == LV_EVENT_LONG_PRESSED) {
+        if (s_fullScreen && s_pressed &&
+            s_downX >= screenW() / 3 && s_downX < screenW() * 2 / 3 &&
+            s_downY >= screenH() / 3 && s_downY < screenH() * 2 / 3 &&
+            point.x >= screenW() / 3 && point.x < screenW() * 2 / 3 &&
+            point.y >= screenH() / 3 && point.y < screenH() * 2 / 3) showScreenControls();
+        return;
+    }
     if (code == LV_EVENT_PRESSED) {
         s_pressed = true;
         s_downX = point.x;
@@ -520,7 +579,7 @@ void undo()
         setStatus();
         lv_obj_invalidate(s_canvas);
     } else if (s_page == Page::RESULTS) {
-        startPass(s_keypad);
+        startPass(s_keypad, s_fullScreen);
     }
 }
 
@@ -528,7 +587,7 @@ bool writeSampleCsv(FILE *file, unsigned mode, const TouchTest::Sample &sample)
 {
     if (sample.unregistered) {
         return fprintf(file, "%s,%u,,%d,%d,,,,,%d,%d,,,,,unregistered,%s,%u,%u,%u,%u,%u,%u,%d,%d,,\n",
-            mode == 0 ? "board" : "keypad", sample.target,
+            modeName(mode), sample.target,
             sample.originX + sample.expectedX, sample.originY + sample.expectedY,
             sample.expectedX, sample.expectedY,
             sample.landscape ? "landscape" : "portrait",
@@ -539,7 +598,7 @@ bool writeSampleCsv(FILE *file, unsigned mode, const TouchTest::Sample &sample)
     if (sample.actual == UINT8_MAX) snprintf(actual, sizeof(actual), "outside");
     else snprintf(actual, sizeof(actual), "%u", sample.actual);
     return fprintf(file, "%s,%u,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%u,%u,%u,%u,%u,%u,%d,%d,%.2f,%" PRIu32 "\n",
-        mode == 0 ? "board" : "keypad", sample.target, actual,
+        modeName(mode), sample.target, actual,
         sample.originX + sample.expectedX, sample.originY + sample.expectedY,
         sample.originX + sample.x, sample.originY + sample.y,
         sample.originX + sample.releaseX, sample.originY + sample.releaseY,
@@ -609,7 +668,7 @@ bool exportCsv(char *path, size_t pathCapacity)
         "pressed_local_y,released_local_x,released_local_y,status,orientation,"
         "screen_w,screen_h,grid_size,dead_zone,area_w,area_h,origin_x,origin_y,max_move_px,duration_ms\n",
         FW_VERSION, HwProfile::active().name) > 0;
-    for (unsigned mode = 0; good && mode < 2; ++mode) {
+    for (unsigned mode = 0; good && mode < 3; ++mode) {
         for (size_t i = 0; good && i < s_sampleCount[mode]; ++i) {
             good = writeSampleCsv(file, mode, s_samples[mode][i]);
         }
@@ -666,7 +725,7 @@ void resultSummary()
     if (!s_summary) return;
     const unsigned mode = modeIndex();
     char text[384];
-    if (!s_keypad) {
+    if (!s_keypad && !s_fullScreen) {
         char zones[180] = "";
         for (int deadZone = 0; deadZone <= 8; ++deadZone) {
             const auto stats = TouchTest::analyzeZone(s_samples[mode], s_sampleCount[mode],
@@ -715,35 +774,41 @@ void makeScreen()
     s_canvas = s_status = s_summary = nullptr;
     s_prompt = nullptr;
     const char *title = tr(s_page == Page::MENU ? Str::TOUCH_TEST_TITLE :
-                           s_page == Page::RESULTS ? Str::TOUCH_TEST_RESULT :
+                           s_page == Page::RESULTS ? (s_fullScreen ? Str::TOUCH_TEST_SCREEN : Str::TOUCH_TEST_RESULT) :
                            s_keypad ? Str::TOUCH_TEST_KEYS : Str::TOUCH_TEST_BOARD);
-    auto *header = Theme::header(screen, title);
-    auto *headerInfo = lv_obj_get_child(header, 0);
-    auto *back = Theme::button(header, LV_SYMBOL_LEFT, 32, 32, Theme::MUTED);
-    lv_obj_set_pos(back, 6, 6);
-    lv_obj_add_event_cb(back, [](lv_event_t *) {
-        if (s_page == Page::MENU) UiYatzy::showMenu();
-        else if (s_page == Page::TEST) finishPass();
-        else { s_page = Page::MENU; UiTouchTest::show(); }
-    }, LV_EVENT_CLICKED, nullptr);
-    if (s_page == Page::TEST) {
-        s_status = headerInfo;
-        lv_obj_set_pos(s_status, 44, 6);
-        lv_obj_set_size(s_status, LV_MAX(1, screenW() - Theme::statusReservedWidth() - 50),
-                        my_font_14.line_height);
-        lv_obj_set_style_text_font(s_status, &my_font_14, 0);
-        lv_label_set_long_mode(s_status, LV_LABEL_LONG_MODE_DOTS);
+    if (!(s_page == Page::TEST && s_fullScreen)) {
+        auto *header = Theme::header(screen, title);
+        auto *headerInfo = lv_obj_get_child(header, 0);
+        auto *back = Theme::button(header, LV_SYMBOL_LEFT, 32, 32, Theme::MUTED);
+        lv_obj_set_pos(back, 6, 6);
+        lv_obj_add_event_cb(back, [](lv_event_t *) {
+            if (s_page == Page::MENU) UiYatzy::showMenu();
+            else if (s_page == Page::TEST) finishPass();
+            else { s_page = Page::MENU; UiTouchTest::show(); }
+        }, LV_EVENT_CLICKED, nullptr);
+        if (s_page == Page::TEST) {
+            s_status = headerInfo;
+            lv_obj_set_pos(s_status, 44, 6);
+            lv_obj_set_size(s_status, LV_MAX(1, screenW() - Theme::statusReservedWidth() - 50),
+                            my_font_14.line_height);
+            lv_obj_set_style_text_font(s_status, &my_font_14, 0);
+            lv_label_set_long_mode(s_status, LV_LABEL_LONG_MODE_DOTS);
+        }
     }
 
     if (s_page == Page::MENU) {
         auto *board = Theme::button(screen, tr(Str::TOUCH_TEST_BOARD), screenW() - 28,
                                     UiMetrics::buttonH(), Theme::ACCENT);
-        lv_obj_align(board, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - UiMetrics::buttonH() - 14);
+        lv_obj_align(board, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - 2 * UiMetrics::buttonH() - 22);
         lv_obj_add_event_cb(board, [](lv_event_t *) { startPass(false); }, LV_EVENT_CLICKED, nullptr);
         auto *keys = Theme::button(screen, tr(Str::TOUCH_TEST_KEYS), screenW() - 28,
                                    UiMetrics::buttonH(), Theme::TEAL);
-        lv_obj_align(keys, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - 6);
+        lv_obj_align(keys, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - UiMetrics::buttonH() - 14);
         lv_obj_add_event_cb(keys, [](lv_event_t *) { startPass(true); }, LV_EVENT_CLICKED, nullptr);
+        auto *full = Theme::button(screen, tr(Str::TOUCH_TEST_SCREEN), screenW() - 28,
+                                   UiMetrics::buttonH(), Theme::TEAL);
+        lv_obj_align(full, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - 6);
+        lv_obj_add_event_cb(full, [](lv_event_t *) { startPass(false, true); }, LV_EVENT_CLICKED, nullptr);
         auto *hint = Theme::label(screen, tr(Str::TOUCH_TEST_INSTRUCTION), &my_font_14, Theme::MUTED);
         lv_obj_set_width(hint, screenW() - 24);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_WRAP);
@@ -758,7 +823,10 @@ void makeScreen()
         s_controlsH = layout.controlsH;
         const int footer = layout.buttonH + 12;
         int canvasX = 0, canvasY = 0;
-        if (s_page == Page::TEST && s_keypad) {
+        if (s_page == Page::TEST && s_fullScreen) {
+            s_canvasW = screenW();
+            s_canvasH = screenH();
+        } else if (s_page == Page::TEST && s_keypad) {
             s_canvasW = s_controlsW;
             s_canvasH = s_controlsH;
             canvasX = s_controlsX;
@@ -775,6 +843,10 @@ void makeScreen()
             size = LV_MAX(static_cast<int>(gridSize()) * 9, size);
             size = size / static_cast<int>(gridSize()) * static_cast<int>(gridSize());
             s_canvasW = s_canvasH = size;
+            if (s_fullScreen) {
+                s_canvasW = LV_MIN(size, size * screenW() / screenH());
+                s_canvasH = LV_MIN(size, size * screenH() / screenW());
+            }
             canvasX = screenW() > screenH() ? 8 : (screenW() - size) / 2;
             canvasY = layout.top;
         }
@@ -804,7 +876,7 @@ void makeScreen()
                 lv_timer_delete(timer);
             }, LV_EVENT_DELETE, feedbackTimer);
             lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
-            if (s_keypad) {
+            if (!s_fullScreen && s_keypad) {
                 const int width = (s_controlsW - 4 * s_gap) / 5;
                 auto *missed = Theme::button(screen, tr(Str::TOUCH_TEST_UNREGISTERED), width, s_buttonH, Theme::GOLD);
                 lv_obj_set_style_text_font(lv_obj_get_child(missed, 0), &my_font_14, 0);
@@ -820,7 +892,7 @@ void makeScreen()
                     if (row == 2) lv_obj_add_event_cb(button, [](lv_event_t *) { finishPass(); },
                                                      LV_EVENT_CLICKED, nullptr);
                 }
-            } else if (layout.landscape) {
+            } else if (!s_fullScreen && layout.landscape) {
                 const int y = s_controlsY + my_font_14.line_height + 8;
                 auto *missed = Theme::button(screen, tr(Str::TOUCH_TEST_UNREGISTERED), s_controlsW, s_buttonH, Theme::GOLD);
                 lv_obj_set_pos(missed, s_controlsX, y);
@@ -838,7 +910,7 @@ void makeScreen()
                 lv_obj_set_pos(backButton, s_controlsX, y + 3 * (s_buttonH + s_gap));
                 lv_obj_add_event_cb(backButton, [](lv_event_t *) { finishPass(); },
                                     LV_EVENT_CLICKED, nullptr);
-            } else {
+            } else if (!s_fullScreen) {
                 const int gap = 4;
                 const int width = (screenW() - 16 - gap * 3) / 4;
                 auto *missed = Theme::button(screen, tr(Str::TOUCH_TEST_UNREGISTERED), width, s_buttonH, Theme::GOLD);
@@ -889,7 +961,7 @@ void makeScreen()
                 lv_obj_set_style_text_font(lv_obj_get_child(button, 0), &my_font_14, 0);
                 lv_obj_set_pos(button, 8 + i * (width + gap), screenH() - layout.buttonH - 6);
                 if (i == 0) lv_obj_add_event_cb(button, [](lv_event_t *) { saveResults(); }, LV_EVENT_CLICKED, nullptr);
-                if (i == 1) lv_obj_add_event_cb(button, [](lv_event_t *) { startPass(s_keypad); }, LV_EVENT_CLICKED, nullptr);
+                if (i == 1) lv_obj_add_event_cb(button, [](lv_event_t *) { startPass(s_keypad, s_fullScreen); }, LV_EVENT_CLICKED, nullptr);
                 if (i == 2) lv_obj_add_event_cb(button, [](lv_event_t *) { undo(); }, LV_EVENT_CLICKED, nullptr);
                 if (i == 3) lv_obj_add_event_cb(button, [](lv_event_t *) { askDiscard(); }, LV_EVENT_CLICKED, nullptr);
             }
