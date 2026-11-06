@@ -39,9 +39,14 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   uppladdningar utan SD-fel. Detta bekräftar inte temporärfilstädning.
 - [x] S3_35B och ES3C35P, ägarprovning 2026-11-05: samma
   avbryt-/återupptagningsflöde rapporteras fungera även på nya och gamla S3.
-- [ ] Hårdvara: avbryt under mappförberedelse, aktiv överföring och rekursiv
+- [x] RTC, ägarprovning natt 2026-11-05/06: en korrigering på nya S3, inga
+  återkommande korrigeringar; enheten med DS3231 hade inga korrigeringar alls.
+  Bedöms rimligt med DS3231:s högre noggrannhet. Inga tiominutersvisa
+  sekundavrundningskorrigeringar observerades.
+- [ ] Hårdvara: avbryt under mappförberedelse och aktiv filöverföring samt
+  rekursiv
   radering; kontrollera original/temporärfiler, partiellt resultat och nya
-  operationer efteråt. Följ RTC-loggen över flera tiominuterskontroller.
+  operationer efteråt.
 
 Separata framtida arbeten (ingår inte i uppsamlingen):
 
