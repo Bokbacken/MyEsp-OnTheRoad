@@ -331,6 +331,8 @@ jobs:
         run: |
           python3 tests/test_pointer_click.py /tmp/pointer-click
           python3 tests/test_s3_35b_display_touch.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_touch_test_math.cpp -o /tmp/test_touch_test_math
+          /tmp/test_touch_test_math
           python3 tests/test_sudoku_ui.py /tmp/sudoku-ui
           python3 tests/test_adv_game_layout.py /tmp/adventure-layout
           python3 tests/test_yatzy_layout.py /tmp/menu-layout

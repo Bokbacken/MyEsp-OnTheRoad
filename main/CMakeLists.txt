@@ -15,7 +15,7 @@ if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
 endif()
 
 idf_component_register(
-  SRCS "ui_sudoku.cpp" "sudoku_game.cpp" "sudoku_sd.cpp"
+  SRCS "ui_sudoku.cpp" "ui_touch_test.cpp" "sudoku_game.cpp" "sudoku_sd.cpp"
        "app_main.cpp" "app_config.cpp" "app_players.cpp" "app_web.cpp" "fat_time.cpp"
        "board_backlight.cpp" "board_rgb.cpp" "board_power.cpp" "power_history.cpp" "power_io.cpp" ${board_srcs}
        "board_audio.cpp" "board_battery.cpp" "board_sd.cpp" "app_web_files.cpp" "app_web_adventure_editor.cpp" "audio_synth.cpp" "sound_bank.cpp" "fs_path.cpp" "fs_upload.cpp"

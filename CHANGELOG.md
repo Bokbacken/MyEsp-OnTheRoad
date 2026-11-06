@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.16
+
+- Adds an isolated touch diagnostic from the Sudoku menu with separate 9x9 and
+  number-key target passes, a press-position crosshair, tap undo, discard/retry
+  prompts for wrong targets, and an on-screen per-target heatmap. Explicit
+  export writes raw CSV samples and board/profile metadata to the SD card.
+- Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
+  correct/rejected/misassigned counts. A candidate is shown only with at least
+  81 samples, 20 edge samples, zero misassignments and at least 90% accepted.
+  Samples remain in RAM; no compensation or normal Sudoku progress is changed.
+- Automated math and all-board firmware checks are required; physical 3.5-inch
+  suitability and touch accuracy still require owner testing.
+
 ## v0.25.15
 
 - Adds cancellation for browser file/folder upload batches: stop scheduling,

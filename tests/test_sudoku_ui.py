@@ -72,6 +72,7 @@ inline uint32_t esp_random() { static uint32_t value=0; return value++; }
 #include "lang.h"
 #include "my_sys.h"
 #include "app_config.h"
+#include "ui_touch_test.h"
 static AppConfig testConfig{};
 namespace Config { AppConfig &get() { return testConfig; } }
 #include "ui_sudoku.cpp"
@@ -83,6 +84,7 @@ bool mounted() { return false; }
 bool transferHealthy() { return false; }
 bool beginTransfer() { return false; }
 void endTransfer() {}
+bool ensureDir(const char *) { return false; }
 Info info() { return {}; }
 }
 BaseType_t xTaskCreate(TaskFunction_t, const char *, unsigned, void *, UBaseType_t, TaskHandle_t *) {
@@ -450,6 +452,46 @@ int main() {
     assert(lv_obj_get_child_count(box)==2);
     lv_obj_send_event(lv_obj_get_child(box,1),LV_EVENT_CLICKED,nullptr);
     assert(!UiSudoku::s_sdScanNoticeRequired);
+    for (auto size : {lv_point_t{320,480},lv_point_t{480,320},lv_point_t{480,800},lv_point_t{800,480}}) {
+        lv_display_set_resolution(display,size.x,size.y);
+        const int shortSide = size.x<size.y?size.x:size.y;
+        MyFonts::apply(MyFonts::TextSize::NORMAL,shortSide,shortSide>=480?117:154,MyFonts::ScreenZoom::NORMAL);
+        UiTouchTest::show(); settle();
+        auto *menu=lv_screen_active();
+        for(unsigned i=0;i<lv_obj_get_child_count(menu);++i) inside(lv_obj_get_child(menu,i),size.x,size.y);
+        lv_obj_send_event(lv_obj_get_child(menu,1),LV_EVENT_CLICKED,nullptr);
+        settle();
+        auto *boardTest=lv_screen_active();
+        for(unsigned i=0;i<lv_obj_get_child_count(boardTest);++i) inside(lv_obj_get_child(boardTest,i),size.x,size.y);
+        auto *header=lv_obj_get_child(boardTest,0);
+        bool returned=false;
+        for(unsigned i=0;i<lv_obj_get_child_count(header);++i) {
+            auto *child=lv_obj_get_child(header,i);
+            if(lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE) && lv_obj_get_width(child)==32) {
+                lv_obj_send_event(child,LV_EVENT_CLICKED,nullptr);
+                returned=true;
+                break;
+            }
+        }
+        assert(returned); settle();
+        menu=lv_screen_active();
+        lv_obj_send_event(lv_obj_get_child(menu,2),LV_EVENT_CLICKED,nullptr);
+        settle();
+        auto *keyTest=lv_screen_active();
+        for(unsigned i=0;i<lv_obj_get_child_count(keyTest);++i) inside(lv_obj_get_child(keyTest,i),size.x,size.y);
+        header=lv_obj_get_child(keyTest,0);
+        returned=false;
+        for(unsigned i=0;i<lv_obj_get_child_count(header);++i) {
+            auto *child=lv_obj_get_child(header,i);
+            if(lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE) && lv_obj_get_width(child)==32) {
+                lv_obj_send_event(child,LV_EVENT_CLICKED,nullptr);
+                returned=true;
+                break;
+            }
+        }
+        assert(returned); settle();
+        printf("Touch diagnostic layout passed: %dx%d\n",size.x,size.y);
+    }
     lv_display_delete(display);
     lv_deinit();
 }
@@ -465,7 +507,7 @@ set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
-add_executable(sudoku_ui test.cpp "{ROOT}/main/sudoku_game.cpp" "{ROOT}/main/sudoku_sd.cpp"
+add_executable(sudoku_ui test.cpp "{ROOT}/main/ui_touch_test.cpp" "{ROOT}/main/sudoku_game.cpp" "{ROOT}/main/sudoku_sd.cpp"
  "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp"
  "{ROOT}/components/my_ui/my_fonts.cpp" {fonts}
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")
