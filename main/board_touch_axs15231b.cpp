@@ -183,6 +183,12 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
     if (idle) return ESP_OK;
     if (data[1] == 0) return ESP_OK;
     if (data[1] > MAX_POINTS || data[0] == 0xFF) return ESP_ERR_INVALID_RESPONSE;
+    // A single-point report ends in six 0xFF bytes. Shifted or merged reads (previous
+    // frame bytes leaking in) fail this and can decode as bogus points such as y=0.
+    if (data[1] == 1) {
+        for (unsigned i = 8; i < REPORT_LEN; ++i)
+            if (data[i] != 0xFF) return ESP_ERR_NOT_SUPPORTED;
+    }
     const uint16_t px = ((data[2] & 0x0F) << 8) | data[3];
     const uint16_t py = ((data[4] & 0x0F) << 8) | data[5];
     if (px >= LCD_H_RES || py >= LCD_V_RES) return ESP_ERR_INVALID_RESPONSE;
@@ -251,6 +257,12 @@ void sampleTouch()
     const esp_err_t err = readPoint(down, released, x, y);
     const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
     portENTER_CRITICAL(&g_infoMux);
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        // Malformed frame: drop it without touching press state or cancelling the tap.
+        g_info.readErrors++;
+        portEXIT_CRITICAL(&g_infoMux);
+        return;
+    }
     const bool wasPressed = g_info.pressed;
     const bool wasCancelled = g_tapCancelled;
     if (err != ESP_OK) {
