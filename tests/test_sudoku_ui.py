@@ -460,10 +460,46 @@ int main() {
         UiTouchTest::show(); settle();
         auto *menu=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(menu);++i) inside(lv_obj_get_child(menu,i),size.x,size.y);
+        lv_area_t hintArea, menuButtonArea;
+        lv_obj_get_coords(lv_obj_get_child(menu,3),&hintArea);
+        lv_obj_get_coords(lv_obj_get_child(menu,1),&menuButtonArea);
+        assert(hintArea.y2<menuButtonArea.y1);
         lv_obj_send_event(lv_obj_get_child(menu,1),LV_EVENT_CLICKED,nullptr);
         settle();
         auto *boardTest=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(boardTest);++i) inside(lv_obj_get_child(boardTest,i),size.x,size.y);
+        const auto beforeMiss=UiTouchTest::s_sampleCount[0];
+        const auto originalTarget=UiTouchTest::s_target;
+        const auto originalPosition=UiTouchTest::s_position;
+        auto *missed=lv_obj_get_child(boardTest,2);
+        assert(strcmp(lv_label_get_text(lv_obj_get_child(missed,0)),tr(Str::TOUCH_TEST_UNREGISTERED))==0);
+        lv_obj_send_event(missed,LV_EVENT_CLICKED,nullptr);
+        assert(UiTouchTest::s_sampleCount[0]==beforeMiss+1);
+        assert(UiTouchTest::s_samples[0][beforeMiss].unregistered);
+        {
+            FILE *csv=tmpfile();
+            assert(csv && UiTouchTest::writeSampleCsv(csv,0,UiTouchTest::s_samples[0][beforeMiss]));
+            rewind(csv);
+            char row[512];
+            assert(fgets(row,sizeof(row),csv));
+            assert(fclose(csv)==0);
+            std::vector<std::string> columns;
+            std::string value;
+            for(const char *p=row;*p;++p) {
+                if(*p==',' || *p=='\n') { columns.push_back(value); value.clear(); }
+                else value+=*p;
+            }
+            assert(columns.size()==27 && columns[15]=="unregistered");
+            for(unsigned index : {2u,5u,6u,7u,8u,11u,12u,13u,14u,25u,26u})
+                assert(columns[index].empty());
+            assert(columns[0]=="board");
+            assert(columns[1]==std::to_string(originalTarget));
+        }
+        assert(UiTouchTest::s_target==originalTarget && UiTouchTest::s_position==originalPosition);
+        UiTouchTest::undo();
+        assert(UiTouchTest::s_sampleCount[0]==beforeMiss);
+        assert(UiTouchTest::s_target==originalTarget && UiTouchTest::s_position==originalPosition);
+        lv_obj_send_event(missed,LV_EVENT_CLICKED,nullptr);
         auto *input=lv_indev_create();
         lv_indev_set_type(input,LV_INDEV_TYPE_POINTER);
         lv_indev_set_display(input,display);
@@ -480,13 +516,35 @@ int main() {
             pointer.point={boardArea.x1+int(col)*UiTouchTest::s_canvasW/9+4,boardArea.y1+4};
             pointer.state=LV_INDEV_STATE_PRESSED;
             lv_tick_inc(30); lv_indev_read(input);
+            if(col==0) {
+                pointer.point.x+=6; pointer.point.y+=8;
+                lv_tick_inc(30); lv_indev_read(input);
+                pointer.point.x-=6; pointer.point.y-=8;
+            }
             pointer.state=LV_INDEV_STATE_RELEASED;
             lv_tick_inc(30); lv_indev_read(input);
             assert(UiTouchTest::s_sampleCount[0]==before+1);
             assert(UiTouchTest::s_samples[0][before].actual==col);
             assert(!UiTouchTest::s_pending);
+            assert(UiTouchTest::s_pointerVisible);
+            if(col==0) {
+                assert(UiTouchTest::s_trailCount==3);
+                assert(UiTouchTest::s_samples[0][before].maxMovePx==10);
+                assert(UiTouchTest::s_samples[0][before].durationMs==60);
+                lv_tick_inc(299); lv_timer_handler();
+                assert(UiTouchTest::s_pointerVisible);
+                lv_tick_inc(1); lv_timer_handler();
+                assert(!UiTouchTest::s_pointerVisible);
+            }
         }
         lv_indev_delete(input);
+        const auto beforeLaterMiss=UiTouchTest::s_sampleCount[0];
+        const auto laterTarget=UiTouchTest::s_target;
+        const auto laterPosition=UiTouchTest::s_position;
+        lv_obj_send_event(missed,LV_EVENT_CLICKED,nullptr);
+        UiTouchTest::undo();
+        assert(UiTouchTest::s_sampleCount[0]==beforeLaterMiss);
+        assert(UiTouchTest::s_position==laterPosition && UiTouchTest::s_target==laterTarget);
         const auto partialCount=UiTouchTest::s_sampleCount[0];
         auto *header=lv_obj_get_child(boardTest,0);
         bool returned=false;
@@ -516,12 +574,43 @@ int main() {
         settle();
         auto *keyTest=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(keyTest);++i) inside(lv_obj_get_child(keyTest,i),size.x,size.y);
+        missed=lv_obj_get_child(keyTest,2);
+        const auto beforeKeyMiss=UiTouchTest::s_sampleCount[1];
+        lv_obj_send_event(missed,LV_EVENT_CLICKED,nullptr);
+        assert(UiTouchTest::s_sampleCount[1]==beforeKeyMiss+1);
+        assert(UiTouchTest::s_samples[1][beforeKeyMiss].unregistered);
+        assert(UiTouchTest::s_position==0);
         auto *done=lv_obj_get_child(keyTest,lv_obj_get_child_count(keyTest)-1);
         assert(strcmp(lv_label_get_text(lv_obj_get_child(done,0)),LV_SYMBOL_OK)==0);
         lv_obj_send_event(done,LV_EVENT_CLICKED,nullptr); settle();
         assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS);
         results=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(results);++i) inside(lv_obj_get_child(results,i),size.x,size.y);
+        UiTouchTest::startPass(false); settle();
+        UiTouchTest::s_targetCount=1;
+        UiTouchTest::s_targets[0]=0;
+        UiTouchTest::nextTarget();
+        input=lv_indev_create();
+        lv_indev_set_type(input,LV_INDEV_TYPE_POINTER);
+        lv_indev_set_display(input,display);
+        lv_indev_set_user_data(input,&pointer);
+        lv_indev_set_read_cb(input,[](lv_indev_t *in,lv_indev_data_t *data) {
+            *data=*static_cast<lv_indev_data_t *>(lv_indev_get_user_data(in));
+        });
+        lv_obj_get_coords(UiTouchTest::s_canvas,&boardArea);
+        pointer.point={boardArea.x1+UiTouchTest::s_expectedX,boardArea.y1+UiTouchTest::s_expectedY};
+        pointer.state=LV_INDEV_STATE_PRESSED;
+        lv_tick_inc(30); lv_indev_read(input);
+        pointer.state=LV_INDEV_STATE_RELEASED;
+        lv_tick_inc(30); lv_indev_read(input);
+        assert(UiTouchTest::s_page==UiTouchTest::Page::TEST && UiTouchTest::s_position==1);
+        lv_tick_inc(299); lv_timer_handler();
+        assert(UiTouchTest::s_page==UiTouchTest::Page::TEST && UiTouchTest::s_pointerVisible);
+        lv_tick_inc(1); lv_timer_handler();
+        assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS && !UiTouchTest::s_pointerVisible);
+        settle();
+        assert(!UiTouchTest::s_feedbackTimer);
+        lv_indev_delete(input);
         UiTouchTest::s_page=UiTouchTest::Page::MENU;
         UiTouchTest::show(); settle();
         printf("Touch diagnostic layout passed: %dx%d\n",size.x,size.y);

@@ -26,6 +26,9 @@ struct Sample {
     int16_t releaseY;
     bool landscape;
     bool cancelled;
+    float maxMovePx = 0;
+    uint32_t durationMs = 0;
+    bool unregistered = false;
 };
 
 struct ZoneStats {
@@ -55,18 +58,20 @@ inline ZoneStats analyzeZone(const Sample *samples, size_t count, int grid, int 
     if (cell <= 0) return stats;
     for (size_t i = 0; i < count; ++i) {
         const Sample &sample = samples[i];
-        if (sample.grid != grid || sample.target >= grid * grid || sample.cancelled) continue;
+        if (sample.grid != grid || sample.target >= grid * grid || sample.cancelled || sample.unregistered) continue;
         ++stats.samples;
         const int sampleSize = sample.size ? sample.size : size;
-        const int actual = cellAtPoint(sample.x, sample.y, sampleSize, grid, deadZone);
+        const int actual = cellAtPoint(sample.releaseX, sample.releaseY, sampleSize, grid, deadZone);
         if (actual < 0) ++stats.rejected;
         else if (actual == sample.target) ++stats.correct;
         else ++stats.misassigned;
 
         const int sampleCell = sampleSize / grid;
         if (sampleCell <= 0) continue;
-        const int xInCell = sample.expectedX % sampleCell;
-        const int yInCell = sample.expectedY % sampleCell;
+        if (sample.releaseX < 0 || sample.releaseY < 0 ||
+            sample.releaseX >= sampleSize || sample.releaseY >= sampleSize) continue;
+        const int xInCell = sample.releaseX % sampleCell;
+        const int yInCell = sample.releaseY % sampleCell;
         if (xInCell < 8 || xInCell >= sampleCell - 8 ||
             yInCell < 8 || yInCell >= sampleCell - 8)
             ++stats.edgeSamples;

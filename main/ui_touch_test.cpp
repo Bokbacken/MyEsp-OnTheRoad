@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <inttypes.h>
+#include <initializer_list>
 #include <stdio.h>
 #include <string.h>
 
@@ -44,6 +45,14 @@ bool s_pressed = false;
 bool s_pending = false;
 int16_t s_downX = 0, s_downY = 0;
 int16_t s_pointerX = -1, s_pointerY = -1;
+constexpr uint32_t POINTER_HOLD_MS = 300;
+constexpr size_t TRAIL_CAPACITY = 64;
+lv_point_t s_trail[TRAIL_CAPACITY]{};
+size_t s_trailStart = 0, s_trailCount = 0;
+bool s_pointerVisible = false;
+lv_timer_t *s_feedbackTimer = nullptr;
+float s_maxMovePx = 0;
+uint32_t s_pressTick = 0, s_releaseTick = 0;
 int s_canvasW = 0, s_canvasH = 0;
 int s_buttonH = 0, s_gap = 3;
 int s_controlsX = 0, s_controlsY = 0, s_controlsW = 0, s_controlsH = 0;
@@ -125,7 +134,7 @@ void drawGrid(lv_event_t *event)
             for (size_t i = 0; i < count; ++i) {
                 if (samples[i].target != target) continue;
                 ++attempts;
-                if (!samples[i].cancelled && samples[i].actual == target) ++correct;
+                if (!samples[i].unregistered && !samples[i].cancelled && samples[i].actual == target) ++correct;
             }
             if (attempts) {
                 const uint32_t color = correct == attempts ? Theme::GREEN :
@@ -154,13 +163,20 @@ void drawGrid(lv_event_t *event)
             drawFill(layer, area.x1, area.y1 + y, s_canvasW, thickness, Theme::LINE);
         }
     }
-    if (!results) {
-        const int x = area.x1 + s_expectedX;
-        const int y = area.y1 + s_expectedY;
-        drawFill(layer, x - 5, y - 1, 11, 3, Theme::GOLD);
-        drawFill(layer, x - 1, y - 5, 3, 11, Theme::GOLD);
-    }
-    if ((s_pressed || s_pending) && s_pointerX >= 0 && s_pointerY >= 0) {
+    if (!results && s_pointerVisible) {
+        lv_draw_line_dsc_t line;
+        lv_draw_line_dsc_init(&line);
+        line.color = Theme::c(Theme::GOLD);
+        line.width = 2;
+        for (size_t i = 1; i < s_trailCount; ++i) {
+            const auto &from = s_trail[(s_trailStart + i - 1) % TRAIL_CAPACITY];
+            const auto &to = s_trail[(s_trailStart + i) % TRAIL_CAPACITY];
+            line.p1.x = area.x1 + from.x;
+            line.p1.y = area.y1 + from.y;
+            line.p2.x = area.x1 + to.x;
+            line.p2.y = area.y1 + to.y;
+            lv_draw_line(layer, &line);
+        }
         const int x = area.x1 + s_pointerX;
         const int y = area.y1 + s_pointerY;
         for (int degree = 0; degree < 360; degree += 6) {
@@ -181,7 +197,7 @@ void setStatus()
         char text[64];
         if (s_keypad) {
             snprintf(text, sizeof(text), tr(Str::TOUCH_TEST_KEY_PROMPT),
-                     s_target + 1, s_position + 1, s_targetCount);
+                     s_target + 1, s_position + 1, s_targetCount, sampleCount());
         } else {
             snprintf(text, sizeof(text), tr(Str::TOUCH_TEST_PROGRESS),
                      s_position + 1, s_targetCount, sampleCount());
@@ -200,19 +216,17 @@ void makeTargetPoint()
     const int cellH = keypad ? s_buttonH : s_canvasH / grid;
     const int col = keypad ? static_cast<int>(s_target % 3) + 1 : static_cast<int>(s_target % grid);
     const int row = keypad ? static_cast<int>(s_target / 3) : static_cast<int>(s_target / grid);
-    const int marginX = cellW > 16 ? 4 : 1, marginY = cellH > 16 ? 4 : 1;
-    const unsigned spanX = static_cast<unsigned>(cellW - 2 * marginX);
-    const unsigned spanY = static_cast<unsigned>(cellH - 2 * marginY);
     s_expectedX = static_cast<int16_t>(col * (cellW + (keypad ? s_gap : 0)) +
-                                       marginX + esp_random() % spanX);
+                                       cellW / 2);
     s_expectedY = static_cast<int16_t>(row * (cellH + (keypad ? s_gap : 0)) +
-                                       marginY + esp_random() % spanY);
+                                       cellH / 2);
 }
 
 void finishPass()
 {
     s_page = Page::RESULTS;
     s_pressed = s_pending = false;
+    s_pointerVisible = false;
     s_pointerX = s_pointerY = -1;
     UiTouchTest::show();
 }
@@ -220,7 +234,7 @@ void finishPass()
 void nextTarget()
 {
     if (s_position >= s_targetCount) {
-        finishPass();
+        if (!s_pointerVisible) finishPass();
         return;
     }
     s_target = s_targets[s_position];
@@ -248,6 +262,7 @@ void startPass(bool keypad)
     }
     s_page = Page::TEST;
     s_pressed = s_pending = false;
+    s_pointerVisible = false;
     s_pointerX = s_pointerY = -1;
     UiTouchTest::show();
     nextTarget();
@@ -299,14 +314,47 @@ void promptForMiss()
     }, LV_EVENT_CLICKED, nullptr);
 }
 
+TouchTest::Sample *appendSample()
+{
+    if (s_page != Page::TEST || s_pending || s_position >= s_targetCount) return nullptr;
+    if (s_sampleCount[modeIndex()] >= TouchTest::MAX_SAMPLES) {
+        finishPass();
+        return nullptr;
+    }
+    lv_area_t area;
+    lv_obj_get_coords(s_canvas, &area);
+    auto &sample = s_samples[modeIndex()][s_sampleCount[modeIndex()]++];
+    sample = {};
+    sample.grid = static_cast<uint8_t>(gridSize());
+    sample.target = static_cast<uint8_t>(s_target);
+    sample.actual = UINT8_MAX;
+    sample.deadZone = Config::get().sudokuDeadZone;
+    sample.size = static_cast<uint16_t>(s_canvasW);
+    sample.areaH = static_cast<uint16_t>(s_canvasH);
+    sample.expectedX = s_expectedX;
+    sample.expectedY = s_expectedY;
+    sample.originX = static_cast<int16_t>(area.x1);
+    sample.originY = static_cast<int16_t>(area.y1);
+    sample.screenW = static_cast<uint16_t>(screenW());
+    sample.screenH = static_cast<uint16_t>(screenH());
+    sample.landscape = screenW() > screenH();
+    return &sample;
+}
+
+void reportUnregistered()
+{
+    auto *sample = appendSample();
+    if (!sample) return;
+    sample->unregistered = true;
+    setStatus();
+    lv_obj_invalidate(s_canvas);
+}
+
 void recordTap(int pressX, int pressY, int releaseX, int releaseY, bool cancelled)
 {
-    if (s_page != Page::TEST || s_pending) return;
-    if (s_sampleCount[modeIndex()] >= TouchTest::MAX_SAMPLES) {
-        s_page = Page::RESULTS;
-        UiTouchTest::show();
-        return;
-    }
+    auto *entry = appendSample();
+    if (!entry) return;
+    auto &sample = *entry;
     lv_area_t area;
     lv_obj_get_coords(s_canvas, &area);
     const int localX = pressX - area.x1, localY = pressY - area.y1;
@@ -324,25 +372,14 @@ void recordTap(int pressX, int pressY, int releaseX, int releaseY, bool cancelle
             releasedX % stepX < cellW && releasedY % stepY < cellH)
             actual = row * 3 + col - 1;
     }
-    auto &sample = s_samples[modeIndex()][s_sampleCount[modeIndex()]++];
-    sample.grid = static_cast<uint8_t>(gridSize());
-    sample.target = static_cast<uint8_t>(s_target);
     sample.actual = actual < 0 ? UINT8_MAX : static_cast<uint8_t>(actual);
-    sample.deadZone = Config::get().sudokuDeadZone;
-    sample.size = static_cast<uint16_t>(s_canvasW);
-    sample.areaH = static_cast<uint16_t>(s_canvasH);
-    sample.expectedX = s_expectedX;
-    sample.expectedY = s_expectedY;
     sample.x = static_cast<int16_t>(localX);
     sample.y = static_cast<int16_t>(localY);
     sample.releaseX = static_cast<int16_t>(releasedX);
     sample.releaseY = static_cast<int16_t>(releasedY);
-    sample.originX = static_cast<int16_t>(area.x1);
-    sample.originY = static_cast<int16_t>(area.y1);
-    sample.screenW = static_cast<uint16_t>(screenW());
-    sample.screenH = static_cast<uint16_t>(screenH());
-    sample.landscape = screenW() > screenH();
     sample.cancelled = cancelled;
+    sample.maxMovePx = s_maxMovePx;
+    sample.durationMs = lv_tick_elaps(s_pressTick);
     s_pointerX = static_cast<int16_t>(releasedX);
     s_pointerY = static_cast<int16_t>(releasedY);
     setStatus();
@@ -351,9 +388,28 @@ void recordTap(int pressX, int pressY, int releaseX, int releaseY, bool cancelle
     else advance();
 }
 
+void trackPointer(const lv_point_t &point)
+{
+    lv_area_t area;
+    lv_obj_get_coords(s_canvas, &area);
+    s_pointerX = static_cast<int16_t>(point.x - area.x1);
+    s_pointerY = static_cast<int16_t>(point.y - area.y1);
+    s_maxMovePx = fmaxf(s_maxMovePx, hypotf(point.x - s_downX, point.y - s_downY));
+    if (s_trailCount) {
+        const auto &last = s_trail[(s_trailStart + s_trailCount - 1) % TRAIL_CAPACITY];
+        if (last.x == s_pointerX && last.y == s_pointerY) return;
+    }
+    if (s_trailCount == TRAIL_CAPACITY) {
+        s_trailStart = (s_trailStart + 1) % TRAIL_CAPACITY;
+        --s_trailCount;
+    }
+    s_trail[(s_trailStart + s_trailCount++) % TRAIL_CAPACITY] = {s_pointerX, s_pointerY};
+    lv_obj_invalidate(s_canvas);
+}
+
 void screenInput(lv_event_t *event)
 {
-    if (s_page != Page::TEST || s_pending) return;
+    if (s_page != Page::TEST || s_pending || s_position >= s_targetCount) return;
     const lv_event_code_t code = lv_event_get_code(event);
     if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
         code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
@@ -365,23 +421,24 @@ void screenInput(lv_event_t *event)
         s_pressed = true;
         s_downX = point.x;
         s_downY = point.y;
-        lv_area_t area;
-        lv_obj_get_coords(s_canvas, &area);
-        s_pointerX = static_cast<int16_t>(point.x - area.x1);
-        s_pointerY = static_cast<int16_t>(point.y - area.y1);
-        lv_obj_invalidate(s_canvas);
+        s_pressTick = lv_tick_get();
+        s_pointerVisible = true;
+        lv_timer_pause(s_feedbackTimer);
+        s_maxMovePx = 0;
+        s_trailStart = s_trailCount = 0;
+        trackPointer(point);
         return;
     }
     if (code == LV_EVENT_PRESSING) {
-        lv_area_t area;
-        lv_obj_get_coords(s_canvas, &area);
-        s_pointerX = static_cast<int16_t>(point.x - area.x1);
-        s_pointerY = static_cast<int16_t>(point.y - area.y1);
-        lv_obj_invalidate(s_canvas);
+        if (s_pressed) trackPointer(point);
         return;
     }
     if (!s_pressed) return;
+    trackPointer(point);
+    s_releaseTick = lv_tick_get();
     s_pressed = false;
+    lv_timer_reset(s_feedbackTimer);
+    lv_timer_resume(s_feedbackTimer);
     recordTap(s_downX, s_downY, point.x, point.y, code == LV_EVENT_PRESS_LOST);
 }
 
@@ -422,7 +479,7 @@ void undo()
     if (s_page == Page::TEST) {
         if (s_pending) {
             s_pending = false;
-        } else if (s_position) {
+        } else if (s_position && !last.unregistered) {
             --s_position;
         }
         s_target = last.target;
@@ -434,6 +491,33 @@ void undo()
     } else if (s_page == Page::RESULTS) {
         startPass(s_keypad);
     }
+}
+
+bool writeSampleCsv(FILE *file, unsigned mode, const TouchTest::Sample &sample)
+{
+    if (sample.unregistered) {
+        return fprintf(file, "%s,%u,,%d,%d,,,,,%d,%d,,,,,unregistered,%s,%u,%u,%u,%u,%u,%u,%d,%d,,\n",
+            mode == 0 ? "board" : "keypad", sample.target,
+            sample.originX + sample.expectedX, sample.originY + sample.expectedY,
+            sample.expectedX, sample.expectedY,
+            sample.landscape ? "landscape" : "portrait",
+            sample.screenW, sample.screenH, sample.grid, sample.deadZone, sample.size, sample.areaH,
+            sample.originX, sample.originY) > 0;
+    }
+    char actual[12];
+    if (sample.actual == UINT8_MAX) snprintf(actual, sizeof(actual), "outside");
+    else snprintf(actual, sizeof(actual), "%u", sample.actual);
+    return fprintf(file, "%s,%u,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%u,%u,%u,%u,%u,%u,%d,%d,%.2f,%" PRIu32 "\n",
+        mode == 0 ? "board" : "keypad", sample.target, actual,
+        sample.originX + sample.expectedX, sample.originY + sample.expectedY,
+        sample.originX + sample.x, sample.originY + sample.y,
+        sample.originX + sample.releaseX, sample.originY + sample.releaseY,
+        sample.expectedX, sample.expectedY, sample.x, sample.y,
+        sample.releaseX, sample.releaseY,
+        sample.cancelled ? "cancelled" : "released",
+        sample.landscape ? "landscape" : "portrait",
+        sample.screenW, sample.screenH, sample.grid, sample.deadZone, sample.size, sample.areaH,
+        sample.originX, sample.originY, static_cast<double>(sample.maxMovePx), sample.durationMs) > 0;
 }
 
 bool exportCsv(char *path, size_t pathCapacity)
@@ -488,28 +572,15 @@ bool exportCsv(char *path, size_t pathCapacity)
     if (!file) return false;
     bool good = fprintf(file,
         "# firmware=%s\n# profile=%s\n# indices=zero-based; outside=255\n"
+        "# expected_position=cell-center reference, not a precision target\n"
         "mode,target,actual,expected_screen_x,expected_screen_y,pressed_screen_x,pressed_screen_y,"
         "released_screen_x,released_screen_y,expected_local_x,expected_local_y,pressed_local_x,"
         "pressed_local_y,released_local_x,released_local_y,status,orientation,"
-        "screen_w,screen_h,grid_size,dead_zone,area_w,area_h,origin_x,origin_y\n",
+        "screen_w,screen_h,grid_size,dead_zone,area_w,area_h,origin_x,origin_y,max_move_px,duration_ms\n",
         FW_VERSION, HwProfile::active().name) > 0;
     for (unsigned mode = 0; good && mode < 2; ++mode) {
         for (size_t i = 0; good && i < s_sampleCount[mode]; ++i) {
-            const auto &sample = s_samples[mode][i];
-            char actual[12];
-            if (sample.actual == UINT8_MAX) snprintf(actual, sizeof(actual), "outside");
-            else snprintf(actual, sizeof(actual), "%u", sample.actual);
-            good = fprintf(file, "%s,%u,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%u,%u,%u,%u,%u,%u,%d,%d\n",
-                mode == 0 ? "board" : "keypad", sample.target, actual,
-                sample.originX + sample.expectedX, sample.originY + sample.expectedY,
-                sample.originX + sample.x, sample.originY + sample.y,
-                sample.originX + sample.releaseX, sample.originY + sample.releaseY,
-                sample.expectedX, sample.expectedY, sample.x, sample.y,
-                sample.releaseX, sample.releaseY,
-                sample.cancelled ? "cancelled" : "released",
-                sample.landscape ? "landscape" : "portrait",
-                sample.screenW, sample.screenH, sample.grid, sample.deadZone, sample.size, sample.areaH,
-                sample.originX, sample.originY) > 0;
+            good = writeSampleCsv(file, mode, s_samples[mode][i]);
         }
     }
     if (fflush(file) != 0) good = false;
@@ -591,12 +662,19 @@ void resultSummary()
     } else {
         unsigned correct = 0;
         for (size_t i = 0; i < s_sampleCount[mode]; ++i)
-            if (!s_samples[mode][i].cancelled &&
+            if (!s_samples[mode][i].unregistered && !s_samples[mode][i].cancelled &&
                 s_samples[mode][i].actual == s_samples[mode][i].target) ++correct;
         snprintf(text, sizeof(text), tr(Str::TOUCH_TEST_KEY_RESULT),
                  static_cast<unsigned>(s_sampleCount[mode]), correct);
     }
-    lv_label_set_text(s_summary, text);
+    unsigned unregistered = 0;
+    for (size_t i = 0; i < s_sampleCount[mode]; ++i)
+        if (s_samples[mode][i].unregistered) ++unregistered;
+    char counts[96], summary[512];
+    snprintf(counts, sizeof(counts), tr(Str::TOUCH_TEST_COUNTS),
+             static_cast<unsigned>(s_sampleCount[mode]) - unregistered, unregistered);
+    snprintf(summary, sizeof(summary), "%s\n%s", counts, text);
+    lv_label_set_text(s_summary, summary);
 }
 
 void makeScreen()
@@ -629,16 +707,16 @@ void makeScreen()
     if (s_page == Page::MENU) {
         auto *board = Theme::button(screen, tr(Str::TOUCH_TEST_BOARD), screenW() - 28,
                                     UiMetrics::buttonH(), Theme::ACCENT);
-        lv_obj_align(board, LV_ALIGN_CENTER, 0, -UiMetrics::buttonH() / 2 - 8);
+        lv_obj_align(board, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - UiMetrics::buttonH() - 14);
         lv_obj_add_event_cb(board, [](lv_event_t *) { startPass(false); }, LV_EVENT_CLICKED, nullptr);
         auto *keys = Theme::button(screen, tr(Str::TOUCH_TEST_KEYS), screenW() - 28,
                                    UiMetrics::buttonH(), Theme::TEAL);
-        lv_obj_align(keys, LV_ALIGN_CENTER, 0, UiMetrics::buttonH() / 2 + 8);
+        lv_obj_align(keys, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - 6);
         lv_obj_add_event_cb(keys, [](lv_event_t *) { startPass(true); }, LV_EVENT_CLICKED, nullptr);
         auto *hint = Theme::label(screen, tr(Str::TOUCH_TEST_INSTRUCTION), &my_font_14, Theme::MUTED);
         lv_obj_set_width(hint, screenW() - 24);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -UiMetrics::footerH() - 4);
+        lv_obj_set_pos(hint, 12, LV_MAX(UiMetrics::titleH(), Theme::headerHeight()) + 6);
     } else {
         const Layout layout = sudokuLayout();
         s_gap = layout.gap;
@@ -679,9 +757,28 @@ void makeScreen()
         lv_obj_add_event_cb(s_canvas, drawGrid, LV_EVENT_DRAW_MAIN, nullptr);
 
         if (s_page == Page::TEST) {
+            auto *feedbackTimer = lv_timer_create([](lv_timer_t *timer) {
+                lv_timer_pause(timer);
+                if (lv_timer_get_user_data(timer) != s_canvas || s_page != Page::TEST ||
+                    s_pressed || !s_pointerVisible || lv_tick_elaps(s_releaseTick) < POINTER_HOLD_MS) return;
+                s_pointerVisible = false;
+                if (s_position >= s_targetCount && !s_pending) finishPass();
+                else if (s_canvas) lv_obj_invalidate(s_canvas);
+            }, POINTER_HOLD_MS, s_canvas);
+            s_feedbackTimer = feedbackTimer;
+            lv_timer_pause(feedbackTimer);
+            lv_obj_add_event_cb(s_canvas, [](lv_event_t *event) {
+                auto *timer = static_cast<lv_timer_t *>(lv_event_get_user_data(event));
+                if (s_feedbackTimer == timer) s_feedbackTimer = nullptr;
+                lv_timer_delete(timer);
+            }, LV_EVENT_DELETE, feedbackTimer);
             lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
             if (s_keypad) {
                 const int width = (s_controlsW - 4 * s_gap) / 5;
+                auto *missed = Theme::button(screen, tr(Str::TOUCH_TEST_UNREGISTERED), width, s_buttonH, Theme::GOLD);
+                lv_obj_set_style_text_font(lv_obj_get_child(missed, 0), &my_font_14, 0);
+                lv_obj_set_pos(missed, s_controlsX + 4 * (width + s_gap), s_controlsY);
+                lv_obj_add_event_cb(missed, [](lv_event_t *) { reportUnregistered(); }, LV_EVENT_CLICKED, nullptr);
                 const char *icons[] = {UNDO_SYMBOL, LV_SYMBOL_CLOSE, LV_SYMBOL_OK};
                 for (int row = 0; row < 3; ++row) {
                     auto *button = Theme::button(screen, icons[row], width, s_buttonH,
@@ -694,35 +791,43 @@ void makeScreen()
                 }
             } else if (layout.landscape) {
                 const int y = s_controlsY + my_font_14.line_height + 8;
+                auto *missed = Theme::button(screen, tr(Str::TOUCH_TEST_UNREGISTERED), s_controlsW, s_buttonH, Theme::GOLD);
+                lv_obj_set_pos(missed, s_controlsX, y);
+                lv_obj_add_event_cb(missed, [](lv_event_t *) { reportUnregistered(); }, LV_EVENT_CLICKED, nullptr);
                 auto *undoButton = Theme::button(screen, tr(Str::TOUCH_TEST_UNDO), s_controlsW,
                                                   s_buttonH, Theme::MUTED);
-                lv_obj_set_pos(undoButton, s_controlsX, y);
+                lv_obj_set_pos(undoButton, s_controlsX, y + s_buttonH + s_gap);
                 lv_obj_add_event_cb(undoButton, [](lv_event_t *) { undo(); }, LV_EVENT_CLICKED, nullptr);
                 auto *discard = Theme::button(screen, tr(Str::TOUCH_TEST_DISCARD), s_controlsW,
                                                s_buttonH, Theme::RED);
-                lv_obj_set_pos(discard, s_controlsX, y + s_buttonH + s_gap);
+                lv_obj_set_pos(discard, s_controlsX, y + 2 * (s_buttonH + s_gap));
                 lv_obj_add_event_cb(discard, [](lv_event_t *) { askDiscard(); }, LV_EVENT_CLICKED, nullptr);
                 auto *backButton = Theme::button(screen, tr(Str::TOUCH_TEST_DONE), s_controlsW,
                                                   s_buttonH, Theme::MUTED);
-                lv_obj_set_pos(backButton, s_controlsX, y + 2 * (s_buttonH + s_gap));
+                lv_obj_set_pos(backButton, s_controlsX, y + 3 * (s_buttonH + s_gap));
                 lv_obj_add_event_cb(backButton, [](lv_event_t *) { finishPass(); },
                                     LV_EVENT_CLICKED, nullptr);
             } else {
                 const int gap = 4;
-                const int width = (screenW() - 24 - gap * 2) / 3;
+                const int width = (screenW() - 16 - gap * 3) / 4;
+                auto *missed = Theme::button(screen, tr(Str::TOUCH_TEST_UNREGISTERED), width, s_buttonH, Theme::GOLD);
+                lv_obj_align(missed, LV_ALIGN_BOTTOM_LEFT, 8, -6);
+                lv_obj_add_event_cb(missed, [](lv_event_t *) { reportUnregistered(); }, LV_EVENT_CLICKED, nullptr);
                 auto *undoButton = Theme::button(screen, tr(Str::TOUCH_TEST_UNDO), width,
                                                   s_buttonH, Theme::MUTED);
-                lv_obj_align(undoButton, LV_ALIGN_BOTTOM_LEFT, 8, -6);
+                lv_obj_align(undoButton, LV_ALIGN_BOTTOM_LEFT, 8 + width + gap, -6);
                 lv_obj_add_event_cb(undoButton, [](lv_event_t *) { undo(); }, LV_EVENT_CLICKED, nullptr);
                 auto *discard = Theme::button(screen, tr(Str::TOUCH_TEST_DISCARD), width,
                                                s_buttonH, Theme::RED);
-                lv_obj_align(discard, LV_ALIGN_BOTTOM_MID, 0, -6);
+                lv_obj_align(discard, LV_ALIGN_BOTTOM_LEFT, 8 + 2 * (width + gap), -6);
                 lv_obj_add_event_cb(discard, [](lv_event_t *) { askDiscard(); }, LV_EVENT_CLICKED, nullptr);
                 auto *backButton = Theme::button(screen, tr(Str::TOUCH_TEST_DONE), width,
                                                   s_buttonH, Theme::MUTED);
                 lv_obj_align(backButton, LV_ALIGN_BOTTOM_RIGHT, -8, -6);
                 lv_obj_add_event_cb(backButton, [](lv_event_t *) { finishPass(); },
                                     LV_EVENT_CLICKED, nullptr);
+                for (auto *button : {missed, undoButton, discard, backButton})
+                    lv_obj_set_style_text_font(lv_obj_get_child(button, 0), &my_font_14, 0);
             }
             setStatus();
         } else {

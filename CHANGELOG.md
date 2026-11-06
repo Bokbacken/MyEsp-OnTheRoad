@@ -11,11 +11,20 @@ a published GitHub Release.
 ## v0.25.16
 
 - Adds an isolated touch diagnostic from the Sudoku menu with separate 9x9 and
-  number-key target passes, a press-position crosshair, tap undo, discard/retry
+  number-key target passes, highlighted whole-cell targets, tap undo, discard/retry
   prompts for wrong targets, and an on-screen per-target heatmap. Explicit
   export writes raw CSV samples and board/profile metadata to the SD card.
 - Done and the test's Back button open results immediately, keeping partial
   samples available for export without completing all 81 cells or 9 keys.
+- A circle/cross pointer and movement trail show registered touch coordinates
+  while pressed and for 300 ms after release. CSV includes maximum displacement
+  from the initial press and duration; the cell centre is only a reference,
+  not a precision target. Dead-zone simulation and edge coverage use measured
+  release positions, matching Sudoku's click handling.
+- No touch records a manually reported unregistered attempt for the current
+  target without advancing it or inventing coordinates. Results separate these
+  reports from registered taps, CSV marks them as unregistered with blank touch
+  fields, and undo/discard also applies to these reports.
 - Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
   correct/rejected/misassigned counts. A candidate is shown only with at least
   81 samples, 20 edge samples, zero misassignments and at least 90% accepted.
