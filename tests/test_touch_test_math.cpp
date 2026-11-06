@@ -62,16 +62,32 @@ int main()
     }
     for (int width : {320, 480, 800}) {
         for (int height : {320, 480, 800}) {
+            const int columns = TouchTest::screenColumns(width), rows = TouchTest::screenRows(height);
+            unsigned edgeCount = 0;
             assert(TouchTest::screenCellAtPoint(0, 0, width, height) == 0);
-            assert(TouchTest::screenCellAtPoint(width - 1, height - 1, width, height) == 80);
+            assert(TouchTest::screenCellAtPoint(width - 1, height - 1, width, height) == columns * rows - 1);
             assert(TouchTest::screenCellAtPoint(width, height - 1, width, height) == -1);
-            for (int row = 0; row < 9; ++row)
-                for (int col = 0; col < 9; ++col) {
-                    assert(TouchTest::screenCellAtPoint(col * width / 9, row * height / 9, width, height) == row * 9 + col);
-                    assert(TouchTest::screenCellAtPoint((col + 1) * width / 9 - 1, (row + 1) * height / 9 - 1,
-                                                       width, height) == row * 9 + col);
+            for (int row = 0; row < rows; ++row)
+                for (int col = 0; col < columns; ++col) {
+                    if (TouchTest::screenEdgeCell(col, row, columns, rows)) ++edgeCount;
+                    assert(TouchTest::screenCellAtPoint(col * width / columns, row * height / rows, width, height) == row * columns + col);
+                    assert(TouchTest::screenCellAtPoint((col + 1) * width / columns - 1, (row + 1) * height / rows - 1,
+                                                       width, height) == row * columns + col);
                 }
+            assert(edgeCount == static_cast<unsigned>(columns * rows -
+                   (columns - 6) * (rows - 6)));
+            assert(edgeCount <= TouchTest::MAX_SAMPLES);
         }
     }
+    Sample full{};
+    full.fullScreen = true;
+    full.grid = 15;
+    full.target = full.actual = 374;
+    full.size = 480;
+    full.areaH = 800;
+    full.releaseX = 240;
+    full.releaseY = 400;
+    assert(TouchTest::resultPoint(full, 240, 400, point));
+    assert(point.x == 120 && point.y == 200);
     return 0;
 }

@@ -7,11 +7,14 @@ namespace TouchTest {
 
 constexpr size_t MAX_SAMPLES = 512;
 constexpr int KEYPAD_GAP = 3;
+constexpr int SCREEN_CELL_PX = 32;
+constexpr int SCREEN_EDGE_CELLS = 3;
+constexpr uint16_t OUTSIDE = UINT16_MAX;
 
 struct Sample {
     uint8_t grid;
-    uint8_t target;
-    uint8_t actual;
+    uint16_t target;
+    uint16_t actual;
     uint8_t deadZone;
     uint16_t size;
     uint16_t areaH;
@@ -31,6 +34,10 @@ struct Sample {
     uint32_t durationMs = 0;
     bool unregistered = false;
     bool fullScreen = false;
+    uint8_t textSize = 0;
+    uint8_t screenZoom = 0;
+    uint32_t pressUptimeMs = 0;
+    uint32_t releaseUptimeMs = 0;
 };
 
 struct ZoneStats {
@@ -50,7 +57,7 @@ inline bool resultPoint(const Sample &sample, int width, int height, ResultPoint
 {
     if (sample.unregistered || width <= 0 || height <= 0 ||
         sample.size == 0 || sample.areaH == 0) return false;
-    if (sample.grid == 9) {
+    if (sample.grid == 9 || sample.fullScreen) {
         point = {sample.releaseX * static_cast<float>(width) / sample.size,
                  sample.releaseY * static_cast<float>(height) / sample.areaH};
         return true;
@@ -78,10 +85,20 @@ inline int cellAtPoint(int x, int y, int size, int grid, int deadZone)
     return row * grid + column;
 }
 
+inline int screenColumns(int width) { return width / SCREEN_CELL_PX > 0 ? width / SCREEN_CELL_PX : 1; }
+inline int screenRows(int height) { return height / SCREEN_CELL_PX > 0 ? height / SCREEN_CELL_PX : 1; }
+
+inline bool screenEdgeCell(int col, int row, int columns, int rows)
+{
+    return col < SCREEN_EDGE_CELLS || row < SCREEN_EDGE_CELLS ||
+           col >= columns - SCREEN_EDGE_CELLS || row >= rows - SCREEN_EDGE_CELLS;
+}
+
 inline int screenCellAtPoint(int x, int y, int width, int height)
 {
-    if (width < 9 || height < 9 || x < 0 || y < 0 || x >= width || y >= height) return -1;
-    return ((y + 1) * 9 - 1) / height * 9 + ((x + 1) * 9 - 1) / width;
+    if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return -1;
+    const int columns = screenColumns(width), rows = screenRows(height);
+    return ((y + 1) * rows - 1) / height * columns + ((x + 1) * columns - 1) / width;
 }
 
 inline ZoneStats analyzeZone(const Sample *samples, size_t count, int grid, int size, int deadZone)

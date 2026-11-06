@@ -41,7 +41,7 @@ extern const Entry LANG_SV[] = {
     {Str::TOUCH_TEST_TITLE, "Touchdiagnostik"},
     {Str::TOUCH_TEST_BOARD, "Testa 9x9-rutorna"},
     {Str::TOUCH_TEST_KEYS, "Testa sifferknapparna"},
-    {Str::TOUCH_TEST_INSTRUCTION, "Tryck i markerad ruta. Ej touch räknar uteblivna försök. Klar visar resultat. Helskärm: håll i mitten för val. Varv: 81 rutor eller 9 siffror."},
+    {Str::TOUCH_TEST_INSTRUCTION, "Tryck i markerad ruta. Ej touch räknar uteblivna försök. Klar visar resultat. Helskärm testar tre rutors bredd runt kanten; håll i mitten för val."},
     {Str::TOUCH_TEST_PROGRESS, "Mål %u/%u  försök: %u"},
     {Str::TOUCH_TEST_KEY_PROMPT, "Siffra %u (%u/%u), försök: %u"},
     {Str::TOUCH_TEST_MISS_PROMPT, "Trycket hamnade fel eller avbröts. Ska det sparas som en miss eller tas bort och provas igen?"},

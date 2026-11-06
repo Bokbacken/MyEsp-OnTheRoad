@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.18
+
+- The full-screen touch test uses approximately 32x32 pixel cells and tests
+  the outer three rows and columns first, including all corners. Its targets
+  and result grid use the actual screen dimensions in either orientation.
+- Touch CSV records the selected text size and screen zoom for each attempt
+  and uptime timestamps for correlation. On S3 3.5B, test passes capture up to
+  8192 recent raw I2C reads in PSRAM, including idle reads and transport errors.
+  Saving results appends the raw capture as CSV comments and reports overwritten
+  reads; capture pauses between passes. This does not change touch filtering.
+
 ## v0.25.17
 
 - Adds an isolated touch diagnostic from the Sudoku menu with separate 9x9 and

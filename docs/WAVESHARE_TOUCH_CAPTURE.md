@@ -1,5 +1,32 @@
 # Waveshare factory touch capture
 
+## Application touch test capture: v0.25.18 and later
+
+On S3_35B, the Sudoku touch test records raw I2C reads during each test pass.
+Use **Done** to pause capture and save the results to SD using **Save**.
+The same `touch_*.csv` contains the touch samples and, as comment lines at the
+end, `raw_read` entries with boot time in microseconds, transaction duration,
+transport result and the 14 bytes returned. Nonzero transport results mean the
+bytes must not be interpreted as a valid report. Press/release timestamps in
+the sample rows are boot milliseconds, so a nearby raw read can be correlated
+with each event. No raw controller coordinates are fabricated for a reported
+unregistered touch. The captured report coordinates are panel-native; the
+sample coordinates are logical screen coordinates.
+
+The buffer is allocated in PSRAM only when a pass starts, retains the latest
+8192 reads (nominally about 164 seconds at a 20 ms polling interval), and
+continues across passes in the same session. Capture is paused in the results
+screen and resumed on another pass. The `overwritten` count states how many
+older reads were lost; save promptly after an anomaly to preserve it. Discard
+clears the capture. If the allocation fails, the test reports an error instead
+of claiming that raw capture is available. Other board profiles do not capture
+AXS15231B data. No serial connection or special firmware configuration is needed.
+
+The sample rows record text size and screen zoom per attempt. These settings can
+change the layout or the visual reference but do not by themselves establish
+why a controller returned a coordinate. The expected cell centre is a reference,
+not the known point of contact.
+
 ## Application comparison: v0.25.1 and later
 
 Normal builds disable `CONFIG_OTR_S3_TOUCH_DIAGNOSTICS` from v0.25.13.

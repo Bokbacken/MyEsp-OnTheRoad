@@ -41,7 +41,7 @@ extern const Entry LANG_EN[] = {
     {Str::TOUCH_TEST_TITLE, "Touch diagnostics"},
     {Str::TOUCH_TEST_BOARD, "Test the 9x9 cells"},
     {Str::TOUCH_TEST_KEYS, "Test the number keys"},
-    {Str::TOUCH_TEST_INSTRUCTION, "Tap the highlighted cell. No touch counts missed attempts. Done shows results. Full screen: hold in centre for controls. A pass is 81 cells or 9 digits."},
+    {Str::TOUCH_TEST_INSTRUCTION, "Tap the highlighted cell. No touch counts missed attempts. Done shows results. Full screen tests a three-cell band around the edge; hold in centre for controls."},
     {Str::TOUCH_TEST_PROGRESS, "Target %u/%u  attempts: %u"},
     {Str::TOUCH_TEST_KEY_PROMPT, "Digit %u (%u/%u), attempts: %u"},
     {Str::TOUCH_TEST_MISS_PROMPT, "The tap missed or was cancelled. Keep it as a miss or discard and retry?"},

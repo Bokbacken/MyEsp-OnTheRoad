@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "../main/board_pins_s3_35b.h"
+#include "../main/touch_raw_capture.h"
 #include "host_stubs/freertos/portmacro.h"
 
 using esp_err_t = int;
@@ -216,6 +217,11 @@ int esp_lcd_panel_io_tx_color(void *io, uint32_t cmd, const void *p, size_t n) {
     return ESP_OK;
 }
 #else
+constexpr int MALLOC_CAP_SPIRAM = 1, MALLOC_CAP_8BIT = 2;
+bool failRawAllocation = false;
+void *heap_caps_calloc(size_t count, size_t size, int) {
+    return failRawAllocation ? nullptr : std::calloc(count, size);
+}
 using i2c_master_dev_handle_t = void *;
 constexpr int I2C_ADDR_BIT_LEN_7 = 0;
 struct i2c_device_config_t { int dev_addr_length = 0, device_address = 0, scl_speed_hz = 0; };
@@ -460,7 +466,7 @@ int main(int argc, char **argv) {
         assert(!poll(x, y) && Touch::info().readErrors == 0);
         return 0;
     }
-    if (mode != "normal" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
+    if (mode != "normal" && mode != "capture" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
         mode != "startup-corrupt") {
         assert(!ready && !Touch::info().present && !Touch::indev());
         if (mode == "bad-first-report" || mode == "startup-stuck" || mode == "command-failure") {
@@ -496,6 +502,42 @@ int main(int argc, char **argv) {
     assert(Touch::scanResults(nullptr, 4) == 0 && Touch::scanResults(addrs, -1) == 0);
     assert(!Touch::deviceFound(0x55));
     int16_t x = -1, y = -1;
+    if (mode == "capture") {
+        failRawAllocation = true;
+        assert(!TouchRawCapture::start());
+        failRawAllocation = false;
+        assert(TouchRawCapture::start());
+        setPoint(100, 100);
+        assert(poll(x, y));
+        assert(g_sessionRawCount == 1 && g_sessionRaw[0].result == ESP_OK &&
+               g_sessionRaw[0].bytes[1] == 1 && g_sessionRaw[0].bytes[3] == 100 &&
+               g_sessionRaw[0].bytes[5] == 100);
+        reportError = ESP_ERR_TIMEOUT;
+        poll(x, y);
+        assert(g_sessionRaw[1].result == ESP_ERR_TIMEOUT);
+        reportError = ESP_OK;
+        for (unsigned i = 0; i < SESSION_RAW_CAPACITY + 2; ++i) poll(x, y);
+        assert(g_sessionRawCount == SESSION_RAW_CAPACITY && g_sessionRawOverwritten == 4);
+        assert(g_sessionRaw[g_sessionRawStart].timeUs < clockUs);
+        FILE *file = tmpfile();
+        assert(file && !TouchRawCapture::writeCsvComments(file));
+        TouchRawCapture::stop();
+        assert(TouchRawCapture::writeCsvComments(file));
+        rewind(file);
+        char line[256];
+        assert(fgets(line, sizeof(line), file) && std::strstr(line, "overwritten=4"));
+        assert(fgets(line, sizeof(line), file) && std::strstr(line, "raw_read="));
+        assert(fgets(line, sizeof(line), file) && std::strstr(line, "# raw_read="));
+        fclose(file);
+        poll(x, y);
+        assert(g_sessionRawOverwritten == 4);
+        assert(TouchRawCapture::start());
+        poll(x, y);
+        assert(g_sessionRawOverwritten == 5);
+        TouchRawCapture::clear();
+        assert(!g_sessionRawActive && !g_sessionRawCount && !g_sessionRawOverwritten);
+        return 0;
+    }
     if (mode == "diagnostics") {
         assert(TOUCH_DIAGNOSTICS);
         for (bool failRead : {false, true}) {

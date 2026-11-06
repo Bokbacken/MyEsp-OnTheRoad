@@ -23,6 +23,10 @@
 #include "touch_test_math.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
+#include "sdkconfig.h"
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+#include "touch_raw_capture.h"
+#endif
 
 #ifndef FW_VERSION
 #define FW_VERSION "dev"
@@ -54,12 +58,12 @@ size_t s_trailStart = 0, s_trailCount = 0;
 bool s_pointerVisible = false;
 lv_timer_t *s_feedbackTimer = nullptr;
 float s_maxMovePx = 0;
-uint32_t s_pressTick = 0, s_releaseTick = 0;
+uint32_t s_pressTick = 0, s_releaseTick = 0, s_pressUptimeMs = 0;
 int s_canvasW = 0, s_canvasH = 0;
 int s_buttonH = 0, s_gap = 3;
 int s_controlsX = 0, s_controlsY = 0, s_controlsW = 0, s_controlsH = 0;
 unsigned s_position = 0;
-unsigned s_targets[81]{};
+unsigned s_targets[TouchTest::MAX_SAMPLES]{};
 unsigned s_targetCount = 0;
 unsigned s_target = 0;
 int16_t s_expectedX = 0, s_expectedY = 0;
@@ -74,6 +78,8 @@ unsigned gridSize() { return s_keypad ? 3u : 9u; }
 unsigned sampleCount() { return static_cast<unsigned>(s_sampleCount[modeIndex()]); }
 int screenW() { return UiMetrics::screenW(); }
 int screenH() { return UiMetrics::screenH(); }
+int gridColumns() { return s_fullScreen ? TouchTest::screenColumns(screenW()) : static_cast<int>(gridSize()); }
+int gridRows() { return s_fullScreen ? TouchTest::screenRows(screenH()) : static_cast<int>(gridSize()); }
 
 bool ensureSamples()
 {
@@ -123,11 +129,11 @@ void drawFill(lv_layer_t *layer, int x, int y, int w, int h, uint32_t color)
 
 void drawResultPoints(lv_layer_t *layer, const lv_area_t &area, const TouchTest::Sample *samples, size_t count)
 {
-    const int grid = static_cast<int>(gridSize());
-    for (int target = 0; target < grid * grid; ++target) {
-        const int col = target % grid, row = target / grid;
-        const int centerX = area.x1 + (col * s_canvasW / grid + (col + 1) * s_canvasW / grid) / 2;
-        const int centerY = area.y1 + (row * s_canvasH / grid + (row + 1) * s_canvasH / grid) / 2;
+    const int columns = gridColumns(), rows = gridRows();
+    for (int target = 0; target < columns * rows; ++target) {
+        const int col = target % columns, row = target / columns;
+        const int centerX = area.x1 + (col * s_canvasW / columns + (col + 1) * s_canvasW / columns) / 2;
+        const int centerY = area.y1 + (row * s_canvasH / rows + (row + 1) * s_canvasH / rows) / 2;
         drawFill(layer, centerX, centerY, 1, 1, Theme::MUTED);
     }
     for (size_t i = 0; i < count; ++i) {
@@ -154,7 +160,7 @@ void drawGrid(lv_event_t *event)
     lv_layer_t *layer = lv_event_get_layer(event);
     lv_area_t area;
     lv_obj_get_coords(canvas, &area);
-    const int grid = static_cast<int>(gridSize());
+    const int columns = gridColumns(), rows = gridRows();
     const bool results = s_page == Page::RESULTS;
     const unsigned mode = modeIndex();
     const TouchTest::Sample *samples = s_samples[mode];
@@ -163,17 +169,17 @@ void drawGrid(lv_event_t *event)
     drawFill(layer, area.x1, area.y1, s_canvasW, s_canvasH, Theme::PANEL);
     const int digitCellW = s_keypad && !results ? (s_canvasW - 4 * s_gap) / 5 : 0;
     const int digitCellH = s_keypad && !results ? s_buttonH : 0;
-    const int cellW = s_keypad && !results ? digitCellW : s_canvasW / grid;
-    const int cellH = s_keypad && !results ? digitCellH : s_canvasH / grid;
-    for (int target = 0; target < grid * grid; ++target) {
-        const int col = s_keypad && !results ? target % 3 + 1 : target % grid;
-        const int row = s_keypad && !results ? target / 3 : target / grid;
-        const int x = area.x1 + (s_fullScreen ? col * s_canvasW / grid :
+    const int cellW = s_keypad && !results ? digitCellW : s_canvasW / columns;
+    const int cellH = s_keypad && !results ? digitCellH : s_canvasH / rows;
+    for (int target = 0; target < columns * rows; ++target) {
+        const int col = s_keypad && !results ? target % 3 + 1 : target % columns;
+        const int row = s_keypad && !results ? target / 3 : target / columns;
+        const int x = area.x1 + (s_fullScreen ? col * s_canvasW / columns :
                                    col * (cellW + (s_keypad && !results ? s_gap : 0)));
-        const int y = area.y1 + (s_fullScreen ? row * s_canvasH / grid :
+        const int y = area.y1 + (s_fullScreen ? row * s_canvasH / rows :
                                    row * (cellH + (s_keypad && !results ? s_gap : 0)));
-        const int targetW = s_fullScreen ? (col + 1) * s_canvasW / grid - col * s_canvasW / grid : cellW;
-        const int targetH = s_fullScreen ? (row + 1) * s_canvasH / grid - row * s_canvasH / grid : cellH;
+        const int targetW = s_fullScreen ? (col + 1) * s_canvasW / columns - col * s_canvasW / columns : cellW;
+        const int targetH = s_fullScreen ? (row + 1) * s_canvasH / rows - row * s_canvasH / rows : cellH;
         if (results) {
             unsigned attempts = 0, correct = 0;
             for (size_t i = 0; i < count; ++i) {
@@ -204,11 +210,14 @@ void drawGrid(lv_event_t *event)
             }
         }
     } else {
-        for (int line = 0; line <= grid; ++line) {
-            const int x = line == grid ? s_canvasW - 1 : line * s_canvasW / grid;
-            const int y = line == grid ? s_canvasH - 1 : line * s_canvasH / grid;
-            const int thickness = !s_keypad && line % 3 == 0 ? 3 : 1;
+        for (int line = 0; line <= columns; ++line) {
+            const int x = line == columns ? s_canvasW - 1 : line * s_canvasW / columns;
+            const int thickness = !s_keypad && !s_fullScreen && line % 3 == 0 ? 3 : 1;
             drawFill(layer, area.x1 + x, area.y1, thickness, s_canvasH, Theme::LINE);
+        }
+        for (int line = 0; line <= rows; ++line) {
+            const int y = line == rows ? s_canvasH - 1 : line * s_canvasH / rows;
+            const int thickness = !s_keypad && !s_fullScreen && line % 3 == 0 ? 3 : 1;
             drawFill(layer, area.x1, area.y1 + y, s_canvasW, thickness, Theme::LINE);
         }
     }
@@ -261,9 +270,10 @@ void setStatus()
 void makeTargetPoint()
 {
     if (s_fullScreen) {
-        const int col = s_target % 9, row = s_target / 9;
-        s_expectedX = static_cast<int16_t>((col * s_canvasW / 9 + (col + 1) * s_canvasW / 9) / 2);
-        s_expectedY = static_cast<int16_t>((row * s_canvasH / 9 + (row + 1) * s_canvasH / 9) / 2);
+        const int columns = gridColumns(), rows = gridRows();
+        const int col = s_target % columns, row = s_target / columns;
+        s_expectedX = static_cast<int16_t>((col * s_canvasW / columns + (col + 1) * s_canvasW / columns) / 2);
+        s_expectedY = static_cast<int16_t>((row * s_canvasH / rows + (row + 1) * s_canvasH / rows) / 2);
         return;
     }
     const int grid = static_cast<int>(gridSize());
@@ -280,6 +290,9 @@ void makeTargetPoint()
 
 void finishPass()
 {
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+    TouchRawCapture::stop();
+#endif
     s_page = Page::RESULTS;
     s_pressed = s_pending = false;
     s_pointerVisible = false;
@@ -332,9 +345,20 @@ void startPass(bool keypad, bool fullScreen = false)
         UiTouchTest::show();
         return;
     }
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+    if (!TouchRawCapture::start()) {
+        showSampleAllocationError();
+        return;
+    }
+#endif
     s_position = 0;
-    s_targetCount = gridSize() * gridSize();
-    for (unsigned i = 0; i < s_targetCount; ++i) s_targets[i] = i;
+    s_targetCount = 0;
+    const int columns = gridColumns(), rows = gridRows();
+    for (int row = 0; row < rows; ++row)
+        for (int col = 0; col < columns; ++col)
+            if ((!s_fullScreen || TouchTest::screenEdgeCell(col, row, columns, rows)) &&
+                s_targetCount < TouchTest::MAX_SAMPLES)
+                s_targets[s_targetCount++] = row * columns + col;
     for (unsigned i = s_targetCount; i > 1; --i) {
         const unsigned j = esp_random() % i;
         const unsigned tmp = s_targets[i - 1];
@@ -406,9 +430,9 @@ TouchTest::Sample *appendSample()
     lv_obj_get_coords(s_canvas, &area);
     auto &sample = s_samples[modeIndex()][s_sampleCount[modeIndex()]++];
     sample = {};
-    sample.grid = static_cast<uint8_t>(gridSize());
-    sample.target = static_cast<uint8_t>(s_target);
-    sample.actual = UINT8_MAX;
+    sample.grid = static_cast<uint8_t>(s_fullScreen ? gridColumns() : gridSize());
+    sample.target = static_cast<uint16_t>(s_target);
+    sample.actual = TouchTest::OUTSIDE;
     sample.deadZone = Config::get().sudokuDeadZone;
     sample.size = static_cast<uint16_t>(s_canvasW);
     sample.areaH = static_cast<uint16_t>(s_canvasH);
@@ -420,6 +444,8 @@ TouchTest::Sample *appendSample()
     sample.screenH = static_cast<uint16_t>(screenH());
     sample.landscape = screenW() > screenH();
     sample.fullScreen = s_fullScreen;
+    sample.textSize = Config::get().textSize;
+    sample.screenZoom = Config::get().screenZoom;
     return &sample;
 }
 
@@ -428,6 +454,7 @@ void reportUnregistered()
     auto *sample = appendSample();
     if (!sample) return;
     sample->unregistered = true;
+    sample->releaseUptimeMs = MySys::millis();
     setStatus();
     lv_obj_invalidate(s_canvas);
 }
@@ -456,7 +483,7 @@ void recordTap(int pressX, int pressY, int releaseX, int releaseY, bool cancelle
             releasedX % stepX < cellW && releasedY % stepY < cellH)
             actual = row * 3 + col - 1;
     }
-    sample.actual = actual < 0 ? UINT8_MAX : static_cast<uint8_t>(actual);
+    sample.actual = actual < 0 ? TouchTest::OUTSIDE : static_cast<uint16_t>(actual);
     sample.x = static_cast<int16_t>(localX);
     sample.y = static_cast<int16_t>(localY);
     sample.releaseX = static_cast<int16_t>(releasedX);
@@ -464,6 +491,8 @@ void recordTap(int pressX, int pressY, int releaseX, int releaseY, bool cancelle
     sample.cancelled = cancelled;
     sample.maxMovePx = s_maxMovePx;
     sample.durationMs = lv_tick_elaps(s_pressTick);
+    sample.pressUptimeMs = s_pressUptimeMs;
+    sample.releaseUptimeMs = MySys::millis();
     s_pointerX = static_cast<int16_t>(releasedX);
     s_pointerY = static_cast<int16_t>(releasedY);
     setStatus();
@@ -548,6 +577,7 @@ void screenInput(lv_event_t *event)
         s_downX = point.x;
         s_downY = point.y;
         s_pressTick = lv_tick_get();
+        s_pressUptimeMs = MySys::millis();
         s_pointerVisible = true;
         lv_timer_pause(s_feedbackTimer);
         s_maxMovePx = 0;
@@ -570,6 +600,9 @@ void screenInput(lv_event_t *event)
 
 void discardSession()
 {
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+    TouchRawCapture::clear();
+#endif
     memset(s_sampleCount, 0, sizeof(s_sampleCount));
     s_page = Page::MENU;
     UiTouchTest::show();
@@ -622,18 +655,18 @@ void undo()
 bool writeSampleCsv(FILE *file, unsigned mode, const TouchTest::Sample &sample)
 {
     if (sample.unregistered) {
-        return fprintf(file, "%s,%u,,%d,%d,,,,,%d,%d,,,,,unregistered,%s,%u,%u,%u,%u,%u,%u,%d,%d,,\n",
+        return fprintf(file, "%s,%u,,%d,%d,,,,,%d,%d,,,,,unregistered,%s,%u,%u,%u,%u,%u,%u,%d,%d,,,%u,%u,,%" PRIu32 "\n",
             modeName(mode), sample.target,
             sample.originX + sample.expectedX, sample.originY + sample.expectedY,
             sample.expectedX, sample.expectedY,
             sample.landscape ? "landscape" : "portrait",
             sample.screenW, sample.screenH, sample.grid, sample.deadZone, sample.size, sample.areaH,
-            sample.originX, sample.originY) > 0;
+            sample.originX, sample.originY, sample.textSize, sample.screenZoom, sample.releaseUptimeMs) > 0;
     }
     char actual[12];
-    if (sample.actual == UINT8_MAX) snprintf(actual, sizeof(actual), "outside");
+    if (sample.actual == TouchTest::OUTSIDE) snprintf(actual, sizeof(actual), "outside");
     else snprintf(actual, sizeof(actual), "%u", sample.actual);
-    return fprintf(file, "%s,%u,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%u,%u,%u,%u,%u,%u,%d,%d,%.2f,%" PRIu32 "\n",
+    return fprintf(file, "%s,%u,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s,%u,%u,%u,%u,%u,%u,%d,%d,%.2f,%" PRIu32 ",%u,%u,%" PRIu32 ",%" PRIu32 "\n",
         modeName(mode), sample.target, actual,
         sample.originX + sample.expectedX, sample.originY + sample.expectedY,
         sample.originX + sample.x, sample.originY + sample.y,
@@ -643,7 +676,30 @@ bool writeSampleCsv(FILE *file, unsigned mode, const TouchTest::Sample &sample)
         sample.cancelled ? "cancelled" : "released",
         sample.landscape ? "landscape" : "portrait",
         sample.screenW, sample.screenH, sample.grid, sample.deadZone, sample.size, sample.areaH,
-        sample.originX, sample.originY, static_cast<double>(sample.maxMovePx), sample.durationMs) > 0;
+        sample.originX, sample.originY, static_cast<double>(sample.maxMovePx), sample.durationMs,
+        sample.textSize, sample.screenZoom, sample.pressUptimeMs, sample.releaseUptimeMs) > 0;
+}
+
+bool writeCsvContent(FILE *file)
+{
+    bool good = fprintf(file,
+        "# firmware=%s\n# profile=%s\n# indices=zero-based; actual=outside when not on grid\n"
+        "# expected_position=cell-center reference, not a precision target\n"
+        "# text_size=0 small,1 normal,2 large,3 extra large; screen_zoom=0 small,1 normal,2 large\n"
+        "# screen_grid=approximately 32px cells; outer 3 rows/columns; grid_size is column count; rows derived from screen height\n"
+        "mode,target,actual,expected_screen_x,expected_screen_y,pressed_screen_x,pressed_screen_y,"
+        "released_screen_x,released_screen_y,expected_local_x,expected_local_y,pressed_local_x,"
+        "pressed_local_y,released_local_x,released_local_y,status,orientation,"
+        "screen_w,screen_h,grid_size,dead_zone,area_w,area_h,origin_x,origin_y,max_move_px,duration_ms,"
+        "text_size,screen_zoom,press_uptime_ms,release_or_report_uptime_ms\n",
+        FW_VERSION, HwProfile::active().name) > 0;
+    for (unsigned mode = 0; good && mode < 3; ++mode)
+        for (size_t i = 0; good && i < s_sampleCount[mode]; ++i)
+            good = writeSampleCsv(file, mode, s_samples[mode][i]);
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+    if (good) good = TouchRawCapture::writeCsvComments(file);
+#endif
+    return good;
 }
 
 bool exportCsv(char *path, size_t pathCapacity)
@@ -696,19 +752,7 @@ bool exportCsv(char *path, size_t pathCapacity)
     }
     FILE *file = fopen(temporary, "wb");
     if (!file) return false;
-    bool good = fprintf(file,
-        "# firmware=%s\n# profile=%s\n# indices=zero-based; outside=255\n"
-        "# expected_position=cell-center reference, not a precision target\n"
-        "mode,target,actual,expected_screen_x,expected_screen_y,pressed_screen_x,pressed_screen_y,"
-        "released_screen_x,released_screen_y,expected_local_x,expected_local_y,pressed_local_x,"
-        "pressed_local_y,released_local_x,released_local_y,status,orientation,"
-        "screen_w,screen_h,grid_size,dead_zone,area_w,area_h,origin_x,origin_y,max_move_px,duration_ms\n",
-        FW_VERSION, HwProfile::active().name) > 0;
-    for (unsigned mode = 0; good && mode < 3; ++mode) {
-        for (size_t i = 0; good && i < s_sampleCount[mode]; ++i) {
-            good = writeSampleCsv(file, mode, s_samples[mode][i]);
-        }
-    }
+    bool good = writeCsvContent(file);
     if (fflush(file) != 0) good = false;
     if (fsync(fileno(file)) != 0) good = false;
     if (fclose(file) != 0) good = false;

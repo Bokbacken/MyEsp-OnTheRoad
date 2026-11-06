@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build the real Sudoku screen with host LVGL and deterministic NVS/time doubles."""
 import pathlib
+import os
 import subprocess
 import sys
 import tempfile
@@ -41,7 +42,9 @@ public:
 };
 }
 """)
-(WORK / "sdkconfig.h").write_text("")
+(WORK / "sdkconfig.h").write_text(
+    "#define CONFIG_OTR_HW_PROFILE_S3_35B 1\n" if os.environ.get("TEST_TOUCH_CAPTURE") else ""
+)
 (WORK / "freertos").mkdir(exist_ok=True)
 (WORK / "freertos" / "FreeRTOS.h").write_text("""
 #pragma once
@@ -78,10 +81,20 @@ inline void *heap_caps_calloc(size_t count, size_t size, int) { return std::call
 #include "my_fonts.h"
 #include "lang.h"
 #include "my_sys.h"
+#include "sdkconfig.h"
 #include "app_config.h"
 #include "ui_touch_test.h"
 static AppConfig testConfig{};
 namespace Config { AppConfig &get() { return testConfig; } }
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+namespace TouchRawCapture {
+int starts = 0, stops = 0, clears = 0, exports = 0;
+bool start() { ++starts; return true; }
+void stop() { ++stops; }
+void clear() { ++clears; }
+bool writeCsvComments(FILE *file) { ++exports; return fputs("# raw_capture=mock\n",file) >= 0; }
+}
+#endif
 #include "ui_sudoku.cpp"
 #include "ui_touch_test.cpp"
 namespace Backlight { bool sleeping() { return false; } }
@@ -496,11 +509,14 @@ int main() {
                 if(*p==',' || *p=='\n') { columns.push_back(value); value.clear(); }
                 else value+=*p;
             }
-            assert(columns.size()==27 && columns[15]=="unregistered");
-            for(unsigned index : {2u,5u,6u,7u,8u,11u,12u,13u,14u,25u,26u})
+            assert(columns.size()==31 && columns[15]=="unregistered");
+            for(unsigned index : {2u,5u,6u,7u,8u,11u,12u,13u,14u,25u,26u,29u})
                 assert(columns[index].empty());
             assert(columns[0]=="board");
             assert(columns[1]==std::to_string(originalTarget));
+            assert(columns[27]==std::to_string(testConfig.textSize));
+            assert(columns[28]==std::to_string(testConfig.screenZoom));
+            assert(columns[30]==std::to_string(MySys::now));
         }
         assert(UiTouchTest::s_target==originalTarget && UiTouchTest::s_position==originalPosition);
         UiTouchTest::undo();
@@ -623,6 +639,12 @@ int main() {
         menu=lv_screen_active();
         lv_obj_send_event(lv_obj_get_child(menu,3),LV_EVENT_CLICKED,nullptr); settle();
         assert(UiTouchTest::s_fullScreen && UiTouchTest::modeIndex()==2);
+        const int columns=TouchTest::screenColumns(size.x), rows=TouchTest::screenRows(size.y);
+        assert(UiTouchTest::s_targetCount==static_cast<unsigned>(columns*rows-(columns-6)*(rows-6)));
+        for(unsigned i=0;i<UiTouchTest::s_targetCount;++i) {
+            const unsigned target=UiTouchTest::s_targets[i];
+            assert(TouchTest::screenEdgeCell(target%columns,target/columns,columns,rows));
+        }
         assert(lv_obj_get_child_count(lv_screen_active())==1);
         lv_obj_get_coords(UiTouchTest::s_canvas,&boardArea);
         assert(boardArea.x1==0 && boardArea.y1==0 && boardArea.x2==size.x-1 && boardArea.y2==size.y-1);
@@ -650,6 +672,24 @@ int main() {
             assert(UiTouchTest::s_sampleCount[2]==before+1);
             assert(UiTouchTest::s_samples[2][before].actual==target);
             assert(UiTouchTest::s_samples[2][before].fullScreen);
+            assert(UiTouchTest::s_samples[2][before].grid==columns);
+            assert(UiTouchTest::s_samples[2][before].textSize==testConfig.textSize);
+            assert(UiTouchTest::s_samples[2][before].screenZoom==testConfig.screenZoom);
+            FILE *csv=tmpfile();
+            assert(csv && UiTouchTest::writeSampleCsv(csv,2,UiTouchTest::s_samples[2][before]));
+            rewind(csv);
+            char row[512];
+            assert(fgets(row,sizeof(row),csv) && fclose(csv)==0);
+            std::vector<std::string> values;
+            std::string value;
+            for(const char *p=row;*p;++p) {
+                if(*p==',' || *p=='\n') { values.push_back(value); value.clear(); }
+                else value+=*p;
+            }
+            assert(values.size()==31 && values[0]=="screen");
+            assert(values[1]==std::to_string(target) && values[2]==std::to_string(target));
+            assert(values[27]==std::to_string(testConfig.textSize));
+            assert(values[28]==std::to_string(testConfig.screenZoom));
         }
         const auto beforeMenu=UiTouchTest::s_sampleCount[2];
         const auto positionBeforeMenu=UiTouchTest::s_position;
@@ -676,11 +716,36 @@ int main() {
         controls=lv_obj_get_child(UiTouchTest::s_prompt,0);
         lv_obj_send_event(lv_obj_get_child(controls,3),LV_EVENT_CLICKED,nullptr); settle();
         assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS);
+        {
+            FILE *csv=tmpfile();
+            assert(csv && UiTouchTest::writeCsvContent(csv));
+            rewind(csv);
+            char line[512];
+            unsigned sampleRows=0, rawHeaders=0;
+            bool afterRaw=false;
+            while(fgets(line,sizeof(line),csv)) {
+                if(strncmp(line,"# raw_capture=",14)==0) { ++rawHeaders; afterRaw=true; }
+                if(line[0]!='#' && strncmp(line,"mode,",5)!=0) {
+                    assert(!afterRaw);
+                    ++sampleRows;
+                }
+            }
+            assert(sampleRows==UiTouchTest::s_sampleCount[0]+UiTouchTest::s_sampleCount[1]+UiTouchTest::s_sampleCount[2]);
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+            assert(rawHeaders==1);
+#else
+            assert(rawHeaders==0);
+#endif
+            assert(fclose(csv)==0);
+        }
         lv_indev_delete(input);
         UiTouchTest::s_page=UiTouchTest::Page::MENU;
         UiTouchTest::show(); settle();
         printf("Touch diagnostic layout passed: %dx%d\n",size.x,size.y);
     }
+#ifdef CONFIG_OTR_HW_PROFILE_S3_35B
+    assert(TouchRawCapture::starts > 0 && TouchRawCapture::stops > 0);
+#endif
     lv_display_delete(display);
     lv_deinit();
 }
