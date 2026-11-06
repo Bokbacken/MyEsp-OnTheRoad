@@ -25,12 +25,15 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
   porträtt-/landskapspanel, konsekvent navigering och kontextuella
   inställningar utan att förlora aktiv spelsession.
-- [ ] Separat touchdiagnostik: valbar hårkors-pointer och Sudoku-baserade
+- [ ] TIDIG BESLUTSGATE före touchintensiva spel: separat touchdiagnostik,
+  valbar hårkors-pointer och Sudoku-baserade
   9×9-/tangentbordspass med råa koordinater, träfflogg, värmekarta och
   rekommendation av personlig Sudoku-dödzon 0–8 px genom simulering av samma
   rådata (inklusive alternativet 0). Ångra senaste försök, kassera session
-  och fråga vid tydlig felträff om den ska behållas eller göras om; fysisk
-  provning först på båda 3,5-tumskorten. Se UX-planen.
+  och fråga vid tydlig felträff om den ska behållas eller göras om. Prova
+  fysiskt på båda 3,5-tumskorten och avgör uttryckligen vilka touchspel och
+  målstorlekar de klarar; jämför med P4. Vänta med touchintensiv spelportning
+  tills ägaren granskat och accepterat resultatet. Se UX-planen.
 
 ### Waveshare S3 3.5B och fysisk textstorlek, v0.25.0
 

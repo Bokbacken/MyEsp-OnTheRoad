@@ -68,6 +68,16 @@ skulle ändra spelet mitt i en tur. Värden som påverkar bara nästa omgång ka
 Främst för båda 3,5-tumsskärmarna, men utforma resultatet så det kan jämföras
 mot P4 som referens:
 
+Detta är en **tidig, beslutsgrundande leverans** inför nya touchintensiva
+spelidéer, inte bara ett diagnostikverktyg för senare bruk. Bygg först
+pointer + test-Sudoku på båda 3,5-tumskorten, jämför med P4 där det är
+meningsfullt, analysera verkliga tryck från ägaren och avgör därefter om
+3,5-tumsskärmarna duger för Sudoku och tänkta touchspel. Spelportning som är
+beroende av exakt cell-/knappträff väntar på detta beslut. Om tillförlitlighet
+inte går att få med förnuftig layout/kompensering ska resultaten användas för
+att ändra spelkontroller eller välja bort 3,5-tumsskärmar för den speltypen —
+inte döljas med mer aggressiv koordinatförskjutning.
+
 - Valbar touchpointer under diagnostik: cirkel med hårkors på senast
   rapporterade koordinat medan kontakten är nere; rita i panelkoordinater efter
   samma rotation/skalning som LVGL använder. Visa touch-down separat från
@@ -254,7 +264,7 @@ samma kanoniska värde.
   spelet.
 - Visa omedelbar, nästa omgång eller omstartspåverkan före spara.
 
-### PR E — Touchdiagnostik och kalibreringsunderlag
+### PR E — Tidig touchdiagnostik och suitability gate
 
 - Touchpointer och diagnos-Sudoku är ett avgränsat verktyg/PR efter UX-
   kontraktet, inte ett krav att först migrera alla menyer.
@@ -268,6 +278,11 @@ samma kanoniska värde.
   träff-/miss-/felcellskompromissen och kräv tillräckliga gränsnära prov.
   Först efter ägarens fysiska prov kan en eventuell
   profilspecifik koordinatkompenseringsmodell planeras.
+- Detta steg är en gate före spel som kräver tillförlitliga små touchmål.
+  Dokumentera mätresultat och ett uttryckligt beslut per panelprofil:
+  touchspel fungerar, fungerar med ändrad layout/styrning, eller lämpar sig
+  inte för den skärmstorleken. Fortsätt inte direkt till spelportning utan
+  ägarens fysiska prov och beslut.
 
 ### PR F — Migrering och konsistens
 
@@ -300,6 +315,9 @@ samma kanoniska värde.
 - Profilspecifika kontroller är dolda eller tydligt otillgängliga när
   hårdvaran saknas. Textstorlek/zoom, språk, mörka/ljusa indikatorer och
   felmeddelanden fungerar i båda orienteringarna.
+- Före spelportning som kräver träffsäker småmåls-touch finns fysiskt
+  provresultat och ett ägaraccepterat suitability-beslut för varje 3,5-tums
+  profil; P4-resultat används som jämförelse, inte ersättning.
 - NVS uppgradering, befintliga web-inställningar och återgång efter avbruten
   inställningsredigering är täckta av tester.
 - PR byggs för ES3C35P, S3_35B och P4_43; hårdvaruprovning redovisas per kort,
