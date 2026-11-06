@@ -62,6 +62,7 @@ extern const Entry LANG_SV[] = {
     {Str::TOUCH_TEST_COUNTS, "%u registrerade, %u rapporterade utan touch"},
     {Str::TOUCH_TEST_SCREEN, "Hela skärmen"},
     {Str::TOUCH_TEST_CONTINUE, "Fortsätt"},
+    {Str::TOUCH_TEST_MEMORY_FAILED, "Kunde inte reservera minne i PSRAM för touchproven. Stäng andra minneskrävande funktioner och försök igen."},
     {Str::TOUCH_TEST_CLOUD_HINT, "Punkter: ljusa=rätt, röda=fel/avbrott. Överlapp blir ljusare. Igen lägger till fler prov i samma session; radera nollställer. Ingen kompensation görs."},
     {Str::TOUCH_TEST_SAVE_OK, "Touchproven sparades till:\n%s"},
     {Str::TOUCH_TEST_SAVE_FAILED, "Kunde inte exportera touchproven (felkod %d). Kontrollera SD-kortet."},

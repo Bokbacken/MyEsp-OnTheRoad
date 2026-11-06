@@ -35,6 +35,9 @@ a published GitHub Release.
   Holding in the centre third opens Continue/No touch/Undo/Done/Discard;
   this menu gesture is not recorded as a sample. CSV uses a separate screen
   mode, and its measurements are excluded from Sudoku dead-zone analysis.
+- Allocate touch sample buffers lazily in 8-bit PSRAM instead of reserving
+  their full capacity in internal DRAM at boot, preserving internal heap for
+  Wi-Fi and other drivers. Report a visible error if PSRAM allocation fails.
 - Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
   correct/rejected/misassigned counts. A candidate is shown only with at least
   81 samples, 20 edge samples, zero misassignments and at least 90% accepted.

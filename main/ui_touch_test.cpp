@@ -14,6 +14,7 @@
 #include "board_sd.h"
 #include "app_config.h"
 #include "esp_random.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "hw_profile.h"
 #include "lang.h"
@@ -62,7 +63,8 @@ unsigned s_targets[81]{};
 unsigned s_targetCount = 0;
 unsigned s_target = 0;
 int16_t s_expectedX = 0, s_expectedY = 0;
-TouchTest::Sample s_samples[3][TouchTest::MAX_SAMPLES]{};
+using SampleBuffer = TouchTest::Sample[TouchTest::MAX_SAMPLES];
+SampleBuffer *s_samples = nullptr;
 size_t s_sampleCount[3]{};
 uint32_t s_exportSequence = 0;
 
@@ -72,6 +74,16 @@ unsigned gridSize() { return s_keypad ? 3u : 9u; }
 unsigned sampleCount() { return static_cast<unsigned>(s_sampleCount[modeIndex()]); }
 int screenW() { return UiMetrics::screenW(); }
 int screenH() { return UiMetrics::screenH(); }
+
+bool ensureSamples()
+{
+    if (s_samples) return true;
+    s_samples = static_cast<SampleBuffer *>(
+        heap_caps_calloc(3, sizeof(SampleBuffer), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (s_samples) return true;
+    ESP_LOGE(TAG, "cannot allocate touch sample buffers in PSRAM");
+    return false;
+}
 
 struct Layout {
     bool landscape;
@@ -275,6 +287,26 @@ void finishPass()
     UiTouchTest::show();
 }
 
+void erasePrompt();
+
+void showSampleAllocationError()
+{
+    s_prompt = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_prompt, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_prompt, Theme::c(Theme::BG), 0);
+    lv_obj_set_style_bg_opa(s_prompt, LV_OPA_80, 0);
+    lv_obj_add_flag(s_prompt, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_prompt, LV_OBJ_FLAG_SCROLLABLE);
+    auto *box = Theme::card(s_prompt, screenW() - 36, 150);
+    lv_obj_center(box);
+    auto *message = Theme::label(box, tr(Str::TOUCH_TEST_MEMORY_FAILED), &my_font_14);
+    lv_obj_set_width(message, LV_PCT(100));
+    lv_label_set_long_mode(message, LV_LABEL_LONG_MODE_WRAP);
+    auto *ok = Theme::button(box, tr(Str::ADV_TALK_OK), LV_PCT(100), 38, Theme::ACCENT);
+    lv_obj_align(ok, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_event_cb(ok, [](lv_event_t *) { erasePrompt(); }, LV_EVENT_CLICKED, nullptr);
+}
+
 void nextTarget()
 {
     if (s_position >= s_targetCount) {
@@ -291,6 +323,10 @@ void startPass(bool keypad, bool fullScreen = false)
 {
     s_keypad = keypad;
     s_fullScreen = fullScreen;
+    if (!ensureSamples()) {
+        showSampleAllocationError();
+        return;
+    }
     if (s_sampleCount[modeIndex()] >= TouchTest::MAX_SAMPLES) {
         s_page = Page::RESULTS;
         UiTouchTest::show();

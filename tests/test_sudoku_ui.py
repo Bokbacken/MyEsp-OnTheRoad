@@ -62,6 +62,13 @@ void vTaskDelete(void *);
 #include <stdint.h>
 inline uint32_t esp_random() { static uint32_t value=0; return value++; }
 """)
+(WORK / "esp_heap_caps.h").write_text("""
+#pragma once
+#include <cstdlib>
+#define MALLOC_CAP_SPIRAM 1
+#define MALLOC_CAP_8BIT 2
+inline void *heap_caps_calloc(size_t count, size_t size, int) { return std::calloc(count,size); }
+""")
 (WORK / "test.cpp").write_text(r'''
 #include <cassert>
 #include <cstdio>
