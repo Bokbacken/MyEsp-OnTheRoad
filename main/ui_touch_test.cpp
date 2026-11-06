@@ -209,13 +209,18 @@ void makeTargetPoint()
                                        marginY + esp_random() % spanY);
 }
 
+void finishPass()
+{
+    s_page = Page::RESULTS;
+    s_pressed = s_pending = false;
+    s_pointerX = s_pointerY = -1;
+    UiTouchTest::show();
+}
+
 void nextTarget()
 {
     if (s_position >= s_targetCount) {
-        s_page = Page::RESULTS;
-        s_pressed = s_pending = false;
-        s_pointerX = s_pointerY = -1;
-        UiTouchTest::show();
+        finishPass();
         return;
     }
     s_target = s_targets[s_position];
@@ -609,6 +614,7 @@ void makeScreen()
     lv_obj_set_pos(back, 6, 6);
     lv_obj_add_event_cb(back, [](lv_event_t *) {
         if (s_page == Page::MENU) UiYatzy::showMenu();
+        else if (s_page == Page::TEST) finishPass();
         else { s_page = Page::MENU; UiTouchTest::show(); }
     }, LV_EVENT_CLICKED, nullptr);
     if (s_page == Page::TEST) {
@@ -676,14 +682,14 @@ void makeScreen()
             lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
             if (s_keypad) {
                 const int width = (s_controlsW - 4 * s_gap) / 5;
-                const char *icons[] = {UNDO_SYMBOL, LV_SYMBOL_CLOSE, LV_SYMBOL_LEFT};
+                const char *icons[] = {UNDO_SYMBOL, LV_SYMBOL_CLOSE, LV_SYMBOL_OK};
                 for (int row = 0; row < 3; ++row) {
                     auto *button = Theme::button(screen, icons[row], width, s_buttonH,
                                                  row == 1 ? Theme::RED : Theme::MUTED);
                     lv_obj_set_pos(button, s_controlsX, s_controlsY + row * (s_buttonH + s_gap));
                     if (row == 0) lv_obj_add_event_cb(button, [](lv_event_t *) { undo(); }, LV_EVENT_CLICKED, nullptr);
                     if (row == 1) lv_obj_add_event_cb(button, [](lv_event_t *) { askDiscard(); }, LV_EVENT_CLICKED, nullptr);
-                    if (row == 2) lv_obj_add_event_cb(button, [](lv_event_t *) { s_page = Page::MENU; UiTouchTest::show(); },
+                    if (row == 2) lv_obj_add_event_cb(button, [](lv_event_t *) { finishPass(); },
                                                      LV_EVENT_CLICKED, nullptr);
                 }
             } else if (layout.landscape) {
@@ -696,10 +702,10 @@ void makeScreen()
                                                s_buttonH, Theme::RED);
                 lv_obj_set_pos(discard, s_controlsX, y + s_buttonH + s_gap);
                 lv_obj_add_event_cb(discard, [](lv_event_t *) { askDiscard(); }, LV_EVENT_CLICKED, nullptr);
-                auto *backButton = Theme::button(screen, tr(Str::BTN_BACK), s_controlsW,
+                auto *backButton = Theme::button(screen, tr(Str::TOUCH_TEST_DONE), s_controlsW,
                                                   s_buttonH, Theme::MUTED);
                 lv_obj_set_pos(backButton, s_controlsX, y + 2 * (s_buttonH + s_gap));
-                lv_obj_add_event_cb(backButton, [](lv_event_t *) { s_page = Page::MENU; UiTouchTest::show(); },
+                lv_obj_add_event_cb(backButton, [](lv_event_t *) { finishPass(); },
                                     LV_EVENT_CLICKED, nullptr);
             } else {
                 const int gap = 4;
@@ -712,10 +718,10 @@ void makeScreen()
                                                s_buttonH, Theme::RED);
                 lv_obj_align(discard, LV_ALIGN_BOTTOM_MID, 0, -6);
                 lv_obj_add_event_cb(discard, [](lv_event_t *) { askDiscard(); }, LV_EVENT_CLICKED, nullptr);
-                auto *backButton = Theme::button(screen, tr(Str::BTN_BACK), width,
+                auto *backButton = Theme::button(screen, tr(Str::TOUCH_TEST_DONE), width,
                                                   s_buttonH, Theme::MUTED);
                 lv_obj_align(backButton, LV_ALIGN_BOTTOM_RIGHT, -8, -6);
-                lv_obj_add_event_cb(backButton, [](lv_event_t *) { s_page = Page::MENU; UiTouchTest::show(); },
+                lv_obj_add_event_cb(backButton, [](lv_event_t *) { finishPass(); },
                                     LV_EVENT_CLICKED, nullptr);
             }
             setStatus();

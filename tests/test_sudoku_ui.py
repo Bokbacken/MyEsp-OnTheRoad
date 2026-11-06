@@ -76,6 +76,7 @@ inline uint32_t esp_random() { static uint32_t value=0; return value++; }
 static AppConfig testConfig{};
 namespace Config { AppConfig &get() { return testConfig; } }
 #include "ui_sudoku.cpp"
+#include "ui_touch_test.cpp"
 namespace Backlight { bool sleeping() { return false; } }
 namespace UiYatzy { void showMenu() {} }
 namespace BoardSd {
@@ -463,6 +464,30 @@ int main() {
         settle();
         auto *boardTest=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(boardTest);++i) inside(lv_obj_get_child(boardTest,i),size.x,size.y);
+        auto *input=lv_indev_create();
+        lv_indev_set_type(input,LV_INDEV_TYPE_POINTER);
+        lv_indev_set_display(input,display);
+        lv_indev_data_t pointer{};
+        lv_indev_set_user_data(input,&pointer);
+        lv_indev_set_read_cb(input,[](lv_indev_t *in,lv_indev_data_t *data) {
+            *data=*static_cast<lv_indev_data_t *>(lv_indev_get_user_data(in));
+        });
+        lv_area_t boardArea;
+        lv_obj_get_coords(UiTouchTest::s_canvas,&boardArea);
+        for(unsigned col=0;col<9;++col) {
+            UiTouchTest::s_target=col;
+            const auto before=UiTouchTest::s_sampleCount[0];
+            pointer.point={boardArea.x1+int(col)*UiTouchTest::s_canvasW/9+4,boardArea.y1+4};
+            pointer.state=LV_INDEV_STATE_PRESSED;
+            lv_tick_inc(30); lv_indev_read(input);
+            pointer.state=LV_INDEV_STATE_RELEASED;
+            lv_tick_inc(30); lv_indev_read(input);
+            assert(UiTouchTest::s_sampleCount[0]==before+1);
+            assert(UiTouchTest::s_samples[0][before].actual==col);
+            assert(!UiTouchTest::s_pending);
+        }
+        lv_indev_delete(input);
+        const auto partialCount=UiTouchTest::s_sampleCount[0];
         auto *header=lv_obj_get_child(boardTest,0);
         bool returned=false;
         for(unsigned i=0;i<lv_obj_get_child_count(header);++i) {
@@ -474,22 +499,31 @@ int main() {
             }
         }
         assert(returned); settle();
+        assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS);
+        assert(UiTouchTest::s_sampleCount[0]==partialCount);
+        auto *results=lv_screen_active();
+        for(unsigned i=0;i<lv_obj_get_child_count(results);++i) inside(lv_obj_get_child(results,i),size.x,size.y);
+        auto *save=lv_obj_get_child(results,3);
+        assert(strcmp(lv_label_get_text(lv_obj_get_child(save,0)),tr(Str::TOUCH_TEST_SAVE))==0);
+        lv_obj_send_event(save,LV_EVENT_CLICKED,nullptr); settle();
+        assert(UiTouchTest::s_prompt);
+        assert(UiTouchTest::s_sampleCount[0]==partialCount);
+        UiTouchTest::erasePrompt();
+        UiTouchTest::s_page=UiTouchTest::Page::MENU;
+        UiTouchTest::show(); settle();
         menu=lv_screen_active();
         lv_obj_send_event(lv_obj_get_child(menu,2),LV_EVENT_CLICKED,nullptr);
         settle();
         auto *keyTest=lv_screen_active();
         for(unsigned i=0;i<lv_obj_get_child_count(keyTest);++i) inside(lv_obj_get_child(keyTest,i),size.x,size.y);
-        header=lv_obj_get_child(keyTest,0);
-        returned=false;
-        for(unsigned i=0;i<lv_obj_get_child_count(header);++i) {
-            auto *child=lv_obj_get_child(header,i);
-            if(lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE) && lv_obj_get_width(child)==32) {
-                lv_obj_send_event(child,LV_EVENT_CLICKED,nullptr);
-                returned=true;
-                break;
-            }
-        }
-        assert(returned); settle();
+        auto *done=lv_obj_get_child(keyTest,lv_obj_get_child_count(keyTest)-1);
+        assert(strcmp(lv_label_get_text(lv_obj_get_child(done,0)),LV_SYMBOL_OK)==0);
+        lv_obj_send_event(done,LV_EVENT_CLICKED,nullptr); settle();
+        assert(UiTouchTest::s_page==UiTouchTest::Page::RESULTS);
+        results=lv_screen_active();
+        for(unsigned i=0;i<lv_obj_get_child_count(results);++i) inside(lv_obj_get_child(results,i),size.x,size.y);
+        UiTouchTest::s_page=UiTouchTest::Page::MENU;
+        UiTouchTest::show(); settle();
         printf("Touch diagnostic layout passed: %dx%d\n",size.x,size.y);
     }
     lv_display_delete(display);
@@ -507,7 +541,7 @@ set(CONFIG_LV_USE_THORVG OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB565 LV_MEM_SIZE=262144)
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
-add_executable(sudoku_ui test.cpp "{ROOT}/main/ui_touch_test.cpp" "{ROOT}/main/sudoku_game.cpp" "{ROOT}/main/sudoku_sd.cpp"
+add_executable(sudoku_ui test.cpp "{ROOT}/main/sudoku_game.cpp" "{ROOT}/main/sudoku_sd.cpp"
  "{ROOT}/main/ui_metrics.cpp" "{ROOT}/main/hw_profile.cpp"
  "{ROOT}/components/my_ui/my_fonts.cpp" {fonts}
  "{ROOT}/main/lang/lang.cpp" "{ROOT}/main/lang/lang_sv.cpp" "{ROOT}/main/lang/lang_en.cpp")

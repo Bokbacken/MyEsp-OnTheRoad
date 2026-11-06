@@ -14,6 +14,8 @@ a published GitHub Release.
   number-key target passes, a press-position crosshair, tap undo, discard/retry
   prompts for wrong targets, and an on-screen per-target heatmap. Explicit
   export writes raw CSV samples and board/profile metadata to the SD card.
+- Done and the test's Back button open results immediately, keeping partial
+  samples available for export without completing all 81 cells or 9 keys.
 - Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
   correct/rejected/misassigned counts. A candidate is shown only with at least
   81 samples, 20 edge samples, zero misassignments and at least 90% accepted.
