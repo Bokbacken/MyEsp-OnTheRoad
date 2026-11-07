@@ -122,6 +122,9 @@ WAV: PCM 8 or 16 bit, mono or stereo, 8-44.1 kHz (mixed to 22 050 Hz mono). Effe
   from the initial contact cancels all click variants until the next press,
   even after dragging back. Release and scrolling events remain available;
   S3_35B also cancels clicks after a read error during contact.
+- **File-manager cancellation** – stop folder upload batches and recursive
+  deletion from the browser. Completed changes remain; partial results and
+  errors stay in an acknowledgement dialog. See [file management](docs/FILE_MANAGEMENT.md).
 - **Adventure engine** – separate module (`components/otr_engine`
   + `main/ui_adventure.cpp`): own tile renderer on a PSRAM canvas, smooth camera, 32/16 px zoom. Two worlds:
   the 60 × 60 *Testvärlden* (rocks, keys/doors, boat, lava, plates/gates) and the minesweeper-style

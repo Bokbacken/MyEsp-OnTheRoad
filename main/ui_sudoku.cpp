@@ -1,4 +1,5 @@
 #include "ui_sudoku.h"
+#include "ui_touch_test.h"
 
 #include <atomic>
 #include <stdio.h>
@@ -883,6 +884,10 @@ void show()
             lv_obj_add_state(b, LV_STATE_DISABLED);
         lv_obj_add_event_cb(b, start, LV_EVENT_CLICKED, reinterpret_cast<void *>(uintptr_t(i)));
     }
+    auto *touchTest = Theme::button(list, tr(Str::TOUCH_TEST_TITLE), LV_PCT(100),
+                                    UiMetrics::buttonH(), Theme::TEAL);
+    lv_obj_add_event_cb(touchTest, [](lv_event_t *) { UiTouchTest::show(); },
+                        LV_EVENT_CLICKED, nullptr);
     auto *back = Theme::button(screen, tr(Str::BTN_BACK), 100, 34, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_add_event_cb(back, [](lv_event_t *) { UiYatzy::showMenu(); }, LV_EVENT_CLICKED, nullptr);

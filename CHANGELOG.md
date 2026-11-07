@@ -8,6 +8,76 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.25.19
+
+- AXS15231B single-point reports that do not end in six 0xFF bytes (shifted or
+  merged reads) are dropped without changing press state or cancelling the tap.
+  This removes bogus y=0 positions seen at release.
+
+## v0.25.18
+
+- The full-screen touch test uses approximately 32x32 pixel cells and tests
+  the outer three rows and columns first, including all corners. Its targets
+  and result grid use the actual screen dimensions in either orientation.
+- Touch CSV records the selected text size and screen zoom for each attempt
+  and uptime timestamps for correlation. On S3 3.5B, test passes capture up to
+  8192 recent raw I2C reads in PSRAM, including idle reads and transport errors.
+  Saving results appends the raw capture as CSV comments and reports overwritten
+  reads; capture pauses between passes. This does not change touch filtering.
+
+## v0.25.17
+
+- Adds an isolated touch diagnostic from the Sudoku menu with separate 9x9 and
+  number-key target passes, highlighted whole-cell targets, tap undo, discard/retry
+  prompts for wrong targets, and an on-screen per-target heatmap. Explicit
+  export writes raw CSV samples and board/profile metadata to the SD card.
+- Done and the test's Back button open results immediately, keeping partial
+  samples available for export without completing all 81 cells or 9 keys.
+- A circle/cross pointer and movement trail show registered touch coordinates
+  while pressed and for 300 ms after release. CSV includes maximum displacement
+  from the initial press and duration; the cell centre is only a reference,
+  not a precision target. Dead-zone simulation and edge coverage use measured
+  release positions, matching Sudoku's click handling.
+- No touch records a manually reported unregistered attempt for the current
+  target without advancing it or inventing coordinates. Results separate these
+  reports from registered taps, CSV marks them as unregistered with blank touch
+  fields, and undo/discard also applies to these reports.
+- Results overlay actual release positions as a point cloud on the target
+  grid, with brightening overlaps across repeated passes in the same RAM
+  session. Registered misses/cancellations are red; manually unregistered
+  attempts have no invented point. Number-key coordinates are mapped from
+  the real 5x3 input layout into the result's 3x3 digit layout.
+- Adds a separate full-screen rectangular 9x9 test covering all pixel coordinates
+  including screen edges and corners, without a header or fixed controls.
+  Holding in the centre third opens Continue/No touch/Undo/Done/Discard;
+  this menu gesture is not recorded as a sample. CSV uses a separate screen
+  mode, and its measurements are excluded from Sudoku dead-zone analysis.
+- Allocate touch sample buffers lazily in 8-bit PSRAM instead of reserving
+  their full capacity in internal DRAM at boot, preserving internal heap for
+  Wi-Fi and other drivers. Report a visible error if PSRAM allocation fails.
+- Simulates Sudoku dead zones 0-8 px against the raw board samples and reports
+  correct/rejected/misassigned counts. A candidate is shown only with at least
+  81 samples, 20 edge samples, zero misassignments and at least 90% accepted.
+  Samples remain in RAM; no compensation or normal Sudoku progress is changed.
+- Automated math and all-board firmware checks are required; physical 3.5-inch
+  suitability and touch accuracy still require owner testing.
+
+## v0.25.15
+
+- Adds cancellation for browser file/folder upload batches: stop scheduling,
+  abort active requests, preserve already completed files and explicitly
+  report unconfirmed in-flight outcomes. Temporary upload files retain the
+  existing cleanup/original-preservation rules.
+- Adds cancellable background directory deletion, with admin-protected
+  start/status/cancel routes and per-entry cancellation checks. Already
+  deleted entries cannot be restored; partial results are reported explicitly.
+  Active deletion blocks formatting, flash repair and controlled restart.
+- File-manager failures and partial/cancelled batch results remain in an
+  acknowledgement dialog. Upload diagnostics distinguish requested, received,
+  staged (accepted by stdio) and installed bytes, not just declared file size.
+- Corrects RTC synchronization checks and second-boundary write alignment;
+  no game logic, network modes, RTC retention policy or SD clock changes.
+
 ## v0.25.14
 
 - Applies drag-is-not-click protection to every board through the shared LVGL

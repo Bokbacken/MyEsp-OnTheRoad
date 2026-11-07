@@ -7,7 +7,7 @@
 //   - the seconds register ticks (waits for the next second edge, max ~1.1 s; this also aligns
 //     the system clock to the RTC second boundary)
 //   - temperature register in -40..+85 degC
-// write() sets the time at the next second boundary and clears OSF.
+// External write() waits at least until the next system second boundary and clears OSF.
 //
 // P4 prefers a DS3231 detected at 0x68 on the shared I2C bus. If absent, it uses
 // the internal RTC counter with a trusted UTC anchor in retained RTC memory.
@@ -49,7 +49,7 @@ struct Status {
     time_t lastWrite;      // UTC of the last write (0 = never this boot)
     uint32_t writes;
     uint32_t errors;
-    int32_t lastDriftS;    // RTC - system time at the last sync check
+    int32_t lastDriftS;    // Confirmed whole seconds of RTC - system drift (0 also means uncertain)
 };
 
 // bus: an i2c_master bus already created by the board.
@@ -57,12 +57,15 @@ struct Status {
 bool begin(i2c_master_bus_handle_t bus, time_t *outTime = nullptr);
 
 bool read(time_t &utc);                 // Current RTC time (UTC); false on bus error / invalid
-bool write(time_t utcNow);              // Waits for the next system-clock second edge, writes, clears OSF
+// External RTCs ignore utcNow and align to current system time. Internal RTCs
+// accept an explicit UTC anchor; utcNow == 0 aligns to system time after a bounded edge wait.
+bool write(time_t utcNow);
 bool readTemp(float &c);
 const char *chipName();
 bool temperatureAvailable();
-// Compares the RTC with the (NTP-correct) system clock and writes it when the drift is >= 1 s,
-// the RTC was invalid, or force is set. Returns true when the RTC holds the system time after the call.
+// Writes when the read bracket and integer RTC resolution confirm >= 1 s drift,
+// the RTC was invalid, or force is set. An uncertain/sub-second difference needs no write.
+// Returns false on clock discontinuity, invalid system time or RTC access/write failure.
 bool syncFromSystem(bool force = false);
 
 Status status();

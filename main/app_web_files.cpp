@@ -63,12 +63,13 @@ static constexpr size_t WRITE_CACHE = 32768;
 static constexpr int MAX_ENTRIES = 400;
 static std::atomic<int> s_activeUploads{0};
 static std::atomic<int> s_activeDownloads{0};
+static std::atomic<bool> s_deleting{false};
 static std::atomic<bool> s_formatting{false};
 static std::atomic<int> s_formatStatus{0};
 
 bool busy()
 {
-    return s_activeUploads.load() || s_activeDownloads.load() || s_formatting.load();
+    return s_activeUploads.load() || s_activeDownloads.load() || s_formatting.load() || s_deleting.load();
 }
 
 namespace {
@@ -124,6 +125,7 @@ struct UploadPipeline {
     int64_t bufferWaitUs = 0;
     int64_t lockUs = 0;
     int64_t writeUs = 0;
+    size_t writtenBytes = 0;
 };
 
 void uploadWriterTask(void *arg)
@@ -138,8 +140,10 @@ void uploadWriterTask(void *arg)
             pipeline->lockUs += esp_timer_get_time() - lockStart;
             const int64_t writeStart = esp_timer_get_time();
             const bool healthy = !pipeline->target->sd || BoardSd::transferHealthy();
-            const bool wrote = healthy &&
-                fwrite(pipeline->buffers[chunk.index], 1, chunk.length, pipeline->file) == chunk.length;
+            const size_t written = healthy ?
+                fwrite(pipeline->buffers[chunk.index], 1, chunk.length, pipeline->file) : 0;
+            pipeline->writtenBytes += written;
+            const bool wrote = healthy && written == chunk.length;
             pipeline->writeUs += esp_timer_get_time() - writeStart;
             if (!wrote) {
                 error = healthy && errno == ENOSPC ? ENOSPC : EIO;
@@ -541,6 +545,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r, UploadBody &body)
         FsUpload::discard(tmp);
     }
     size_t left = total;
+    size_t receivedBytes = 0;
     int timeouts = 0;
     int64_t recvUs = 0, flushUs = 0, closeUs = 0;
     while (ok && left > 0) {
@@ -573,6 +578,7 @@ static esp_err_t handleUploadRequest(httpd_req_t *r, UploadBody &body)
             break;
         }
         timeouts = 0;
+        receivedBytes += (size_t)n;
         const UploadChunk chunk{index, (size_t)n};
         if (xQueueSend(pipeline.ready, &chunk, portMAX_DELAY) != pdTRUE) {
             ok = false;
@@ -646,9 +652,11 @@ static esp_err_t handleUploadRequest(httpd_req_t *r, UploadBody &body)
     if (sdIoFailed) BoardSd::requestRecovery();
     transfer.finish();   // Last closed SD transfer performs any pending recovery before HTTP draining
     if (ok && !skipped) changed(t);
-    ESP_LOGI(TAG, "upload %s %s: %u B, total %llu ms, recv %llu ms, buffer wait %llu ms, SD lock wait %llu ms, "
+    ESP_LOGI(TAG, "upload %s %s: requested %u B, received %u B, staged %u B, installed %u B, total %llu ms, recv %llu ms, buffer wait %llu ms, SD lock wait %llu ms, "
                   "write %llu ms, flush %llu ms, close %llu ms, cache %u B (%s)", t.path,
              skipped ? "skipped" : ok ? "complete" : "failed", (unsigned)total,
+             (unsigned)receivedBytes, (unsigned)pipeline.writtenBytes,
+             (unsigned)(ok && !skipped ? total : 0),
              (unsigned long long)((esp_timer_get_time() - uploadStart) / 1000),
              (unsigned long long)(recvUs / 1000), (unsigned long long)(pipeline.bufferWaitUs / 1000),
              (unsigned long long)(pipeline.lockUs / 1000), (unsigned long long)(pipeline.writeUs / 1000),
@@ -847,7 +855,7 @@ static esp_err_t handleSdFormat(httpd_req_t *r)
     bool expected = false;
     if (!s_formatting.compare_exchange_strong(expected, true))
         return MyWeb::sendError(r, 409, "SD-kortet används redan");
-    if (s_activeUploads.load() || s_activeDownloads.load()) {
+    if (s_activeUploads.load() || s_activeDownloads.load() || s_deleting.load()) {
         s_formatting.store(false);
         return MyWeb::sendError(r, 409, "Vänta tills filöverföringarna är klara");
     }
@@ -944,13 +952,25 @@ int mkdirs(const Target &t)
 
 // Recursive delete. Child names are collected before recursing so no directory is modified
 // while it is being read; the SD lock is held per step so audio streaming keeps going.
-int removeTree(bool sd, const char *path, int depth)
+struct DeleteProgress {
+    std::atomic<bool> cancel{false};
+    std::atomic<unsigned> removed{0};
+};
+
+int removeTree(bool sd, const char *path, int depth, DeleteProgress *progress = nullptr)
 {
+    if (progress && progress->cancel.load()) return ECANCELED;
     struct stat st = {};
     {
         Lock lk(sd);
-        if (stat(path, &st) != 0) return ENOENT;
-        if (!S_ISDIR(st.st_mode)) return unlink(path) == 0 ? 0 : (errno ? errno : EIO);
+        if (progress && progress->cancel.load()) return ECANCELED;
+        if (sd && !BoardSd::transferHealthy()) return EIO;
+        if (stat(path, &st) != 0) return errno ? errno : EIO;
+        if (!S_ISDIR(st.st_mode)) {
+            if (unlink(path) != 0) return errno ? errno : EIO;
+            if (progress) progress->removed.fetch_add(1);
+            return 0;
+        }
     }
     if (depth > TREE_DEPTH) return ENOTEMPTY;
     for (;;) {
@@ -958,6 +978,8 @@ int removeTree(bool sd, const char *path, int depth)
         int batch = 0;
         {
             Lock lk(sd);
+            if (progress && progress->cancel.load()) return ECANCELED;
+            if (sd && !BoardSd::transferHealthy()) return EIO;
             DIR *d = opendir(path);
             if (!d) return errno ? errno : EIO;
             struct dirent *e;
@@ -978,13 +1000,18 @@ int removeTree(bool sd, const char *path, int depth)
                 err = ENAMETOOLONG;
                 break;
             }
-            err = removeTree(sd, child, depth + 1);
+            err = removeTree(sd, child, depth + 1, progress);
         }
         free(child);
         if (err) return err;
+        vTaskDelay(1);
     }
     Lock lk(sd);
-    return rmdir(path) == 0 ? 0 : (errno ? errno : EIO);
+    if (progress && progress->cancel.load()) return ECANCELED;
+    if (sd && !BoardSd::transferHealthy()) return EIO;
+    if (rmdir(path) != 0) return errno ? errno : EIO;
+    if (progress) progress->removed.fetch_add(1);
+    return 0;
 }
 
 const char *errName(int err)
@@ -994,6 +1021,7 @@ const char *errName(int err)
     case EEXIST: return tr(Str::WEB_ERR_FS_EXISTS);
     case ENOTEMPTY: return tr(Str::WEB_ERR_FS_NOTEMPTY);
     case ENOSPC: return tr(Str::WEB_ERR_FS_FULL);
+    case ENOMEM: return tr(Str::WEB_ERR_MEMORY);
     case EINVAL: return tr(Str::WEB_ERR_FS_PATH);
     default: return tr(Str::WEB_ERR_FS_IO);
     }
@@ -1166,29 +1194,23 @@ static esp_err_t handleFilesMkdir(httpd_req_t *r)
     return MyWeb::sendOk(r);
 }
 
-static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
+static void deletePaths(cJSON *j, cJSON *failed, int &done, DeleteProgress *progress = nullptr)
 {
-    MyWeb::Req q(r);
-    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
-    cJSON *j = WebUtil::readJson(r, BODY_MAX);
-    const cJSON *paths = j ? cJSON_GetObjectItemCaseSensitive(j, "paths") : nullptr;
-    if (!cJSON_IsArray(paths) || cJSON_GetArraySize(paths) < 1 || cJSON_GetArraySize(paths) > BULK_MAX) {
-        cJSON_Delete(j);
-        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
-    }
+    DeleteProgress localProgress;
+    if (!progress) progress = &localProgress;
+    const cJSON *paths = cJSON_GetObjectItemCaseSensitive(j, "paths");
     const char *root = jsonStr(j, "root");
     Target *t = (Target *)psAlloc(sizeof(Target));
     if (!t) {
-        cJSON_Delete(j);
-        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+        addFail(failed, "", ENOMEM);
+        return;
     }
-    cJSON *failed = cJSON_CreateArray();
-    int done = 0;
     bool any = false, sd = true;
     uint8_t audio = AudioPaths::NONE;
     const cJSON *p;
     cJSON_ArrayForEach(p, paths)
     {
+        if (progress && progress->cancel.load()) break;
         const char *user = cJSON_IsString(p) ? p->valuestring : nullptr;
         const int code = resolveTarget(root, user, *t);
         if (code == 503) {
@@ -1200,14 +1222,25 @@ static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
             continue;
         }
         sd = t->sd;
-        const int err = removeTree(t->sd, t->path, 0);
+        BoardSd::Transfer transfer(t->sd);
+        if (t->sd && !transfer.active) {
+            addFail(failed, user, EIO);
+            break;
+        }
+        const unsigned before = progress ? progress->removed.load() : 0;
+        const int err = removeTree(t->sd, t->path, 0, progress);
+        // A cancelled or failed directory may already have lost some children.
+        if (!err || (progress && progress->removed.load() != before)) {
+            any = true;
+            if (t->sd) audio |= AudioPaths::affected(t->path);
+        }
+        if (err == ECANCELED) break;
         if (err) {
             addFail(failed, user, err);
             ESP_LOGW(TAG, "bulk delete %s: %d", t->path, err);
+            if (t->sd && err == EIO) BoardSd::requestRecovery();
         } else {
             done++;
-            any = true;
-            if (t->sd) audio |= AudioPaths::affected(t->path);
             MyLog::event("files", "deleted %s", t->path);
         }
     }
@@ -1216,8 +1249,127 @@ static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
         Audio::invalidateFiles(audio);
     }
     free(t);
+}
+
+static esp_err_t handleFilesBulkDelete(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    cJSON *j = WebUtil::readJson(r, BODY_MAX);
+    const cJSON *paths = j ? cJSON_GetObjectItemCaseSensitive(j, "paths") : nullptr;
+    if (!cJSON_IsArray(paths) || cJSON_GetArraySize(paths) < 1 || cJSON_GetArraySize(paths) > BULK_MAX) {
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    }
+    if (s_formatting.load() || s_deleting.exchange(true)) {
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 409, "En filoperation pågår");
+    }
+    cJSON *failed = cJSON_CreateArray();
+    if (!failed) {
+        s_deleting.store(false);
+        cJSON_Delete(j);
+        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    }
+    int done = 0;
+    deletePaths(j, failed, done);
+    s_deleting.store(false);
     cJSON_Delete(j);
     return bulkAnswer(r, done, failed);
+}
+
+namespace {
+struct DeleteJob {
+    char id[17] = {};
+    cJSON *input = nullptr;
+    cJSON *failed = nullptr;
+    int done = 0;
+    DeleteProgress progress;
+    std::atomic<bool> finished{true};
+};
+DeleteJob s_deleteJob;
+
+void deleteTask(void *)
+{
+    deletePaths(s_deleteJob.input, s_deleteJob.failed, s_deleteJob.done, &s_deleteJob.progress);
+    cJSON_Delete(s_deleteJob.input);
+    s_deleteJob.input = nullptr;
+    MyLog::event("files", "delete %s: %u entries removed, %d selected paths completed",
+                 s_deleteJob.progress.cancel.load() ? "cancelled" : "finished",
+                 s_deleteJob.progress.removed.load(), s_deleteJob.done);
+    s_deleteJob.finished.store(true);
+    s_deleting.store(false);
+    vTaskDelete(nullptr);
+}
+}
+
+static esp_err_t handleDeleteStart(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    cJSON *input = WebUtil::readJson(r, BODY_MAX);
+    const cJSON *paths = input ? cJSON_GetObjectItemCaseSensitive(input, "paths") : nullptr;
+    if (!cJSON_IsArray(paths) || cJSON_GetArraySize(paths) < 1 || cJSON_GetArraySize(paths) > BULK_MAX) {
+        cJSON_Delete(input);
+        return MyWeb::sendError(r, 400, tr(Str::WEB_ERR_FS_PATH));
+    }
+    if (s_formatting.load() || s_deleting.exchange(true)) {
+        cJSON_Delete(input);
+        return MyWeb::sendError(r, 409, "En filoperation pågår");
+    }
+    cJSON *failed = cJSON_CreateArray();
+    if (!failed) {
+        cJSON_Delete(input);
+        s_deleting.store(false);
+        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    }
+    cJSON_Delete(s_deleteJob.failed);
+    s_deleteJob.failed = failed;
+    s_deleteJob.input = input;
+    s_deleteJob.done = 0;
+    s_deleteJob.progress.cancel.store(false);
+    s_deleteJob.progress.removed.store(0);
+    snprintf(s_deleteJob.id, sizeof(s_deleteJob.id), "%08lx%08lx",
+             (unsigned long)esp_random(), (unsigned long)esp_random());
+    s_deleteJob.finished.store(false);
+    if (xTaskCreate(deleteTask, "fs_delete", 6144, nullptr, 3, nullptr) != pdPASS) {
+        cJSON_Delete(input);
+        s_deleteJob.input = nullptr;
+        s_deleteJob.id[0] = 0;
+        s_deleteJob.finished.store(true);
+        s_deleting.store(false);
+        return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddStringToObject(o, "job", s_deleteJob.id);
+    return MyWeb::sendJson(r, 202, o);
+}
+
+static esp_err_t handleDeleteStatus(httpd_req_t *r)
+{
+    MyWeb::Req q(r);
+    if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    char id[17] = {};
+    if (!q.get("job", id, sizeof(id)) || !id[0] || strcmp(id, s_deleteJob.id))
+        return MyWeb::sendError(r, 404, "Raderingsjobbet finns inte");
+    if (r->method == HTTP_POST && !s_deleteJob.finished.load()) s_deleteJob.progress.cancel.store(true);
+    const bool finished = s_deleteJob.finished.load();
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    cJSON_AddBoolToObject(o, "finished", finished);
+    cJSON_AddBoolToObject(o, "cancelled", s_deleteJob.progress.cancel.load());
+    cJSON_AddNumberToObject(o, "removed", s_deleteJob.progress.removed.load());
+    if (finished) {
+        cJSON_AddNumberToObject(o, "done", s_deleteJob.done);
+        cJSON *failed = cJSON_Duplicate(s_deleteJob.failed, true);
+        if (!failed) {
+            cJSON_Delete(o);
+            return MyWeb::sendError(r, 500, tr(Str::WEB_ERR_MEMORY));
+        }
+        cJSON_AddItemToObject(o, "failed", failed);
+    }
+    return MyWeb::sendJson(r, 200, o);
 }
 
 static esp_err_t handleFilesMove(httpd_req_t *r)
@@ -1346,6 +1498,7 @@ static esp_err_t handleFsRepair(httpd_req_t *r)
 {
     MyWeb::Req q(r);
     if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+    if (busy()) return MyWeb::sendError(r, 409, "Vänta tills filoperationerna är klara");
     // Internal flash only - never the SD card.
     char root[8] = "ffat";
     if (q.has("root") && !q.get("root", root, sizeof(root))) root[0] = 0;
@@ -1476,6 +1629,9 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/files", HTTP_GET, handleFiles);
     ok &= MyWeb::on("/api/files/mkdir", HTTP_POST, handleFilesMkdir);
     ok &= MyWeb::on("/api/files/bulk", HTTP_DELETE, handleFilesBulkDelete);
+    ok &= MyWeb::on("/api/files/delete/start", HTTP_POST, handleDeleteStart);
+    ok &= MyWeb::on("/api/files/delete/status", HTTP_GET, handleDeleteStatus);
+    ok &= MyWeb::on("/api/files/delete/cancel", HTTP_POST, handleDeleteStatus);
     ok &= MyWeb::on("/api/files/move", HTTP_POST, handleFilesMove);
     return ok;
 }

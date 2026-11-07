@@ -430,7 +430,7 @@ extern "C" void app_main(void)
         }
         BoardSd::poll(now);   // Card removed / inserted
         // Keep the RTC in step with a certain clock: right after each NTP sync / manual set, otherwise every
-        // 10 minutes (covers manual sets; writes only when the drift is >= 1 s).
+        // 10 minutes (writes only for confirmed drift beyond sampling/second uncertainty).
         const bool changed = MyTime::takeClockChanged();
         if (changed || (MyTime::certain() && MySys::millis() - lastRtcCheck >= 10UL * 60 * 1000)) {
             lastRtcCheck = MySys::millis();

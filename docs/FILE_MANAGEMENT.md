@@ -18,6 +18,45 @@ se [P4: SD- och Wi-Fi-utredningen](P4_SD_WIFI_INVESTIGATION.md).
 - Kataloger kan väljas eller släppas från webbläsaren; deras struktur återskapas upp till tre mappnivåer.
 - SD-kort kan formateras som FAT från filhanteraren. Enheten använder inte exFAT; FAT-formatering kan därför göra större kort användbara. Två separata bekräftelser krävs, och en konfigurerad admin-PIN måste anges. Formatering raderar allt på kortet. Den uttryckliga åtgärden kan också formatera ett kort vars filsystem inte gick att montera; vanlig start och automatisk återmontering formaterar aldrig kortet. Webbläsaren visar status medan formateringen pågår och ett tydligt resultat efteråt.
 
+## Avbryt uppladdning eller radering
+
+Vid uppladdning av filer/mappar visas **Avbryt**. Knappen stoppar nya filer
+och nya mappsteg samt avbryter aktiva HTTP-uppladdningar. Redan färdiga filer
+och skapade mappar behålls. Pågående filer kan ha hunnit installeras innan
+avbrottet nådde servern; resultatet visar därför bara bekräftat klara filer
+och uppmanar till kontroll av fillistan. Servern städar ofullständiga
+temporära uppladdningar utan att ersätta det befintliga originalet.
+
+Radering körs som ett bakgrundsjobb så att webbservern kan ta emot **Avbryt**
+även inne i en stor katalog. Jobbet kontrollerar avbrott mellan
+filoperationerna; ett redan pågående SD-/filsystemanrop kan inte avbrytas
+mitt i. Antalet raderade filer och mappar visas under arbetet.
+Redan raderat återställs inte. Avbrutet och delvis misslyckat visas i en
+kvitterbar dialog, inte som en lyckad helradering. Vid förlorad nätkontakt
+kan jobbet fortsätta på enheten; webben påstår inte att det har stoppats.
+Att stänga sidan är inte samma sak som att begära avbrott.
+
+Enheten tillåter ett raderingsjobb åt gången. Formatering, intern
+flashreparation och kontrollerad omstart blockeras under jobbet.
+SD-radering håller en överföringslease per markerad sökväg.
+Även delvis radering uppdaterar lagrings-/ljudcache efter behov.
+
+Admin-skyddat API: `POST /api/files/delete/start` med `{root, paths}` ger
+`202 {ok, job}`. `GET /api/files/delete/status?job=…` ger
+`{ok, finished, cancelled, removed}` och, när jobbet är klart,
+`{done, failed:[{path,error}]}`. `removed` räknar alla borttagna filer/mappar;
+`done` räknar helt färdiga markerade sökvägar. `POST
+/api/files/delete/cancel?job=…` begär avbrott men klienten måste fortsätta
+pollningen tills `finished`. Samma admin-PIN krävs för alla tre anrop.
+Resultatet behålls fram till nästa raderingsjobb eller omstart; fel jobb-ID
+ger 404. Den äldre synkrona `DELETE /api/files/bulk` finns kvar.
+
+Uppladdningsloggen skiljer nu `requested` (deklarerad storlek), `received`
+(mottaget via HTTP), `staged` (byte accepterade av stdio, kan ligga i cache)
+och `installed` (hela filen installerad efter flush/stängning).
+Ingen av dessa räknare är en garanti mot efterföljande strömavbrott.
+Mottagning och skrivning överlappar; tiderna får inte summeras till total tid.
+
 ## Inställningsminnet NVS
 
 NVS är en separat flashpartition med typade nycklar/värden, inte JSON-filer
