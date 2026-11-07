@@ -132,18 +132,28 @@ som ren text. Det finns ingen editor, vare sig på enheten eller på webben.
 | Mät reverb/chorus på S3/P4 per SoundFont | Inte gjort | Eget mätarbete före beslut |
 | Texteditor/manuell synk mot MIDI | Saknas | Troligen webb; skriver tidsatt `.lyr` eller utökat register |
 
-### Designfrågor att besluta före implementation
+### Beslut (ägaren, 2026-11-07)
 
-1. **Instrumentmappning:** nyckeln bör vara kanal + källprogram, inte bara
-   sångkanalen, så att alla kanaler stöds med samma mekanism. Beslut krävs om
-   program-ID visas 0- eller 1-baserat (planen kräver att det definieras).
-2. **Reverb/chorus per låt eller global:** per-låt-värden behöver en tydlig
-   standard från de globala värdena och en åtgärd för att återgå till standard.
-3. **Textsynk:** ska resultatet skrivas till `.lyr` (finns redan som format,
-   men ignoreras om MIDI har egna rader) eller till MIDI-registret, och ska
-   en manuell synk kunna åsidosätta MIDI:ns inbyggda text?
-4. **Radlängd:** med fler tokens kan 256 KiB-taket nås vid många låtar med
-   mycket inställningar; avgör om taket ska höjas eller formatet kortas.
+1. **Instrumentmappning:** nyckel per kanal + källprogram. Program visas
+   1-baserat (1-128) för användaren, 0-127 internt och i filer. Numreringen
+   mot etablerade MIDI-editorer är ej verifierad.
+2. **Reverb/chorus:** börjar globalt. Mer CPU-/RAM-loggning under karaoke läggs
+   till först. En global av/på-inställning beslutas efter mätning.
+3. **Textsynk:** första steget skriver tidsstämplar till `.lyr`.
+4. **Registret:** ska inte ligga i internt RAM, och inställningar per låt bör
+   flyttas till en fil per låt (lätt att flytta till annan enhet).
+
+Underlag för punkt 4 (verifierat): `s_reg` är en `Midi::Registry` som läses in
+helt vid start. `CONFIG_SPIRAM_USE_MALLOC=y` med
+`SPIRAM_MALLOC_ALWAYSINTERNAL=4096` gör att stora allokeringar normalt hamnar i
+PSRAM, men enskilda små strängar i `std::vector`/`std::string` hamnar i internt
+RAM (ej mätt). Varje Spara gör dessutom en kopia (`Registry next = s_reg`), så
+toppen är ungefär dubbla storleken. Registret rymmer även spellistor, favoriter
+och sökvägstips som webben läser, så de kan inte bara flyttas till
+låtfilerna. Det som flyttas är `RegEntry` (inställningarna). Uppslagning sker
+redan bara vid låtöppning och ett filuppslag kostar ungefär samma som listan.
+Öppna frågor: filnamn (`<crc>_<size>.set` i en egen mapp), migrering av
+befintliga rader, och om spellistor/favoriter får behålla en central fil.
 
 ## Utanför `AppConfig` (återstår att inventera)
 
