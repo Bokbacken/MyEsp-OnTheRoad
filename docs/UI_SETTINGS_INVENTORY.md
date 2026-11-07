@@ -86,12 +86,69 @@ gäller nästa omgång/start **(ej verifierat)**, **Omstart** = kräver omstart.
    visas i aktivt spel (PR D).
 6. **`sudokuHelpHints`** används inte längre men sparas fortfarande.
 
+## Karaoke: låtnivå (`karaoke.reg`)
+
+Verifierat mot `components/otr_midi/include/otr_midi.h` (`RegEntry`,
+`Registry`) och `main/karaoke.cpp` (`currentSettings`, `songSettingsDirty`,
+`saveSongSettings`, `discardSongSettings`).
+
+**Format och identitet.** En textrad per låt, nyckel är CRC32 + storlek på
+filinnehållet, så namn- eller mappbyte behåller inställningarna:
+`<crc> <size> <melody> <transpose> <tempo> [sf2=<font>] [mute=1] [volume=0..200] <namn>`.
+Valfria värden skrivs bara när de avviker från standard, och gamla rader går
+att läsa. Filen skrivs atomärt med `.tmp`/`.bak`. Taket är 256 KiB för hela
+filen medan biblioteket får ha 2000 låtar, så extra tokens per rad måste hållas
+korta (cirka 128 byte per rad i snitt).
+
+**Vad som sparas per låt idag** (dirty-spårning, Spara och Avbryt täcker alla):
+vald melodikanal (`melody`), transponering, tempo, melodimute (`mute`),
+låtvolym (`volume`) och SoundFont (`sf2`).
+
+**Vad som är globalt idag** (`AppConfig`/NVS): reverb och chorus med nivåer,
+röstgräns, standard-SoundFont och mastervolym. Reverb/chorus gäller hela
+syntetisatorn och ingår inte i `RegEntry`.
+
+**Webb.** `/api/karaoke/song` (GET/POST) kan bara läsa och sätta låtens
+SoundFont. Övriga låtinställningar kan inte ändras på webben.
+
+**Texter.** En `.lyr`-fil bredvid låten används bara när MIDI-filen saknar
+egna textrader. Är `.lyr` tidsatt ersätter den MIDI:ns rader, annars visas den
+som ren text. Det finns ingen editor, vare sig på enheten eller på webben.
+
+### Gap mot ägarens önskemål (2026-11-07)
+
+| Önskemål | Status idag | Förslag till lagring |
+|---|---|---|
+| SoundFont per låt | Finns (`sf2=`) | – |
+| MIDI-/låtvolym | Finns (`volume=`) | – |
+| Sångspår på/av | Finns (`mute=`) | – |
+| Vilken kanal är sång | Finns (`melody=`) | – |
+| Tempo och transponering | Finns | – |
+| Mastervolym | Global, sparas inte per låt | Ska förbli global |
+| Melodispårvolym | Saknas | Nytt token, multiplikator på kanalens uttryck (planen, PR B) |
+| Instrumentbyte, flera ommappningar | Saknas | Nytt token med en lista `källprogram->ersättning`; se designfrågan nedan |
+| Instrumentbyte på andra kanaler | Saknas | Samma token, nyckel per kanal |
+| Reverb/chorus per låt | Bara globalt; ingen editor (`setEffects` saknar anropare) | Nya tokens för på/av och nivå per låt, med global standard |
+| Mät reverb/chorus på S3/P4 per SoundFont | Inte gjort | Eget mätarbete före beslut |
+| Texteditor/manuell synk mot MIDI | Saknas | Troligen webb; skriver tidsatt `.lyr` eller utökat register |
+
+### Designfrågor att besluta före implementation
+
+1. **Instrumentmappning:** nyckeln bör vara kanal + källprogram, inte bara
+   sångkanalen, så att alla kanaler stöds med samma mekanism. Beslut krävs om
+   program-ID visas 0- eller 1-baserat (planen kräver att det definieras).
+2. **Reverb/chorus per låt eller global:** per-låt-värden behöver en tydlig
+   standard från de globala värdena och en åtgärd för att återgå till standard.
+3. **Textsynk:** ska resultatet skrivas till `.lyr` (finns redan som format,
+   men ignoreras om MIDI har egna rader) eller till MIDI-registret, och ska
+   en manuell synk kunna åsidosätta MIDI:ns inbyggda text?
+4. **Radlängd:** med fler tokens kan 256 KiB-taket nås vid många låtar med
+   mycket inställningar; avgör om taket ska höjas eller formatet kortas.
+
 ## Utanför `AppConfig` (återstår att inventera)
 
 Inte täckt här, men del av acceptanskriterierna i planen:
 
-- Låtunika karaokeinställningar i `karaoke.reg`: tempo, transponering,
-  melodikanal, melodimute, låt-SoundFont och låtvolym.
 - Sparat spelstate per spel (Sudoku-progress, Yatzy-session, äventyrssessioner)
   och deras återställningsåtgärder.
 - Wi-Fi-nätverk (`MyWifi`-listan), spelarkatalogen och SD-/filstatus.
