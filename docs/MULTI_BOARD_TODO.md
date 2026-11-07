@@ -20,6 +20,9 @@ provar på båda korten. Varje firmwareleverans får en unik version.
 - [x] Kodnära inventering och stegvis UX-/implementeringsplan finns i
   `docs/ESP_UI_SETTINGS_PLAN.md` (PR #60). Endast planering; ingen firmware
   ändrad.
+- [x] Kodverifierad inventering av `AppConfig` (ägare, ESP-/webb-editor,
+  aktivering) finns i `docs/UI_SETTINGS_INVENTORY.md`; tre editor-luckor och
+  tre ägarfrågor återstår att besluta.
 - [ ] Bekräfta ljudkontraktet (master mute, separat spelmusik-/SFX-mute och
   karaoke MIDI-kanal) innan metadata-/audioändringar.
 - [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
