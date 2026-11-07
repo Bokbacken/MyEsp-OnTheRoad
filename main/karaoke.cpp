@@ -336,11 +336,18 @@ void diagCb(void *)
     const uint32_t newUnder = st.underruns - s_lastUnderruns;
     s_lastUnderruns = st.underruns;
     if (!s_open || s_fontState == FontState::LOADING || !st.blocks) return;
-    ESP_LOGI(TAG, "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, steals %u, %s",
+    const Sf::Effects fx = cfgEffects();
+    ESP_LOGI(TAG,
+             "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, steals %u, %s, "
+             "reverb %s/%u chorus %s/%u, free int %u min %u PSRAM %u",
              (unsigned)(st.avgLoad100 / 100), (unsigned)(st.avgLoad100 % 100), (unsigned)(st.maxLoad100 / 100),
              (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, limit,
              (unsigned)steals,
-             s_player.playing() ? "playing" : "paused");
+             s_player.playing() ? "playing" : "paused", fx.reverb ? "on" : "off", (unsigned)fx.reverbLevel,
+             fx.chorus ? "on" : "off", (unsigned)fx.chorusLevel,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     if (!KaraOverload::shouldStop(st.avgLoad100, newUnder)) return;
     {
         Lock l;
@@ -912,6 +919,9 @@ void setEffects(const Effects &e)
         Lock l;
         if (!synthBusy()) s_synth.setEffects(cfgEffects());
     }
+    Audio::takeExternalStats();   // Start a clean load window so the next diag line shows only the new setting
+    ESP_LOGI(TAG, "effects: reverb %s/%u chorus %s/%u", c.karaRev ? "on" : "off", (unsigned)c.karaRevLvl,
+             c.karaCho ? "on" : "off", (unsigned)c.karaChoLvl);
     Config::save();
 }
 

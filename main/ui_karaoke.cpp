@@ -1050,10 +1050,46 @@ void stepCb(lv_event_t *e)
     refreshSteppers();
 }
 
+struct FxRow {
+    lv_obj_t *toggle, *value;
+};
+FxRow s_fx[2];   // 0 reverb, 1 chorus
+
+void refreshEffects()
+{
+    const Karaoke::Effects e = Karaoke::effects();
+    const bool on[2] = {e.reverb, e.chorus};
+    const uint8_t lvl[2] = {e.reverbLevel, e.chorusLevel};
+    for (int k = 0; k < 2; k++) {
+        if (s_fx[k].toggle) {
+            lv_obj_t *t = lv_obj_get_child(s_fx[k].toggle, 0);
+            if (t) lv_label_set_text(t, tr(on[k] ? Str::KARA_FX_ON : Str::KARA_FX_OFF));
+        }
+        if (s_fx[k].value) lv_label_set_text_fmt(s_fx[k].value, "%u %%", (unsigned)lvl[k]);
+    }
+}
+
+void fxCb(lv_event_t *e)
+{
+    static uint32_t last[6] = {};
+    const int code = (int)(intptr_t)lv_event_get_user_data(e);   // kind * 3 + (0 toggle, 1 minus, 2 plus)
+    if (!Theme::debounce(last[code], 200)) return;
+    Karaoke::Effects fx = Karaoke::effects();
+    bool &on = code / 3 ? fx.chorus : fx.reverb;
+    uint8_t &lvl = code / 3 ? fx.chorusLevel : fx.reverbLevel;
+    switch (code % 3) {
+    case 0: on = !on; break;
+    case 1: lvl = lvl >= 10 ? lvl - 10 : 0; break;
+    case 2: lvl = lvl <= 90 ? lvl + 10 : 100; break;
+    }
+    Karaoke::setEffects(fx);
+    refreshEffects();
+}
+
 void showSettings()
 {
     const auto l = layout();
-    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 220);
+    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 440);
     const Str names[2] = {Str::KARA_TEMPO, Str::KARA_KEY};
     for (int k = 0; k < 2; k++) {
         lv_obj_t *row = lv_obj_create(c);
@@ -1078,7 +1114,30 @@ void showSettings()
     lv_obj_t *note = Theme::label(c, tr(Str::KARA_SAVED_NOTE), &my_font_14, Theme::MUTED);
     lv_obj_set_width(note, LV_PCT(100));
     lv_label_set_long_mode(note, LV_LABEL_LONG_MODE_WRAP);
+    const Str fxNames[2] = {Str::KARA_REVERB, Str::KARA_CHORUS};
+    for (int k = 0; k < 2; k++) {
+        lv_obj_t *row = lv_obj_create(c);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, LV_PCT(100), l.buttonH);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, l.gap, 0);
+        lv_obj_t *n = Theme::label(row, tr(fxNames[k]), &my_font_18, Theme::MUTED);
+        lv_obj_set_width(n, 0);
+        lv_obj_set_flex_grow(n, 1);
+        s_fx[k].toggle = ctlButton(row, "", 0, 0, l.buttonH * 3 / 2, l.buttonH, Theme::TEAL, fxCb, (void *)(intptr_t)(k * 3));
+        ctlButton(row, LV_SYMBOL_MINUS, 0, 0, l.buttonH, l.buttonH, Theme::TEAL, fxCb, (void *)(intptr_t)(k * 3 + 1));
+        s_fx[k].value = Theme::label(row, "", &my_font_24);
+        lv_obj_set_width(s_fx[k].value, 84);
+        lv_obj_set_style_text_align(s_fx[k].value, LV_TEXT_ALIGN_CENTER, 0);
+        ctlButton(row, LV_SYMBOL_PLUS, 0, 0, l.buttonH, l.buttonH, Theme::TEAL, fxCb, (void *)(intptr_t)(k * 3 + 2));
+        lv_obj_add_event_cb(row, [](lv_event_t *) { s_fx[0] = s_fx[1] = FxRow{}; }, LV_EVENT_DELETE, nullptr);
+    }
+    lv_obj_t *fxNote = Theme::label(c, tr(Str::KARA_FX_NOTE), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(fxNote, LV_PCT(100));
+    lv_label_set_long_mode(fxNote, LV_LABEL_LONG_MODE_WRAP);
     refreshSteppers();
+    refreshEffects();
 }
 
 // ---- Melody track picker -----------------------------------------------------------------------

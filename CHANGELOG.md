@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.0
+
+- Karaoke settings sheet gets global reverb and chorus controls (on/off and
+  level in steps of 10), applied live and saved to NVS. They are not per song.
+- The 5 s karaoke diagnostic log line now also reports reverb/chorus state,
+  free internal RAM (current and minimum) and free PSRAM. Changing an effect
+  logs an `effects:` line and starts a new load window so CPU load before and
+  after can be compared. Not yet measured on hardware.
+
 ## v0.25.19
 
 - AXS15231B single-point reports that do not end in six 0xFF bytes (shifted or
