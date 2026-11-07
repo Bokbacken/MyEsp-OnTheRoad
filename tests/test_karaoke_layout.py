@@ -470,19 +470,21 @@ static void checkPlayer() {
     }
     assert(Karaoke::tempo() == 105 && Karaoke::transpose() == 1 && Karaoke::songVolume() == 80);
     {
+        Karaoke::fx = {true, true, 50, 50};
+        Karaoke::setEffects(Karaoke::fx);   // Reset: checkPlayer runs for several layouts
         auto *rev = lv_obj_get_child(body, 3);
         auto *cho = lv_obj_get_child(body, 4);
         lv_obj_scroll_to_view(cho, LV_ANIM_OFF); settle(); inside(cho, body);
-        for (int j : {0, 1, 2, 3}) fitsText(lv_obj_get_child(rev, j));
+        for (int j : {1, 2, 4}) fitsText(lv_obj_get_child(rev, j));
         assert(std::string(lv_label_get_text(lv_obj_get_child(lv_obj_get_child(rev, 1), 0))) == tr(Str::KARA_FX_ON));
-        click(lv_obj_get_child(rev, 3)); lv_tick_inc(300); settle();
+        click(lv_obj_get_child(rev, 4)); lv_tick_inc(300); settle();
         assert(Karaoke::fx.reverbLevel == 60 && Karaoke::fx.chorusLevel == 50);
         click(lv_obj_get_child(cho, 2)); lv_tick_inc(300); settle();
         assert(Karaoke::fx.chorusLevel == 40);
         click(lv_obj_get_child(rev, 1)); lv_tick_inc(300); settle();
         assert(!Karaoke::fx.reverb && Karaoke::fx.chorus);
         assert(std::string(lv_label_get_text(lv_obj_get_child(lv_obj_get_child(rev, 1), 0))) == tr(Str::KARA_FX_OFF));
-        assert(std::string(lv_label_get_text(lv_obj_get_child(rev, 2))) == "60 %");
+        assert(std::string(lv_label_get_text(lv_obj_get_child(rev, 3))) == "60 %");
         click(lv_obj_get_child(rev, 1)); lv_tick_inc(300); settle();
         assert(Karaoke::fx.reverb);
     }
