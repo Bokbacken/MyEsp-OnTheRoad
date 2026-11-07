@@ -98,11 +98,38 @@ Inte täckt här, men del av acceptanskriterierna i planen:
 - Touchdiagnostikens val (text- och zoom-loggning, testläge).
 - Lokala vykontroller som inte sparas, till exempel äventyrets zoom.
 
-## Frågor till ägaren före nästa steg
+## Ägarbeslut 2026-11-07
 
-1. Ska `karaFlip` och karaokens reverb/chorus få en ESP-editor, eller räknas de
-   som service/legacy tills vidare?
-2. Ska `advMode` och `sudokuDeadZone` även finnas på webben, så att båda ytorna
-   kan redigera samma värde?
-3. Ska värden som `rollAnimMs` och `throwMode` kunna ändras mitt i en
-   Yatzy-omgång, eller ska de märkas "nästa omgång"?
+1. **Karaoke får fler inställningar; fler önskemål väntas.** Katalogen ska
+   kunna växa utan att varje inställning kräver ett specialfall.
+   - `karaFlip` och reverb/chorus får editor, men reverb/chorus ska först
+     **testas och utvärderas**: resursanvändning (CPU/RAM) och om det fungerar
+     på S3 och P4. Resultatet beror även på vald SoundFont (.sf2), så mätningen
+     görs per SoundFont och per kort innan standardvärden bestäms.
+   - MIDI-/låtvolym och melodispårvolym är separata (melodispårvolym är inte
+     implementerad än).
+   - Byte av instrument, främst på sångspåret, med flera ommappningar. Ska även
+     kunna göras på andra spår/kanaler.
+   - Editorläge för att manuellt synka in text mot MIDI-filen, inte bara via
+     `.lyr`, med möjlighet till mindre justeringar. Kan hamna på webben.
+   - **Allt som ställs in per låt sparas med låten:** SoundFont (.sf2),
+     MIDI-volym, sångspår på/av och volym, instrumentbyten, vilken kanal som
+     är sång, reverb/chorus med mera. **Mastervolym är global** och sparas
+     inte per låt.
+2. **Alla spel ska kunna ge en spela-tillsammans-känsla** och visas/spelas på
+   webben på olika sätt; hur är inte bestämt. `advMode` och andra spelval
+   behöver därför en webbyta på sikt. `sudokuDeadZone` är en lokal hjälp för
+   ESP-touchskärmarna och ska **inte** exponeras på webben.
+3. **`rollAnimMs`, `throwMode` och liknande ska kunna ändras utan att
+   stoppa/starta om** spelet. Sessionen bevaras.
+
+### Konsekvenser för planen
+
+- Karaoke är den största inställningsytan. Den bör få en egen kategori med en
+  global nivå (standardvärden) och en låtnivå (sparas i `karaoke.reg` via den
+  befintliga CRC32+storleksidentiteten, se PR B i planen).
+- Låtunika värden behöver en tydlig standard från de globala värdena och en
+  åtgärd för att återgå till standard per värde.
+- Mätningen av reverb/chorus är ett eget arbete före beslut om standardvärden.
+- Webbpariteten styrs av en lista över vilka inställningar som är lokala för
+  enheten (till exempel `sudokuDeadZone`) och vilka som delas med webben.

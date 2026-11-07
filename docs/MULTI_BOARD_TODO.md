@@ -21,8 +21,14 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   `docs/ESP_UI_SETTINGS_PLAN.md` (PR #60). Endast planering; ingen firmware
   ändrad.
 - [x] Kodverifierad inventering av `AppConfig` (ägare, ESP-/webb-editor,
-  aktivering) finns i `docs/UI_SETTINGS_INVENTORY.md`; tre editor-luckor och
-  tre ägarfrågor återstår att besluta.
+  aktivering) finns i `docs/UI_SETTINGS_INVENTORY.md`; ägarbesluten
+  2026-11-07 är införda där.
+- [ ] Karaoke: mät och utvärdera reverb/chorus (CPU/RAM, S3 och P4, per
+  SoundFont) innan standardvärden och editor beslutas.
+- [ ] Karaoke: separat melodispårvolym, flera instrumentommappningar per kanal
+  (främst sång, även andra kanaler) och låtunik lagring av alla låtval
+  (SoundFont, volymer, sångspår, kanal, effekter); mastervolym förblir global.
+- [ ] Karaoke: editorläge för manuell textsynk mot MIDI-fil, troligen på webben.
 - [ ] Bekräfta ljudkontraktet (master mute, separat spelmusik-/SFX-mute och
   karaoke MIDI-kanal) innan metadata-/audioändringar.
 - [ ] Implementera i små PR:er: typad settingskatalog, tvånivåers
