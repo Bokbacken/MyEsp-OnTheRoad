@@ -57,7 +57,7 @@ gäller nästa omgång/start **(ej verifierat)**, **Omstart** = kräver omstart.
 | `joyZones`, `joySlowMs`, `joyFastMs`, `joyHoldMs`, `joyDiag` (`joy_*`) | Inställningar > Joystick | Ja | Spara | SK Äventyr | Spelkategori; nivå 2 i äventyr |
 | `sudokuDeadZone` (`sud_dz`) | Inställningar > Sudoku | **Nej** | Spara | SK Sudoku > Touch | Spelkategori; läses även av touchtestet |
 | `sudokuHelpHints` (`sud_help`) | Ingen | Nej | – | Legacy | Dölj; behåll NVS-nyckel |
-| `karaFont` (`kara_font`) | Karaoke > låtpanel (`setDefaultFont`) | Nej | Nästa låt | SK Karaoke | Karaoke |
+| `karaFont` (`kara_sf2`) | Karaoke > låtpanel (`setDefaultFont`) | Nej | Nästa låt | SK Karaoke | Karaoke |
 | `karaVoices` (`kara_voices`) | Karaoke > låtpanel (`setVoiceLimit`) | Nej | Ej verifierat | SK Karaoke | Karaoke |
 | `karaFlip` (`kara_flip`) | **Ingen** (endast läst) | **Nej** | Nästa karaokestart | SK Karaoke | Saknar editor |
 | `karaRev`, `karaRevLvl`, `karaCho`, `karaChoLvl` | **Ingen**: `Karaoke::setEffects` har inga anropare utanför `karaoke.cpp` | Nej | – | SK Karaoke > Ljud | Saknar editor |
