@@ -250,6 +250,31 @@ samma kanoniska värde.
   SoundFont som faktiskt ska användas.
 - Prova programbyten före/under låten, sök/seek, restart, SoundFont-byte,
   ändring av vald kanal, discard/save och rörelse från en låt till nästa.
+- Använd en läsbar UTF-8-textrad per inställning i en sidofil bredvid låten:
+  lägg till `.kcfg` efter hela låtfilnamnet, exempelvis
+  `Summer.mid.kcfg` eller `Summer.kar.kcfg`. Ingen migrering från befintlig
+  `karaoke.reg` behövs. SoundFont-filen måste fortfarande finnas på enheten.
+  Första formatförslag:
+
+  ```ini
+  # MyEsp-OnTheRoad karaoke settings v1
+  version=1
+  soundfont="WeedsGM3.sf2"
+  midi_volume=100
+  melody_channel=4
+  melody_muted=false
+  melody_gain_pct=75
+  instrument_map=4,63,14
+  instrument_map=4,112,21
+  ```
+
+  Tom `soundfont=` använder den globala standard-SoundFonten.
+  `melody_channel=none` betyder att ingen melodikanal är vald. Kanalnummer
+  1–16 och GM-programnummer 1–128 anges 1-baserat i filen; `instrument_map`
+  innehåller kanal, MIDI:ns ursprungliga GM-program och ersättningsprogram.
+  Dubbletter av samma kanal + källprogram avvisas. `midi_volume` och
+  `melody_gain_pct` har intervallet 0–200; gain 100% lämnar kanalens MIDI-
+  uttryck oförändrat. Fältens standardvärden utelämnas vid skrivning.
 - Reverb/chorus är globala i första steget. Använd v0.26.0-kontrollerna och
   karaoke-diagnostiken för att jämföra CPU-last och minne på S3/P4 med vald
   SoundFont angiven. Besluta om global av/på först efter mätning.

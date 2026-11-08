@@ -146,7 +146,9 @@ som ren text. Det finns ingen editor, vare sig på enheten eller på webben.
 4. **Lagring:** låtinställningar flyttas till en separat fil per låt, så de är
    lätta att flytta till annan enhet. Ingen migrering av befintligt innehåll
    från `karaoke.reg` behövs; allt får börja om. Ett nytt centralt register
-   kan fortsatt användas för spellistor och favoriter.
+   kan fortsatt användas för spellistor och favoriter. Formatförslaget är en
+   UTF-8-nyckel/värde-fil `<låtnamn>.mid.kcfg` eller `<låtnamn>.kar.kcfg`
+   bredvid låten; konkret exempel finns i `ESP_UI_SETTINGS_PLAN.md`.
 
 Underlag för det tidigare registret (verifierat): `s_reg` är en
 `Midi::Registry` som läses in helt vid start. `CONFIG_SPIRAM_USE_MALLOC=y` med

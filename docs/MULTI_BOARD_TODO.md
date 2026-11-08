@@ -34,6 +34,8 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   låtunika effekter om CPU/RAM-utvärderingen motiverar det. Ingen migrering av
   befintligt innehåll från `karaoke.reg` behövs; allt får börja om. Ett nytt
   centralt register kan fortsatt användas för spellistor och favoriter.
+  Formatförslag i `docs/ESP_UI_SETTINGS_PLAN.md`: `<låtnamn>.mid.kcfg` /
+  `<låtnamn>.kar.kcfg`, UTF-8 key/value med 1-baserade kanal-/GM-program-ID:n.
 - [ ] Karaoke: mät reverb/chorus (CPU/RAM) på S3 och P4 med tydligt angivna
   SoundFonts och representativa låtar innan standardvärden eller eventuell
   global av/på-inställning beslutas. Reverb/chorus har nytillkomna globala
