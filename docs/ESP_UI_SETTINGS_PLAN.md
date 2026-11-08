@@ -52,7 +52,7 @@ skulle ändra spelet mitt i en tur. Värden som påverkar bara nästa omgång ka
 |---|---|---|
 | Skärm och läsbarhet | `brightness`, `screenZoom`, `textSize`, `rotation`, `screenOffSeconds`, `ecoSleep`; RGB-enable/brightness där kortet har LED. Inställningar > Användare; ljusstyrka och vila tillämpas omedelbart, zoom/text vid sparning och ombyggnad. Rotation är porträttvändning 0/180, inte allmän porträtt/landskapsväljare. | Global > Skärm och tillgänglighet. Ljusstyrka och zoom kan finnas i snabbpanel nivå 1. Andra val i nivå 2/Inställningar; rotation/viloläge ska inte förväxlas med appens spelorientering. |
 | Ljud globalt | `soundOn` är master på/av, `masterVol` är ES8311 DAC-nivå, `sfxVol` är effektgain, `musicOn` stänger av bakgrundsmusik och `musicVol` styr dess gain. Inställningar > Användare; flera reglage förhandsvisas och sparas tillsammans. Statusradens ljudikon korttryck togglar `soundOn`, långtryck öppnar inställningar. Äventyr har en andra mute-knapp som också togglar samma master. | Global > Ljud; status-/snabbpanelens ljudikon är en omedelbar master-mute, aldrig en kanal-mute. Lägg till separat beständig `sfxOn`; behåll separata master-, musik- och effektvolymer. |
-| Karaoke-ljud | Aktiv låt har separat MIDI/song-volym (UI-räckvidd 0–200); spelaren har också mastervolym. Låtpanelen har tempo, transponering, val av melodikanal/mute, låtunik SoundFont samt spara/återställ låtinställningar. SoundFont och röstgräns har UI. `karaRev`, `karaRevLvl`, `karaCho`, `karaChoLvl` och `karaWebStream` finns i konfigurationen, men någon lokal editor för dessa hittades inte i inställningsvyn; verifiera faktiskt redigeringsgränssnitt innan flytt. Volymreglage finns i liggande spelare och vissa val är låtunika. | Global master och kanal-mutes återanvänds. Karaoke > Aktiv låt äger låtvolym, tempo/transponering, melodikanal, melodimute, valfria mappningar av melodikanalens instrumentbyten och separat melodikanalvolym, samt låtunik SoundFont. MIDI/song-volym och master visas i snabbpanel när karaoke kör, med layout för både liggande och porträtt. |
+| Karaoke-ljud | Aktiv låt har separat MIDI/song-volym (UI-räckvidd 0–200); spelaren har också mastervolym. Låtpanelen har tempo, transponering, val av melodikanal/mute, låtunik SoundFont samt spara/återställ låtinställningar. SoundFont och röstgräns har UI. Reverb och chorus har globala reglage från v0.26.0; CPU/RAM-utvärdering återstår. Volymreglage finns i liggande spelare och vissa val är låtunika. | Global master och kanal-mutes återanvänds. Karaoke > Aktiv låt äger låtvolym, tempo/transponering, melodikanal, melodimute, melodispårvolym, instrumentmappningar per kanal och låtunik SoundFont. MIDI/song-volym och master visas i snabbpanel när karaoke kör, med layout för både liggande och porträtt. |
 | Spelmusik och ljudeffekter | `Sound::Music` är en blandad spel-/menykanal; effekter blandas separat. `musicOn` finns, men inget separat `sfxOn`. Spel startar musik per spelläge. Master stänger förstärkare/ljudutgång och gain utan att ändra kanalgains. | Spel > Ljud: bakgrundsmusik på/av, ljudeffekter på/av, relevanta nivåer. Master-mute är överordnad och återställer inte eller skriver över kanalernas på/av- eller volymval. |
 | Wi-Fi, delning och radio | Statusrad visar Wi-Fi av/ansluten/signal; nätverksvyn hanterar sparade nätverk. Delningsikon visas kontextuellt i kompatibelt Yatzy-flöde. AP/Hotspot och BLE är ännu framtida arbete. | Global > Anslutning; nivå 1 visar status och snabb åtkomst, nivå 2 kan visa relevanta åtgärder. Skilj statusindikator från åtgärd; fråga före frånkoppling som avbryter nätverkssession. |
 | Batteri och ström | Statusrad visar batteriprocent; långt tryck på batteri togglar energisparläge. Inställningar visar laddning, batteri och kalibrering; kalibrering döljs för PMIC. Skärm-vila nu, vilotid och energisparläge finns separat. | Global > Ström. Snabbpanel visar status och lämpliga strömreglage; kalibrering, historik och serviceinfo stannar i detaljerad vy. |
@@ -229,19 +229,30 @@ samma kanoniska värde.
   master > kanal > gain-prioritet.
 - Karaoke: utöka den befintliga låtunika inställningsmodellen med separat
   melodikanalvolym och noll eller fler GM-instrumentmappningar
-  `sourceProgram -> replacementProgram`, lagrade i `karaoke.reg` med nya
-  valfria tokens så gamla rader fortsätter fungera. Mappningar verkar endast
-  på den explicit valda melodikanalen och varje programbyte utvärderas mot
-  sitt ursprungliga program-ID. Omappade program och alla andra kanaler
-  behåller MIDI-filens beteende. Kanalnivå är en multiplier på MIDI-kanalens
-  uttryck/CC7, inte ett övertagande av eller en nollställning av CC7, så låtens
-  egna dynamiska nivåändringar fortsätter fungera. Vid duplicerad källmappning
-  UI:t hindrar dubbletter; parsern avvisar eller hanterar fel explicit.
-  Exempel på önskat resultat för vald kanal 4: `63->14`, `112->21`,
-  channel mute off, channel level 75%. Prova programbyten före/under låten,
-  sök/seek, restart, SoundFont-byte, ändring av vald kanal, discard/save och
-  rörelse från en låt till nästa. Använd tydliga GM-namn och visa MIDI:s
-  ursprungliga instrument som källprogram.
+  `sourceProgram -> replacementProgram`, sparade i en separat inställningsfil
+  per låt. Börja om utan migrering av befintligt innehåll från `karaoke.reg`.
+  Spellistor och favoriter kan sparas i ett separat centralt register utan att
+  det gamla registrets data migreras.
+  Mappningar är per kanal och källprogram, och varje   Programbyte utvärderas mot sitt ursprungliga program-ID. Omappade program
+  behåller MIDI-filens beteende.
+  Kanalnivå är en multiplier på MIDI-kanalens uttryck/CC7, inte ett
+  övertagande av eller en nollställning av CC7, så låtens egna dynamiska
+  nivåändringar fortsätter fungera. Vid duplicerad källmappning UI:t hindrar
+  dubbletter; parsern avvisar eller hanterar fel explicit. Exempel på önskat
+  resultat för vald kanal 4: `63->14`, `112->21`, channel mute off, channel
+  level 75%.
+- Instrumentväljaren visar mänskoläsbara GM-instrumentnamn och programnummer
+  1–128 (MIDI använder internt 0–127). Visa både MIDI:ns ursprungliga program
+  och ersättningsprogram för den valda kanalen. Provspelning ska spela en
+  tillfällig ton med det valda programmet genom låtens aktuella SoundFont, utan
+  att provet i sig ändrar eller sparar mappningen. Den valda SoundFont kan ge
+  instrumenten andra klangfärger än namnet antyder; välj och provspela mot den
+  SoundFont som faktiskt ska användas.
+- Prova programbyten före/under låten, sök/seek, restart, SoundFont-byte,
+  ändring av vald kanal, discard/save och rörelse från en låt till nästa.
+- Reverb/chorus är globala i första steget. Använd v0.26.0-kontrollerna och
+  karaoke-diagnostiken för att jämföra CPU-last och minne på S3/P4 med vald
+  SoundFont angiven. Besluta om global av/på först efter mätning.
 - Ersätt dubblerad mutelogik i statusrad och äventyrsmeny med gemensamma
   operationer. Uppdatera web-inställningarnas mappning om samma ljudvärden
   delas, utan att göra om webbnavigeringen.
