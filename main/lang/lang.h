@@ -609,6 +609,11 @@
     X(KARA_AUTO) \
     X(KARA_MATCH) \
     X(KARA_SAVED_NOTE) \
+    X(KARA_REVERB) \
+    X(KARA_CHORUS) \
+    X(KARA_FX_ON) \
+    X(KARA_FX_OFF) \
+    X(KARA_FX_NOTE) \
     X(KARA_UNSAVED) \
     X(KARA_DISCARD) \
     X(KARA_SAVE_SONG) \
