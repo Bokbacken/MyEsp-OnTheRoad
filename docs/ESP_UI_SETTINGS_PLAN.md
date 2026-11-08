@@ -254,7 +254,12 @@ samma kanoniska värde.
   lägg till `.kcfg` efter hela låtfilnamnet, exempelvis
   `Summer.mid.kcfg` eller `Summer.kar.kcfg`. Ingen migrering från befintlig
   `karaoke.reg` behövs. SoundFont-filen måste fortfarande finnas på enheten.
-  Första formatförslag:
+  Om sidofilen anger en SoundFont som saknas ska spelaren logga en varning och
+  använda fallbackkedjan: global standard-SoundFont, `default.sf2`, därefter
+  första giltiga `.sf2`. Behåll det saknade namnet i sidofilen (visa det gärna
+  som saknat i UI:t); fallback får inte skriva över användarens val. Om filen
+  finns men är felaktig ska felet visas tydligt i stället för att tyst byta
+  SoundFont. Första formatförslag:
 
   ```ini
   # MyEsp-OnTheRoad karaoke settings v1
@@ -268,7 +273,9 @@ samma kanoniska värde.
   instrument_map=4,112,21
   ```
 
-  Tom `soundfont=` använder den globala standard-SoundFonten.
+  Tom `soundfont=` använder den globala standard-SoundFonten. När en angiven
+  SoundFont saknas, visar UI/loggen både det önskade och det faktiskt använda
+  SoundFont-namnet.
   `melody_channel=none` betyder att ingen melodikanal är vald. Kanalnummer
   1–16 och GM-programnummer 1–128 anges 1-baserat i filen; `instrument_map`
   innehåller kanal, MIDI:ns ursprungliga GM-program och ersättningsprogram.
