@@ -1379,6 +1379,7 @@ Err setInstrumentMapping(uint8_t channel, uint8_t sourceProgram, uint8_t replace
     s_trReload = true;
     s_resumePlay = resume;
     s_prevTr = s_pendingTr;
+    if (++s_songGen == 0) s_songGen = 1;
     startTask(false);
     return Err::OK;
 }
@@ -1399,6 +1400,7 @@ Err removeInstrumentMapping(uint8_t channel, uint8_t sourceProgram)
     s_trReload = true;
     s_resumePlay = resume;
     s_prevTr = s_pendingTr;
+    if (++s_songGen == 0) s_songGen = 1;
     startTask(false);
     return Err::OK;
 }
@@ -1419,6 +1421,7 @@ Err previewInstrument(uint8_t channel, uint8_t program)
     s_trReload = true;
     s_resumePlay = s_previewResume;
     s_prevTr = s_pendingTr;
+    if (++s_songGen == 0) s_songGen = 1;
     startTask(false);
     return Err::OK;
 }

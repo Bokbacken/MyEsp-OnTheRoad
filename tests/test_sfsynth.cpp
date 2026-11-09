@@ -315,6 +315,17 @@ static void testSelective()
           memcmp(mappedPcm.data(), mappedRef.data(), mappedPcm.size() * sizeof(int16_t)) == 0);
     CHECK(mappedPcm.size() == sel.size() && memcmp(mappedPcm.data(), sel.data(), sel.size() * sizeof(int16_t)) != 0);
 
+    // Changing the mapping after selective loading must rebuild the preset set from the retained
+    // SF2 hydra and load the replacement instrument's samples.
+    s.setInstrumentMaps(map, 1);
+    CHECK(s.prepare(sg) == Sf::LoadErr::OK);
+    const std::vector<int16_t> remappedAfterPrepare = renderSong(s, sg, 30);
+    CHECK(remappedAfterPrepare.size() == mappedPcm.size() &&
+          memcmp(remappedAfterPrepare.data(), mappedPcm.data(),
+                 remappedAfterPrepare.size() * sizeof(int16_t)) == 0);
+    s.setInstrumentMaps(nullptr, 0);
+    CHECK(s.prepare(sg) == Sf::LoadErr::OK);
+
     // The vocal gain scales the CC7 curve without changing its dynamic range.
     Midi::Song dynamic = sg;
     int noteOns = 0;
