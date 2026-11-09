@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.2
+
+- Karaoke overload guard: a single 5 s period with 5–14 late mixer blocks no
+  longer stops playback; it takes two such periods in a row, or ≥15 late
+  blocks or ≥100 % average render load in one period. Owner S3 test (v0.26.1,
+  4 MB SoundFont, 48 voices) was stopped at +7 late blocks with no audible
+  dropout. The earlier watchdog case (v0.23.18) still stops.
+
 ## v0.26.1
 
 - Per-song karaoke settings in `.kcfg` sidecar files: relative melody/vocal

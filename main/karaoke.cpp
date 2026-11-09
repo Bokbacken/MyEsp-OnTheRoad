@@ -84,6 +84,7 @@ bool s_trReload = false, s_resumePlay = false;
 int s_prevTr = 0;
 volatile bool s_trRejected = false;
 volatile bool s_overloadStop = false;   // Playback stopped by the overload guard; told to the UI once
+KaraOverload::Guard s_overloadGuard;     // Diag timer only
 // Diagnostics (logged every 5 s while a song is open)
 esp_timer_handle_t s_diagTimer = nullptr;
 // v0.13.7 song library (own mutex: never held while the mixer needs s_mux)
@@ -459,7 +460,11 @@ void diagCb(void *)
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    if (!KaraOverload::shouldStop(st.avgLoad100, newUnder)) return;
+    if (!s_player.playing()) {
+        s_overloadGuard.reset();
+        return;
+    }
+    if (!s_overloadGuard.shouldStop(st.avgLoad100, newUnder)) return;
     {
         Lock l;
         if (!s_open || !s_player.playing()) return;
