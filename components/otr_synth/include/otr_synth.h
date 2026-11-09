@@ -69,6 +69,12 @@ struct Effects {
     uint8_t chorusLevel = 50;  // 0..100
 };
 
+struct InstrumentMap {
+    uint8_t channel;            // 0..15
+    uint8_t sourceProgram;      // 0..127
+    uint8_t replacementProgram; // 0..127
+};
+
 typedef void (*ProgressFn)(void *user, int pct);
 
 class Synth : public Midi::Sink {
@@ -116,6 +122,11 @@ public:
     int transpose() const { return transpose_; }
     void setMuted(int ch, bool muted);  // Muted channels play no new notes (sing the melody yourself)
     bool muted(int ch) const { return ch >= 0 && ch < 16 && (muteMask_ >> ch) & 1; }
+    void setChannelGain(int ch, uint8_t percent); // Multiplies MIDI CC7 while preserving its changes
+    void setInstrumentMaps(const InstrumentMap *maps, size_t count);
+    void setPreviewPreset(int ch, int program);
+    void clearPreviewPreset();
+    bool previewNote(int ch, int program, int key, int velocity);
     int activeVoices() const;
 
 private:
@@ -140,6 +151,9 @@ private:
     Reverb reverb_;
     Chorus chorus_;
     uint8_t revSend_[16], choSend_[16];   // CC91 / CC93 per channel
+    uint8_t channelGain_[16];
+    uint8_t instrumentMap_[16][128];
+    int previewChannel_ = -1, previewProgram_ = -1;
     int rate_ = 22050;
     float dry_[256], rev_[256], cho_[256], tmp_[256];
     int transpose_ = 0;

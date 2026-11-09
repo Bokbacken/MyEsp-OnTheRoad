@@ -131,6 +131,7 @@ public:
     std::string save() const;
     const RegEntry *find(uint32_t crc, uint32_t size) const;
     void set(const RegEntry &e);           // Insert or replace
+    void clearSongSettings() { entries_.clear(); } // Keep playlists/favorites while retiring legacy settings
     size_t size() const { return entries_.size(); }
     const std::vector<Playlist> &playlists() const { return playlists_; }
     uint16_t createPlaylist(const char *name);

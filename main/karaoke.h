@@ -25,7 +25,7 @@ enum class Err : uint8_t {
     OK, NO_SD, NO_SF2, SF2_TOO_BIG, SF2_BAD, NO_MEMORY, NO_FILE, FILE_TOO_BIG, FILE_BAD, SF2_COMPRESSED,
     SONG_TOO_BIG,  // v0.13.2: the song needs more sample data than fits, even with one velocity layer
     BUSY,          // v0.13.7: a sound bank is loading (web openByPath), try again shortly
-    LYRICS_BAD, LYRICS_TOO_BIG, SAVE_FAILED, UNSAVED, BAD_INPUT
+    LYRICS_BAD, LYRICS_TOO_BIG, SAVE_FAILED, UNSAVED, BAD_INPUT, SETTINGS_BAD
 };
 
 struct SongFile {
@@ -85,6 +85,7 @@ bool fontWanted();              // The current context wants a different font th
 FontState fontState();
 Err fontError();
 const char *fontName();         // File name of the loaded font ("" if none)
+bool fontFallback();            // Requested SoundFont was missing; fontName() is the fallback actually loaded.
 const char *defaultFont();      // Config::karaFont ("" = automatic)
 void setDefaultFont(const char *name);   // Saved in NVS; "" = automatic
 void setVoiceLimit(uint8_t voices);      // Saved globally; applies immediately
@@ -138,6 +139,17 @@ void setMelodyMuted(bool m);    // Sing the melody yourself
 bool melodyMuted();
 uint8_t songVolume();         // Per-song MIDI gain (0..200); 100 is unity.
 void setSongVolume(uint8_t v);
+uint8_t melodyGain();         // Relative gain for the selected melody channel, 0..200%; 100 is unity.
+void setMelodyGain(uint8_t v);
+struct InstrumentMapping {
+    uint8_t channel;            // 0..15
+    uint8_t sourceProgram;      // GM 0..127
+    uint8_t replacementProgram; // GM 0..127
+};
+std::vector<InstrumentMapping> instrumentMappings();
+Err setInstrumentMapping(uint8_t channel, uint8_t sourceProgram, uint8_t replacementProgram);
+Err removeInstrumentMapping(uint8_t channel, uint8_t sourceProgram);
+Err previewInstrument(uint8_t channel, uint8_t program);
 
 bool songSettingsDirty();
 Err saveSongSettings();

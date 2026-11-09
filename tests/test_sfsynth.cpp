@@ -298,6 +298,54 @@ static void testSelective()
     CHECK(full.load(path, 22050) == Sf::LoadErr::OK && full.loaded() && !full.selective());
     const std::vector<int16_t> ref = renderSong(full, sg, 30);
     CHECK(!ref.empty() && ref.size() == sel.size() && memcmp(ref.data(), sel.data(), ref.size() * 2) == 0);
+
+    // Per-channel program mappings are applied during selective preparation as well as playback.
+    const Sf::InstrumentMap map[] = {{0, 0, 5}};
+    Sf::Synth mapped;
+    mapped.setEffects(off);
+    mapped.setInstrumentMaps(map, 1);
+    CHECK(mapped.open(path, 22050) == Sf::LoadErr::OK && mapped.prepare(sg) == Sf::LoadErr::OK);
+    const std::vector<int16_t> mappedPcm = renderSong(mapped, sg, 30);
+    Sf::Synth mappedFull;
+    mappedFull.setEffects(off);
+    mappedFull.setInstrumentMaps(map, 1);
+    CHECK(mappedFull.load(path, 22050) == Sf::LoadErr::OK);
+    const std::vector<int16_t> mappedRef = renderSong(mappedFull, sg, 30);
+    CHECK(mappedPcm.size() == mappedRef.size() &&
+          memcmp(mappedPcm.data(), mappedRef.data(), mappedPcm.size() * sizeof(int16_t)) == 0);
+    CHECK(mappedPcm.size() == sel.size() && memcmp(mappedPcm.data(), sel.data(), sel.size() * sizeof(int16_t)) != 0);
+
+    // The vocal gain scales the CC7 curve without changing its dynamic range.
+    Midi::Song dynamic = sg;
+    int noteOns = 0;
+    for (size_t i = 0; i < dynamic.events.size(); i++) {
+        const Midi::Event &event = dynamic.events[i];
+        if ((event.status & 0xF0) != 0x90 || (event.status & 0x0F) != 0 || !event.d2) continue;
+        const uint8_t level = noteOns++ == 0 ? 80 : 40;
+        dynamic.events.insert(dynamic.events.begin() + (ptrdiff_t)i,
+                              Midi::Event{event.us, 0xB0, 7, level, event.track});
+        i++;
+    }
+    auto renderVocalGain = [&](uint8_t gain) {
+        Sf::Synth synth;
+        synth.setEffects(off);
+        CHECK(synth.open(path, 22050) == Sf::LoadErr::OK && synth.prepare(dynamic) == Sf::LoadErr::OK);
+        synth.setMuted(Midi::DRUM_CH, true);
+        synth.setChannelGain(0, gain);
+        return renderSong(synth, dynamic, 30);
+    };
+    const std::vector<int16_t> vocalFull = renderVocalGain(100);
+    const std::vector<int16_t> vocalHalf = renderVocalGain(50);
+    const std::vector<int16_t> vocalDouble = renderVocalGain(200);
+    const std::vector<int16_t> vocalMuted = renderVocalGain(0);
+    const double ratio = rmsOf(vocalHalf.data(), vocalHalf.size()) / rmsOf(vocalFull.data(), vocalFull.size());
+    printf("  vocal CC7 gain ratio: %.3f (%.1f/%.1f)\n", ratio,
+           rmsOf(vocalHalf.data(), vocalHalf.size()), rmsOf(vocalFull.data(), vocalFull.size()));
+    CHECK(ratio > 0.45 && ratio < 0.55);
+    const double doubleRatio = rmsOf(vocalDouble.data(), vocalDouble.size()) /
+                               rmsOf(vocalFull.data(), vocalFull.size());
+    CHECK(doubleRatio > 1.9 && doubleRatio < 2.1);
+    CHECK(rmsOf(vocalMuted.data(), vocalMuted.size()) == 0);
     CHECK(rmsOf(ref.data(), ref.size()) > 300);
 
     // Transpose: prepared again for the shifted keys; the unused preset stays silent

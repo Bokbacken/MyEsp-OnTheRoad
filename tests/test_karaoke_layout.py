@@ -89,6 +89,8 @@ static uint32_t externalGen;
 static FontState font = FontState::READY;
 static bool opened, muted, rejectTranspose;
 static int speed = 100, key = 0, channel = 0, vol = 80;
+static uint8_t vocalGain = 100;
+static std::vector<InstrumentMapping> mappings;
 static int ensures, closes, unloads, opens;
 static std::string usedBank;
 static std::string plain;
@@ -114,6 +116,7 @@ const Midi::Song *song() { return opened ? &data : nullptr; }
 std::string plainLyrics() { return plain; }
 const char *errText(Err) { return "Long error text: ÅÄÖ. Please select another song or sound bank."; }
 FontState fontState() { return font; }
+bool fontFallback() { return false; }
 Err fontError() { return Err::NO_MEMORY; }
 const char *fontName() { return Config::get().karaFont; }
 const char *defaultFont() { return Config::get().karaFont; }
@@ -144,6 +147,25 @@ bool melodyMuted() { return muted; }
 void setMelodyMuted(bool b) { muted = b; }
 uint8_t songVolume() { return (uint8_t)vol; }
 void setSongVolume(uint8_t v) { vol = v; }
+uint8_t melodyGain() { return vocalGain; }
+void setMelodyGain(uint8_t v) { vocalGain = v; }
+std::vector<InstrumentMapping> instrumentMappings() { return mappings; }
+Err setInstrumentMapping(uint8_t channel, uint8_t source, uint8_t replacement) {
+    for (auto &mapping : mappings) {
+        if (mapping.channel == channel && mapping.sourceProgram == source) {
+            mapping.replacementProgram = replacement;
+            return Err::OK;
+        }
+    }
+    mappings.push_back({channel, source, replacement}); return Err::OK;
+}
+Err removeInstrumentMapping(uint8_t channel, uint8_t source) {
+    mappings.erase(std::remove_if(mappings.begin(), mappings.end(), [=](const auto &mapping) {
+        return mapping.channel == channel && mapping.sourceProgram == source;
+    }), mappings.end());
+    return Err::OK;
+}
+Err previewInstrument(uint8_t, uint8_t) { return Err::OK; }
 static Effects fx = {true, true, 50, 50};
 static int fxSets;
 Effects effects() { return fx; }
@@ -539,6 +561,29 @@ static void checkPlayer() {
     assert(button(s_sheet, (std::string(tr(Str::KARA_BTN_TRACK)) + "  " + track).c_str()));
     closeMenu();
     assert(Karaoke::melodyMuted() != muted);
+
+    click(button(P.scr, LV_SYMBOL_LIST));
+    click(button(s_sheet, tr(Str::KARA_BTN_SETTINGS), true));
+    auto *settings = sheetBody();
+    auto *gainRow = lv_obj_get_child(settings, 2);
+    lv_obj_scroll_to_view_recursive(gainRow, LV_ANIM_OFF); settle();
+    click(button(gainRow, LV_SYMBOL_PLUS));
+    assert(Karaoke::melodyGain() == 110);
+    click(button(s_sheet, LV_SYMBOL_CLOSE));
+
+    click(button(P.scr, LV_SYMBOL_LIST));
+    click(button(s_sheet, tr(Str::KARA_INSTRUMENTS)));
+    auto *channels = sheetBody();
+    char firstChannel[24]; snprintf(firstChannel, sizeof(firstChannel), tr(Str::KARA_CH_FMT), 1);
+    click(button(channels, firstChannel, true));
+    auto *sources = sheetBody();
+    click(button(sources, "1 ", true));
+    auto *replacement = sheetBody();
+    lv_dropdown_set_selected(s_instrumentDropdown, 1);
+    click(button(replacement, tr(Str::KARA_APPLY_INSTRUMENT)));
+    assert(!s_sheet && Karaoke::mappings.size() == 1 &&
+           Karaoke::mappings[0].channel == 0 && Karaoke::mappings[0].sourceProgram == 0 &&
+           Karaoke::mappings[0].replacementProgram == 1);
 }
 static void checkPlainSheet() {
     Karaoke::opened = true;

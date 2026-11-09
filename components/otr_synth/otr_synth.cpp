@@ -139,6 +139,8 @@ Synth::Synth()
     memset(playedAs_, 0xFF, sizeof(playedAs_));
     memset(revSend_, 40, sizeof(revSend_));
     memset(choSend_, 0, sizeof(choSend_));
+    memset(channelGain_, 100, sizeof(channelGain_));
+    memset(instrumentMap_, 0xFF, sizeof(instrumentMap_));
 }
 Synth::~Synth() { unload(); }
 
@@ -557,6 +559,11 @@ LoadErr Synth::prepare(const Midi::Song &song, ProgressFn cb, void *user, size_t
     }
     scanning_ = true;
     reset();
+    if (previewChannel_ >= 0 && previewChannel_ < 16 && previewProgram_ >= 0 && previewProgram_ < 128) {
+        tsf_channel_set_presetnumber(f_, previewChannel_, previewProgram_, previewChannel_ == Midi::DRUM_CH);
+        recordNote(previewChannel_, previewChannel_ == Midi::DRUM_CH ? 60 : 60 - transpose_, tsfVelocity(100));
+        reset();
+    }
     for (const Midi::Event &e : song.events) midi(e.status, e.d1, e.d2);
     scanning_ = false;
     for (int i = 0; i < np; i++)
@@ -840,6 +847,7 @@ void Synth::reset()
     for (int ch = 0; ch < 16; ch++) {
         tsf_channel_set_presetnumber(f_, ch, 0, ch == Midi::DRUM_CH);
         tsf_channel_midi_control(f_, ch, 121, 0);
+        tsf_channel_set_gain(f_, ch, channelGain_[ch] / 100.0f);
         tsf_channel_set_pitchwheel(f_, ch, 8192);
         tsf_channel_set_sustain(f_, ch, 0);
     }
@@ -884,8 +892,14 @@ void Synth::midi(uint8_t status, uint8_t d1, uint8_t d2)
         else if (d1 == 93) choSend_[ch] = d2 & 0x7F;
         if (scanning_ && (d1 == 64 || d1 == 120 || d1 == 123)) return;   // No voices to touch
         tsf_channel_midi_control(f_, ch, d1, d2);
+        if (d1 == 121)
+            tsf_channel_set_gain(f_, ch, channelGain_[ch] / 100.0f);
         return;
-    case 0xC0: tsf_channel_set_presetnumber(f_, ch, d1, ch == Midi::DRUM_CH); return;
+    case 0xC0: {
+        const uint8_t mapped = instrumentMap_[ch][d1 & 0x7F];
+        tsf_channel_set_presetnumber(f_, ch, mapped == 0xFF ? d1 : mapped, ch == Midi::DRUM_CH);
+        return;
+    }
     case 0xE0:
         if (!scanning_) tsf_channel_set_pitchwheel(f_, ch, d1 | (d2 << 7));
         return;
@@ -963,6 +977,46 @@ void Synth::setMuted(int ch, bool m)
     } else {
         muteMask_ &= (uint16_t)~(1u << ch);
     }
+}
+
+void Synth::setChannelGain(int ch, uint8_t percent)
+{
+    if (ch < 0 || ch > 15) return;
+    channelGain_[ch] = percent > 200 ? 200 : percent;
+    if (f_)
+        tsf_channel_set_gain(f_, ch, channelGain_[ch] / 100.0f);
+}
+
+void Synth::setInstrumentMaps(const InstrumentMap *maps, size_t count)
+{
+    memset(instrumentMap_, 0xFF, sizeof(instrumentMap_));
+    if (!maps) return;
+    for (size_t i = 0; i < count; i++) {
+        const InstrumentMap &m = maps[i];
+        if (m.channel < 16 && m.sourceProgram < 128 && m.replacementProgram < 128)
+            instrumentMap_[m.channel][m.sourceProgram] = m.replacementProgram;
+    }
+}
+
+void Synth::setPreviewPreset(int ch, int program)
+{
+    previewChannel_ = ch >= 0 && ch < 16 ? ch : -1;
+    previewProgram_ = program >= 0 && program < 128 ? program : -1;
+}
+
+void Synth::clearPreviewPreset()
+{
+    previewChannel_ = previewProgram_ = -1;
+}
+
+bool Synth::previewNote(int ch, int program, int key, int velocity)
+{
+    if (!loaded() || ch < 0 || ch > 15 || program < 0 || program > 127 ||
+        key < 0 || key > 127 || velocity < 1 || velocity > 127)
+        return false;
+    if (!tsf_channel_set_presetnumber(f_, ch, program, ch == Midi::DRUM_CH)) return false;
+    tsf_channel_note_on(f_, ch, key, tsfVelocity((unsigned char)velocity));
+    return true;
 }
 
 void Synth::setMaxVoices(int n)
