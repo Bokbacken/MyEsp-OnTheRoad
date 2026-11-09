@@ -795,6 +795,8 @@ int main(int argc, char **) {
         inside(s_waitDlg,lv_screen_active());
         Karaoke::font=Karaoke::FontState::READY; updateFontLabel(); settle();
         assert(!s_waitDlg && lv_obj_get_child_count(lv_layer_top()) == 0);
+        msg(tr(Str::KARA_WAIT_FONT),true); settle();
+        assert(!s_waitDlg && lv_obj_get_child_count(lv_layer_top()) == 0);
     }
     Karaoke::opened = true; Karaoke::data.lines.clear();
     showPlayer(); settle();

@@ -237,6 +237,13 @@ void updateFontLabel()
 
 void msg(const char *text, bool isWait = false)
 {
+    if (isWait && Karaoke::fontState() != Karaoke::FontState::LOADING) {
+        if (s_waitDlg) {
+            lv_msgbox_close_async(s_waitDlg);
+            s_waitDlg = nullptr;
+        }
+        return;
+    }
     if (isWait && s_waitDlg) {
         lv_msgbox_close_async(s_waitDlg);
         s_waitDlg = nullptr;
@@ -257,6 +264,10 @@ void msg(const char *text, bool isWait = false)
     lv_obj_set_style_max_height(m, l.h - 2 * l.inset, 0);
     lv_obj_set_scroll_dir(lv_msgbox_get_content(m), LV_DIR_VER);
     lv_obj_center(m);
+    if (isWait && Karaoke::fontState() != Karaoke::FontState::LOADING) {
+        lv_msgbox_close_async(s_waitDlg);
+        s_waitDlg = nullptr;
+    }
 }
 
 // ---- v0.13.7 song browser: folders, search, A-Ö jump, pages ------------------------------------
