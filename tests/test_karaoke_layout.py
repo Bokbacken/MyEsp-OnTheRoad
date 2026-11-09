@@ -50,7 +50,7 @@ namespace Config {
 static int saveCalls;
 AppConfig &get() { static AppConfig c = [] { AppConfig v{}; v.masterVol = 80; return v; }(); return c; }
 bool save() { ++saveCalls; return true; }
-bool validKaraVoices(uint8_t v) { return v == 32 || v == 64 || v == 96 || v == 128 || v == 160 || v == 192; }
+bool validKaraVoices(uint8_t v) { return v == 32 || v == 48 || v == 64 || v == 96 || v == 128 || v == 160 || v == 192; }
 }
 namespace BankChoice {
 static bool s_open;

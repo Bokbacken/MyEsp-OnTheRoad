@@ -8,6 +8,18 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.1
+
+- Per-song karaoke settings in `.kcfg` sidecar files: relative melody/vocal
+  track volume and per-channel instrument remapping with audition through the
+  selected SoundFont. Changing an instrument re-prepares the song's samples.
+- Reverb/chorus delay lines (~28 kB) only use internal RAM when there is ample
+  headroom; on the S3 they move to PSRAM. Owner-reported on S3: free internal
+  RAM during playback rose from ~17 kB (min 204 bytes, SD DMA failures) to
+  ~47 kB (min ~16 kB).
+- New voice option 48. The S3 voice cap drops from 96 to 48 (options 32/48)
+  after owner-reported overload stops at 64 voices with a 4 MB SoundFont.
+
 ## v0.26.0
 
 - Karaoke settings sheet gets global reverb and chorus controls (on/off and

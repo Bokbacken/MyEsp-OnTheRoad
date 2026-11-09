@@ -133,7 +133,7 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   per händelse), text från `.kar` (`@T`/`@L`-taggar hoppas över, `/` = ny rad, `\` = ny vers) och vanliga
   lyrics-händelser (FF 05). Stavelser grupperas till rader. `Player` sköter tid, tempo 50–150 % och sökning
   (spelar upp controller-, program- och pitch bend-händelser fram till målet så att kanalerna låter rätt).
-- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 192 samtidiga röster är allokerade; valet 32, 64, 96,
+- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 192 samtidiga röster är allokerade; valet 32, 48, 64, 96,
   128, 160 eller 192 är globalt och väljs i ljudbanksväljaren. Röststrukturerna tar ytterligare ungefär
   tiotals kB jämfört med 32 röster; högre max kan öka CPU-belastningen även när färre röster spelar, så välj lägsta
   tak som inte ger röststöld. Patchar för ESP32-S3: sampel lagras som `int16` (halva minnet –
@@ -178,6 +178,9 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   NVS `kara_voices` (32/64/96/128/160/192, standard 96) begränsar antalet röster.
 - **v0.23 – rösttak per kort:** S3-profilen förallokerar högst 96 röster och visar valen 32/64/96; P4-profilen
   förallokerar högst 192 och visar valen 32–192. Standardvärdet är 96; 128+ på P4 är opt-in.
+- **v0.26.1 – S3-tak 48 röster:** mätning på S3 (4 MB GM-soundfont, 64 röster) gav ~90 % medellast och
+  underruns, 32 röster ~50 %. S3 visar nu valen 32/48; 48 är nytt val för alla kort. Reverb-/chorus-buffertar
+  läggs i PSRAM när intern RAM är knapp (S3), vilket gav ~30 kB mer intern RAM under uppspelning.
 - **Mätning på P4:** FluidR3 (151 MB), Alan Parsons Project “Time”, 96 röster: 0 underruns, cirka 45 % medellast,
   97 % maxlast och långa perioder med 96/96 aktiva röster. En separat helsångsmätning med 192 som tak hade också
   0 underruns, men 5-sekunders medellast varierade ungefär 33–78 %, maxlast nådde 134 % och topparna var 179/192.
