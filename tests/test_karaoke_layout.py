@@ -722,6 +722,7 @@ int main(int argc, char **) {
             Karaoke::library.sort();
             Karaoke::opened = false;
             Karaoke::speed=100; Karaoke::key=0; Karaoke::vol=80;
+            Karaoke::vocalGain=100; Karaoke::mappings.clear();
             makeLyrics(language[0]=='s' ? "Lång sångrad Åäö " : "Long lyric words ");
             UiKaraoke::show(); settle();
             const auto l = layout();
