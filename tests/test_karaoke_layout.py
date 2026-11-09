@@ -494,8 +494,8 @@ static void checkPlayer() {
     {
         Karaoke::fx = {true, true, 50, 50};
         Karaoke::setEffects(Karaoke::fx);   // Reset: checkPlayer runs for several layouts
-        auto *rev = lv_obj_get_child(body, 3);
-        auto *cho = lv_obj_get_child(body, 4);
+        auto *rev = lv_obj_get_child(body, 4);
+        auto *cho = lv_obj_get_child(body, 5);
         lv_obj_scroll_to_view(cho, LV_ANIM_OFF); settle(); inside(cho, body);
         for (int j : {1, 2, 4}) fitsText(lv_obj_get_child(rev, j));
         assert(std::string(lv_label_get_text(lv_obj_get_child(lv_obj_get_child(rev, 1), 0))) == tr(Str::KARA_FX_ON));
