@@ -269,6 +269,8 @@ void applyMelodyGain()   // Caller holds s_mux
         s_synth.setChannelGain(ch, ch == s_melody ? s_melodyGain : 100);
 }
 
+void applyMelodyMute();
+
 void applyInstrumentMaps()   // Caller holds s_mux
 {
     Sf::InstrumentMap maps[KaraSettings::MAX_INSTRUMENT_MAPS];
