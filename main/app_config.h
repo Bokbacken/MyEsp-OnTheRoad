@@ -13,7 +13,7 @@
 #endif
 
 constexpr const char *CFG_NVS_NS = "otr";
-constexpr uint8_t KARA_VOICE_OPTIONS[] = {32, 64, 96, 128, 160, 192};
+constexpr uint8_t KARA_VOICE_OPTIONS[] = {32, 48, 64, 96, 128, 160, 192};
 constexpr uint8_t KARA_VOICE_OPTION_COUNT = sizeof(KARA_VOICE_OPTIONS) / sizeof(KARA_VOICE_OPTIONS[0]);
 
 struct AppConfig {

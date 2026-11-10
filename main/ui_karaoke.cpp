@@ -237,6 +237,13 @@ void updateFontLabel()
 
 void msg(const char *text, bool isWait = false)
 {
+    if (isWait && Karaoke::fontState() != Karaoke::FontState::LOADING) {
+        if (s_waitDlg) {
+            lv_msgbox_close_async(s_waitDlg);
+            s_waitDlg = nullptr;
+        }
+        return;
+    }
     if (isWait && s_waitDlg) {
         lv_msgbox_close_async(s_waitDlg);
         s_waitDlg = nullptr;
@@ -257,6 +264,10 @@ void msg(const char *text, bool isWait = false)
     lv_obj_set_style_max_height(m, l.h - 2 * l.inset, 0);
     lv_obj_set_scroll_dir(lv_msgbox_get_content(m), LV_DIR_VER);
     lv_obj_center(m);
+    if (isWait && Karaoke::fontState() != Karaoke::FontState::LOADING) {
+        lv_msgbox_close_async(s_waitDlg);
+        s_waitDlg = nullptr;
+    }
 }
 
 // ---- v0.13.7 song browser: folders, search, A-Ö jump, pages ------------------------------------
@@ -889,14 +900,20 @@ void updatePlayerFont()
     char buf[80];
     switch (Karaoke::fontState()) {
     case Karaoke::FontState::LOADING: snprintf(buf, sizeof(buf), "%s", tr(Str::KARA_FONT_LOADING)); break;
-    case Karaoke::FontState::READY: snprintf(buf, sizeof(buf), LV_SYMBOL_AUDIO " %.60s", Karaoke::fontName()); break;
+    case Karaoke::FontState::READY:
+        if (Karaoke::fontFallback())
+            snprintf(buf, sizeof(buf), "%.32s: %.40s", tr(Str::KARA_FONT_FALLBACK), Karaoke::fontName());
+        else
+            snprintf(buf, sizeof(buf), LV_SYMBOL_AUDIO " %.60s", Karaoke::fontName());
+        break;
     case Karaoke::FontState::FAILED: snprintf(buf, sizeof(buf), "%s", Karaoke::errText(Karaoke::fontError())); break;
     default: buf[0] = 0; break;
     }
     lv_label_set_text(P.fontLbl, buf);
     const Karaoke::FontState st = Karaoke::fontState();
     lv_obj_set_style_text_color(P.fontLbl, Theme::c(st == Karaoke::FontState::LOADING ? Theme::GOLD
-                                                    : st == Karaoke::FontState::FAILED ? Theme::RED : Theme::MUTED), 0);
+                                                    : st == Karaoke::FontState::FAILED ? Theme::RED
+                                                    : Karaoke::fontFallback() ? Theme::GOLD : Theme::MUTED), 0);
 }
 
 void refreshSteppers();
@@ -1023,9 +1040,9 @@ lv_obj_t *sheetBase(const char *title, int32_t h)
 
 struct Stepper {
     lv_obj_t *value;
-    int kind;   // 0 tempo, 1 key
+    int kind;   // 0 tempo, 1 key, 2 melody gain
 };
-Stepper s_steps[2];
+Stepper s_steps[3];
 
 void refreshSteppers()
 {
@@ -1034,18 +1051,21 @@ void refreshSteppers()
     if (s_steps[0].value) lv_label_set_text(s_steps[0].value, buf);
     snprintf(buf, sizeof(buf), "%+d", Karaoke::transpose());
     if (s_steps[1].value) lv_label_set_text(s_steps[1].value, buf);
+    snprintf(buf, sizeof(buf), "%u %%", (unsigned)Karaoke::melodyGain());
+    if (s_steps[2].value) lv_label_set_text(s_steps[2].value, buf);
     syncVolumeControls();
 }
 
 void stepCb(lv_event_t *e)
 {
-    static uint32_t last[4] = {};
+    static uint32_t last[6] = {};
     const int code = (int)(intptr_t)lv_event_get_user_data(e);   // kind * 2 + (0 = minus, 1 = plus)
     if (!Theme::debounce(last[code], 200)) return;
     const int dir = (code & 1) ? 1 : -1;
     switch (code / 2) {
     case 0: Karaoke::setTempo(Karaoke::tempo() + dir * 5); break;
     case 1: Karaoke::setTranspose(Karaoke::transpose() + dir); break;
+    case 2: Karaoke::setMelodyGain((uint8_t)std::clamp((int)Karaoke::melodyGain() + dir * 10, 0, 200)); break;
     }
     refreshSteppers();
 }
@@ -1089,9 +1109,9 @@ void fxCb(lv_event_t *e)
 void showSettings()
 {
     const auto l = layout();
-    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 440);
-    const Str names[2] = {Str::KARA_TEMPO, Str::KARA_KEY};
-    for (int k = 0; k < 2; k++) {
+    lv_obj_t *c = sheetBase(tr(Str::KARA_BTN_SETTINGS), 500);
+    const Str names[3] = {Str::KARA_TEMPO, Str::KARA_KEY, Str::KARA_MELODY_GAIN};
+    for (int k = 0; k < 3; k++) {
         lv_obj_t *row = lv_obj_create(c);
         lv_obj_remove_style_all(row);
         lv_obj_set_size(row, LV_PCT(100), l.buttonH);
@@ -1198,6 +1218,162 @@ void showTracks()
         }
         lv_obj_add_event_cb(b, pickCb, LV_EVENT_CLICKED, (void *)(intptr_t)(ch + 1));
     }
+}
+
+void showInstrumentChannels();
+void showInstrumentSources(uint8_t channel);
+void showInstrumentReplacement(uint8_t channel, uint8_t sourceProgram);
+lv_obj_t *s_instrumentDropdown = nullptr;
+uint8_t s_instrumentChannel = 0, s_instrumentSource = 0;
+
+void instrumentChannelCb(lv_event_t *e)
+{
+    const uint8_t channel = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+    lv_async_call([](void *arg) { showInstrumentSources((uint8_t)(intptr_t)arg); },
+                  (void *)(intptr_t)channel);
+}
+
+void showInstrumentChannels()
+{
+    const Midi::Song *song = Karaoke::song();
+    if (!song) return;
+    lv_obj_t *body = sheetBase(tr(Str::KARA_INSTRUMENTS), layout().h);
+    lv_obj_t *hint = Theme::label(body, tr(Str::KARA_SELECT_CHANNEL), &my_font_14, Theme::MUTED);
+    lv_obj_set_width(hint, LV_PCT(100));
+    for (int ch = 0; ch < 16; ch++) {
+        if (!(song->channelMask & (1u << ch))) continue;
+        char text[112];
+        char channel[24];
+        snprintf(channel, sizeof(channel), tr(Str::KARA_CH_FMT), ch + 1);
+        snprintf(text, sizeof(text), "%s  %s%s%s", channel, song->ch[ch].trackName,
+                 song->ch[ch].trackName[0] ? " - " : "", Midi::gmName(song->ch[ch].program));
+        lv_obj_t *button = Theme::button(body, text, LV_PCT(100), layout().buttonH, Theme::LINE);
+        lv_obj_add_event_cb(button, instrumentChannelCb, LV_EVENT_CLICKED, (void *)(intptr_t)ch);
+    }
+}
+
+void instrumentSourceCb(lv_event_t *e)
+{
+    const intptr_t value = (intptr_t)lv_event_get_user_data(e);
+    const uint8_t channel = (uint8_t)(value >> 8);
+    const uint8_t source = (uint8_t)value;
+    lv_async_call([](void *arg) {
+        const intptr_t pair = (intptr_t)arg;
+        showInstrumentReplacement((uint8_t)(pair >> 8), (uint8_t)pair);
+    }, (void *)(intptr_t)(((intptr_t)channel << 8) | source));
+}
+
+void showInstrumentSources(uint8_t channel)
+{
+    const Midi::Song *song = Karaoke::song();
+    if (!song || channel > 15) return;
+    std::vector<uint8_t> programs;
+    for (const Midi::Event &event : song->events) {
+        if ((event.status & 0xF0) != 0xC0 || (event.status & 0x0F) != channel) continue;
+        if (std::find(programs.begin(), programs.end(), event.d1) == programs.end())
+            programs.push_back(event.d1);
+    }
+    if (programs.empty()) programs.push_back(song->ch[channel].program);
+    const auto mappings = Karaoke::instrumentMappings();
+    lv_obj_t *body = sheetBase(tr(Str::KARA_SELECT_SOURCE), layout().h);
+    for (uint8_t source : programs) {
+        int replacement = -1;
+        for (const auto &mapping : mappings)
+            if (mapping.channel == channel && mapping.sourceProgram == source)
+                replacement = mapping.replacementProgram;
+        char text[128];
+        if (replacement >= 0)
+            snprintf(text, sizeof(text), "%u %s  ->  %u %s", source + 1, Midi::gmName(source),
+                     (unsigned)replacement + 1, Midi::gmName((uint8_t)replacement));
+        else
+            snprintf(text, sizeof(text), "%u %s", source + 1, Midi::gmName(source));
+        lv_obj_t *button = Theme::button(body, text, LV_PCT(100), layout().buttonH, Theme::LINE);
+        const intptr_t pair = ((intptr_t)channel << 8) | source;
+        lv_obj_add_event_cb(button, instrumentSourceCb, LV_EVENT_CLICKED, (void *)pair);
+    }
+}
+
+uint8_t selectedReplacement(lv_obj_t *dropdown)
+{
+    return (uint8_t)lv_dropdown_get_selected(dropdown);
+}
+
+void previewInstrumentCb(lv_event_t *e)
+{
+    (void)e;
+    if (!s_instrumentDropdown) return;
+    const Karaoke::Err err = Karaoke::previewInstrument(s_instrumentChannel,
+                                                         selectedReplacement(s_instrumentDropdown));
+    if (err != Karaoke::Err::OK) msg(Karaoke::errText(err));
+    else msg(tr(Str::KARA_WAIT_FONT), true);
+}
+
+void applyInstrumentCb(lv_event_t *e)
+{
+    const bool remove = (intptr_t)lv_event_get_user_data(e) != 0;
+    const uint8_t channel = s_instrumentChannel;
+    const uint8_t source = s_instrumentSource;
+    const uint8_t replacement = remove ? source : selectedReplacement(s_instrumentDropdown);
+    const Karaoke::Err err = replacement == source
+        ? Karaoke::removeInstrumentMapping(channel, source)
+        : Karaoke::setInstrumentMapping(channel, source, replacement);
+    if (err != Karaoke::Err::OK) {
+        msg(Karaoke::errText(err));
+        return;
+    }
+    closeSheet();
+    if (Karaoke::fontState() == Karaoke::FontState::LOADING) msg(tr(Str::KARA_WAIT_FONT), true);
+}
+
+void showInstrumentReplacement(uint8_t channel, uint8_t sourceProgram)
+{
+    const Midi::Song *song = Karaoke::song();
+    if (!song || channel > 15 || sourceProgram > 127) return;
+    const auto mappings = Karaoke::instrumentMappings();
+    uint8_t selected = sourceProgram;
+    for (const auto &mapping : mappings)
+        if (mapping.channel == channel && mapping.sourceProgram == sourceProgram)
+            selected = mapping.replacementProgram;
+
+    char title[96];
+    snprintf(title, sizeof(title), "%u %s", sourceProgram + 1, Midi::gmName(sourceProgram));
+    lv_obj_t *body = sheetBase(tr(Str::KARA_SELECT_REPLACEMENT), layout().h);
+    lv_obj_t *source = Theme::label(body, title, &my_font_18, Theme::ACCENT);
+    lv_obj_set_width(source, LV_PCT(100));
+    std::string options;
+    for (unsigned program = 0; program < 128; program++) {
+        char option[80];
+        snprintf(option, sizeof(option), "%u %s%s", program + 1, Midi::gmName((uint8_t)program),
+                 program == sourceProgram ? " (MIDI)" : "");
+        options += option;
+        if (program < 127) options.push_back('\n');
+    }
+    lv_obj_t *dropdown = lv_dropdown_create(body);
+    s_instrumentDropdown = dropdown;
+    s_instrumentChannel = channel;
+    s_instrumentSource = sourceProgram;
+    lv_obj_add_event_cb(dropdown, [](lv_event_t *event) {
+        if (lv_event_get_target(event) == s_instrumentDropdown) s_instrumentDropdown = nullptr;
+    }, LV_EVENT_DELETE, nullptr);
+    lv_dropdown_set_options(dropdown, options.c_str());
+    lv_dropdown_set_selected(dropdown, selected);
+    lv_obj_set_width(dropdown, LV_PCT(100));
+    lv_obj_set_height(dropdown, layout().buttonH);
+    lv_obj_set_style_bg_color(dropdown, Theme::c(Theme::PANEL_RAISED), 0);
+    lv_obj_set_style_text_color(dropdown, Theme::c(Theme::TEXT), 0);
+    lv_obj_set_style_border_color(dropdown, Theme::c(Theme::LINE), 0);
+    lv_obj_set_style_text_font(dropdown, &my_font_18, 0);
+    lv_obj_set_style_text_font(lv_dropdown_get_list(dropdown), &my_font_18, 0);
+
+    lv_obj_t *preview = Theme::button(body, tr(Str::KARA_AUDITION), LV_PCT(100),
+                                      layout().buttonH, Theme::TEAL);
+    lv_obj_add_event_cb(preview, previewInstrumentCb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *applyButton = Theme::button(body, tr(Str::KARA_APPLY_INSTRUMENT), LV_PCT(100),
+                                          layout().buttonH, Theme::ACCENT, true);
+    lv_obj_add_event_cb(applyButton, applyInstrumentCb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *removeButton = Theme::button(body, tr(Str::KARA_USE_MIDI_INSTRUMENT), LV_PCT(100),
+                                           layout().buttonH, Theme::LINE);
+    lv_obj_add_event_cb(removeButton, applyInstrumentCb, LV_EVENT_CLICKED, (void *)1);
 }
 
 // ---- Sound bank picker (global default from the list, per song from the player) ----------------
@@ -1413,7 +1589,7 @@ void updateMelodyButton()
 void showPlayerMenu()
 {
     const auto l = layout();
-    lv_obj_t *body = sheetBase(LV_SYMBOL_LIST, l.buttonH * 7 + 56);
+    lv_obj_t *body = sheetBase(LV_SYMBOL_LIST, l.buttonH * 8 + 56);
     auto item = [&](const char *text, lv_event_cb_t cb) {
         lv_obj_t *b = ctlButton(body, text, 0, 0, 1, l.buttonH, Theme::TEAL, cb);
         lv_obj_set_width(b, LV_PCT(100));
@@ -1437,6 +1613,9 @@ void showPlayerMenu()
     else snprintf(track, sizeof(track), tr(Str::KARA_CH_FMT), ch + 1);
     snprintf(text, sizeof(text), "%s  %s", tr(Str::KARA_BTN_TRACK), track);
     item(text, [](lv_event_t *) { lv_async_call([](void *) { showTracks(); }, nullptr); });
+    item(tr(Str::KARA_INSTRUMENTS), [](lv_event_t *) {
+        lv_async_call([](void *) { showInstrumentChannels(); }, nullptr);
+    });
     item(tr(Str::KARA_FONT_SONG), [](lv_event_t *) {
         lv_async_call([](void *) { showFonts(true); }, nullptr);
     });

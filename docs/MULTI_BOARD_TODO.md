@@ -25,9 +25,23 @@ provar på båda korten. Varje firmwareleverans får en unik version.
   2026-11-07 är införda där.
 - [ ] Karaoke: mät och utvärdera reverb/chorus (CPU/RAM, S3 och P4, per
   SoundFont) innan standardvärden och editor beslutas.
-- [ ] Karaoke: separat melodispårvolym, flera instrumentommappningar per kanal
-  (främst sång, även andra kanaler) och låtunik lagring av alla låtval
-  (SoundFont, volymer, sångspår, kanal, effekter); mastervolym förblir global.
+- [x] Karaoke (v0.26.1): separat melodispårvolym och instrumentval/ommappningar per
+  kanal. Visa instrumentnamn och låt användaren provspela varje val med låtens
+  aktuella SoundFont innan det tillämpas. Namn och ljud kan skilja mellan
+  SoundFonts. Visa programnummer 1–128 i UI:t (MIDI-ID 0–127 internt).
+- [x] Karaoke (v0.26.1): spara låtinställningar i en separat fil per låt, inklusive
+  SoundFont, volymer, sångspår/kanal och instrumentmappningar. Lägg bara till
+  låtunika effekter om CPU/RAM-utvärderingen motiverar det. Ingen migrering av
+  befintligt innehåll från `karaoke.reg` behövs; allt får börja om. Ett nytt
+  centralt register kan fortsatt användas för spellistor och favoriter.
+  Formatförslag i `docs/ESP_UI_SETTINGS_PLAN.md`: `<låtnamn>.mid.kcfg` /
+  `<låtnamn>.kar.kcfg`, UTF-8 key/value med 1-baserade kanal-/GM-program-ID:n.
+- [ ] Karaoke: mät reverb/chorus (CPU/RAM) på S3 och P4 med tydligt angivna
+  SoundFonts och representativa låtar innan standardvärden eller eventuell
+  global av/på-inställning beslutas. Reverb/chorus har nytillkomna globala
+  kontroller och diagnostik i v0.26.0. Delmätning S3 (v0.26.3,
+  `4gmgsmt.sf2`, 48 röster, reverb/chorus på 50): hela låten utan hörbara
+  avbrott, 71–80 % medellast i toppen, minst 21 kB intern RAM ledigt.
 - [ ] Karaoke: editorläge för manuell textsynk mot MIDI-fil, troligen på webben.
 - [ ] Bekräfta ljudkontraktet (master mute, separat spelmusik-/SFX-mute och
   karaoke MIDI-kanal) innan metadata-/audioändringar.

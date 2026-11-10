@@ -133,7 +133,7 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   per händelse), text från `.kar` (`@T`/`@L`-taggar hoppas över, `/` = ny rad, `\` = ny vers) och vanliga
   lyrics-händelser (FF 05). Stavelser grupperas till rader. `Player` sköter tid, tempo 50–150 % och sökning
   (spelar upp controller-, program- och pitch bend-händelser fram till målet så att kanalerna låter rätt).
-- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 192 samtidiga röster är allokerade; valet 32, 64, 96,
+- **`otr_synth`**: vendrad TinySoundFont (MIT). Upp till 192 samtidiga röster är allokerade; valet 32, 48, 64, 96,
   128, 160 eller 192 är globalt och väljs i ljudbanksväljaren. Röststrukturerna tar ytterligare ungefär
   tiotals kB jämfört med 32 röster; högre max kan öka CPU-belastningen även när färre röster spelar, så välj lägsta
   tak som inte ger röststöld. Patchar för ESP32-S3: sampel lagras som `int16` (halva minnet –
@@ -178,6 +178,9 @@ LVGL-tasken ── ui_karaoke ── Karaoke::view() (position, aktuell rad, sta
   NVS `kara_voices` (32/64/96/128/160/192, standard 96) begränsar antalet röster.
 - **v0.23 – rösttak per kort:** S3-profilen förallokerar högst 96 röster och visar valen 32/64/96; P4-profilen
   förallokerar högst 192 och visar valen 32–192. Standardvärdet är 96; 128+ på P4 är opt-in.
+- **v0.26.1 – S3-tak 48 röster:** mätning på S3 (4 MB GM-soundfont, 64 röster) gav ~90 % medellast och
+  underruns, 32 röster ~50 %. S3 visar nu valen 32/48; 48 är nytt val för alla kort. Reverb-/chorus-buffertar
+  läggs i PSRAM när intern RAM är knapp (S3), vilket gav ~30 kB mer intern RAM under uppspelning.
 - **Mätning på P4:** FluidR3 (151 MB), Alan Parsons Project “Time”, 96 röster: 0 underruns, cirka 45 % medellast,
   97 % maxlast och långa perioder med 96/96 aktiva röster. En separat helsångsmätning med 192 som tak hade också
   0 underruns, men 5-sekunders medellast varierade ungefär 33–78 %, maxlast nådde 134 % och topparna var 179/192.
@@ -339,8 +342,32 @@ genomsnittlig renderlast ≥ 100 % eller minst 5 sena mixerblock
 `overload: stopped (...)` och enhetens karaokevy visar att SF2 eller
 röstantal är för krävande för hårdvaran. Webbspelaren visar ännu inget eget
 meddelande. Kortare toppar än en period och enstaka sena block stoppar inte.
-Gränsen gäller båda korten; P4-tröskeln är inte separat mätt. Ägaren
+Gränsen gäller båda korten; P4-tröskeln är inte separat mätt.
+
+Från v0.26.2 räcker inte en enstaka period med 5–14 sena block: det krävs två
+sådana perioder i rad, eller minst 15 sena block eller ≥ 100 % medellast i en
+period. Räknaren tolkades då som sena block; ägartest på S3
+(v0.26.1, 4 MB GM-soundfont, 48 röster)
+stoppades vid +7 sena block och 89 % medellast utan hörbart avbrott. Ägaren
 bekräftade på S3 (v0.23.21) att varningen visades när watchdogen larmade.
+
+Från v0.26.3 används bara gränsen ≥ 100 % genomsnittlig renderlast för stopp.
+De tidigare `underruns` döps i loggen om till `late-runs`: varje värde är en
+följd av 12 I2S-skrivningar som var och en avslutas inom samma RTOS-tick.
+Det är en tidsindikator, inte ett mått på buffertnivån eller bevis för ett
+ljudavbrott. Den kan påverkas av schemaläggning och tickupplösning.
+`DMA-q-overflows` räknar separat I2S-drivrutinens TX-kööverflöden när färdiga
+DMA-buffertar inte hämtas för påfyllning i tid. Inte heller den räknaren anger
+antal hörbara avbrott. Båda loggas som total och ökning per femsekundersperiod,
+utan att stoppa spelaren. Webbdiagnostiken visar båda; JSON-fältet `underruns`
+och power-history-kolumnen `audio_underruns` behålls som äldre namn för
+`late-runs`. De nya mätvärdena är ännu inte verifierade på enheten.
+
+`steals` anger antalet röster som återanvändes under perioden när rösttaket
+nåddes. Först väljs en röst som kommit längst i sin utklingning (release),
+annars den äldsta spelande rösten. En MIDI-ton kan använda flera röster om
+soundfonten har flera matchande lager. Återanvändning kan korta utklingningar,
+men är inte samma sak som ett avbrott i hela ljudströmmen.
 
 ### Webbkaraoke i mono/stereo
 

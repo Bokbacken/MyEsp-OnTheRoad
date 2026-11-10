@@ -8,6 +8,41 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.3
+
+- Correct karaoke diagnostics: the old `underruns` counter is now labelled
+  `late-runs`. It counts runs of 12 same-tick I2S writes, not confirmed audio
+  dropouts. Add `DMA-q-overflows`, measured by the driver's TX refill-queue
+  overflow callback; this is also not a direct count of audible dropouts.
+- Timing counters no longer stop karaoke. The existing stop at >=100 %
+  average render load over a 5 s period remains. Owner S3 logs from v0.26.2
+  still triggered the old rule at 91/87 % load and +5/+7 late runs.
+- Web diagnostics show both counters. The JSON `underruns` field and the
+  power-history CSV `audio_underruns` column remain legacy names for late
+  runs for compatibility. Owner verified on S3 that instrument changes work
+  in v0.26.3; they had previously stuck at "loading SoundFont" in v0.26.2.
+  Hardware verification of the new counters is pending.
+
+## v0.26.2
+
+- Karaoke overload guard: a single 5 s period with 5–14 late mixer blocks no
+  longer stops playback; it takes two such periods in a row, or ≥15 late
+  blocks or ≥100 % average render load in one period. Owner S3 test (v0.26.1,
+  4 MB SoundFont, 48 voices) was stopped at +7 late blocks with no audible
+  dropout. The earlier watchdog case (v0.23.18) still stops.
+
+## v0.26.1
+
+- Per-song karaoke settings in `.kcfg` sidecar files: relative melody/vocal
+  track volume and per-channel instrument remapping with audition through the
+  selected SoundFont. Changing an instrument re-prepares the song's samples.
+- Reverb/chorus delay lines (~28 kB) only use internal RAM when there is ample
+  headroom; on the S3 they move to PSRAM. Owner-reported on S3: free internal
+  RAM during playback rose from ~17 kB (min 204 bytes, SD DMA failures) to
+  ~47 kB (min ~16 kB).
+- New voice option 48. The S3 voice cap drops from 96 to 48 (options 32/48)
+  after owner-reported overload stops at 64 voices with a 4 MB SoundFont.
+
 ## v0.26.0
 
 - Karaoke settings sheet gets global reverb and chorus controls (on/off and

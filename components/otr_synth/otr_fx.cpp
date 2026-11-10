@@ -7,9 +7,15 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
-static float *fxAlloc(int n)   // Internal RAM is faster; PSRAM as fallback
+// Internal RAM is faster, but only used with ample headroom: on the S3 the ~28 kB of delay lines
+// would starve SD DMA and Wi-Fi, so they go to PSRAM there.
+static constexpr size_t FX_INTERNAL_HEADROOM = 96 * 1024;
+static float *fxAlloc(int n)
 {
-    void *p = heap_caps_calloc((size_t)n, sizeof(float), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t bytes = (size_t)n * sizeof(float);
+    void *p = nullptr;
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >= bytes + FX_INTERNAL_HEADROOM)
+        p = heap_caps_calloc((size_t)n, sizeof(float), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!p) p = heap_caps_calloc((size_t)n, sizeof(float), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     return (float *)p;
 }

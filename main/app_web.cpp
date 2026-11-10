@@ -274,6 +274,8 @@ static void diagAudio(cJSON *o)
     cJSON_AddNumberToObject(o, "channels", s.busyChannels);
     cJSON_AddNumberToObject(o, "files_cached", s.filesCached);
     cJSON_AddNumberToObject(o, "underruns", s.underruns);
+    cJSON_AddNumberToObject(o, "late_runs", s.underruns);
+    cJSON_AddNumberToObject(o, "dma_queue_overflows", s.dmaQueueOverflows);
     cJSON_AddStringToObject(o, "error", s.error ? s.error : "");
 }
 

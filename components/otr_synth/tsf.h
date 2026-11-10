@@ -228,6 +228,7 @@ TSFDEF int tsf_channel_set_bank(tsf* f, int channel, int bank);
 TSFDEF int tsf_channel_set_bank_preset(tsf* f, int channel, int bank, int preset_number);
 TSFDEF int tsf_channel_set_pan(tsf* f, int channel, float pan);
 TSFDEF int tsf_channel_set_volume(tsf* f, int channel, float volume);
+TSFDEF int tsf_channel_set_gain(tsf* f, int channel, float gain);
 TSFDEF int tsf_channel_set_pitchwheel(tsf* f, int channel, int pitch_wheel);
 TSFDEF int tsf_channel_set_pitchrange(tsf* f, int channel, float pitch_range);
 TSFDEF int tsf_channel_set_tuning(tsf* f, int channel, float tuning);
@@ -479,7 +480,7 @@ struct tsf_voice
 struct tsf_channel
 {
 	unsigned short presetIndex, bank, pitchWheel, midiPan, midiVolume, midiExpression, midiRPN, midiData : 14, sustain : 1;
-	float panOffset, gainDB, pitchRange, tuning;
+	float panOffset, gainDB, pitchRange, tuning, volumeGain;
 };
 
 struct tsf_channels
@@ -1854,6 +1855,7 @@ static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
 		c->midiData = c->sustain = 0;
 		c->panOffset = 0.0f;
 		c->gainDB = 0.0f;
+		c->volumeGain = 1.0f;
 		c->pitchRange = 2.0f;
 		c->tuning = 0.0f;
 	}
@@ -1948,6 +1950,16 @@ TSFDEF int tsf_channel_set_volume(tsf* f, int channel, float volume)
 			v->noteGainDB += gainDBChange;
 	c->gainDB = gainDB;
 	return 1;
+}
+
+TSFDEF int tsf_channel_set_gain(tsf* f, int channel, float gain)
+{
+	struct tsf_channel* c = tsf_channel_init(f, channel);
+	if (!c) return 0;
+	if (gain < 0.0f) gain = 0.0f;
+	c->volumeGain = gain;
+	return tsf_channel_set_volume(f, channel,
+		TSF_POWF((c->midiVolume / 16383.0f) * (c->midiExpression / 16383.0f), 3.0f) * gain);
 }
 
 TSFDEF int tsf_channel_set_pitchwheel(tsf* f, int channel, int pitch_wheel)
@@ -2079,7 +2091,7 @@ TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int con
 			c->bank = 0;
 			c->midiRPN = 0xFFFF;
 			c->midiData = 0;
-			tsf_channel_set_volume(f, channel, 1.0f);
+			tsf_channel_set_volume(f, channel, c->volumeGain);
 			tsf_channel_set_pan(f, channel, 0.5f);
 			tsf_channel_set_pitchrange(f, channel, 2.0f);
 			tsf_channel_set_tuning(f, channel, 0);
@@ -2088,7 +2100,7 @@ TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int con
 	return 1;
 TCMC_SET_VOLUME:
 	//Raising to the power of 3 seems to result in a decent sounding volume curve for MIDI
-	tsf_channel_set_volume(f, channel, TSF_POWF((c->midiVolume / 16383.0f) * (c->midiExpression / 16383.0f), 3.0f));
+	tsf_channel_set_volume(f, channel, TSF_POWF((c->midiVolume / 16383.0f) * (c->midiExpression / 16383.0f), 3.0f) * c->volumeGain);
 	return 1;
 TCMC_SET_PAN:
 	tsf_channel_set_pan(f, channel, c->midiPan / 16383.0f);

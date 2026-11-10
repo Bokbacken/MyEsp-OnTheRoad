@@ -23,6 +23,7 @@
 #include "kara_lyrics.h"
 #include "kara_overload.h"
 #include "fs_upload.h"
+#include "kara_settings.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -57,7 +58,12 @@ std::string s_fileName;
 int s_melody = -1;
 bool s_melodyReg = false, s_melodyMuted = false;
 uint8_t s_songVolume = 100;
-Midi::RegEntry s_savedSettings;
+uint8_t s_melodyGain = 100;
+std::vector<KaraSettings::InstrumentMap> s_instrumentMaps;
+KaraSettings::Song s_savedSettings;
+bool s_previewActive = false, s_previewPending = false, s_previewResume = false;
+int s_previewChannel = -1, s_previewProgram = -1, s_previewKey = 60;
+uint32_t s_previewFrames = 0, s_previewPosition = 0;
 
 volatile FontState s_fontState = FontState::NONE;
 volatile Err s_fontErr = Err::OK;
@@ -90,7 +96,8 @@ uint32_t s_extGen = 0;          // openByPath counter (UI follows)
 volatile bool s_autoPlay = false;   // openByPath: start playing when the sound bank is ready
 constexpr const char *LOG_DIR = "/sdcard/otr/logs";   // Not counted in the index's free space
 volatile int s_voicesPeak = 0;
-uint32_t s_lastUnderruns = 0;
+uint32_t s_lastLateRuns = 0;
+uint32_t s_lastDmaQueueOverflows = 0;
 
 struct Lock {
     Lock()
@@ -137,9 +144,23 @@ void renderCb(int32_t *acc, int n, int gainQ8, void *)
             if (s_player.finished()) s_player.seek(0, s_synth);
             s_player.play(true);
         }
-        s_player.advance((uint32_t)((uint64_t)n * 1000000u / Synth::RATE), s_synth);
+        if (!s_previewActive)
+            s_player.advance((uint32_t)((uint64_t)n * 1000000u / Synth::RATE), s_synth);
         const int songGainQ8 = (int)((int64_t)gainQ8 * s_songVolume / 100);
         s_synth.render(acc, n, songGainQ8);
+        if (s_previewActive) {
+            if ((uint32_t)n >= s_previewFrames) {
+                s_synth.midi((uint8_t)(0x80 | s_previewChannel), (uint8_t)s_previewKey, 0);
+                s_player.seek(s_previewPosition, s_synth);
+                if (s_previewResume) s_player.play(true);
+                s_previewActive = s_previewResume = false;
+                s_previewChannel = -1;
+                s_previewProgram = -1;
+                s_previewFrames = 0;
+            } else {
+                s_previewFrames -= (uint32_t)n;
+            }
+        }
         KaraWeb::onRender(s_song, s_player.position());   // v0.13.5: lyric events for the web stream
         const int v = s_synth.activeVoices();
         if (v > s_voicesPeak) s_voicesPeak = v;
@@ -172,24 +193,110 @@ Err loadRegistry()
         return Err::FILE_BAD;
     }
     s_reg.load(text);
+    const unsigned legacy = (unsigned)s_reg.size();
+    s_reg.clearSongSettings();
     s_regLoaded = true;
-    ESP_LOGI(TAG, "register: %u songs", (unsigned)s_reg.size());
+    ESP_LOGI(TAG, "register: retired %u legacy song settings; %u playlists",
+             legacy, (unsigned)s_reg.playlists().size());
     return Err::OK;
 }
 
-// Caller holds s_mux; includes a pending transpose while the samples are loading.
-Midi::RegEntry currentSettings()
+std::string songSettingsPath(const std::string &songPath)
 {
-    Midi::RegEntry e;
-    e.crc = s_crc, e.size = s_size;
-    e.melody = (int8_t)s_melody;
-    e.transpose = (int8_t)s_pendingTr;
-    e.tempo = (uint8_t)s_player.tempo();
-    e.melodyMuted = s_melodyMuted;
-    e.volume = s_songVolume;
-    e.sf2 = s_songSf2;
-    e.name = s_fileName;
-    return e;
+    return songPath + ".kcfg";
+}
+
+Err readSongSettings(const std::string &songPath, KaraSettings::Song &settings)
+{
+    settings = KaraSettings::Song{};
+    const std::string path = songSettingsPath(songPath);
+    BoardSd::Guard g;
+    if (!BoardSd::mounted()) return Err::NO_SD;
+    FILE *f = fopen(path.c_str(), "rb");
+    if (!f) return errno == ENOENT ? Err::OK : Err::SETTINGS_BAD;
+    std::string text;
+    char buf[256];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0 && text.size() <= KaraSettings::MAX_FILE_SIZE)
+        text.append(buf, n);
+    const bool ok = !ferror(f) && text.size() <= KaraSettings::MAX_FILE_SIZE;
+    fclose(f);
+    if (!ok) return Err::SETTINGS_BAD;
+    const KaraSettings::Err err = KaraSettings::parse(text.data(), text.size(), settings);
+    return err == KaraSettings::Err::OK ? Err::OK : Err::SETTINGS_BAD;
+}
+
+bool writeSongSettings(const std::string &songPath, const std::string &text)
+{
+    if (text.empty() || text.size() > KaraSettings::MAX_FILE_SIZE) return false;
+    const std::string path = songSettingsPath(songPath);
+    const std::string tmp = path + ".tmp";
+    const std::string backup = path + ".bak";
+    if (path.size() >= 320 || tmp.size() >= 320 || backup.size() >= 320) return false;
+    BoardSd::Guard g;
+    if (!BoardSd::mounted()) return false;
+    FILE *f = fopen(tmp.c_str(), "wb");
+    if (!f) return false;
+    bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
+    if (fflush(f) != 0 || ferror(f)) ok = false;
+    if (fclose(f) != 0) ok = false;
+    if (!ok || FsUpload::install(tmp.c_str(), path.c_str(), backup.c_str(), true) !=
+                   FsUpload::InstallResult::INSTALLED) {
+        ESP_LOGE(TAG, "Cannot save song settings %s", path.c_str());
+        FsUpload::discard(tmp.c_str());
+        return false;
+    }
+    return true;
+}
+
+// Caller holds s_mux; includes a pending transpose while the samples are loading.
+KaraSettings::Song currentSettings()
+{
+    KaraSettings::Song settings;
+    settings.soundfont = s_songSf2;
+    settings.midiVolume = s_songVolume;
+    settings.melodyChannel = s_melodyReg ? (int8_t)s_melody : -2;
+    settings.melodyMuted = s_melodyMuted;
+    settings.melodyGainPct = s_melodyGain;
+    settings.tempo = (uint8_t)s_player.tempo();
+    settings.transpose = (int8_t)s_pendingTr;
+    settings.instrumentMaps = s_instrumentMaps;
+    return settings;
+}
+
+void applyMelodyGain()   // Caller holds s_mux
+{
+    for (int ch = 0; ch < 16; ch++)
+        s_synth.setChannelGain(ch, ch == s_melody ? s_melodyGain : 100);
+}
+
+void applyMelodyMute();
+
+void applyInstrumentMaps()   // Caller holds s_mux
+{
+    Sf::InstrumentMap maps[KaraSettings::MAX_INSTRUMENT_MAPS];
+    const size_t count = std::min(s_instrumentMaps.size(), KaraSettings::MAX_INSTRUMENT_MAPS);
+    for (size_t i = 0; i < count; i++) {
+        maps[i] = {s_instrumentMaps[i].channel, s_instrumentMaps[i].sourceProgram,
+                   s_instrumentMaps[i].replacementProgram};
+    }
+    s_synth.setInstrumentMaps(maps, count);
+}
+
+void applySongSettings(const KaraSettings::Song &settings, bool useAutoMelody)   // Caller holds s_mux
+{
+    s_songSf2 = settings.soundfont;
+    s_songVolume = settings.midiVolume;
+    s_melodyMuted = settings.melodyMuted;
+    s_melodyGain = settings.melodyGainPct;
+    s_melodyReg = settings.melodyChannel != -2;
+    if (!useAutoMelody && settings.melodyChannel != -2) s_melody = settings.melodyChannel;
+    s_player.setTempo(settings.tempo);
+    s_pendingTr = settings.transpose;
+    s_instrumentMaps = settings.instrumentMaps;
+    applyInstrumentMaps();
+    applyMelodyGain();
+    applyMelodyMute();
 }
 
 // Written without holding s_mux so the mixer keeps playing during the SD write.
@@ -274,6 +381,11 @@ bool exists(const char *path)
 // chain: global default -> default.sf2 -> first .sf2 that passes the probe.
 bool findFont(const char *req, char *path, size_t cap, char *name, size_t nameCap)
 {
+    if (req && *req) {
+        char requestedPath[160];
+        if (!fontPath(requestedPath, sizeof(requestedPath), req) || !exists(requestedPath))
+            ESP_LOGW(TAG, "requested SoundFont missing: %s; using fallback", req);
+    }
     const char *cands[] = {req, Config::get().karaFont, "default.sf2"};
     for (const char *c : cands) {
         if (!c || !*c || strlen(c) >= nameCap) continue;
@@ -333,22 +445,26 @@ void diagCb(void *)
         limit = s_synth.maxVoices();
         steals = s_synth.takeVoiceSteals();
     }
-    const uint32_t newUnder = st.underruns - s_lastUnderruns;
-    s_lastUnderruns = st.underruns;
+    const uint32_t newLateRuns = st.underruns - s_lastLateRuns;
+    s_lastLateRuns = st.underruns;
+    const uint32_t newDmaOverflows = st.dmaQueueOverflows - s_lastDmaQueueOverflows;
+    s_lastDmaQueueOverflows = st.dmaQueueOverflows;
     if (!s_open || s_fontState == FontState::LOADING || !st.blocks) return;
     const Sf::Effects fx = cfgEffects();
     ESP_LOGI(TAG,
-             "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, steals %u, %s, "
+             "diag: load avg %u.%02u%% max %u.%02u%%, late-runs %u (+%u), DMA-q-overflows %u (+%u), "
+             "voices peak %d/%d, steals %u, %s, "
              "reverb %s/%u chorus %s/%u, free int %u min %u PSRAM %u",
              (unsigned)(st.avgLoad100 / 100), (unsigned)(st.avgLoad100 % 100), (unsigned)(st.maxLoad100 / 100),
-             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, limit,
+             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newLateRuns,
+             (unsigned)st.dmaQueueOverflows, (unsigned)newDmaOverflows, peak, limit,
              (unsigned)steals,
              s_player.playing() ? "playing" : "paused", fx.reverb ? "on" : "off", (unsigned)fx.reverbLevel,
              fx.chorus ? "on" : "off", (unsigned)fx.chorusLevel,
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    if (!KaraOverload::shouldStop(st.avgLoad100, newUnder)) return;
+    if (!KaraOverload::shouldStop(st.avgLoad100)) return;
     {
         Lock l;
         if (!s_open || !s_player.playing()) return;
@@ -356,8 +472,8 @@ void diagCb(void *)
         s_synth.allNotesOff();
         s_overloadStop = true;
     }
-    ESP_LOGW(TAG, "overload: stopped (%s, %d voices, avg %u%%, +%u underruns)", s_fontName, limit,
-             (unsigned)(st.avgLoad100 / 100), (unsigned)newUnder);
+    ESP_LOGW(TAG, "overload: stopped (%s, %d voices, avg %u%%, +%u late-runs, +%u DMA-q-overflows)", s_fontName, limit,
+             (unsigned)(st.avgLoad100 / 100), (unsigned)newLateRuns, (unsigned)newDmaOverflows);
 }
 
 void startDiag()
@@ -367,8 +483,9 @@ void startDiag()
                                            .name = "karadiag", .skip_unhandled_events = true};
         if (esp_timer_create(&a, &s_diagTimer) != ESP_OK) return;
     }
-    Audio::takeExternalStats();   // Start a fresh period
-    s_lastUnderruns = Audio::status().underruns;
+    const Audio::ExternalStats audio = Audio::takeExternalStats();   // Start a fresh period
+    s_lastLateRuns = audio.underruns;
+    s_lastDmaQueueOverflows = audio.dmaQueueOverflows;
     s_voicesPeak = 0;
     s_synth.takeVoiceSteals();
     if (!esp_timer_is_active(s_diagTimer)) esp_timer_start_periodic(s_diagTimer, 5000000);
@@ -440,12 +557,25 @@ void fontTask(void *)
                 if (s_open && err == Err::OK && s_songGen == s_failGen) err = Err::SONG_TOO_BIG;
                 if (s_open) {   // Re-apply the song state (programs via seek, mute, transpose)
                     s_synth.setTranspose(s_pendingTr);
+                    applyMelodyGain();
                     applyMelodyMute();
                     s_player.seek(s_player.position(), s_synth);
+                    if (s_previewPending && err == Err::OK) {
+                        if (s_synth.previewNote(s_previewChannel, s_previewProgram, s_previewKey, 100)) {
+                            s_previewActive = true;
+                            s_previewFrames = Synth::RATE * 3 / 2;
+                        } else {
+                            ESP_LOGW(TAG, "instrument preview unavailable: channel %d program %d",
+                                     s_previewChannel + 1, s_previewProgram + 1);
+                            s_previewPending = false;
+                        }
+                    }
                     if (s_trReload && err == Err::OK) {
-                        if (s_resumePlay) s_player.play(true);   // Continues where it stopped
+                        if (s_resumePlay && !s_previewActive) s_player.play(true);   // Continues where it stopped
                     }
                 }
+                s_previewPending = false;
+                s_synth.clearPreviewPreset();
                 s_trReload = s_resumePlay = false;
                 s_fontErr = err;
                 s_fontState = err == Err::OK ? FontState::READY : FontState::FAILED;
@@ -462,6 +592,7 @@ void fontTask(void *)
             BoardSd::Guard g;
             le = s_synth.prepare(scan, &progressCb, nullptr);
         }
+        s_synth.clearPreviewPreset();
         const Sf::PrepStats st = s_synth.stats();
         ESP_LOGI(TAG, "prepare (transpose %d): %s, %u bytes of budget %u, %u presets, %u zones (%u resampled, %u bytes saved), %u reads%s, %lld ms, PSRAM free %u",
                  s_synth.transpose(), Sf::loadErrName(le), (unsigned)st.bytes, (unsigned)st.budget, st.presets, st.regions,
@@ -500,6 +631,12 @@ void startTask(bool openBank)
     if (xTaskCreatePinnedToCore(fontTask, "sf2load", 6144, nullptr, 3, nullptr, 1) != pdPASS) {
         s_fontErr = Err::NO_MEMORY;
         s_fontState = FontState::FAILED;
+        if (s_previewPending) {
+            s_synth.clearPreviewPreset();
+            s_previewPending = false;
+            if (s_previewResume) s_player.play(true);
+            s_previewResume = false;
+        }
     }
 }
 
@@ -873,6 +1010,11 @@ void setSongFont(const char *name)
 FontState fontState() { return s_fontState; }
 Err fontError() { return s_fontErr; }
 const char *fontName() { return s_fontName; }
+bool fontFallback()
+{
+    const std::string requested = currentRequest();
+    return s_fontState == FontState::READY && !requested.empty() && requested != s_fontName;
+}
 
 void unloadFont()
 {
@@ -949,6 +1091,9 @@ Err open(const SongFile &sf)
         fclose(f);
         if (!ok) return Err::FILE_BAD;
     }
+    KaraSettings::Song settings;
+    const Err settingsErr = readSongSettings(sf.path, settings);
+    if (settingsErr != Err::OK) return settingsErr;
     Lock l;
     Midi::Err e = Midi::parse(data.data(), data.size(), s_song);
     if (e == Midi::Err::TOO_BIG) return Err::FILE_TOO_BIG;
@@ -1041,29 +1186,14 @@ Err open(const SongFile &sf)
     const size_t slash = sf.path.find_last_of('/');
     s_fileName = slash == std::string::npos ? sf.path : sf.path.substr(slash + 1);
     s_melody = s_song.melody;
-    s_melodyReg = false;
-    s_melodyMuted = false;
-    s_songVolume = 100;
-    int tr = 0, tempo = 100;
-    s_songSf2.clear();
-    if (const Midi::RegEntry *r = s_reg.find(s_crc, s_size)) {
-        s_songSf2 = r->sf2;
-        if (r->melody != s_song.melody) s_melody = r->melody, s_melodyReg = true;
-        tr = r->transpose;
-        tempo = r->tempo;
-        s_melodyMuted = r->melodyMuted;
-        s_songVolume = r->volume;
-    }
     s_player.load(&s_song);
-    s_player.setTempo(tempo);
-    s_pendingTr = tr;
+    applySongSettings(settings, false);
     s_trReload = s_resumePlay = false;
     s_songGen++;
     if (s_songGen == 0) s_songGen = 1;   // 0 = "none"
     if (!synthBusy()) {
-        s_synth.setTranspose(tr);
+        s_synth.setTranspose(s_pendingTr);
         s_player.seek(0, s_synth);
-        applyMelodyMute();
     }
     s_open = true;
     s_savedSettings = currentSettings();
@@ -1093,6 +1223,10 @@ void close()
     if (!s_open) return;
     s_open = false;
     s_autoPlay = false;
+    s_previewActive = s_previewResume = false;
+    s_previewPending = false;
+    s_previewChannel = s_previewProgram = -1;
+    s_previewFrames = 0;
     s_player.play(false);
     if (!synthBusy()) s_synth.reset();
     s_player.load(nullptr);
@@ -1188,6 +1322,7 @@ void setMelody(int ch)
     if (!s_open || synthBusy() || ch < -1 || ch > 15) return;
     s_melody = ch;
     s_melodyReg = ch != s_song.melody;
+    applyMelodyGain();
     applyMelodyMute();
 }
 
@@ -1211,34 +1346,132 @@ void setSongVolume(uint8_t v)
     if (s_open) s_songVolume = v > 200 ? 200 : v;
 }
 
+uint8_t melodyGain() { return s_melodyGain; }
+
+void setMelodyGain(uint8_t v)
+{
+    Lock l;
+    if (!s_open) return;
+    s_melodyGain = v > 200 ? 200 : v;
+    if (!synthBusy()) applyMelodyGain();
+}
+
+std::vector<InstrumentMapping> instrumentMappings()
+{
+    Lock l;
+    std::vector<InstrumentMapping> out;
+    out.reserve(s_instrumentMaps.size());
+    for (const auto &m : s_instrumentMaps) out.push_back({m.channel, m.sourceProgram, m.replacementProgram});
+    return out;
+}
+
+Err setInstrumentMapping(uint8_t channel, uint8_t sourceProgram, uint8_t replacementProgram)
+{
+    if (channel > 15 || sourceProgram > 127 || replacementProgram > 127) return Err::BAD_INPUT;
+    Lock l;
+    if (!s_open) return Err::NO_FILE;
+    if (synthBusy()) return Err::BUSY;
+    auto it = std::find_if(s_instrumentMaps.begin(), s_instrumentMaps.end(), [&](const auto &m) {
+        return m.channel == channel && m.sourceProgram == sourceProgram;
+    });
+    if (it == s_instrumentMaps.end()) {
+        if (s_instrumentMaps.size() >= KaraSettings::MAX_INSTRUMENT_MAPS) return Err::BAD_INPUT;
+        s_instrumentMaps.push_back({channel, sourceProgram, replacementProgram});
+    } else {
+        it->replacementProgram = replacementProgram;
+    }
+    applyInstrumentMaps();
+    const bool resume = s_player.playing();
+    s_trReload = true;
+    s_resumePlay = resume;
+    s_prevTr = s_pendingTr;
+    if (++s_songGen == 0) s_songGen = 1;
+    startTask(false);
+    return Err::OK;
+}
+
+Err removeInstrumentMapping(uint8_t channel, uint8_t sourceProgram)
+{
+    if (channel > 15 || sourceProgram > 127) return Err::BAD_INPUT;
+    Lock l;
+    if (!s_open) return Err::NO_FILE;
+    if (synthBusy()) return Err::BUSY;
+    const auto it = std::find_if(s_instrumentMaps.begin(), s_instrumentMaps.end(), [&](const auto &m) {
+        return m.channel == channel && m.sourceProgram == sourceProgram;
+    });
+    if (it == s_instrumentMaps.end()) return Err::OK;
+    s_instrumentMaps.erase(it);
+    applyInstrumentMaps();
+    const bool resume = s_player.playing();
+    s_trReload = true;
+    s_resumePlay = resume;
+    s_prevTr = s_pendingTr;
+    if (++s_songGen == 0) s_songGen = 1;
+    startTask(false);
+    return Err::OK;
+}
+
+Err previewInstrument(uint8_t channel, uint8_t program)
+{
+    if (channel > 15 || program > 127) return Err::BAD_INPUT;
+    Lock l;
+    if (!s_open) return Err::NO_FILE;
+    if (synthBusy() || !s_synth.bankOpen() || s_previewActive || s_previewPending) return Err::BUSY;
+    s_previewChannel = channel;
+    s_previewProgram = program;
+    s_previewKey = 60;
+    s_previewPosition = s_player.position();
+    s_previewResume = s_player.playing();
+    s_previewPending = true;
+    s_synth.setPreviewPreset(channel, program);
+    s_trReload = true;
+    s_resumePlay = s_previewResume;
+    s_prevTr = s_pendingTr;
+    if (++s_songGen == 0) s_songGen = 1;
+    startTask(false);
+    return Err::OK;
+}
+
 bool songSettingsDirty()
 {
     Lock l;
     if (!s_open) return false;
-    const Midi::RegEntry e = currentSettings();
-    return e.melody != s_savedSettings.melody || e.transpose != s_savedSettings.transpose ||
-           e.tempo != s_savedSettings.tempo || e.melodyMuted != s_savedSettings.melodyMuted ||
-           e.volume != s_savedSettings.volume || e.sf2 != s_savedSettings.sf2;
+    const KaraSettings::Song e = currentSettings();
+    if (e.soundfont != s_savedSettings.soundfont || e.midiVolume != s_savedSettings.midiVolume ||
+        e.melodyChannel != s_savedSettings.melodyChannel || e.melodyMuted != s_savedSettings.melodyMuted ||
+        e.melodyGainPct != s_savedSettings.melodyGainPct || e.tempo != s_savedSettings.tempo ||
+        e.transpose != s_savedSettings.transpose || e.instrumentMaps.size() != s_savedSettings.instrumentMaps.size())
+        return true;
+    for (size_t i = 0; i < e.instrumentMaps.size(); i++) {
+        const auto &a = e.instrumentMaps[i];
+        const auto &b = s_savedSettings.instrumentMaps[i];
+        if (a.channel != b.channel || a.sourceProgram != b.sourceProgram ||
+            a.replacementProgram != b.replacementProgram)
+            return true;
+    }
+    return false;
 }
 
 Err saveSongSettings()
 {
     RegistryLock registryLock;
-    Midi::RegEntry entry;
+    KaraSettings::Song entry;
+    std::string path, text;
+    uint32_t generation;
     {
         Lock l;
         if (!s_open) return Err::NO_FILE;
         if (synthBusy()) return Err::BUSY;
         entry = currentSettings();
+        path = s_cur.path;
+        generation = s_songGen;
     }
-    Midi::Registry next = s_reg;
-    next.set(entry);
-    const std::string rel = s_cur.path.substr(strlen(DIR_SONGS) + 1);
-    next.rememberSongPath(entry.crc, entry.size, rel.c_str());
-    if (!writeRegistry(next.save())) return Err::SAVE_FAILED;
-    s_reg = std::move(next);
+    if (KaraSettings::serialize(entry, text) != KaraSettings::Err::OK ||
+        !writeSongSettings(path, text))
+        return Err::SAVE_FAILED;
     {
         Lock l;
+        if (!s_open || generation != s_songGen || path != s_cur.path) return Err::BUSY;
         s_savedSettings = entry;
     }
     return Err::OK;
@@ -1246,26 +1479,19 @@ Err saveSongSettings()
 
 Err discardSongSettings()
 {
-    Midi::RegEntry saved;
+    KaraSettings::Song saved;
     {
         Lock l;
         if (!s_open) return Err::NO_FILE;
         if (synthBusy()) return Err::BUSY;
         saved = s_savedSettings;
-        s_player.setTempo(saved.tempo);
-        s_melody = saved.melody;
-        s_melodyReg = s_melody != s_song.melody;
-        s_melodyMuted = saved.melodyMuted;
-        s_songVolume = saved.volume;
-        s_songSf2 = saved.sf2;
-        s_pendingTr = saved.transpose;
+        applySongSettings(saved, false);
         s_trReload = false;
         s_resumePlay = false;
         s_trRejected = false;
         if (!synthBusy()) {
             s_synth.setTranspose(saved.transpose);
             s_player.seek(s_player.position(), s_synth);
-            applyMelodyMute();
         }
     }
     ensureFont(true);
@@ -1297,7 +1523,7 @@ Err songKeyByPath(const char *path, Midi::SongKey &key)
 
 Err validateSongFont(const char *font)
 {
-    if (!font || strlen(font) > 47 || strpbrk(font, "/\\\r\n\t")) return Err::BAD_INPUT;
+    if (!font || !KaraSettings::validSoundfont(font)) return Err::BAD_INPUT;
     if (!*font) return Err::OK;
     std::vector<FontFile> fonts;
     const Err err = scanFonts(fonts);
@@ -1356,15 +1582,14 @@ Err editPlaylist(const char *action, uint16_t &id, const char *name,
 
 Err songFontByPath(const char *path, std::string &font)
 {
-    RegistryLock registryLock;
-    Err err = loadRegistry();
-    if (err != Err::OK) return err;
     Midi::SongKey key;
-    err = songKeyByPath(path, key);
+    Err err = songKeyByPath(path, key);
     if (err != Err::OK) return err;
-    const Midi::RegEntry *entry = s_reg.find(key.crc, key.size);
-    font = entry ? entry->sf2 : "";
-    return Err::OK;
+    const std::string full = std::string(DIR_SONGS) + "/" + key.path;
+    KaraSettings::Song settings;
+    err = readSongSettings(full, settings);
+    if (err == Err::OK) font = settings.soundfont;
+    return err;
 }
 
 Err saveSongFontByPath(const char *path, const char *font)
@@ -1372,48 +1597,33 @@ Err saveSongFontByPath(const char *path, const char *font)
     const Err fontErr = validateSongFont(font);
     if (fontErr != Err::OK) return fontErr;
     RegistryLock registryLock;
-    Err err = loadRegistry();
-    if (err != Err::OK) return err;
     Midi::SongKey key;
-    err = songKeyByPath(path, key);
+    Err err = songKeyByPath(path, key);
     if (err != Err::OK) return err;
     bool active;
+    KaraSettings::Song settings;
     {
         Lock l;
         active = s_open && s_crc == key.crc && s_size == key.size;
         if (active && synthBusy()) return Err::BUSY;
+        if (active) settings = currentSettings();
     }
     if (active && songSettingsDirty()) return Err::UNSAVED;
-    Midi::RegEntry entry;
-    if (const Midi::RegEntry *saved = s_reg.find(key.crc, key.size)) entry = *saved;
-    else {
-        // Preserve automatic melody detection when assigning a bank before a song's first play.
-        std::vector<uint8_t> data(key.size);
-        BoardSd::Guard guard;
-        const std::string full = std::string(DIR_SONGS) + "/" + path;
-        FILE *f = fopen(full.c_str(), "rb");
-        if (!f) return Err::NO_FILE;
-        const bool ok = fread(data.data(), 1, data.size(), f) == data.size() && !ferror(f);
-        fclose(f);
-        if (!ok || Midi::crc32(data.data(), data.size()) != key.crc) return Err::FILE_BAD;
-        Midi::Song song;
-        if (Midi::parse(data.data(), data.size(), song) != Midi::Err::OK) return Err::FILE_BAD;
-        entry.melody = song.melody;
+    if (!active) {
+        const std::string full = std::string(DIR_SONGS) + "/" + key.path;
+        err = readSongSettings(full, settings);
+        if (err != Err::OK) return err;
     }
-    entry.crc = key.crc;
-    entry.size = key.size;
-    entry.name = path;
-    entry.sf2 = font;
-    Midi::Registry next = s_reg;
-    next.set(entry);
-    next.rememberSongPath(key.crc, key.size, path);
-    if (!writeRegistry(next.save())) return Err::SAVE_FAILED;
-    s_reg = std::move(next);
+    settings.soundfont = font;
+    std::string text;
+    if (KaraSettings::serialize(settings, text) != KaraSettings::Err::OK ||
+        !writeSongSettings(std::string(DIR_SONGS) + "/" + key.path, text))
+        return Err::SAVE_FAILED;
     if (active) {
         {
             Lock l;
             s_songSf2 = font;
-            s_savedSettings.sf2 = font;
+            s_savedSettings = settings;
         }
         ensureFont();
     }
@@ -1460,6 +1670,7 @@ const char *errText(Err e)
     case Err::SAVE_FAILED: return tr(Str::SET_SAVE_FAILED);
     case Err::UNSAVED: return tr(Str::KARA_UNSAVED);
     case Err::BAD_INPUT: return tr(Str::KARA_ERR_SETTINGS);
+    case Err::SETTINGS_BAD: return tr(Str::KARA_ERR_SONG_SETTINGS);
     }
     return "";
 }
