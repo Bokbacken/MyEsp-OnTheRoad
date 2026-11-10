@@ -119,16 +119,16 @@ som ren text. Det finns ingen editor, vare sig på enheten eller på webben.
 
 | Önskemål | Status idag | Förslag till lagring |
 |---|---|---|
-| SoundFont per låt | Finns (`sf2=`) | – |
-| MIDI-/låtvolym | Finns (`volume=`) | – |
-| Sångspår på/av | Finns (`mute=`) | – |
-| Vilken kanal är sång | Finns (`melody=`) | – |
+| SoundFont per låt | Finns (`.kcfg`: `soundfont=`) | – |
+| MIDI-/låtvolym | Finns (`.kcfg`: `midi_volume=`) | – |
+| Sångspår på/av | Finns (`.kcfg`: `melody_muted=`) | – |
+| Vilken kanal är sång | Finns (`.kcfg`: `melody_channel=`) | – |
 | Tempo och transponering | Finns | – |
 | Mastervolym | Global, sparas inte per låt | Ska förbli global |
-| Melodispårvolym | Saknas | Relativ nivå/multiplikator på kanalens uttryck (planen, PR B) |
-| Instrumentbyte, flera ommappningar | Saknas | Per-låt-lista `kanal + källprogram -> ersättningsprogram`; UI visar GM-namn och program 1–128 |
-| Provspelning av instrument | Saknas | Spela tillfällig ton med aktuellt låt-SoundFont innan mappningen tillämpas |
-| Instrumentbyte på andra kanaler | Saknas | Samma mekanism, nyckel per kanal |
+| Melodispårvolym | Finns från v0.26.1 (`.kcfg`: `melody_gain_pct=` 0–200) | – |
+| Instrumentbyte, flera ommappningar | Finns från v0.26.1 (`.kcfg`: `instrument_map=kanal,källa,ersättning`); UI visar GM-namn och program 1–128 | – |
+| Provspelning av instrument | Finns från v0.26.1, med låtens aktuella SoundFont | – |
+| Instrumentbyte på andra kanaler | Finns från v0.26.1 (nyckel per kanal) | – |
 | Reverb/chorus per låt | Bara globalt; globala reglage finns sedan v0.26.0 | Börja globalt och utvärdera CPU/RAM per SoundFont; överväg låtunika värden först efter mätning |
 | Mät reverb/chorus på S3/P4 per SoundFont | Kontroller och loggning tillkom i v0.26.0; mätning ej gjord | Jämför angivna SoundFonts och representativa låtar |
 | Texteditor/manuell synk mot MIDI | Saknas | Troligen webb; skriver tidsatt `.lyr` eller utökat register |
