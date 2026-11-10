@@ -19,7 +19,9 @@ a published GitHub Release.
   still triggered the old rule at 91/87 % load and +5/+7 late runs.
 - Web diagnostics show both counters. The JSON `underruns` field and the
   power-history CSV `audio_underruns` column remain legacy names for late
-  runs for compatibility. Hardware verification of the new counters is pending.
+  runs for compatibility. Owner verified on S3 that instrument changes work
+  in v0.26.3; they had previously stuck at "loading SoundFont" in v0.26.2.
+  Hardware verification of the new counters is pending.
 
 ## v0.26.2
 
