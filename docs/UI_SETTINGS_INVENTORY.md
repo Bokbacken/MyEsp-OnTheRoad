@@ -57,7 +57,7 @@ gäller nästa omgång/start **(ej verifierat)**, **Omstart** = kräver omstart.
 | `joyZones`, `joySlowMs`, `joyFastMs`, `joyHoldMs`, `joyDiag` (`joy_*`) | Inställningar > Joystick | Ja | Spara | SK Äventyr | Spelkategori; nivå 2 i äventyr |
 | `sudokuDeadZone` (`sud_dz`) | Inställningar > Sudoku | **Nej** | Spara | SK Sudoku > Touch | Spelkategori; läses även av touchtestet |
 | `sudokuHelpHints` (`sud_help`) | Ingen | Nej | – | Legacy | Dölj; behåll NVS-nyckel |
-| `karaFont` (`kara_sf2`) | Karaoke > låtpanel (`setDefaultFont`) | Nej | Nästa låt | SK Karaoke | Karaoke |
+| `karaFont` (`kara_sf2`) | Karaoke > låtpanel (standard-SoundFont; kodfunktionen heter `setDefaultFont`) | Nej | Nästa låt | SK Karaoke | Karaoke |
 | `karaVoices` (`kara_voices`) | Karaoke > låtpanel (`setVoiceLimit`) | Nej | Ej verifierat | SK Karaoke | Karaoke |
 | `karaFlip` (`kara_flip`) | **Ingen** (endast läst) | **Nej** | Nästa karaokestart | SK Karaoke | Saknar editor |
 | `karaRev`, `karaRevLvl`, `karaCho`, `karaChoLvl` | **Ingen**: `Karaoke::setEffects` har inga anropare utanför `karaoke.cpp` | Nej | – | SK Karaoke > Ljud | Saknar editor |
@@ -94,7 +94,7 @@ Verifierat mot `components/otr_midi/include/otr_midi.h` (`RegEntry`,
 
 **Format och identitet.** En textrad per låt, nyckel är CRC32 + storlek på
 filinnehållet, så namn- eller mappbyte behåller inställningarna:
-`<crc> <size> <melody> <transpose> <tempo> [sf2=<font>] [mute=1] [volume=0..200] <namn>`.
+`<crc> <size> <melody> <transpose> <tempo> [sf2=<soundfont>] [mute=1] [volume=0..200] <namn>`.
 Valfria värden skrivs bara när de avviker från standard, och gamla rader går
 att läsa. Filen skrivs atomärt med `.tmp`/`.bak`. Taket är 256 KiB för hela
 filen medan biblioteket får ha 2000 låtar, så extra tokens per rad måste hållas
@@ -125,26 +125,33 @@ som ren text. Det finns ingen editor, vare sig på enheten eller på webben.
 | Vilken kanal är sång | Finns (`melody=`) | – |
 | Tempo och transponering | Finns | – |
 | Mastervolym | Global, sparas inte per låt | Ska förbli global |
-| Melodispårvolym | Saknas | Nytt token, multiplikator på kanalens uttryck (planen, PR B) |
-| Instrumentbyte, flera ommappningar | Saknas | Nytt token med en lista `källprogram->ersättning`; se designfrågan nedan |
-| Instrumentbyte på andra kanaler | Saknas | Samma token, nyckel per kanal |
-| Reverb/chorus per låt | Bara globalt; ingen editor (`setEffects` saknar anropare) | Nya tokens för på/av och nivå per låt, med global standard |
-| Mät reverb/chorus på S3/P4 per SoundFont | Inte gjort | Eget mätarbete före beslut |
+| Melodispårvolym | Saknas | Relativ nivå/multiplikator på kanalens uttryck (planen, PR B) |
+| Instrumentbyte, flera ommappningar | Saknas | Per-låt-lista `kanal + källprogram -> ersättningsprogram`; UI visar GM-namn och program 1–128 |
+| Provspelning av instrument | Saknas | Spela tillfällig ton med aktuellt låt-SoundFont innan mappningen tillämpas |
+| Instrumentbyte på andra kanaler | Saknas | Samma mekanism, nyckel per kanal |
+| Reverb/chorus per låt | Bara globalt; globala reglage finns sedan v0.26.0 | Börja globalt och utvärdera CPU/RAM per SoundFont; överväg låtunika värden först efter mätning |
+| Mät reverb/chorus på S3/P4 per SoundFont | Kontroller och loggning tillkom i v0.26.0; mätning ej gjord | Jämför angivna SoundFonts och representativa låtar |
 | Texteditor/manuell synk mot MIDI | Saknas | Troligen webb; skriver tidsatt `.lyr` eller utökat register |
 
 ### Beslut (ägaren, 2026-11-07)
 
 1. **Instrumentmappning:** nyckel per kanal + källprogram. Program visas
-   1-baserat (1-128) för användaren, 0-127 internt och i filer. Numreringen
-   mot etablerade MIDI-editorer är ej verifierad.
+   1-baserat (1-128) för användaren och representeras 0-baserat (0-127)
+   internt/i MIDI-data. Väljaren ska visa instrumentnamn och kunna provspela
+   ett tillfälligt instrument med låtens valda SoundFont innan ändringen
+   tillämpas. Namn är General MIDI-programnamn; klangen bestäms av SoundFont.
 2. **Reverb/chorus:** börjar globalt. Mer CPU-/RAM-loggning under karaoke läggs
    till först. En global av/på-inställning beslutas efter mätning.
 3. **Textsynk:** första steget skriver tidsstämplar till `.lyr`.
-4. **Registret:** ska inte ligga i internt RAM, och inställningar per låt bör
-   flyttas till en fil per låt (lätt att flytta till annan enhet).
+4. **Lagring:** låtinställningar flyttas till en separat fil per låt, så de är
+   lätta att flytta till annan enhet. Ingen migrering av befintligt innehåll
+   från `karaoke.reg` behövs; allt får börja om. Ett nytt centralt register
+   kan fortsatt användas för spellistor och favoriter. Formatförslaget är en
+   UTF-8-nyckel/värde-fil `<låtnamn>.mid.kcfg` eller `<låtnamn>.kar.kcfg`
+   bredvid låten; konkret exempel finns i `ESP_UI_SETTINGS_PLAN.md`.
 
-Underlag för punkt 4 (verifierat): `s_reg` är en `Midi::Registry` som läses in
-helt vid start. `CONFIG_SPIRAM_USE_MALLOC=y` med
+Underlag för det tidigare registret (verifierat): `s_reg` är en
+`Midi::Registry` som läses in helt vid start. `CONFIG_SPIRAM_USE_MALLOC=y` med
 `SPIRAM_MALLOC_ALWAYSINTERNAL=4096` gör att stora allokeringar normalt hamnar i
 PSRAM, men enskilda små strängar i `std::vector`/`std::string` hamnar i internt
 RAM (ej mätt). Varje Spara gör dessutom en kopia (`Registry next = s_reg`), så
@@ -169,20 +176,21 @@ Inte täckt här, men del av acceptanskriterierna i planen:
 
 1. **Karaoke får fler inställningar; fler önskemål väntas.** Katalogen ska
    kunna växa utan att varje inställning kräver ett specialfall.
-   - `karaFlip` och reverb/chorus får editor, men reverb/chorus ska först
+   - Reverb/chorus har globala reglage från v0.26.0. Effekterna ska först
      **testas och utvärderas**: resursanvändning (CPU/RAM) och om det fungerar
      på S3 och P4. Resultatet beror även på vald SoundFont (.sf2), så mätningen
-     görs per SoundFont och per kort innan standardvärden bestäms.
+     görs per SoundFont och per kort innan standardvärden eller eventuella
+     låtunika effekter bestäms.
    - MIDI-/låtvolym och melodispårvolym är separata (melodispårvolym är inte
      implementerad än).
    - Byte av instrument, främst på sångspåret, med flera ommappningar. Ska även
      kunna göras på andra spår/kanaler.
    - Editorläge för att manuellt synka in text mot MIDI-filen, inte bara via
      `.lyr`, med möjlighet till mindre justeringar. Kan hamna på webben.
-   - **Allt som ställs in per låt sparas med låten:** SoundFont (.sf2),
-     MIDI-volym, sångspår på/av och volym, instrumentbyten, vilken kanal som
-     är sång, reverb/chorus med mera. **Mastervolym är global** och sparas
-     inte per låt.
+   - **Låtinställningar sparas med låten:** SoundFont (.sf2), MIDI-volym,
+     sångspår på/av och volym, instrumentbyten och vilken kanal som är sång.
+     Reverb/chorus börjar globalt; om de senare ska vara låtunika avgörs efter
+     mätning. **Mastervolym är global** och sparas inte per låt.
 2. **Alla spel ska kunna ge en spela-tillsammans-känsla** och visas/spelas på
    webben på olika sätt; hur är inte bestämt. `advMode` och andra spelval
    behöver därför en webbyta på sikt. `sudokuDeadZone` är en lokal hjälp för
@@ -193,8 +201,8 @@ Inte täckt här, men del av acceptanskriterierna i planen:
 ### Konsekvenser för planen
 
 - Karaoke är den största inställningsytan. Den bör få en egen kategori med en
-  global nivå (standardvärden) och en låtnivå (sparas i `karaoke.reg` via den
-  befintliga CRC32+storleksidentiteten, se PR B i planen).
+  global nivå (standardvärden) och en låtnivå (sparas per låt i en separat
+  fil, med stabil identifiering av låtens innehåll; se PR B i planen).
 - Låtunika värden behöver en tydlig standard från de globala värdena och en
   åtgärd för att återgå till standard per värde.
 - Mätningen av reverb/chorus är ett eget arbete före beslut om standardvärden.
