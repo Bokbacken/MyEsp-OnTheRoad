@@ -346,10 +346,28 @@ Gränsen gäller båda korten; P4-tröskeln är inte separat mätt.
 
 Från v0.26.2 räcker inte en enstaka period med 5–14 sena block: det krävs två
 sådana perioder i rad, eller minst 15 sena block eller ≥ 100 % medellast i en
-period. Ett sent block betyder att mixern låg efter medan I2S-bufferten (87 ms)
-fortfarande hade ljud; ägartest på S3 (v0.26.1, 4 MB GM-soundfont, 48 röster)
+period. Räknaren tolkades då som sena block; ägartest på S3
+(v0.26.1, 4 MB GM-soundfont, 48 röster)
 stoppades vid +7 sena block och 89 % medellast utan hörbart avbrott. Ägaren
 bekräftade på S3 (v0.23.21) att varningen visades när watchdogen larmade.
+
+Från v0.26.3 används bara gränsen ≥ 100 % genomsnittlig renderlast för stopp.
+De tidigare `underruns` döps i loggen om till `late-runs`: varje värde är en
+följd av 12 I2S-skrivningar som var och en avslutas inom samma RTOS-tick.
+Det är en tidsindikator, inte ett mått på buffertnivån eller bevis för ett
+ljudavbrott. Den kan påverkas av schemaläggning och tickupplösning.
+`DMA-q-overflows` räknar separat I2S-drivrutinens TX-kööverflöden när färdiga
+DMA-buffertar inte hämtas för påfyllning i tid. Inte heller den räknaren anger
+antal hörbara avbrott. Båda loggas som total och ökning per femsekundersperiod,
+utan att stoppa spelaren. Webbdiagnostiken visar båda; JSON-fältet `underruns`
+och power-history-kolumnen `audio_underruns` behålls som äldre namn för
+`late-runs`. De nya mätvärdena är ännu inte verifierade på enheten.
+
+`steals` anger antalet röster som återanvändes under perioden när rösttaket
+nåddes. Först väljs en röst som kommit längst i sin utklingning (release),
+annars den äldsta spelande rösten. En MIDI-ton kan använda flera röster om
+soundfonten har flera matchande lager. Återanvändning kan korta utklingningar,
+men är inte samma sak som ett avbrott i hela ljudströmmen.
 
 ### Webbkaraoke i mono/stereo
 

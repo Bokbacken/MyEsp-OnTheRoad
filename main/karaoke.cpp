@@ -84,7 +84,6 @@ bool s_trReload = false, s_resumePlay = false;
 int s_prevTr = 0;
 volatile bool s_trRejected = false;
 volatile bool s_overloadStop = false;   // Playback stopped by the overload guard; told to the UI once
-KaraOverload::Guard s_overloadGuard;     // Diag timer only
 // Diagnostics (logged every 5 s while a song is open)
 esp_timer_handle_t s_diagTimer = nullptr;
 // v0.13.7 song library (own mutex: never held while the mixer needs s_mux)
@@ -97,7 +96,8 @@ uint32_t s_extGen = 0;          // openByPath counter (UI follows)
 volatile bool s_autoPlay = false;   // openByPath: start playing when the sound bank is ready
 constexpr const char *LOG_DIR = "/sdcard/otr/logs";   // Not counted in the index's free space
 volatile int s_voicesPeak = 0;
-uint32_t s_lastUnderruns = 0;
+uint32_t s_lastLateRuns = 0;
+uint32_t s_lastDmaQueueOverflows = 0;
 
 struct Lock {
     Lock()
@@ -445,26 +445,26 @@ void diagCb(void *)
         limit = s_synth.maxVoices();
         steals = s_synth.takeVoiceSteals();
     }
-    const uint32_t newUnder = st.underruns - s_lastUnderruns;
-    s_lastUnderruns = st.underruns;
+    const uint32_t newLateRuns = st.underruns - s_lastLateRuns;
+    s_lastLateRuns = st.underruns;
+    const uint32_t newDmaOverflows = st.dmaQueueOverflows - s_lastDmaQueueOverflows;
+    s_lastDmaQueueOverflows = st.dmaQueueOverflows;
     if (!s_open || s_fontState == FontState::LOADING || !st.blocks) return;
     const Sf::Effects fx = cfgEffects();
     ESP_LOGI(TAG,
-             "diag: load avg %u.%02u%% max %u.%02u%%, underruns %u (+%u), voices peak %d/%d, steals %u, %s, "
+             "diag: load avg %u.%02u%% max %u.%02u%%, late-runs %u (+%u), DMA-q-overflows %u (+%u), "
+             "voices peak %d/%d, steals %u, %s, "
              "reverb %s/%u chorus %s/%u, free int %u min %u PSRAM %u",
              (unsigned)(st.avgLoad100 / 100), (unsigned)(st.avgLoad100 % 100), (unsigned)(st.maxLoad100 / 100),
-             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newUnder, peak, limit,
+             (unsigned)(st.maxLoad100 % 100), (unsigned)st.underruns, (unsigned)newLateRuns,
+             (unsigned)st.dmaQueueOverflows, (unsigned)newDmaOverflows, peak, limit,
              (unsigned)steals,
              s_player.playing() ? "playing" : "paused", fx.reverb ? "on" : "off", (unsigned)fx.reverbLevel,
              fx.chorus ? "on" : "off", (unsigned)fx.chorusLevel,
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    if (!s_player.playing()) {
-        s_overloadGuard.reset();
-        return;
-    }
-    if (!s_overloadGuard.shouldStop(st.avgLoad100, newUnder)) return;
+    if (!KaraOverload::shouldStop(st.avgLoad100)) return;
     {
         Lock l;
         if (!s_open || !s_player.playing()) return;
@@ -472,8 +472,8 @@ void diagCb(void *)
         s_synth.allNotesOff();
         s_overloadStop = true;
     }
-    ESP_LOGW(TAG, "overload: stopped (%s, %d voices, avg %u%%, +%u underruns)", s_fontName, limit,
-             (unsigned)(st.avgLoad100 / 100), (unsigned)newUnder);
+    ESP_LOGW(TAG, "overload: stopped (%s, %d voices, avg %u%%, +%u late-runs, +%u DMA-q-overflows)", s_fontName, limit,
+             (unsigned)(st.avgLoad100 / 100), (unsigned)newLateRuns, (unsigned)newDmaOverflows);
 }
 
 void startDiag()
@@ -483,8 +483,9 @@ void startDiag()
                                            .name = "karadiag", .skip_unhandled_events = true};
         if (esp_timer_create(&a, &s_diagTimer) != ESP_OK) return;
     }
-    Audio::takeExternalStats();   // Start a fresh period
-    s_lastUnderruns = Audio::status().underruns;
+    const Audio::ExternalStats audio = Audio::takeExternalStats();   // Start a fresh period
+    s_lastLateRuns = audio.underruns;
+    s_lastDmaQueueOverflows = audio.dmaQueueOverflows;
     s_voicesPeak = 0;
     s_synth.takeVoiceSteals();
     if (!esp_timer_is_active(s_diagTimer)) esp_timer_start_periodic(s_diagTimer, 5000000);

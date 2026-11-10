@@ -165,7 +165,8 @@ async function refresh() {
       ['SD-kort', i.sd && i.sd.ok ? esc(i.sd.name) + ' · ' + i.sd.width + '-bit ' + (i.sd.freq_khz / 1000) + ' MHz · ' + mb(i.sd.free) + ' ledigt av ' + mb(i.sd.total) : '<span class="bad">' + esc(i.sd?.error || 'inget kort') + '</span>'],
       ['Ljud (ES8311)', i.audio ? (i.audio.ok ? '<span class="ok">igång</span>' : '<span class="bad">' + (i.audio.codec ? 'fel' : 'codec saknas') + '</span>') +
         ' · förstärkare ' + (i.audio.amp ? 'på' : 'av') + ' · musik ' + esc(i.audio.music || '–') + (i.audio.music_file ? ' (SD)' : '') +
-        ' · ' + i.audio.files_cached + ' WAV · ' + i.audio.underruns + ' underruns' + (i.audio.error ? ' · <span class="bad">' + esc(i.audio.error) + '</span>' : '') : '–'],
+        ' · ' + i.audio.files_cached + ' WAV · ' + (i.audio.late_runs ?? i.audio.underruns) + ' late runs · ' +
+        (i.audio.dma_queue_overflows ?? '–') + ' DMA queue overflows' + (i.audio.error ? ' · <span class="bad">' + esc(i.audio.error) + '</span>' : '') : '–'],
       ['Klocka', i.clock.epoch ? new Date(i.clock.epoch * 1000).toLocaleString('sv-SE') + ' · ' +
         (i.clock.certain ? '<span class="ok">' + esc(i.clock.source) + '</span>' : '<span class="warn">' + esc(i.clock.source) + '</span>') : '<span class="muted">ej satt</span>'],
       ['Senaste NTP', i.clock.ntp_age_s < 0 ? '–' : i.clock.ntp_age_s + ' s sedan'],

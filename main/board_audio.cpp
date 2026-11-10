@@ -14,6 +14,7 @@
 #include "board_sd.h"
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -75,7 +76,8 @@ std::atomic<bool> s_sleepRequested{false}, s_sleeping{false};
 std::atomic<bool> s_musicPaused{false};
 volatile int s_sfxGain = 0, s_musicGain = 0;   // Q8
 const char *s_error = "";
-uint32_t s_underruns = 0;
+uint32_t s_lateRuns = 0;
+DRAM_ATTR uint32_t s_dmaQueueOverflows = 0;
 volatile ExternalRender s_ext = nullptr;
 void *volatile s_extCtx = nullptr;
 volatile int s_extGain = 0;    // Q8, external source unity gain
@@ -84,7 +86,7 @@ uint8_t s_appliedMasterVolume = 100;   // Mixer task only
 volatile uint32_t s_mixSeq = 0;   // Incremented after every mixer block
 uint32_t s_extLoad100 = 0;        // Smoothed load in 1/100 %
 // Render load statistics since the last takeExternalStats() (guarded by s_statMux)
-portMUX_TYPE s_statMux = portMUX_INITIALIZER_UNLOCKED;
+DRAM_ATTR portMUX_TYPE s_statMux = portMUX_INITIALIZER_UNLOCKED;
 uint64_t s_extSum100 = 0;
 uint32_t s_extCnt = 0, s_extMax100 = 0;
 // v0.13.5 web karaoke: tap of the mixed mono output, and the speaker mute while a browser listens
@@ -105,6 +107,14 @@ bool s_musicFile = false;
 int32_t s_acc[BLOCK];
 int16_t s_out[BLOCK * 2];
 int16_t s_mono[BLOCK];
+
+bool IRAM_ATTR txQueueOverflow(i2s_chan_handle_t, i2s_event_data_t *, void *)
+{
+    portENTER_CRITICAL_ISR(&s_statMux);
+    ++s_dmaQueueOverflows;
+    portEXIT_CRITICAL_ISR(&s_statMux);
+    return false;
+}
 
 // ---- ES8311 -----------------------------------------------------------------------------
 bool wr(uint8_t reg, uint8_t val)
@@ -476,13 +486,20 @@ void mixerTask(void *)
         s_mixSeq = s_mixSeq + 1;
         size_t written = 0;
         TickType_t t0 = xTaskGetTickCount();
-        i2s_channel_write(s_tx, s_out, sizeof(s_out), &written, portMAX_DELAY);
-        // Returning without waiting means the DMA queue had room for a whole block: the mixer
-        // is behind (normal for the first blocks and right after a WAV load). Counted when it
-        // persists, for diagnostics.
+        const esp_err_t err = i2s_channel_write(s_tx, s_out, sizeof(s_out), &written, portMAX_DELAY);
+        // Twelve consecutive writes finishing in the same RTOS tick are a cadence hint only:
+        // this neither measures the DMA fill level nor proves an audible dropout.
         static uint32_t s_fast = 0;
-        if (xTaskGetTickCount() == t0) {
-            if (++s_fast == 12) s_underruns++;
+        if (err != ESP_OK || written != sizeof(s_out)) {
+            ESP_LOGE(TAG, "I2S write failed: %s (%u/%u bytes)", esp_err_to_name(err),
+                     (unsigned)written, (unsigned)sizeof(s_out));
+            s_fast = 0;
+        } else if (xTaskGetTickCount() == t0) {
+            if (++s_fast == 12) {
+                portENTER_CRITICAL(&s_statMux);
+                ++s_lateRuns;
+                portEXIT_CRITICAL(&s_statMux);
+            }
         } else {
             s_fast = 0;
         }
@@ -543,7 +560,10 @@ bool begin(i2c_master_bus_handle_t bus)
     sc.gpio_cfg.ws = (gpio_num_t)PIN_I2S_WS;
     sc.gpio_cfg.dout = (gpio_num_t)PIN_I2S_DOUT;
     sc.gpio_cfg.din = (gpio_num_t)PIN_I2S_DIN;
+    i2s_event_callbacks_t callbacks = {};
+    callbacks.on_send_q_ovf = txQueueOverflow;
     if (i2s_new_channel(&cc, &s_tx, nullptr) != ESP_OK || i2s_channel_init_std_mode(s_tx, &sc) != ESP_OK ||
+        i2s_channel_register_event_callback(s_tx, &callbacks, nullptr) != ESP_OK ||
         i2s_channel_enable(s_tx) != ESP_OK) {
         s_error = "I2S init failed";
         ESP_LOGE(TAG, "%s", s_error);
@@ -656,9 +676,10 @@ ExternalStats takeExternalStats()
     st.blocks = s_extCnt;
     st.avgLoad100 = s_extCnt ? (uint32_t)(s_extSum100 / s_extCnt) : 0;
     st.maxLoad100 = s_extMax100;
+    st.underruns = s_lateRuns;
+    st.dmaQueueOverflows = s_dmaQueueOverflows;
     s_extSum100 = 0, s_extCnt = 0, s_extMax100 = 0;
     portEXIT_CRITICAL(&s_statMux);
-    st.underruns = s_underruns;
     return st;
 }
 
@@ -672,7 +693,10 @@ Status status()
     st.musicFromFile = s_musicFile;
     for (auto &f : s_fx) st.busyChannels += f.active ? 1 : 0;
     for (auto &c : s_clips) st.filesCached += c.state == 2 ? 1 : 0;
-    st.underruns = s_underruns;
+    portENTER_CRITICAL(&s_statMux);
+    st.underruns = s_lateRuns;
+    st.dmaQueueOverflows = s_dmaQueueOverflows;
+    portEXIT_CRITICAL(&s_statMux);
     st.external = s_ext != nullptr;
     st.webStream = s_webStream;
     st.externalLoad = (uint8_t)(s_extLoad100 / 100 > 255 ? 255 : s_extLoad100 / 100);

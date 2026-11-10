@@ -28,7 +28,8 @@ struct Status {
     bool musicFromFile;   // Current music streams from the SD card
     uint8_t busyChannels;
     uint8_t filesCached;  // Effect WAVs loaded from SD
-    uint32_t underruns;   // Mixer blocks that were late (DMA ran dry)
+    uint32_t underruns;   // Legacy name: runs of 12 same-tick writes, NOT confirmed underruns
+    uint32_t dmaQueueOverflows; // Driver TX refill-queue overflows, NOT a count of audible dropouts
     bool external;        // An external music source (karaoke) is active
     uint8_t externalLoad; // Its render time in % of a mixer block (smoothed)
     bool webStream;       // v0.13.5: a browser plays the karaoke, the speaker is muted
@@ -78,9 +79,10 @@ bool webStream();
 void releaseClips();
 
 // External render load since the previous call (then reset): average and peak time in the
-// callback in 1/100 % of a mixer block, blocks measured, total late blocks (underruns).
+// callback in 1/100 % of a mixer block, blocks measured, and lifetime timing counters.
 struct ExternalStats {
     uint32_t avgLoad100, maxLoad100, blocks, underruns;
+    uint32_t dmaQueueOverflows;
 };
 ExternalStats takeExternalStats();
 

@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.3
+
+- Correct karaoke diagnostics: the old `underruns` counter is now labelled
+  `late-runs`. It counts runs of 12 same-tick I2S writes, not confirmed audio
+  dropouts. Add `DMA-q-overflows`, measured by the driver's TX refill-queue
+  overflow callback; this is also not a direct count of audible dropouts.
+- Timing counters no longer stop karaoke. The existing stop at >=100 %
+  average render load over a 5 s period remains. Owner S3 logs from v0.26.2
+  still triggered the old rule at 91/87 % load and +5/+7 late runs.
+- Web diagnostics show both counters. The JSON `underruns` field and the
+  power-history CSV `audio_underruns` column remain legacy names for late
+  runs for compatibility. Hardware verification of the new counters is pending.
+
 ## v0.26.2
 
 - Karaoke overload guard: a single 5 s period with 5–14 late mixer blocks no
