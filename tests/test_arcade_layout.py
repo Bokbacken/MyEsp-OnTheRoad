@@ -103,14 +103,22 @@ int main() {
             showTouchTest(); advance(250);
             assert(Display::landscape() && s_timer && s_field);
             assert(Touch::enabled && s_controlsArmed);
+            assert(s_controlHitW == UiMetrics::buttonWMin());
+            assert(s_controlVisualW == std::max(12, s_controlHitW / 4));
             assert(s_fieldW == (p4 ? 800 : 480) - 2 *
-                   (UiMetrics::marginNormal() + UiMetrics::buttonWMin() + UiMetrics::marginSmall()));
+                   (UiMetrics::marginNormal() + s_controlVisualW + UiMetrics::marginSmall()));
             assert(s_fieldH > 100);
             inside(s_field, lv_screen_active());
             inside(s_ship, s_field);
             inside(s_status, s_field);
             inside(s_heightControl, lv_screen_active());
             inside(s_speedControl, lv_screen_active());
+            assert(lv_obj_get_width(s_heightControl) == s_controlHitW);
+            assert(lv_obj_get_width(s_speedControl) == s_controlHitW);
+            auto *heightRail = lv_obj_get_child(s_heightControl, 0);
+            auto *speedRail = lv_obj_get_child(s_speedControl, 0);
+            assert(lv_obj_get_width(heightRail) == s_controlVisualW);
+            assert(lv_obj_get_width(speedRail) == s_controlVisualW);
             auto *back = button(lv_screen_active(), tr(Str::BTN_BACK));
             auto *reset = button(lv_screen_active(), tr(Str::ARCADE_RESET));
             assert(back && reset);
@@ -120,7 +128,8 @@ int main() {
             lv_obj_get_coords(s_field, &field);
             lv_obj_get_coords(s_heightControl, &left);
             lv_obj_get_coords(s_speedControl, &right);
-            assert(left.x2 < field.x1 && right.x1 > field.x2);
+            assert(left.x1 < field.x1 && left.x2 > field.x1);
+            assert(right.x1 < field.x2 && right.x2 > field.x2);
             auto touch = [&](std::initializer_list<lv_point_t> points) {
                 Touch::sample = {};
                 Touch::sample.sampledAt = lv_tick_get();
@@ -164,7 +173,7 @@ int main() {
             advance(200);
             assert(s_shipX == releasedX && s_motion.vx == 0);
             assert(std::abs(s_shipY - s_fieldH / 2) <= 3);
-            touch({{field.x1 + 10, field.y1 + 10}}); // Field never teleports the ship.
+            touch({{(field.x1 + field.x2) / 2, field.y1 + 10}}); // Field never teleports the ship.
             advance(200);
             assert(std::abs(s_shipY - s_fieldH / 2) <= 2 && s_shipX == releasedX);
 

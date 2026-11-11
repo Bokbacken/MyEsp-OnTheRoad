@@ -53,7 +53,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   Releasing the right strip also brakes; releasing the left keeps its last
   target height. Scrolling stays constant. Impacts blink and count without
   ending the test; Reset starts a fresh course. Two-finger controls still
-  need hardware evaluation.
+  need hardware evaluation. The visible side rails are narrow; touch zones
+  remain wider for easier control, and the playfield extends beneath them.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device
   or a browser, with personal player PINs and host-authoritative game state.
   ESP clients use the native Yatzy screen and wait while other players take

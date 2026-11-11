@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.6
+
+- Slim the visible Arcade side rails to one quarter of their former width,
+  while preserving the original full-width touch hit zones. Expand the
+  playfield to use the reclaimed space.
+
 ## v0.26.5
 
 - Replace direct-on-ship Arcade steering with two separate thumb strips:

@@ -52,6 +52,7 @@ Bullet s_bullets[BULLET_COUNT];
 int32_t s_fieldW = 0, s_fieldH = 0, s_shipX = 0, s_shipY = 0;
 int32_t s_shipRadius = 12, s_gateWidth = 18, s_gapHeight = 72;
 int32_t s_bulletWidth = 14;
+int32_t s_controlHitW = 0, s_controlVisualW = 0;
 uint32_t s_lastTick = 0, s_fireElapsed = 0, s_hitAt = 0;
 uint32_t s_passed = 0, s_targetsHit = 0, s_impacts = 0;
 bool s_hitGrace = false;
@@ -303,8 +304,9 @@ void showTouchTest()
     const int32_t footerH = UiMetrics::buttonH();
     const int32_t fieldY = header + UiMetrics::marginSmall();
     const int32_t fieldBottom = UiMetrics::screenH() - footerH - 2 * inset;
-    const int32_t controlWidth = UiMetrics::buttonWMin();
-    const int32_t fieldX = inset + controlWidth + UiMetrics::marginSmall();
+    s_controlHitW = UiMetrics::buttonWMin();
+    s_controlVisualW = std::max<int32_t>(12, s_controlHitW / 4);
+    const int32_t fieldX = inset + s_controlVisualW + UiMetrics::marginSmall();
 
     s_field = lv_obj_create(scr);
     lv_obj_remove_style_all(s_field);
@@ -317,34 +319,41 @@ void showTouchTest()
     lv_obj_set_scrollable(s_field, false);
     lv_obj_set_clickable(s_field, false);
 
-    s_heightControl = coloredRect(scr, 0x19354B, 6);
-    s_speedControl = coloredRect(scr, 0x19354B, 6);
+    s_heightControl = lv_obj_create(scr);
+    s_speedControl = lv_obj_create(scr);
     for (lv_obj_t *control : {s_heightControl, s_speedControl}) {
-        lv_obj_set_size(control, controlWidth, s_fieldH);
+        lv_obj_remove_style_all(control);
+        lv_obj_set_size(control, s_controlHitW, s_fieldH);
         lv_obj_set_clickable(control, true);
+        lv_obj_set_scrollable(control, false);
     }
     lv_obj_set_pos(s_heightControl, inset, fieldY);
-    lv_obj_set_pos(s_speedControl, UiMetrics::screenW() - inset - controlWidth, fieldY);
-    lv_obj_t *neutral = coloredRect(s_speedControl, 0x3B5261, 0);
+    lv_obj_set_pos(s_speedControl, UiMetrics::screenW() - inset - s_controlHitW, fieldY);
+    lv_obj_t *heightRail = coloredRect(s_heightControl, 0x19354B, 4);
+    lv_obj_t *speedRail = coloredRect(s_speedControl, 0x19354B, 4);
+    lv_obj_set_size(heightRail, s_controlVisualW, s_fieldH);
+    lv_obj_set_size(speedRail, s_controlVisualW, s_fieldH);
+    lv_obj_set_pos(speedRail, s_controlHitW - s_controlVisualW, 0);
+    lv_obj_t *neutral = coloredRect(speedRail, 0x3B5261, 0);
     lv_obj_set_pos(neutral, 0, s_fieldH * 2 / 5);
-    lv_obj_set_size(neutral, controlWidth, s_fieldH / 5);
+    lv_obj_set_size(neutral, s_controlVisualW, s_fieldH / 5);
     auto controlLabel = [&](lv_obj_t *parent, const char *text, int32_t y) {
         lv_obj_t *label = Theme::label(parent, text, &my_font_14, Theme::LINE);
-        lv_obj_set_width(label, controlWidth);
+        lv_obj_set_width(label, s_controlVisualW);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(label, 0, y);
         lv_obj_set_clickable(label, false);
         lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     };
-    controlLabel(s_heightControl, tr(Str::ARCADE_HEIGHT), 4);
-    controlLabel(s_speedControl, tr(Str::ARCADE_SPEED), 4);
-    controlLabel(s_speedControl, ">", s_fieldH / 5);
-    controlLabel(s_speedControl, "0", s_fieldH / 2 - my_font_14.line_height / 2);
-    controlLabel(s_speedControl, "<", s_fieldH * 4 / 5 - my_font_14.line_height);
-    s_heightMarker = coloredRect(s_heightControl, 0x72DDF2, 0);
-    s_speedMarker = coloredRect(s_speedControl, 0xF5C84C, 0);
+    controlLabel(heightRail, "Y", 4);
+    controlLabel(speedRail, "X", 4);
+    controlLabel(speedRail, ">", s_fieldH / 5);
+    controlLabel(speedRail, "0", s_fieldH / 2 - my_font_14.line_height / 2);
+    controlLabel(speedRail, "<", s_fieldH * 4 / 5 - my_font_14.line_height);
+    s_heightMarker = coloredRect(heightRail, 0x72DDF2, 0);
+    s_speedMarker = coloredRect(speedRail, 0xF5C84C, 0);
     for (lv_obj_t *marker : {s_heightMarker, s_speedMarker})
-        lv_obj_set_size(marker, controlWidth, 4);
+        lv_obj_set_size(marker, s_controlVisualW, 4);
 
     s_shipRadius = std::max<int32_t>(11, s_fieldH / 22);
     s_gateWidth = std::max<int32_t>(16, s_fieldW / 30);

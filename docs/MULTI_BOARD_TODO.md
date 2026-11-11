@@ -146,6 +146,7 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   krävs; detta är en touchprototyp, inte ett färdigt spel. Hårdvarutest kvar.
 - [x] Ägarens S3_35B-test av v0.26.4: grafiken flyter tillräckligt bra, men
   fingret skymmer skeppet och direktstyrningen känns för enkel.
+- [x] Ägarens S3_35B-test av v0.26.5: tvåtumstyrningen fungerar bra.
 - [x] v0.26.5: separata styrzoner för två tummar utanför spelplanen.
   Vänster väljer önskad höjd med mjuk acceleration/inbromsning; skeppet
   hoppar inte till fingret. Höger styr sidofart: uppåt åt höger, nedåt åt
@@ -153,6 +154,9 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   behålls senaste målhöjden. Banans scrollfart är konstant.
   Touchdrivrutinerna exponerar två cachade kontakter i opt-in-läge; vanliga
   menyer behåller sin enfingerinmatning. Ingen extra I2C-pollning på S3_35B.
+- [x] v0.26.6: synliga styrspår krympta till en fjärdedel av tidigare bredd;
+  ursprunglig touchträffyta behållen. Spelplanen breddad in under de
+  genomskinliga, större touchzonerna.
 - [ ] Hårdvarutesta v0.26.5 med två fingrar samtidigt, omvänd nedtrycksordning
   och släpp av ett finger i taget. Kontrollera tröghet, stoppzon, kanter,
   rotationsinställning, väckning och att menyer fungerar efter återgång.
