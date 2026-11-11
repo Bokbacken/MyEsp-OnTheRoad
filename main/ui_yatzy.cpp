@@ -23,6 +23,7 @@
 #include "my_charwheel.h"
 #include "my_wifi.h"
 #include "ui_adventure.h"
+#include "ui_arcade.h"
 #include "ui_karaoke.h"
 #include "ui_sudoku.h"
 #include "ui_multiplayer.h"
@@ -191,7 +192,9 @@ void showMenu()
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_set_scrollable(list, true);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scroll_elastic(list, false);
 
     lv_obj_t *dice = menuListCard(list, tr(Str::MENU_DICE_GAMES), tr(Str::MENU_SUB_GAME_YATZY),
                                   Theme::ACCENT, false, MenuArt::Icon::DICE);
@@ -205,6 +208,9 @@ void showMenu()
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *arcade = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_ARCADE),
+                                       tr(Str::MENU_SUB_ARCADE), nullptr, LV_SYMBOL_PLAY, Theme::BLUE);
+    lv_obj_add_event_cb(arcade, [](lv_event_t *) { UiArcade::showMenu(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *pastimes = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_PASTIMES),
                                         tr(Str::SUDOKU_SUBTITLE), MenuArt::image(MenuArt::Icon::SUDOKU),
                                         LV_SYMBOL_LIST, Theme::TEAL);

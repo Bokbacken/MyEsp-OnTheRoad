@@ -17,7 +17,9 @@ assert "Theme::menuCard" in menu_card
 assert "MenuArt::image(art)" in menu_card
 assert "lv_obj_set_flex_grow" not in menu_card
 home_menu = source[source.index("void showMenu()"):source.index("void showPlayerCenter()")]
-assert home_menu.count("Theme::menuCard") == 4 and "menuListCard(" in home_menu
+assert home_menu.count("Theme::menuCard") == 5 and "menuListCard(" in home_menu
+assert "tr(Str::MENU_ARCADE)" in home_menu and "UiArcade::showMenu()" in home_menu
+assert "lv_obj_set_scroll_dir(list, LV_DIR_VER)" in home_menu
 assert "lv_obj_set_flex_grow" not in home_menu
 player_center_start = source.index("\nvoid showPlayerCenter()\n{")
 player_center = source[player_center_start:source.index("\nstatic void showDiceGames()\n{", player_center_start)]

@@ -136,14 +136,23 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
 - [ ] Rörelsesensor/IMU i nya S3_35B: verifiera modell, axlar och anslutning
   mot kortrevisionen; läs acceleration/rotation utan att störa touch på delad
   I2C-buss. Prova neutralställeskalibrering, filtrering och låg styrfördröjning.
-  Första spelidé: luta en kullabyrint, undvik hål och nå målet; alternativ
-  touchstyrning på kort utan sensor.
-- [ ] Miniarkad, idéstadium: egna spel inspirerade av labyrintjakt,
-  Space Invaders och Parsec-liknande sidscrollande rymdspel i liggande läge.
-  Prova även Breakout/Pong. Prioritera stora tydliga objekt, få reglage,
-  styrning utan att skymma spelplanen och stabil bild-/inmatningsrytm på S3.
-  Verifiera samtidiga styr-/skjutgester innan spel kräver flerfingerstyrning;
-  överväg automatisk eld. Egna namn, banor, grafik och ljud.
+  Pausat enligt ägarens beslut. Spelidé: luta en kullabyrint,
+  undvik hål och nå målet; alternativ touchstyrning på kort utan sensor.
+- [x] v0.26.4: **Arcade** finns som huvudmenykategori för framtida egna
+  arkadspel. Första styrprototypen är ett sidscrollande rymdflygfält med
+  direkt fingerföljning, automatisk eld, portar, målträffar, kollisioner och
+  omstart. Kollisioner räknas och skeppet blinkar, men testet avbryts inte.
+  Vid släpp stannar skeppet på sin senaste position. Ingen lutningssensor
+  krävs; detta är en touchprototyp, inte ett färdigt spel. Hårdvarutest kvar.
+- [ ] Hårdvarutesta touchprototypen på S3_35B, ES3C35P och P4_43: fingerföljning
+  över hela fältet, hörn/kanter, svep, release/press-lost och rotationsbyte.
+  Anteckna om skeppet känns följsamt, om touchfel stör kursen och om
+  portar/feedback tillräckligt tydligt visar hur styrningen beter sig.
+- [ ] Fortsatt Arcade: forma ett originellt sidscrollande rymdspel, inspirerat
+  löst av TI-99 Parsec. Prova även Breakout/Pong eller labyrintjakt som senare
+  titlar. Prioritera stora tydliga objekt, kontroller som inte skymmer
+  spelplanen och stabil bild-/inmatningsrytm på S3. Egna namn, banor, grafik
+  och ljud; undvik att kopiera Parsec-innehåll eller presentation.
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.

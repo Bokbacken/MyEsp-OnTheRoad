@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.4
+
+- Add an **Arcade** main-menu category and the first playable control-test
+  course: a side-scrolling space-flight lane with direct finger-follow
+  steering, auto-fire, moving gates, target-hit/impact counters and reset.
+  Uses original simple shapes and no tilt sensor. Hardware touch evaluation
+  is pending; this is a steering prototype, not a finished arcade game.
+
 ## v0.26.3
 
 - Correct karaoke diagnostics: the old `underruns` counter is now labelled

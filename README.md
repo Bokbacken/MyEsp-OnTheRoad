@@ -46,6 +46,10 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   and the [authoring reference](docs/AUTHORING_ADVENTURES.md) for examples,
   supported mechanics and limits. The web map editor can place hidden treasures
   with item and amount/level selectors, repeated clicks and undo.
+- **Arcade prototype** – open **Arcade → Space flight - touch test** to try
+  direct finger-follow steering, automatic fire and scrolling gates. Release
+  to hold position; impacts blink and count without ending the test.
+  Reset starts a fresh course. Touch behavior still needs hardware evaluation.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device
   or a browser, with personal player PINs and host-authoritative game state.
   ESP clients use the native Yatzy screen and wait while other players take
