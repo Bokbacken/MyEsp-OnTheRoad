@@ -20,14 +20,26 @@ code = r'''
 #include "ui_arcade.cpp"
 
 static bool rotateOK = true;
+static bool flipLandscape = false;
 namespace Display {
 bool landscape() { return lv_display_get_rotation(lv_display_get_default()) != LV_DISPLAY_ROTATION_0; }
 bool setLandscape(bool on, bool flip) {
     if (!rotateOK) return false;
     lv_display_set_rotation(lv_display_get_default(), on
-        ? (flip ? LV_DISPLAY_ROTATION_270 : LV_DISPLAY_ROTATION_90) : LV_DISPLAY_ROTATION_0);
+        ? (flip != flipLandscape ? LV_DISPLAY_ROTATION_270 : LV_DISPLAY_ROTATION_90)
+        : LV_DISPLAY_ROTATION_0);
     return true;
 }
+}
+namespace UiScreenPower {
+bool blocked = false;
+bool inputBlocked() { return blocked; }
+}
+namespace Touch {
+bool enabled = false, polling = true;
+Contacts sample;
+void setMultiTouch(bool on) { enabled = on; sample = {}; }
+Contacts contacts() { return sample; }
 }
 static int menus = 0;
 namespace UiYatzy {
@@ -39,6 +51,7 @@ static void advance(uint32_t ms) {
     while (ms) {
         const uint32_t step = ms > 10 ? 10 : ms;
         lv_tick_inc(step);
+        if (Touch::enabled && Touch::polling) Touch::sample.sampledAt = lv_tick_get();
         lv_timer_handler();
         ms -= step;
     }
@@ -75,6 +88,8 @@ int main() {
         *data = *static_cast<lv_indev_data_t *>(lv_indev_get_user_data(i));
     });
     for (bool p4 : {false, true}) {
+        for (bool flipped : {false, true}) {
+        flipLandscape = flipped;
         for (auto zoom : {MyFonts::ScreenZoom::SMALL, MyFonts::ScreenZoom::NORMAL,
                           MyFonts::ScreenZoom::LARGE})
         for (auto textSize : {MyFonts::TextSize::SMALL, MyFonts::TextSize::NORMAL,
@@ -87,51 +102,98 @@ int main() {
             showMenu(); advance(250);
             showTouchTest(); advance(250);
             assert(Display::landscape() && s_timer && s_field);
-            assert(s_fieldW == (p4 ? 800 : 480) - 2 * UiMetrics::marginNormal());
+            assert(Touch::enabled && s_controlsArmed);
+            assert(s_fieldW == (p4 ? 800 : 480) - 2 *
+                   (UiMetrics::marginNormal() + UiMetrics::buttonWMin() + UiMetrics::marginSmall()));
             assert(s_fieldH > 100);
             inside(s_field, lv_screen_active());
             inside(s_ship, s_field);
             inside(s_status, s_field);
+            inside(s_heightControl, lv_screen_active());
+            inside(s_speedControl, lv_screen_active());
             auto *back = button(lv_screen_active(), tr(Str::BTN_BACK));
             auto *reset = button(lv_screen_active(), tr(Str::ARCADE_RESET));
             assert(back && reset);
             inside(back, lv_screen_active()); inside(reset, lv_screen_active());
 
-            lv_area_t field;
+            lv_area_t field, left, right;
             lv_obj_get_coords(s_field, &field);
-            auto touch = [&](int32_t x, int32_t y, bool pressed) {
-                // Inverse of LVGL's physical->logical transform at 90 degrees.
-                const int32_t logicalX = field.x1 + x;
-                const int32_t logicalY = field.y1 + y;
-                sample.point = {logicalY, lv_display_get_horizontal_resolution(display) - 1 - logicalX};
-                sample.state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+            lv_obj_get_coords(s_heightControl, &left);
+            lv_obj_get_coords(s_speedControl, &right);
+            assert(left.x2 < field.x1 && right.x1 > field.x2);
+            auto touch = [&](std::initializer_list<lv_point_t> points) {
+                Touch::sample = {};
+                Touch::sample.sampledAt = lv_tick_get();
+                for (auto point : points) {
+                    if (flipped) point = {lv_display_get_vertical_resolution(display) - 1 - point.y, point.x};
+                    else point = {point.y, lv_display_get_horizontal_resolution(display) - 1 - point.x};
+                    Touch::sample.points[Touch::sample.count++] = {int16_t(point.x), int16_t(point.y)};
+                    sample.point = point;
+                }
+                sample.state = points.size() ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
                 lv_indev_read(input);
             };
-            const int32_t x = s_fieldW / 3, y = s_fieldH / 2;
-            touch(x, y, true);
-            assert(s_shipX == x && s_shipY == y);
-            touch(x + 40, y + 20, true);
-            assert(s_shipX == x + 40 && s_shipY == y + 20);
-            touch(1, 1, true);
-            assert(s_shipX == s_shipRadius + 2 && s_shipY == s_shipRadius + 2);
-            touch(1, 1, false);
-            const int32_t releasedX = s_shipX, releasedY = s_shipY;
-            advance(100);
-            assert(s_shipX == releasedX && s_shipY == releasedY);
-
-            // Decorations must not intercept a new press, including the ship and moving walls.
-            touch(s_shipX, s_shipY, true);
-            touch(x, y, true);
-            assert(s_shipX == x && s_shipY == y);
-            touch(x, y, false);
+            const int32_t oldX = s_shipX, oldY = s_shipY;
+            const int32_t lx = (left.x1 + left.x2) / 2, rx = (right.x1 + right.x2) / 2;
+            const int32_t idleGate = s_gates[0].x;
             advance(400);
+            const int32_t idleScroll = idleGate - s_gates[0].x;
+            touch({{lx, left.y1 + 1}, {rx, right.y1 + 1}});
+            advance(40);
+            assert(s_shipY < oldY && s_shipY > s_shipRadius + 2);
+            assert(s_shipX > oldX); // Two simultaneous contacts control independent axes.
+            const int32_t movingGate = s_gates[0].x;
+            advance(400);
+            assert(std::abs(movingGate - s_gates[0].x - idleScroll) <= 2);
+            touch({{rx, right.y1 + 1}, {lx, left.y1 + 1}}); // Reordered report.
+            advance(1600);
+            assert(s_shipY <= s_shipRadius + 3);
+            assert(s_shipX == s_fieldW - s_shipRadius - 3);
+            touch({{rx, (right.y1 + right.y2) / 2}, {lx, left.y2 - 1}});
+            advance(1600);
+            assert(s_shipY >= s_fieldH - s_shipRadius - 4);
+            const int32_t neutralX = s_shipX;
+            advance(200);
+            assert(s_shipX == neutralX && s_motion.vx == 0);
+            touch({{rx, right.y2 - 1}});
+            advance(400);
+            assert(s_shipX < neutralX);
+            touch({{lx, (left.y1 + left.y2) / 2}}); // Lift right finger; remaining point changes index.
+            advance(1000);
+            const int32_t releasedX = s_shipX;
+            advance(200);
+            assert(s_shipX == releasedX && s_motion.vx == 0);
+            assert(std::abs(s_shipY - s_fieldH / 2) <= 3);
+            touch({{field.x1 + 10, field.y1 + 10}}); // Field never teleports the ship.
+            advance(200);
+            assert(std::abs(s_shipY - s_fieldH / 2) <= 2 && s_shipX == releasedX);
+
+            touch({{rx, right.y1 + 1}});
+            advance(100);
+            Touch::polling = false;
+            advance(700); // A stalled sampler must not leave the throttle latched.
+            assert(s_motion.vx == 0);
+            Touch::polling = true;
+            UiScreenPower::blocked = true;
+            const int32_t sleepingX = s_shipX, sleepingGate = s_gates[0].x;
+            advance(300);
+            assert(s_shipX == sleepingX && s_gates[0].x == sleepingGate && !s_controlsArmed);
+            UiScreenPower::blocked = false;
+            advance(100);
+            assert(!s_controlsArmed);
+            touch({});
+            advance(40);
+            assert(s_controlsArmed);
             bool fired = false;
             for (const auto &bullet : s_bullets) fired |= bullet.active;
             assert(fired);
+            resetCourse();
             const int32_t oldGateX = s_gates[0].x;
             advance(100);
             assert(s_gates[0].x < oldGateX);
             s_gates[0].x = s_shipX;
+            s_motion = {float(s_shipX), float(s_shipRadius + 2), 0, 0};
+            s_targetY = float(s_shipRadius + 2);
             s_shipY = s_shipRadius + 2;
             const int32_t impactX = s_shipX, impactY = s_shipY;
             advance(100);
@@ -153,16 +215,18 @@ int main() {
             lv_obj_send_event(back, LV_EVENT_CLICKED, nullptr);
             advance(250);
             assert(!s_timer && !s_field && !Display::landscape());
+            assert(!Touch::enabled);
             showTouchTest(); advance(250); // Re-entry after deletion must get fresh objects.
             assert(s_timer && s_field);
             closeCourse(); advance(250);
             assert(!s_timer && !s_field);
         }
+        }
     }
     lv_indev_delete(input);
     lv_display_delete(display);
     lv_deinit();
-    puts("Arcade production UI: SV/EN, S3/P4 landscape, pointer drag/release, reset and cleanup passed");
+    puts("Arcade production UI: SV/EN, S3/P4, 90/270 rotation, two-thumb inertia, neutral/release/stale/wake and cleanup passed");
 }
 '''
 (WORK / "test.cpp").write_text(code)
@@ -190,7 +254,7 @@ add_compile_definitions(LV_CONF_SKIP LV_COLOR_FORMAT_DEFAULT=LV_COLOR_FORMAT_RGB
 add_subdirectory("{ROOT}/managed_components/lvgl__lvgl" lvgl)
 add_executable(layout test.cpp {quoted})
 target_include_directories(layout PRIVATE "{WORK}" "{ROOT}/components/my_ui/include"
- "{ROOT}/components/my_lvgl/include" "{ROOT}/main/lang" "{ROOT}/main")
+ "{ROOT}/components/my_lvgl/include" "{ROOT}/main/lang" "{ROOT}/main" "{ROOT}/tests/host_stubs")
 target_link_libraries(layout PRIVATE lvgl m)
 ''')
 subprocess.run(["cmake", "-S", str(WORK), "-B", str(WORK / "build"), "-G", "Ninja"], check=True)

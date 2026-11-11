@@ -47,9 +47,13 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   supported mechanics and limits. The web map editor can place hidden treasures
   with item and amount/level selectors, repeated clicks and undo.
 - **Arcade prototype** – open **Arcade → Space flight - touch test** to try
-  direct finger-follow steering, automatic fire and scrolling gates. Release
-  to hold position; impacts blink and count without ending the test.
-  Reset starts a fresh course. Touch behavior still needs hardware evaluation.
+  two-thumb steering, automatic fire and scrolling gates. The left strip sets
+  target height; the ship glides there with inertia. The right strip controls
+  sideways speed: upper moves right, lower moves left, center brakes to a stop.
+  Releasing the right strip also brakes; releasing the left keeps its last
+  target height. Scrolling stays constant. Impacts blink and count without
+  ending the test; Reset starts a fresh course. Two-finger controls still
+  need hardware evaluation.
 - **Play together** – host a Yatzy game and join from another OnTheRoad device
   or a browser, with personal player PINs and host-authoritative game state.
   ESP clients use the native Yatzy screen and wait while other players take

@@ -6,7 +6,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / "main/ui_arcade.cpp").read_text()
-assert "LV_EVENT_PRESSED" in source and "LV_EVENT_PRESSING" in source
+assert "Touch::contacts()" in source and "Touch::setMultiTouch(true)" in source
 assert "ArcadeTouch::clampToField" in source
 assert "FIRE_INTERVAL_MS" in source and "BULLET_SPEED" in source
 assert "ArcadeTouch::circleHitsGate" in source
@@ -18,6 +18,33 @@ test = r'''
 int main() {
     using ArcadeTouch::circleHitsGate;
     using ArcadeTouch::clampToField;
+
+    assert(ArcadeTouch::throttle(0, 201) == 1);
+    assert(ArcadeTouch::throttle(200, 201) == -1);
+    assert(ArcadeTouch::throttle(100, 201) == 0);
+    assert(ArcadeTouch::throttle(90, 201) == 0);
+    assert(ArcadeTouch::throttle(110, 201) == 0);
+    assert(ArcadeTouch::throttle(60, 201) > 0);
+    assert(ArcadeTouch::throttle(140, 201) < 0);
+    ArcadeTouch::Motion ship{150, 100, 0, 0};
+    ArcadeTouch::moveShip(ship, 14, 1, 320, 200, 14, 33);
+    assert(ship.y < 100 && ship.y > 95 && ship.vy < 0);
+    assert(ship.x > 150 && ship.x < 155 && ship.vx > 0);
+    for (int i = 0; i < 100; ++i)
+        ArcadeTouch::moveShip(ship, 14, 1, 320, 200, 14, 33);
+    assert(ship.y >= 14 && ship.y < 15 && ship.x == 305);
+    for (int i = 0; i < 100; ++i)
+        ArcadeTouch::moveShip(ship, 185, -1, 320, 200, 14, 33);
+    assert(ship.y <= 185 && ship.y > 184 && ship.x == 14);
+    ship = {150, 100, 120, 0};
+    ArcadeTouch::moveShip(ship, 100, 0, 320, 200, 14, 33);
+    assert(ship.vx > 0 && ship.vx < 120); // Brake rather than stop instantly.
+    for (int i = 0; i < 20; ++i)
+        ArcadeTouch::moveShip(ship, 100, 0, 320, 200, 14, 33);
+    assert(ship.vx == 0);
+    const float stoppedX = ship.x;
+    ArcadeTouch::moveShip(ship, 100, 0, 320, 200, 14, 33);
+    assert(ship.x == stoppedX);
 
     auto p = clampToField(-10, -20, 480, 240, 14);
     assert(p.x == 14 && p.y == 14);

@@ -8,6 +8,18 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.5
+
+- Replace direct-on-ship Arcade steering with two separate thumb strips:
+  left selects target height, right commands horizontal speed (up moves
+  right, down moves left, central 20% zone stops). Acceleration and braking
+  are gradual; the ship glides toward its selected height without jumping.
+  Course scrolling stays constant and automatic fire remains enabled.
+- Add opt-in cached two-contact input for all three touch drivers, preserving
+  the normal menu pointer path and S3_35B's shared touch/power sampler.
+  Stale/failed input releases the throttle; sleep/wake input guards apply
+  to game contacts too. Two-finger hardware verification is pending.
+
 ## v0.26.4
 
 - Add an **Arcade** main-menu category and the first playable control-test

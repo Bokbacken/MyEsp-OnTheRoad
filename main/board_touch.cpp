@@ -26,6 +26,8 @@ constexpr int I2C_TIMEOUT_MS = 20;
 constexpr uint32_t RELEASE_HOLD_MS = 60;     // Finger must stay up this long to count as released
 
 Touch::Info g_info = {};
+bool g_multiTouch = false;
+Touch::Contacts g_contacts;
 uint8_t g_scan[16];
 int g_scanCount = 0;
 volatile uint32_t g_irq = 0;
@@ -76,6 +78,10 @@ void hwReset()
 // Reads the current touch state. Returns false on I2C error.
 bool readPoint(bool &pressed, uint16_t &x, uint16_t &y)
 {
+    if (g_multiTouch) {
+        g_contacts = {};
+        g_contacts.sampledAt = MySys::millis();
+    }
     uint8_t infoReg = 0;
     pressed = false;
     if (!readReg(REG_TOUCH_INFO, &infoReg, 1)) return false;
@@ -89,10 +95,21 @@ bool readPoint(bool &pressed, uint16_t &x, uint16_t &y)
     for (int i = 0; i < n; i++) {
         const uint8_t *r = &buf[i * REPORT_BYTES];
         if (!(r[0] & 0x80)) continue;              // valid flag
-        x = (uint16_t)(((r[0] & 0x3F) << 8) | r[1]);
-        y = (uint16_t)((r[2] << 8) | r[3]);
-        pressed = true;
-        return true;                               // First valid point only (single touch UI)
+        const uint16_t cx = (uint16_t)(((r[0] & 0x3F) << 8) | r[1]);
+        const uint16_t cy = (uint16_t)((r[2] << 8) | r[3]);
+        if (!pressed) {
+            x = cx;
+            y = cy;
+            pressed = true;
+        }
+        if (!g_multiTouch) return true;             // Existing menu pointer path
+        if (cx >= LCD_H_RES || cy >= LCD_V_RES) {
+            g_contacts = {};
+            ESP_LOGW(TAG, "invalid multi-touch coordinates");
+            return false;
+        }
+        if (g_contacts.count < 2)
+            g_contacts.points[g_contacts.count++] = {int16_t(cx), int16_t(cy)};
     }
     return true;
 }
@@ -223,5 +240,23 @@ bool deviceFound(uint8_t addr)
 i2c_master_bus_handle_t bus() { return g_bus; }
 lv_indev_t *indev() { return g_indev; }
 Info info() { return g_info; }
+
+void setMultiTouch(bool enabled)
+{
+    g_multiTouch = enabled;
+    g_contacts = {};
+}
+
+Contacts contacts()
+{
+    Contacts snapshot = g_contacts;
+    if (g_rot180) {
+        for (unsigned i = 0; i < snapshot.count; ++i) {
+            snapshot.points[i].x = LCD_H_RES - 1 - snapshot.points[i].x;
+            snapshot.points[i].y = LCD_V_RES - 1 - snapshot.points[i].y;
+        }
+    }
+    return snapshot;
+}
 
 }  // namespace Touch

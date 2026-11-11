@@ -5,11 +5,13 @@
 
 #include "arcade_touch.h"
 #include "board_display.h"
+#include "board_touch.h"
 #include "esp_log.h"
 #include "lang.h"
 #include "my_theme.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
+#include "ui_screen_power.h"
 
 namespace UiArcade {
 namespace {
@@ -42,6 +44,8 @@ struct Bullet {
 lv_obj_t *s_field = nullptr;
 lv_obj_t *s_ship = nullptr;
 lv_obj_t *s_status = nullptr;
+lv_obj_t *s_heightControl = nullptr, *s_speedControl = nullptr;
+lv_obj_t *s_heightMarker = nullptr, *s_speedMarker = nullptr;
 lv_timer_t *s_timer = nullptr;
 Gate s_gates[GATE_COUNT];
 Bullet s_bullets[BULLET_COUNT];
@@ -52,6 +56,10 @@ uint32_t s_lastTick = 0, s_fireElapsed = 0, s_hitAt = 0;
 uint32_t s_passed = 0, s_targetsHit = 0, s_impacts = 0;
 bool s_hitGrace = false;
 unsigned s_nextBullet = 0;
+ArcadeTouch::Motion s_motion;
+float s_targetY = 0;
+bool s_controlsArmed = false;
+uint32_t s_inputStartedAt = 0;
 
 void setHidden(lv_obj_t *obj, bool hidden)
 {
@@ -78,24 +86,43 @@ void updateStatus()
     lv_label_set_text(s_status, text);
 }
 
-void updateTouch(lv_event_t *event)
+float readControls()
 {
-    const lv_event_code_t code = lv_event_get_code(event);
-    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING &&
-        code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
-    if (code == LV_EVENT_PRESS_LOST) return;
-
-    lv_indev_t *input = lv_indev_active();
-    if (input) {
-        lv_point_t point;
-        lv_area_t bounds;
-        lv_indev_get_point(input, &point);
-        lv_obj_get_coords(s_field, &bounds);
-        const ArcadeTouch::Point p = ArcadeTouch::clampToField(
-            point.x - bounds.x1, point.y - bounds.y1, s_fieldW, s_fieldH, s_shipRadius + 2);
-        s_shipX = p.x;
-        s_shipY = p.y;
+    float speed = 0;
+    lv_obj_set_y(s_speedMarker, (s_fieldH - 5) / 2);
+    const Touch::Contacts contacts = Touch::contacts();
+    if (UiScreenPower::inputBlocked()) {
+        s_controlsArmed = false;
+        return 0;
     }
+    if (int32_t(contacts.sampledAt - s_inputStartedAt) < 0 ||
+        lv_tick_elaps(contacts.sampledAt) > 100) return 0;
+    if (!s_controlsArmed) {
+        if (contacts.count == 0) s_controlsArmed = true;
+        return 0;
+    }
+    lv_area_t left, right;
+    lv_obj_get_coords(s_heightControl, &left);
+    lv_obj_get_coords(s_speedControl, &right);
+    bool haveHeight = false, haveSpeed = false;
+    for (unsigned i = 0; i < contacts.count && i < 2; ++i) {
+        lv_point_t point = {contacts.points[i].x, contacts.points[i].y};
+        lv_display_rotate_point(lv_display_get_default(), &point);
+        if (point.y < left.y1 || point.y > left.y2) continue;
+        const int32_t y = point.y - left.y1;
+        if (!haveHeight && point.x >= left.x1 && point.x <= left.x2) {
+            const auto target = ArcadeTouch::clampToField(
+                s_shipX, y, s_fieldW, s_fieldH, s_shipRadius + 2);
+            s_targetY = float(target.y);
+            haveHeight = true;
+        } else if (!haveSpeed && point.x >= right.x1 && point.x <= right.x2) {
+            speed = ArcadeTouch::throttle(y, s_fieldH);
+            haveSpeed = true;
+        }
+    }
+    lv_obj_set_y(s_heightMarker, int32_t(s_targetY) - 2);
+    lv_obj_set_y(s_speedMarker, int32_t((1.0f - speed) * (s_fieldH - 5) / 2));
+    return speed;
 }
 
 void resetCourse()
@@ -106,6 +133,12 @@ void resetCourse()
     s_nextBullet = 0;
     s_shipX = s_fieldW / 7;
     s_shipY = s_fieldH / 2;
+    s_motion = {float(s_shipX), float(s_shipY), 0, 0};
+    s_targetY = float(s_shipY);
+    s_controlsArmed = false;
+    s_inputStartedAt = lv_tick_get();
+    lv_obj_set_y(s_heightMarker, s_shipY - 2);
+    lv_obj_set_y(s_speedMarker, s_fieldH / 2 - 2);
     lv_obj_set_pos(s_ship, s_shipX - s_shipRadius, s_shipY - s_shipRadius);
     setHidden(s_ship, false);
     for (int i = 0; i < GATE_COUNT; ++i) {
@@ -132,6 +165,16 @@ void update(lv_timer_t *)
     uint32_t elapsed = lv_tick_elaps(s_lastTick);
     s_lastTick = lv_tick_get();
     elapsed = std::min<uint32_t>(elapsed, 66);
+    const float speed = readControls();
+    if (UiScreenPower::inputBlocked()) {
+        s_motion.vx = s_motion.vy = 0;
+        s_targetY = s_motion.y;
+        return;
+    }
+    ArcadeTouch::moveShip(s_motion, s_targetY, speed, s_fieldW, s_fieldH,
+                         s_shipRadius + 2, elapsed);
+    s_shipX = int32_t(std::lround(s_motion.x));
+    s_shipY = int32_t(std::lround(s_motion.y));
     if (s_hitGrace && lv_tick_elaps(s_hitAt) >= HIT_GRACE_MS) s_hitGrace = false;
 
     s_fireElapsed += elapsed;
@@ -209,6 +252,7 @@ void closeCourse()
         lv_timer_delete(s_timer);
         s_timer = nullptr;
     }
+    Touch::setMultiTouch(false);
     showMenu();
 }
 
@@ -219,6 +263,8 @@ void screenDeleted(lv_event_t *)
         s_timer = nullptr;
     }
     s_field = s_ship = s_status = nullptr;
+    s_heightControl = s_speedControl = s_heightMarker = s_speedMarker = nullptr;
+    Touch::setMultiTouch(false);
     for (Gate &gate : s_gates) gate = {};
     for (Bullet &bullet : s_bullets) bullet = {};
 }
@@ -245,6 +291,7 @@ int32_t buttonWidth(const char *text)
 
 void showTouchTest()
 {
+    if (s_timer) return;
     if (!Display::setLandscape(true)) {
         ESP_LOGE("arcade", "could not enter landscape mode for the touch course");
         return;
@@ -256,21 +303,48 @@ void showTouchTest()
     const int32_t footerH = UiMetrics::buttonH();
     const int32_t fieldY = header + UiMetrics::marginSmall();
     const int32_t fieldBottom = UiMetrics::screenH() - footerH - 2 * inset;
+    const int32_t controlWidth = UiMetrics::buttonWMin();
+    const int32_t fieldX = inset + controlWidth + UiMetrics::marginSmall();
 
     s_field = lv_obj_create(scr);
     lv_obj_remove_style_all(s_field);
-    lv_obj_set_pos(s_field, inset, fieldY);
-    s_fieldW = UiMetrics::screenW() - 2 * inset;
+    lv_obj_set_pos(s_field, fieldX, fieldY);
+    s_fieldW = UiMetrics::screenW() - 2 * fieldX;
     s_fieldH = fieldBottom - fieldY;
     lv_obj_set_size(s_field, s_fieldW, s_fieldH);
     lv_obj_set_style_bg_color(s_field, lv_color_hex(0x071321), 0);
     lv_obj_set_style_bg_opa(s_field, LV_OPA_COVER, 0);
     lv_obj_set_scrollable(s_field, false);
-    lv_obj_set_clickable(s_field, true);
-    lv_obj_add_event_cb(s_field, updateTouch, LV_EVENT_PRESSED, nullptr);
-    lv_obj_add_event_cb(s_field, updateTouch, LV_EVENT_PRESSING, nullptr);
-    lv_obj_add_event_cb(s_field, updateTouch, LV_EVENT_RELEASED, nullptr);
-    lv_obj_add_event_cb(s_field, updateTouch, LV_EVENT_PRESS_LOST, nullptr);
+    lv_obj_set_clickable(s_field, false);
+
+    s_heightControl = coloredRect(scr, 0x19354B, 6);
+    s_speedControl = coloredRect(scr, 0x19354B, 6);
+    for (lv_obj_t *control : {s_heightControl, s_speedControl}) {
+        lv_obj_set_size(control, controlWidth, s_fieldH);
+        lv_obj_set_clickable(control, true);
+    }
+    lv_obj_set_pos(s_heightControl, inset, fieldY);
+    lv_obj_set_pos(s_speedControl, UiMetrics::screenW() - inset - controlWidth, fieldY);
+    lv_obj_t *neutral = coloredRect(s_speedControl, 0x3B5261, 0);
+    lv_obj_set_pos(neutral, 0, s_fieldH * 2 / 5);
+    lv_obj_set_size(neutral, controlWidth, s_fieldH / 5);
+    auto controlLabel = [&](lv_obj_t *parent, const char *text, int32_t y) {
+        lv_obj_t *label = Theme::label(parent, text, &my_font_14, Theme::LINE);
+        lv_obj_set_width(label, controlWidth);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(label, 0, y);
+        lv_obj_set_clickable(label, false);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+    };
+    controlLabel(s_heightControl, tr(Str::ARCADE_HEIGHT), 4);
+    controlLabel(s_speedControl, tr(Str::ARCADE_SPEED), 4);
+    controlLabel(s_speedControl, ">", s_fieldH / 5);
+    controlLabel(s_speedControl, "0", s_fieldH / 2 - my_font_14.line_height / 2);
+    controlLabel(s_speedControl, "<", s_fieldH * 4 / 5 - my_font_14.line_height);
+    s_heightMarker = coloredRect(s_heightControl, 0x72DDF2, 0);
+    s_speedMarker = coloredRect(s_speedControl, 0xF5C84C, 0);
+    for (lv_obj_t *marker : {s_heightMarker, s_speedMarker})
+        lv_obj_set_size(marker, controlWidth, 4);
 
     s_shipRadius = std::max<int32_t>(11, s_fieldH / 22);
     s_gateWidth = std::max<int32_t>(16, s_fieldW / 30);
@@ -346,6 +420,7 @@ void showTouchTest()
         Display::setLandscape(false);
         return;
     }
+    Touch::setMultiTouch(true);
     Theme::loadScreen(scr);
 }
 

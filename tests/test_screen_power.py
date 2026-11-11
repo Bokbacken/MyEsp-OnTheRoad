@@ -124,6 +124,7 @@ int main() {
     UiScreenPower::begin();
     UiScreenPower::setPowerMessageHandler(capturePowerMessage);
     UiScreenPower::begin(); // One filter and timer only.
+    assert(!UiScreenPower::inputBlocked());
     tick(60000); // Disabled by default.
     assert(!Backlight::sleeping());
     Config::get().screenOffSeconds=30;
@@ -132,13 +133,16 @@ int main() {
     assert(!Backlight::sleeping());
     tick(90000);
     assert(Backlight::sleeping() && duty==0 && Backlight::get()==80);
+    assert(UiScreenPower::inputBlocked());
     assert(Display::asleep==Display::supported); // Panel sleeps on every screen-off, not only eco.
     assert(!sample(90010,true)); // Wake is invisible to LVGL.
     assert(!Backlight::sleeping() && duty==normalDuty && !Display::asleep);
+    assert(UiScreenPower::inputBlocked()); // Raw game contacts must respect the wake guard too.
     assert(!sample(90259,false)); // 249 ms is insufficient even after release.
     assert(!sample(90260,true)); // New contact in guard stays blocked.
     assert(!sample(90500,true)); // Holding past 250 ms cannot become a press.
     assert(!sample(90501,false));
+    assert(!UiScreenPower::inputBlocked());
     assert(sample(90502,true)); // Only a new touch after release reaches controls.
     assert(!sample(90503,false));
     // Held input refreshes inactivity; screen must never blank mid-gesture.

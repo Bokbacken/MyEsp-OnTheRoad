@@ -22,13 +22,13 @@ def main():
         ),
         "touch": (
             "board_touch_axs15231b.cpp",
-            ["normal", "capture", "idle-first", "idle-first-57", "idle-first-02", "missing-power", "failed-power", "missing-lvgl", "add-device",
+            ["normal", "multitouch", "capture", "idle-first", "idle-first-57", "idle-first-02", "missing-power", "failed-power", "missing-lvgl", "add-device",
              "bad-first-report", "startup-corrupt", "startup-stuck", "recovery-failure",
              "startup-recovery", "command-failure", "pointer"],
         ),
         "touch_diag": (
             "board_touch_axs15231b.cpp",
-            ["diagnostics", "idle-first-57", "idle-first-02", "startup-recovery",
+            ["diagnostics", "multitouch", "idle-first-57", "idle-first-02", "startup-recovery",
              "startup-corrupt", "startup-stuck", "command-failure"],
         ),
     }

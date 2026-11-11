@@ -9,4 +9,5 @@ void begin();
 void setPowerMessageHandler(PowerMessageHandler handler);
 void sleepNow();
 bool ecoSleeping();
+bool inputBlocked();  // Includes wake-touch suppression for non-pointer game input.
 }  // namespace UiScreenPower
