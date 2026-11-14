@@ -302,18 +302,14 @@ bool makeAudioRender()
     if (esp_gmf_alc_init(&alcCfg, &el) != ESP_GMF_ERR_OK ||
         esp_gmf_pool_register_element(s_audioPool, el, nullptr) != ESP_GMF_ERR_OK) return false;
 
-    esp_audio_render_cfg_t cfg = {
-        .max_stream_num = 1,
-        .out_writer = audioWriter,
-        .out_ctx = nullptr,
-        .out_sample_info = {
-            .sample_rate = AUDIO_RATE,
-            .channel = 1,
-            .bits_per_sample = 16,
-        },
-        .pool = s_audioPool,
-        .process_period = 20,
-    };
+    esp_audio_render_cfg_t cfg{};
+    cfg.max_stream_num = 1;
+    cfg.out_writer = audioWriter;
+    cfg.out_sample_info.sample_rate = AUDIO_RATE;
+    cfg.out_sample_info.bits_per_sample = 16;
+    cfg.out_sample_info.channel = 1;
+    cfg.pool = s_audioPool;
+    cfg.process_period = 20;
     if (esp_audio_render_create(&cfg, &s_audioRender) != ESP_AUDIO_RENDER_ERR_OK) return false;
     return true;
 }
