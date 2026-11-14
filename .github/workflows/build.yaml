@@ -351,6 +351,7 @@ jobs:
           /tmp/test_supernova_lyrics
           python3 tests/test_supernova_video_backend.py
           python3 tests/test_supernova_scaling.py
+          python3 tests/test_supernova_media.py
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_supernova_video_geometry.cpp -o /tmp/test_supernova_video_geometry
           /tmp/test_supernova_video_geometry
 
