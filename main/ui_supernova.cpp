@@ -94,12 +94,15 @@ bool findMedia(const std::string &folder, Song &song)
     }
     closedir(dir);
     std::sort(files.begin(), files.end());
+    std::string avi;
     for (const std::string &file : files) {
         const std::string path = folder + "/" + file;
         if (song.audio.empty() && endsWithExt(file, ".mp3")) song.audio = path;
         else if (song.video.empty() && endsWithExt(file, ".mp4")) song.video = path;
+        else if (avi.empty() && endsWithExt(file, ".avi")) avi = path;
         else if (song.lyrics.empty() && endsWithExt(file, ".txt")) song.lyrics = path;
     }
+    if (!avi.empty()) song.video = avi;
     return !song.video.empty() && !song.lyrics.empty();
 }
 

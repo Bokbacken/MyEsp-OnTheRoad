@@ -319,6 +319,10 @@ jobs:
               grep -qx 'CONFIG_OTR_HW_PROFILE_S3_35B=y' sdkconfig
               grep -qx "# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set" sdkconfig
             fi
+            if [ "${{ matrix.board }}" = p4-43 ]; then
+              grep -qx 'CONFIG_VIDEO_DECODER_HW_MJPEG_SUPPORT=y' sdkconfig
+              grep -qx 'CONFIG_AVI_EXTRACTOR_SUPPORT=y' sdkconfig
+            fi
             grep -qx 'CONFIG_LOG_DEFAULT_LEVEL=3' sdkconfig
             grep -qx 'CONFIG_LOG_MAXIMUM_LEVEL=4' sdkconfig
             grep -qx 'CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y' sdkconfig
@@ -346,6 +350,9 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -Imain main/supernova_lyrics.cpp tests/test_supernova_lyrics.cpp -o /tmp/test_supernova_lyrics
           /tmp/test_supernova_lyrics
           python3 tests/test_supernova_video_backend.py
+          python3 tests/test_supernova_scaling.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_supernova_video_geometry.cpp -o /tmp/test_supernova_video_geometry
+          /tmp/test_supernova_video_geometry
 
       - name: Upload build artifacts
         if: always()

@@ -1,4 +1,5 @@
 #include "supernova_player.h"
+#include "supernova_video_geometry.h"
 
 #include "hw_profile.h"
 
@@ -475,8 +476,8 @@ bool start(const char *audioPath, const char *videoPath)
     }
     s_started = true;
     s_paused = false;
-    ESP_LOGI(TAG, "Started %s and H.264 playback",
-             separateAudio ? "separate MP3" : "MP4 audio");
+    ESP_LOGI(TAG, "Started %s and video playback",
+             separateAudio ? "separate MP3" : "embedded audio");
     return true;
 }
 
@@ -532,6 +533,39 @@ const char *error()
 }
 
 }  // namespace SupernovaPlayer
+
+extern "C" esp_video_render_err_t __real_esp_video_render_stream_open(
+    esp_video_render_handle_t, esp_video_render_stream_info_t *, esp_video_render_stream_handle_t *);
+extern "C" esp_video_render_err_t __wrap_esp_video_render_stream_open(
+    esp_video_render_handle_t render, esp_video_render_stream_info_t *info,
+    esp_video_render_stream_handle_t *stream)
+{
+    const esp_video_render_err_t result = __real_esp_video_render_stream_open(render, info, stream);
+    if (result != ESP_VIDEO_RENDER_ERR_OK || render != SupernovaPlayer::s_videoRender) return result;
+
+    esp_video_render_disp_info_t display{};
+    esp_video_render_err_t status = esp_video_render_get_display_info(render, &display);
+    if (status == ESP_VIDEO_RENDER_ERR_OK) {
+        const auto fit = SupernovaVideo::fit(info->info.width, info->info.height, display.width, display.height);
+        if (!fit.width || !fit.height) {
+            status = ESP_VIDEO_RENDER_ERR_INVALID_ARG;
+        } else {
+            esp_video_render_rect_t rect{fit.x, fit.y, fit.width, fit.height};
+            status = esp_video_render_stream_set_disp_rect(*stream, &rect);
+            if (status == ESP_VIDEO_RENDER_ERR_OK) {
+                ESP_LOGI("supernova", "video scale %ux%u -> %ux%u at %u,%u",
+                         (unsigned)info->info.width, (unsigned)info->info.height,
+                         (unsigned)fit.width, (unsigned)fit.height, (unsigned)fit.x, (unsigned)fit.y);
+            }
+        }
+    }
+    if (status != ESP_VIDEO_RENDER_ERR_OK) {
+        ESP_LOGE("supernova", "Could not configure video scaling: %d", (int)status);
+        esp_video_render_stream_close(*stream);
+        *stream = nullptr;
+    }
+    return status;
+}
 
 #else
 

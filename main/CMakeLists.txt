@@ -42,6 +42,12 @@ target_link_libraries(${COMPONENT_LIB} INTERFACE
   "-Wl,--wrap=esp_partition_read"
   "-Wl,--wrap=esp_partition_write")
 
+if(CONFIG_OTR_HW_PROFILE_P4_43)
+  target_link_libraries(${COMPONENT_LIB} INTERFACE
+    "-Wl,--undefined=__wrap_esp_video_render_stream_open"
+    "-Wl,--wrap=esp_video_render_stream_open")
+endif()
+
 if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
   # These wrappers have no ordinary callers in main; retain their archive
   # object before the later sdmmc library introduces the wrapped references.

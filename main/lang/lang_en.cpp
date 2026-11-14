@@ -623,7 +623,7 @@ extern const Entry LANG_EN[] = {
     {Str::MENU_SUB_KARAOKE, "Sing along: lyrics and music from the SD card"},
     {Str::MENU_SUPERNOVA, "Supernova"},
     {Str::MENU_SUB_SUPERNOVA, "UltraStar with music, video and timed lyrics"},
-    {Str::SUPERNOVA_EMPTY, "No complete songs yet.\nPut an Artist - Title folder with .mp4 and .txt in /otr/supernova on the SD card. .mp3 is optional."},
+    {Str::SUPERNOVA_EMPTY, "No complete songs yet.\nPut an Artist - Title folder with .mp4 or .avi and .txt in /otr/supernova on the SD card. .mp3 is optional."},
     {Str::SUPERNOVA_NO_SD, "The SD card is not available."},
     {Str::SUPERNOVA_CATALOG_ERROR, "The Supernova catalog on the SD card could not be read or created."},
     {Str::SUPERNOVA_START_FAILED, "The playback task could not be started."},

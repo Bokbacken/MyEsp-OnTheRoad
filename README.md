@@ -70,9 +70,11 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   Web karaoke and its song picker share the responsive web content width;
   the connection button is centered beneath the lyrics.
 - **Supernova (P4 test)** – an UltraStar-inspired video/lyrics player that reads
-  `.mp4` and `.txt` files from each song folder, with an optional separate
-  `.mp3` audio track (otherwise it uses audio embedded in the MP4). The first
-  test targets the ESP32-P4 and does not include microphone scoring. On Windows,
+  `.mp4` or `.avi` and `.txt` files from each song folder, with an optional separate
+  `.mp3` audio track (otherwise it uses embedded audio). AVI is preferred if both
+  formats exist. P4 supports hardware MJPEG and software H.264; decoded video is
+  scaled to fit the display while preserving its aspect ratio. Hardware playback
+  still requires on-device verification. The first test does not include microphone scoring. On Windows,
   `tools\konvert.bat "input.mp4" "output.mp4"` converts video to H.264 for P4
   using FFmpeg on PATH; audio is copied unchanged and must itself be supported.
 - **Web navigation** – a shared menu and live device status across pages.
@@ -114,7 +116,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 /sdcard/otr/karaoke/                karaoke songs (.mid / .kar, max 1 MB each); "Artist_Title.mid" gives artist + title
 /sdcard/otr/karaoke/<song>.lyr      optional UTF-8 lyric sheet or LRC timestamps beside matching .mid/.kar
 /sdcard/otr/karaoke/karaoke.reg     per-song settings (melody track, key, tempo) – created on a settings change, plain text
-/sdcard/otr/supernova/<Artist - Title>/  UltraStar test song folder with .mp4 and .txt; optional .mp3
+/sdcard/otr/supernova/<Artist - Title>/  UltraStar test song folder with .mp4 or .avi and .txt; optional .mp3
 /sdcard/otr/sf2/                    SoundFonts (.sf2 v2); per-song or global bank selection
 ```
 
