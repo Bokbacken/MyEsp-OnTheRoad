@@ -171,7 +171,9 @@ esp_video_render_err_t backendDisplayInfo(esp_video_render_backend_handle_t hand
 {
     if (!handle || !info) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     auto *backend = static_cast<LvBackend *>(handle);
-    *info = backend->fb.info;
+    info->format = backend->fb.info.format;
+    info->width = backend->fb.info.width;
+    info->height = backend->fb.info.height;
     return ESP_VIDEO_RENDER_ERR_OK;
 }
 
@@ -306,7 +308,7 @@ bool makeAudioRender()
         .out_ctx = nullptr,
         .out_sample_info = {
             .sample_rate = AUDIO_RATE,
-            .channels = 1,
+            .channel = 1,
             .bits_per_sample = 16,
         },
         .pool = s_audioPool,
@@ -323,9 +325,8 @@ bool makeVideoRender()
     if (esp_gmf_video_ppa_init(nullptr, &el) != ESP_GMF_ERR_OK ||
         esp_gmf_pool_register_element(s_videoPool, el, nullptr) != ESP_GMF_ERR_OK) return false;
     el = nullptr;
-    esp_imgfx_color_convert_cfg_t colorCfg = {
-        .color_space_std = ESP_IMGFX_COLOR_SPACE_STD_BT601,
-    };
+    esp_imgfx_color_convert_cfg_t colorCfg{};
+    colorCfg.color_space_std = ESP_IMGFX_COLOR_SPACE_STD_BT601;
     if (esp_gmf_video_color_convert_init(&colorCfg, &el) != ESP_GMF_ERR_OK ||
         esp_gmf_pool_register_element(s_videoPool, el, nullptr) != ESP_GMF_ERR_OK) return false;
 
@@ -457,9 +458,9 @@ bool resume()
 uint32_t positionMs()
 {
     if (!s_audioPlayer) return 0;
-    uint32_t position = 0;
+    uint64_t position = 0;
     if (esp_player_get_play_time(s_audioPlayer, &position) != ESP_PLAYER_ERR_OK) return 0;
-    return position;
+    return position > UINT32_MAX ? UINT32_MAX : (uint32_t)position;
 }
 
 const char *error()
