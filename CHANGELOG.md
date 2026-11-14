@@ -14,8 +14,9 @@ a published GitHub Release.
   `/otr/supernova/<Artist - Title>/` for MP4 video and UltraStar v1 TXT lyrics,
   with optional separate MP3 audio; without an MP3 it uses audio embedded in
   the MP4. Timed lyrics are presented over the video. This first step does not
-  score microphone input. Firmware build and device playback verification are
-  pending.
+  score microphone input. The P4 partition table now has 7 MiB OTA slots and
+  17.875 MiB FFat; existing P4 devices need a one-time full USB flash.
+  Firmware build and device playback verification are pending.
 
 ## v0.26.6
 

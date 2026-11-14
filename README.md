@@ -296,11 +296,11 @@ pins the versions per target. Shared settings (custom partition table, app rollb
 `sdkconfig.defaults`; board settings in `sdkconfig.defaults.esp32s3` (16 MB flash, octal PSRAM,
 USB console) and `sdkconfig.defaults.esp32p4` (chip rev v3.x, 32 MB flash, PSRAM, UART console,
 ESP-Hosted). S3 uses `partitions.csv` (16 MB); P4 uses
-`partitions.esp32p4.csv` (32 MB), with larger FFat and the same app-slot offsets.
-Existing P4 devices need a one-time USB partition-table migration to expose
-the additional space; back up FFat first and follow the
+`partitions.esp32p4.csv` (32 MB), with 7 MB OTA slots and 17.875 MiB FFat.
+Existing P4 devices need a one-time full USB flash for the new layout; it erases
+NVS and FFat. Follow the
 [migration procedure](docs/MULTI_BOARD_TODO.md#p4-partitionstabell-usb-migrering).
-The S3 layout is:
+The S3 layout remains:
 
 | Partition | Offset | Size |
 |---|---:|---:|
@@ -310,6 +310,17 @@ The S3 layout is:
 | app1 (ota_1) | 0x510000 | 5 MB |
 | ffat | 0xA10000 | 5.9 MB |
 | coredump | 0xFF0000 | 64 kB |
+
+The P4 layout is:
+
+| Partition | Offset | Size |
+|---|---:|---:|
+| nvs | 0x9000 | 20 kB |
+| otadata | 0xE000 | 8 kB |
+| app0 (ota_0) | 0x10000 | 7 MB |
+| app1 (ota_1) | 0x710000 | 7 MB |
+| ffat | 0xE10000 | 17.875 MiB |
+| coredump | 0x1FF0000 | 64 kB |
 
 ```sh
 . ~/esp/esp-idf-v6.1/export.sh

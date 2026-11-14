@@ -1265,26 +1265,24 @@ rekommendation innan kod skrivs.
 
 ### P4-partitionstabell: USB-migrering
 
-P4-tabellen utökar FFat från 5.875 MiB till 21.875 MiB. Appslotarnas offset
-(`0x10000` och `0x510000`), `otadata`, NVS och FFat-start (`0xA10000`) är
-oförändrade, så app OTA använder samma slotar. En gammal installerad
-partitionstabell kan däremot inte ändras via app OTA: uppdateringen måste göras
-via USB en gång.
+P4-layouten har nu två 7 MiB OTA-slotar och 17.875 MiB FFat. App0 ligger kvar
+på `0x10000`; app1 flyttas till `0x710000` och FFat till `0xE10000`.
+Partitionstabellen kan inte ändras via OTA. Alla befintliga P4-enheter kräver
+en engångs USB-flash med den nya layouten.
 
-1. Säkerhetskopiera innehåll från FFat innan migrering. Den befintliga FAT-
-   volymen kan fortsätta fungera eftersom startadressen inte flyttas, men FAT:s
-   egen volymstorlek kan förbli den gamla; utökad kapacitet kan kräva att FFat
-   formateras och filer återställs. Förlita dig inte på automatisk migrering.
-2. Bygg för `esp32p4` så att `partitions.esp32p4.csv` väljs. Anslut USB och kör
-   `idf.py -p PORT partition-table-flash` för att skriva den nya tabellen. Läs
-   tillbaka/validera loggen och starta om. En full USB `idf.py -p PORT flash`
-   från samma P4-build skriver också rätt tabell, men raderar mer firmwaredata.
-3. Kontrollera FFat, OTA till en appslot, omstart och coredump-partition.
-   Formatera FFat endast efter säkerhetskopiering och återställ därefter
-   användarfilerna. Testa inte migreringen på enda kopian av användardata.
+1. Bygg P4-firmware så att `partitions.esp32p4.csv` används. Anslut USB och
+   radera hela flashen, till exempel med
+   `idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig -p PORT erase-flash`,
+   och skriv därefter firmware med `idf.py ... flash` eller skriv den nya
+   `merged.bin` vid offset `0x0`. Enbart skrivning av merged-imagen raderar inte
+   gamla FFat-data i området som nu tillhör den nya partitionen.
+2. Helradering tar bort NVS-inställningar, nätverk, FFat-data och befintliga
+   firmware. Den nya FFat-partitionen är tom och formateras vid första start.
+   Kontrollera att FFat monteras innan fortsatt användning.
+3. Verifiera OTA till den andra appslotten, omstart och coredump-partitionen.
 
-**Hårdvara:** ägaren behöver verifiera USB-uppdatering, befintlig FFat-data,
-utökad kapacitet, OTA och återstart på P4. Ingen P4-migrering har mätts här.
+**Hårdvara:** P4 USB-migrering, FFat-montering, OTA och återstart behöver
+verifieras på enheten. S3-layouten ändras inte.
 
 OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
 
