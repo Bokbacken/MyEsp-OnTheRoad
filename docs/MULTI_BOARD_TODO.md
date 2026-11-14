@@ -169,6 +169,14 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   titlar. Prioritera stora tydliga objekt, kontroller som inte skymmer
   spelplanen och stabil bild-/inmatningsrytm på S3. Egna namn, banor, grafik
   och ljud; undvik att kopiera Parsec-innehåll eller presentation.
+- [ ] Supernova (v0.26.7): första UltraStar-inspirerade video-/texttestet är
+  avgränsat till ESP32-P4. Katalogen är
+  `/sdcard/otr/supernova/<Artist - Title>/` med en `.mp3`, `.mp4` och `.txt`;
+  MP3-ljudet och MP4-videon startas separat och texten tidsätts från UltraStar
+  BPM/GAP. Bygg på P4 och verifiera faktisk H.264-/MP3-kompatibilitet,
+  ljud-/bildsynk, texttiming, paus/återgång och upprepad uppspelning på enheten.
+  Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
+  S3-portning beslutas efter praktiskt P4-test.
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.

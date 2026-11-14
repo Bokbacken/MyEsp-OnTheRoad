@@ -25,6 +25,7 @@
 #include "ui_adventure.h"
 #include "ui_arcade.h"
 #include "ui_karaoke.h"
+#include "ui_supernova.h"
 #include "ui_sudoku.h"
 #include "ui_multiplayer.h"
 #include "ui_clock.h"
@@ -208,6 +209,10 @@ void showMenu()
         static uint32_t last = 0;
         if (Theme::debounce(last, 600)) UiKaraoke::show();
     }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *supernova = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_SUPERNOVA),
+                                          tr(Str::MENU_SUB_SUPERNOVA), nullptr,
+                                          LV_SYMBOL_AUDIO, Theme::BLUE);
+    lv_obj_add_event_cb(supernova, [](lv_event_t *) { UiSupernova::show(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *arcade = Theme::menuCard(list, LV_PCT(100), tr(Str::MENU_ARCADE),
                                        tr(Str::MENU_SUB_ARCADE), nullptr, LV_SYMBOL_PLAY, Theme::BLUE);
     lv_obj_add_event_cb(arcade, [](lv_event_t *) { UiArcade::showMenu(); }, LV_EVENT_CLICKED, nullptr);

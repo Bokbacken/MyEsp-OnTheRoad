@@ -13,6 +13,14 @@ CONFIG_OTR_SD_IO_DIAGNOSTICS=y
 # The P4 bootloader starts at 0x2000; with the partition table at 0x8000 it must stay below 24 KB.
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 
+# --- Supernova UltraStar video test (P4 only) ---
+CONFIG_ESP_PLAYER_ENABLE_AUDIO=y
+CONFIG_ESP_PLAYER_ENABLE_VIDEO=y
+CONFIG_ESP_PLAYER_ENABLE_FILE_IO=y
+CONFIG_MP4_EXTRACTOR_SUPPORT=y
+CONFIG_VIDEO_DECODER_SW_H264_SUPPORT=y
+CONFIG_AUDIO_DECODER_MP3_SUPPORT=y
+
 # --- Wi-Fi through the ESP32-C6 co-processor (ESP-Hosted 3.x, SDIO, board default pins) ---
 CONFIG_ESP_HOSTED=y
 # Must equal the SD card clock: both slots share the P4 SDMMC host divider (main/board_sd.cpp).

@@ -343,6 +343,8 @@ jobs:
           python3 tests/test_karaoke_layout.py /tmp/karaoke-layout
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_karaoke_geometry.cpp -o /tmp/test_karaoke_geometry
           /tmp/test_karaoke_geometry
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain main/supernova_lyrics.cpp tests/test_supernova_lyrics.cpp -o /tmp/test_supernova_lyrics
+          /tmp/test_supernova_lyrics
 
       - name: Upload build artifacts
         if: always()
