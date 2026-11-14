@@ -100,7 +100,7 @@ bool findMedia(const std::string &folder, Song &song)
         else if (song.video.empty() && endsWithExt(file, ".mp4")) song.video = path;
         else if (song.lyrics.empty() && endsWithExt(file, ".txt")) song.lyrics = path;
     }
-    return !song.audio.empty() && !song.video.empty() && !song.lyrics.empty();
+    return !song.video.empty() && !song.lyrics.empty();
 }
 
 std::vector<Song> scanSongs(bool &sdReady, bool &catalogReady)
@@ -228,7 +228,8 @@ void backToSongs()
 void mediaStartTask(void *)
 {
     const Song &song = s_songs[s_pendingSong];
-    const bool ok = SupernovaPlayer::start(song.audio.c_str(), song.video.c_str());
+    const char *audioPath = song.audio.empty() ? nullptr : song.audio.c_str();
+    const bool ok = SupernovaPlayer::start(audioPath, song.video.c_str());
     s_mediaState.store(ok ? MediaState::PLAYING : MediaState::FAILED, std::memory_order_release);
     vTaskDelete(nullptr);
 }

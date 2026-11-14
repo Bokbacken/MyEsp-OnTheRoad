@@ -11,10 +11,11 @@ a published GitHub Release.
 ## v0.26.7
 
 - Add **Supernova**, an ESP32-P4-only UltraStar-inspired test player. It scans
-  `/otr/supernova/<Artist - Title>/` for separate MP3 audio, MP4 video and
-  UltraStar v1 TXT lyrics, then presents timed lyrics over the video. This
-  first step does not score microphone input. Firmware build and device
-  playback verification are pending.
+  `/otr/supernova/<Artist - Title>/` for MP4 video and UltraStar v1 TXT lyrics,
+  with optional separate MP3 audio; without an MP3 it uses audio embedded in
+  the MP4. Timed lyrics are presented over the video. This first step does not
+  score microphone input. Firmware build and device playback verification are
+  pending.
 
 ## v0.26.6
 

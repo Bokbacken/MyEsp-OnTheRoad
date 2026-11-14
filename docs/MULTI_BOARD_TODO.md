@@ -171,9 +171,9 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   och ljud; undvik att kopiera Parsec-innehåll eller presentation.
 - [ ] Supernova (v0.26.7): första UltraStar-inspirerade video-/texttestet är
   avgränsat till ESP32-P4. Katalogen är
-  `/sdcard/otr/supernova/<Artist - Title>/` med en `.mp3`, `.mp4` och `.txt`;
-  MP3-ljudet och MP4-videon startas separat och texten tidsätts från UltraStar
-  BPM/GAP. Bygg på P4 och verifiera faktisk H.264-/MP3-kompatibilitet,
+  `/sdcard/otr/supernova/<Artist - Title>/` med `.mp4` och `.txt`; separat
+  `.mp3` är valfri, annars används MP4:ans ljudspår. Texten tidsätts från
+  UltraStar BPM/GAP. Bygg på P4 och verifiera faktisk H.264-/AAC-/MP3-kompatibilitet,
   ljud-/bildsynk, texttiming, paus/återgång och upprepad uppspelning på enheten.
   Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
   S3-portning beslutas efter praktiskt P4-test.

@@ -350,7 +350,9 @@ bool start(const char *audioPath, const char *videoPath)
 {
     stop();
     s_error[0] = '\0';
-    if (!audioPath || !videoPath || strlen(audioPath) >= MAX_PATH_BYTES || strlen(videoPath) >= MAX_PATH_BYTES) {
+    const bool separateAudio = audioPath && audioPath[0] != '\0';
+    if (!videoPath || (separateAudio && strlen(audioPath) >= MAX_PATH_BYTES) ||
+        strlen(videoPath) >= MAX_PATH_BYTES) {
         snprintf(s_error, sizeof(s_error), "Invalid song media paths");
         return false;
     }
@@ -373,28 +375,33 @@ bool start(const char *audioPath, const char *videoPath)
     esp_audio_render_stream_handle_t audioStream = nullptr;
     if (esp_audio_render_stream_get(s_audioRender, ESP_AUDIO_RENDER_FIRST_STREAM, &audioStream) != ESP_AUDIO_RENDER_ERR_OK ||
         !audioStream) {
-        snprintf(s_error, sizeof(s_error), "Could not open MP3 renderer");
+        snprintf(s_error, sizeof(s_error), "Could not open audio renderer");
         cleanup();
         return false;
     }
 
-    esp_player_config_t audioCfg = ESP_PLAYER_CONFIG_DEFAULT();
-    audioCfg.audio_render_hd = audioStream;
-    if (esp_player_init(&audioCfg, &s_audioPlayer) != ESP_PLAYER_ERR_OK) {
-        snprintf(s_error, sizeof(s_error), "Could not initialize MP3 player");
-        cleanup();
-        return false;
+    if (separateAudio) {
+        esp_player_config_t audioCfg = ESP_PLAYER_CONFIG_DEFAULT();
+        audioCfg.audio_render_hd = audioStream;
+        if (esp_player_init(&audioCfg, &s_audioPlayer) != ESP_PLAYER_ERR_OK) {
+            snprintf(s_error, sizeof(s_error), "Could not initialize MP3 player");
+            cleanup();
+            return false;
+        }
     }
     esp_player_config_t videoCfg = ESP_PLAYER_CONFIG_DEFAULT();
     videoCfg.video_render_hd = s_videoRender;
+    if (!separateAudio) videoCfg.audio_render_hd = audioStream;
     if (esp_player_init(&videoCfg, &s_videoPlayer) != ESP_PLAYER_ERR_OK) {
         snprintf(s_error, sizeof(s_error), "Could not initialize MP4 player");
         cleanup();
         return false;
     }
-    if (esp_player_set_av_mask(s_audioPlayer, ESP_PLAYER_MASK_AUDIO) != ESP_PLAYER_ERR_OK ||
-        esp_player_set_url(s_audioPlayer, audioPath) != ESP_PLAYER_ERR_OK ||
-        esp_player_set_av_mask(s_videoPlayer, ESP_PLAYER_MASK_VIDEO) != ESP_PLAYER_ERR_OK ||
+    if ((separateAudio &&
+         (esp_player_set_av_mask(s_audioPlayer, ESP_PLAYER_MASK_AUDIO) != ESP_PLAYER_ERR_OK ||
+          esp_player_set_url(s_audioPlayer, audioPath) != ESP_PLAYER_ERR_OK)) ||
+        esp_player_set_av_mask(s_videoPlayer, separateAudio ? ESP_PLAYER_MASK_VIDEO
+                                                            : (ESP_PLAYER_MASK_AUDIO | ESP_PLAYER_MASK_VIDEO)) != ESP_PLAYER_ERR_OK ||
         esp_player_set_url(s_videoPlayer, videoPath) != ESP_PLAYER_ERR_OK) {
         snprintf(s_error, sizeof(s_error), "Could not open song media");
         cleanup();
@@ -402,7 +409,7 @@ bool start(const char *audioPath, const char *videoPath)
     }
     s_audioRing.clear();
     Audio::setExternal(audioSource, nullptr);
-    if (esp_player_run(s_audioPlayer) != ESP_PLAYER_ERR_OK ||
+    if ((separateAudio && esp_player_run(s_audioPlayer) != ESP_PLAYER_ERR_OK) ||
         esp_player_run(s_videoPlayer) != ESP_PLAYER_ERR_OK) {
         snprintf(s_error, sizeof(s_error), "Could not start song media");
         cleanup();
@@ -410,7 +417,8 @@ bool start(const char *audioPath, const char *videoPath)
     }
     s_started = true;
     s_paused = false;
-    ESP_LOGI(TAG, "Started MP3 and H.264 playback");
+    ESP_LOGI(TAG, "Started %s and H.264 playback",
+             separateAudio ? "separate MP3" : "MP4 audio");
     return true;
 }
 
@@ -424,13 +432,13 @@ void stop()
 bool pause()
 {
     if (!s_started || s_paused) return false;
-    const bool audioOk = esp_player_pause(s_audioPlayer) == ESP_PLAYER_ERR_OK;
+    const bool audioOk = !s_audioPlayer || esp_player_pause(s_audioPlayer) == ESP_PLAYER_ERR_OK;
     const bool videoOk = esp_player_pause(s_videoPlayer) == ESP_PLAYER_ERR_OK;
     if (audioOk && videoOk) {
         s_paused = true;
         return true;
     }
-    if (audioOk) esp_player_resume(s_audioPlayer);
+    if (s_audioPlayer && audioOk) esp_player_resume(s_audioPlayer);
     if (videoOk) esp_player_resume(s_videoPlayer);
     snprintf(s_error, sizeof(s_error), "Could not pause song media");
     return false;
@@ -439,13 +447,13 @@ bool pause()
 bool resume()
 {
     if (!s_started || !s_paused) return false;
-    const bool audioOk = esp_player_resume(s_audioPlayer) == ESP_PLAYER_ERR_OK;
+    const bool audioOk = !s_audioPlayer || esp_player_resume(s_audioPlayer) == ESP_PLAYER_ERR_OK;
     const bool videoOk = esp_player_resume(s_videoPlayer) == ESP_PLAYER_ERR_OK;
     if (audioOk && videoOk) {
         s_paused = false;
         return true;
     }
-    if (audioOk) esp_player_pause(s_audioPlayer);
+    if (s_audioPlayer && audioOk) esp_player_pause(s_audioPlayer);
     if (videoOk) esp_player_pause(s_videoPlayer);
     snprintf(s_error, sizeof(s_error), "Could not resume song media");
     return false;
@@ -453,9 +461,10 @@ bool resume()
 
 uint32_t positionMs()
 {
-    if (!s_audioPlayer) return 0;
+    esp_player_handle_t clockPlayer = s_audioPlayer ? s_audioPlayer : s_videoPlayer;
+    if (!clockPlayer) return 0;
     uint64_t position = 0;
-    if (esp_player_get_play_time(s_audioPlayer, &position) != ESP_PLAYER_ERR_OK) return 0;
+    if (esp_player_get_play_time(clockPlayer, &position) != ESP_PLAYER_ERR_OK) return 0;
     return position > UINT32_MAX ? UINT32_MAX : (uint32_t)position;
 }
 
