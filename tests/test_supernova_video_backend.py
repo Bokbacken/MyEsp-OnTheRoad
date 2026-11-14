@@ -31,10 +31,20 @@ struct LvBackend {
     Descriptor descriptor{};
     esp_video_render_fb_t fb{};
     bool bound = false;
+    int64_t statsStartUs = 0, previousFrameUs = 0;
+    uint64_t lockWaitUs = 0, writeUs = 0;
+    uint32_t lockCount = 0, frameCount = 0;
+    uint32_t maxLockUs = 0, maxWriteUs = 0, maxGapUs = 0;
 };
 constexpr int MALLOC_CAP_SPIRAM = 1, MALLOC_CAP_8BIT = 2;
 bool failAllocation = false;
-int lockDepth = 0, binds = 0, invalidations = 0;
+int lockDepth = 0, binds = 0, invalidations = 0, reports = 0;
+int64_t mockTime = 0;
+int64_t esp_timer_get_time() { return ++mockTime; }
+const char *TAG = "test";
+template <typename... Args>
+void logInfo(const char *, const char *, Args...) { ++reports; }
+#define ESP_LOGI(...) logInfo(__VA_ARGS__)
 void *heap_caps_aligned_alloc(size_t, size_t size, int) {
     return failAllocation ? nullptr : malloc(size);
 }
@@ -67,7 +77,12 @@ int main() {
     assert(backendWriteFb(&backend, &incoming, nullptr, nullptr) == ESP_VIDEO_RENDER_ERR_INVALID_ARG);
     esp_video_render_fb_t own{};
     assert(backendGetFb(&backend, &own) == ESP_VIDEO_RENDER_ERR_OK);
+    assert(backendLockFb(&backend, &own, true) == ESP_VIDEO_RENDER_ERR_OK);
     assert(backendWriteFb(&backend, &own, nullptr, nullptr) == ESP_VIDEO_RENDER_ERR_OK);
+    assert(backendLockFb(&backend, &own, false) == ESP_VIDEO_RENDER_ERR_OK);
+    mockTime += 5000000;
+    assert(backendWriteFb(&backend, &own, nullptr, nullptr) == ESP_VIDEO_RENDER_ERR_OK);
+    assert(reports == 1 && backend.frameCount == 0 && backend.lockCount == 0);
     assert(lockDepth == 0);
     free(backend.fb.data);
 }

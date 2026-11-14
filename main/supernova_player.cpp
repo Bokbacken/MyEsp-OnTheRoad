@@ -22,6 +22,7 @@
 #include "esp_gmf_video_ppa.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_player.h"
 #include "esp_video_dec_default.h"
 #include "esp_video_render.h"
@@ -100,6 +101,15 @@ struct LvBackend {
     lv_image_dsc_t descriptor{};
     esp_video_render_fb_t fb{};
     bool bound = false;
+    int64_t statsStartUs = 0;
+    int64_t previousFrameUs = 0;
+    uint64_t lockWaitUs = 0;
+    uint64_t writeUs = 0;
+    uint32_t lockCount = 0;
+    uint32_t frameCount = 0;
+    uint32_t maxLockUs = 0;
+    uint32_t maxWriteUs = 0;
+    uint32_t maxGapUs = 0;
 };
 
 AudioRing s_audioRing;
@@ -192,9 +202,19 @@ esp_video_render_err_t backendGetFb(esp_video_render_backend_handle_t handle, es
     return ESP_VIDEO_RENDER_ERR_OK;
 }
 
-esp_video_render_err_t backendLockFb(esp_video_render_backend_handle_t, esp_video_render_fb_t *, bool lock)
+esp_video_render_err_t backendLockFb(esp_video_render_backend_handle_t handle, esp_video_render_fb_t *, bool lock)
 {
-    if (lock) return MyLvgl::lock(1000) ? ESP_VIDEO_RENDER_ERR_OK : ESP_VIDEO_RENDER_ERR_TIMEOUT;
+    if (!handle) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
+    if (lock) {
+        const int64_t start = esp_timer_get_time();
+        if (!MyLvgl::lock(1000)) return ESP_VIDEO_RENDER_ERR_TIMEOUT;
+        auto *backend = static_cast<LvBackend *>(handle);
+        const uint32_t wait = (uint32_t)(esp_timer_get_time() - start);
+        backend->lockWaitUs += wait;
+        backend->lockCount++;
+        if (wait > backend->maxLockUs) backend->maxLockUs = wait;
+        return ESP_VIDEO_RENDER_ERR_OK;
+    }
     MyLvgl::unlock();
     return ESP_VIDEO_RENDER_ERR_OK;
 }
@@ -207,7 +227,13 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
     if (fb->size != backend->fb.size || fb->info.width != backend->fb.info.width ||
         fb->info.height != backend->fb.info.height || fb->info.format != backend->fb.info.format)
         return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
+    const int64_t waitStart = esp_timer_get_time();
     if (!MyLvgl::lock(1000)) return ESP_VIDEO_RENDER_ERR_TIMEOUT;
+    const int64_t writeStart = esp_timer_get_time();
+    const uint32_t wait = (uint32_t)(writeStart - waitStart);
+    backend->lockWaitUs += wait;
+    backend->lockCount++;
+    if (wait > backend->maxLockUs) backend->maxLockUs = wait;
     esp_video_render_fb_t ownedFb{};
     const esp_video_render_err_t result = backendGetFb(handle, &ownedFb);
     if (result != ESP_VIDEO_RENDER_ERR_OK) {
@@ -222,6 +248,29 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
         backend->bound = true;
     } else {
         lv_obj_invalidate(backend->image);
+    }
+    const int64_t now = esp_timer_get_time();
+    const uint32_t duration = (uint32_t)(now - writeStart);
+    backend->writeUs += duration;
+    if (duration > backend->maxWriteUs) backend->maxWriteUs = duration;
+    if (!backend->statsStartUs) backend->statsStartUs = now;
+    if (backend->previousFrameUs) {
+        const uint32_t gap = (uint32_t)(now - backend->previousFrameUs);
+        if (gap > backend->maxGapUs) backend->maxGapUs = gap;
+    }
+    backend->previousFrameUs = now;
+    backend->frameCount++;
+    if (now - backend->statsStartUs >= 5000000) {
+        ESP_LOGI(TAG, "video %u frames/%u ms, LVGL lock avg/max %u/%u ms, write avg/max %u/%u ms, max frame gap %u ms",
+                 (unsigned)backend->frameCount, (unsigned)((now - backend->statsStartUs) / 1000),
+                 (unsigned)(backend->lockWaitUs / backend->lockCount / 1000),
+                 (unsigned)(backend->maxLockUs / 1000),
+                 (unsigned)(backend->writeUs / backend->frameCount / 1000),
+                 (unsigned)(backend->maxWriteUs / 1000), (unsigned)(backend->maxGapUs / 1000));
+        backend->statsStartUs = now;
+        backend->lockWaitUs = backend->writeUs = 0;
+        backend->lockCount = backend->frameCount = 0;
+        backend->maxLockUs = backend->maxWriteUs = backend->maxGapUs = 0;
     }
     MyLvgl::unlock();
     return ESP_VIDEO_RENDER_ERR_OK;
