@@ -53,23 +53,24 @@ struct AudioRing {
         if (!data || bytes == 0 || bytes % sizeof(int16_t)) return -1;
         const int16_t *src = reinterpret_cast<const int16_t *>(data);
         size_t count = bytes / sizeof(int16_t);
-        portENTER_CRITICAL(&mux);
-        if (count >= PCM_CAPACITY) {
-            src += count - PCM_CAPACITY;
-            count = PCM_CAPACITY;
-            read = write = used = 0;
+        while (count > 0) {
+            portENTER_CRITICAL(&mux);
+            const size_t available = PCM_CAPACITY - used;
+            const size_t chunk = count < available ? count : available;
+            for (size_t i = 0; i < chunk; i++) {
+                samples[write] = src[i];
+                write = (write + 1) % PCM_CAPACITY;
+            }
+            used += chunk;
+            portEXIT_CRITICAL(&mux);
+
+            src += chunk;
+            count -= chunk;
+            if (count > 0 && chunk == 0) {
+                // Backpressure keeps decoded PTS from racing ahead of I2S playback.
+                vTaskDelay(1);
+            }
         }
-        if (count > PCM_CAPACITY - used) {
-            const size_t discard = count - (PCM_CAPACITY - used);
-            read = (read + discard) % PCM_CAPACITY;
-            used -= discard;
-        }
-        for (size_t i = 0; i < count; i++) {
-            samples[write] = src[i];
-            write = (write + 1) % PCM_CAPACITY;
-        }
-        used += count;
-        portEXIT_CRITICAL(&mux);
         return 0;
     }
 
