@@ -204,8 +204,16 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
 {
     if (!handle || !fb || !fb->data) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     auto *backend = static_cast<LvBackend *>(handle);
-    if (fb->size != backend->fb.size) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
+    if (fb->size != backend->fb.size || fb->info.width != backend->fb.info.width ||
+        fb->info.height != backend->fb.info.height || fb->info.format != backend->fb.info.format)
+        return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     if (!MyLvgl::lock(1000)) return ESP_VIDEO_RENDER_ERR_TIMEOUT;
+    esp_video_render_fb_t ownedFb{};
+    const esp_video_render_err_t result = backendGetFb(handle, &ownedFb);
+    if (result != ESP_VIDEO_RENDER_ERR_OK) {
+        MyLvgl::unlock();
+        return result;
+    }
     if (fb->data != backend->fb.data) memcpy(backend->fb.data, fb->data, backend->fb.size);
     backend->descriptor.data = backend->fb.data;
     if (pos) lv_obj_set_pos(backend->image, pos->x, pos->y);

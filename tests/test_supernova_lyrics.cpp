@@ -42,6 +42,7 @@ int main()
     assert(phraseAt(doc, 251) == 0);
     assert(phraseAt(doc, 1550) == 1);
     assert(noteAt(doc.phrases[0], 751) == 1);
+    assert(toDisplayText("Let\xe2\x80\x99s \xe2\x80\x9cgo\xe2\x80\x9d") == "Let's \"go\"");
 
     const char relative[] =
         "#BPM:60,0\n#GAP:0\n#RELATIVE:yes\n"

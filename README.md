@@ -72,7 +72,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
 - **Supernova (P4 test)** – an UltraStar-inspired video/lyrics player that reads
   `.mp4` and `.txt` files from each song folder, with an optional separate
   `.mp3` audio track (otherwise it uses audio embedded in the MP4). The first
-  test targets the ESP32-P4 and does not include microphone scoring.
+  test targets the ESP32-P4 and does not include microphone scoring. On Windows,
+  `tools\konvert.bat "input.mp4" "output.mp4"` converts video to H.264 for P4
+  using FFmpeg on PATH; audio is copied unchanged and must itself be supported.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.

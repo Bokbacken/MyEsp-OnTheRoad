@@ -345,6 +345,7 @@ jobs:
           /tmp/test_karaoke_geometry
           g++ -std=c++17 -Wall -Wextra -Werror -Imain main/supernova_lyrics.cpp tests/test_supernova_lyrics.cpp -o /tmp/test_supernova_lyrics
           /tmp/test_supernova_lyrics
+          python3 tests/test_supernova_video_backend.py
 
       - name: Upload build artifacts
         if: always()

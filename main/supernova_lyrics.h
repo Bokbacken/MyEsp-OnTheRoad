@@ -53,6 +53,7 @@ enum class Err : uint8_t {
 };
 
 Err parse(const char *data, size_t len, Document &out);
+std::string toDisplayText(const std::string &text);
 uint32_t phraseAt(const Document &doc, uint32_t timeMs);
 uint32_t noteAt(const Phrase &phrase, uint32_t timeMs);
 

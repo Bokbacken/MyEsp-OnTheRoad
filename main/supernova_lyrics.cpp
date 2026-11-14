@@ -305,6 +305,26 @@ Err parse(const char *data, size_t len, Document &out)
     return Err::OK;
 }
 
+std::string toDisplayText(const std::string &text)
+{
+    std::string display;
+    display.reserve(text.size());
+    for (size_t i = 0; i < text.size();) {
+        if (i + 2 < text.size() && (uint8_t)text[i] == 0xE2 && (uint8_t)text[i + 1] == 0x80 &&
+            ((uint8_t)text[i + 2] == 0x98 || (uint8_t)text[i + 2] == 0x99)) {
+            display.push_back('\'');
+            i += 3;
+        } else if (i + 2 < text.size() && (uint8_t)text[i] == 0xE2 && (uint8_t)text[i + 1] == 0x80 &&
+                   ((uint8_t)text[i + 2] == 0x9C || (uint8_t)text[i + 2] == 0x9D)) {
+            display.push_back('"');
+            i += 3;
+        } else {
+            display.push_back(text[i++]);
+        }
+    }
+    return display;
+}
+
 uint32_t phraseAt(const Document &doc, uint32_t timeMs)
 {
     if (doc.phrases.empty()) return 0;

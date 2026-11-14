@@ -160,10 +160,12 @@ void updateLyrics(uint32_t pos)
     if (!s_playerScreen || s_lyrics.phrases.empty()) return;
     const uint32_t phraseIndex = SupernovaLyrics::phraseAt(s_lyrics, pos);
     if (phraseIndex != s_lastPhrase) {
-        const std::string previous = phraseIndex ? s_lyrics.phrases[phraseIndex - 1].text : "";
-        const std::string current = s_lyrics.phrases[phraseIndex].text;
+        const std::string previous = phraseIndex
+                                         ? SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex - 1].text)
+                                         : "";
+        const std::string current = SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex].text);
         const std::string next = phraseIndex + 1 < s_lyrics.phrases.size()
-                                     ? s_lyrics.phrases[phraseIndex + 1].text : "";
+                                     ? SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex + 1].text) : "";
         lv_label_set_text(s_prevLine, previous.c_str());
         lv_label_set_text(s_curLine, current.c_str());
         lv_label_set_text(s_nextLine, next.c_str());
@@ -175,7 +177,7 @@ void updateLyrics(uint32_t pos)
     const SupernovaLyrics::Phrase &phrase = s_lyrics.phrases[phraseIndex];
     const uint32_t noteIndex = SupernovaLyrics::noteAt(phrase, pos);
     if (noteIndex < phrase.notes.size()) {
-        const std::string syllable = phrase.notes[noteIndex].text;
+        const std::string syllable = SupernovaLyrics::toDisplayText(phrase.notes[noteIndex].text);
         lv_label_set_text(s_curSyllable, syllable.c_str());
     }
 }
