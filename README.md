@@ -77,6 +77,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   still requires on-device verification. The first test does not include microphone scoring. On Windows,
   `tools\konvert.bat "input.mp4" "output.mp4"` converts video to H.264 for P4
   using FFmpeg on PATH; audio is copied unchanged and must itself be supported.
+  The hardware MJPEG decoder is used only for MJPEG video: an H.264 `.mp4` always
+  uses the software decoder (`H264_DEC.SW`). `tools\konvert_mjpeg.bat "input.mp4" "video.avi"`
+  makes an 800x480 MJPEG/MP3 AVI for that path (untested on device).
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.
