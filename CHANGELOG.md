@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.8
+
+- Supernova (P4): video now bypasses LVGL. Decoded frames are rotated by the PPA
+  straight into the DPI framebuffer (no LVGL mutex, image copy or software
+  rotation), to free CPU for later microphone scoring. The video is letterboxed
+  between an opaque header and an opaque lyrics panel; the pause button moved
+  into the header. `tools\konvert_mjpeg.bat` now makes 15 fps, `-q:v 10` files.
+  Not built or verified on hardware: PPA rotation direction/colour order and
+  tearing with the single framebuffer are unconfirmed.
+
 ## v0.26.7
 
 - Add **Supernova**, an ESP32-P4-only UltraStar-inspired test player. It scans

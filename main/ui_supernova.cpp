@@ -316,7 +316,6 @@ void playerTick(lv_timer_t *)
     if (!s_playerVisible) {
         lv_obj_move_foreground(s_playerHeader);
         lv_obj_move_foreground(s_lyricsPanel);
-        lv_obj_move_foreground(s_pauseButton);
         lv_obj_clear_state(s_pauseButton, LV_STATE_DISABLED);
         s_playerVisible = true;
     }
@@ -338,6 +337,9 @@ void playSong(size_t index)
         showError(tr(Str::SUPERNOVA_ROTATION_FAILED));
         return;
     }
+    constexpr int LYRICS_H = 116;
+    SupernovaPlayer::setVideoArea(0, UiMetrics::headerH(), UiMetrics::screenW(),
+                                  UiMetrics::screenH() - UiMetrics::headerH() - LYRICS_H);
     lv_obj_t *screen = Theme::screen();
     s_playerScreen = screen;
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
@@ -348,7 +350,7 @@ void playSong(size_t index)
     lv_obj_remove_style_all(top);
     lv_obj_set_size(top, UiMetrics::screenW(), UiMetrics::headerH());
     lv_obj_set_style_bg_color(top, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(top, LV_OPA_70, 0);
+    lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
     lv_obj_t *back = lv_button_create(top);
     lv_obj_set_size(back, UiMetrics::buttonWMin(), UiMetrics::buttonH());
     lv_obj_align(back, LV_ALIGN_LEFT_MID, 4, 0);
@@ -371,7 +373,7 @@ void playSong(size_t index)
     lv_obj_set_size(lyrics, UiMetrics::screenW(), 116);
     lv_obj_align(lyrics, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_color(lyrics, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(lyrics, LV_OPA_70, 0);
+    lv_obj_set_style_bg_opa(lyrics, LV_OPA_COVER, 0);
     s_prevLine = makeText(lyrics, "", &my_font_14, Theme::c(Theme::LINE));
     lv_obj_set_width(s_prevLine, UiMetrics::screenW() - 24);
     lv_obj_align(s_prevLine, LV_ALIGN_TOP_MID, 0, 4);
@@ -383,11 +385,11 @@ void playSong(size_t index)
     lv_obj_align(s_nextLine, LV_ALIGN_TOP_MID, 0, 60);
     s_curSyllable = makeText(lyrics, "", &my_font_18, Theme::c(Theme::GOLD));
     lv_obj_align(s_curSyllable, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_t *pause = lv_button_create(screen);
+    lv_obj_t *pause = lv_button_create(top);
     s_pauseButton = pause;
     lv_obj_add_state(pause, LV_STATE_DISABLED);
     lv_obj_set_size(pause, UiMetrics::buttonWMin(), UiMetrics::buttonH());
-    lv_obj_align(pause, LV_ALIGN_BOTTOM_RIGHT, -8, -122);
+    lv_obj_align(pause, LV_ALIGN_RIGHT_MID, -64, 0);
     s_playLabel = lv_label_create(pause);
     lv_label_set_text(s_playLabel, LV_SYMBOL_PAUSE);
     lv_obj_center(s_playLabel);

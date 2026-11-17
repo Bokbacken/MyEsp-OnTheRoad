@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "board_audio.h"
+#include "board_display.h"
 #include "board_sd.h"
 #include "esp_audio_dec_default.h"
 #include "esp_audio_render.h"
@@ -96,22 +97,24 @@ struct AudioRing {
     }
 };
 
+// Video bypasses LVGL: frames are rotated by the PPA straight into the DPI framebuffer inside
+// s_area. LVGL must never draw there (opaque header/lyrics panels sit outside the area).
 struct LvBackend {
-    lv_display_t *display = nullptr;
-    lv_obj_t *image = nullptr;
-    lv_image_dsc_t descriptor{};
     esp_video_render_fb_t fb{};
-    bool bound = false;
     int64_t statsStartUs = 0;
     int64_t previousFrameUs = 0;
-    uint64_t lockWaitUs = 0;
     uint64_t writeUs = 0;
-    uint32_t lockCount = 0;
     uint32_t frameCount = 0;
-    uint32_t maxLockUs = 0;
     uint32_t maxWriteUs = 0;
     uint32_t maxGapUs = 0;
+    uint32_t failCount = 0;
 };
+
+struct Area {
+    int x = 0, y = 0, w = 0, h = 0;
+};
+Area s_area;
+Area s_videoRect;
 
 AudioRing s_audioRing;
 esp_gmf_pool_handle_t s_audioPool = nullptr;
@@ -146,29 +149,8 @@ esp_video_render_err_t backendInit(void *cfg, int cfgSize, esp_video_render_back
     if (!config->lv_disp || config->width == 0 || config->height == 0) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     auto *backend = new (std::nothrow) LvBackend;
     if (!backend) return ESP_VIDEO_RENDER_ERR_NO_MEM;
-    backend->display = static_cast<lv_display_t *>(config->lv_disp);
-    if (!MyLvgl::lock(1000)) {
-        delete backend;
-        return ESP_VIDEO_RENDER_ERR_TIMEOUT;
-    }
-    backend->image = lv_image_create(lv_display_get_screen_active(backend->display));
-    if (backend->image) {
-        lv_obj_set_size(backend->image, config->width, config->height);
-        lv_obj_set_pos(backend->image, 0, 0);
-    }
-    MyLvgl::unlock();
-    if (!backend->image) {
-        delete backend;
-        return ESP_VIDEO_RENDER_ERR_NO_MEM;
-    }
     backend->fb.info = {config->out_format, config->width, config->height, 0};
     backend->fb.size = (uint32_t)config->width * config->height * 2;
-    backend->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-    backend->descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
-    backend->descriptor.header.w = config->width;
-    backend->descriptor.header.h = config->height;
-    backend->descriptor.header.stride = config->width * 2;
-    backend->descriptor.data_size = backend->fb.size;
     *out = backend;
     return ESP_VIDEO_RENDER_ERR_OK;
 }
@@ -206,50 +188,23 @@ esp_video_render_err_t backendGetFb(esp_video_render_backend_handle_t handle, es
 esp_video_render_err_t backendLockFb(esp_video_render_backend_handle_t handle, esp_video_render_fb_t *, bool lock)
 {
     if (!handle) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
-    if (lock) {
-        const int64_t start = esp_timer_get_time();
-        if (!MyLvgl::lock(1000)) return ESP_VIDEO_RENDER_ERR_TIMEOUT;
-        auto *backend = static_cast<LvBackend *>(handle);
-        const uint32_t wait = (uint32_t)(esp_timer_get_time() - start);
-        backend->lockWaitUs += wait;
-        backend->lockCount++;
-        if (wait > backend->maxLockUs) backend->maxLockUs = wait;
-        return ESP_VIDEO_RENDER_ERR_OK;
-    }
-    MyLvgl::unlock();
+    (void)lock;   // The frame buffer is private to the render thread; no LVGL lock needed.
     return ESP_VIDEO_RENDER_ERR_OK;
 }
 
 esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, esp_video_render_fb_t *fb,
-                                      const esp_video_render_rect_t *, const esp_video_render_pos_t *pos)
+                                      const esp_video_render_rect_t *, const esp_video_render_pos_t *)
 {
     if (!handle || !fb || !fb->data) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     auto *backend = static_cast<LvBackend *>(handle);
     if (fb->size != backend->fb.size || fb->info.width != backend->fb.info.width ||
         fb->info.height != backend->fb.info.height || fb->info.format != backend->fb.info.format)
         return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
-    const int64_t waitStart = esp_timer_get_time();
-    if (!MyLvgl::lock(1000)) return ESP_VIDEO_RENDER_ERR_TIMEOUT;
     const int64_t writeStart = esp_timer_get_time();
-    const uint32_t wait = (uint32_t)(writeStart - waitStart);
-    backend->lockWaitUs += wait;
-    backend->lockCount++;
-    if (wait > backend->maxLockUs) backend->maxLockUs = wait;
-    esp_video_render_fb_t ownedFb{};
-    const esp_video_render_err_t result = backendGetFb(handle, &ownedFb);
-    if (result != ESP_VIDEO_RENDER_ERR_OK) {
-        MyLvgl::unlock();
-        return result;
-    }
-    if (fb->data != backend->fb.data) memcpy(backend->fb.data, fb->data, backend->fb.size);
-    backend->descriptor.data = backend->fb.data;
-    if (pos) lv_obj_set_pos(backend->image, pos->x, pos->y);
-    if (!backend->bound) {
-        lv_image_set_src(backend->image, &backend->descriptor);
-        backend->bound = true;
-    } else {
-        lv_obj_invalidate(backend->image);
-    }
+    const Area r = s_videoRect;
+    if (r.w > 0 && r.h > 0 &&
+        !Display::videoBlit(fb->data, fb->info.width, fb->info.height, r.x, r.y, r.w, r.h))
+        backend->failCount++;
     const int64_t now = esp_timer_get_time();
     const uint32_t duration = (uint32_t)(now - writeStart);
     backend->writeUs += duration;
@@ -262,18 +217,16 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
     backend->previousFrameUs = now;
     backend->frameCount++;
     if (now - backend->statsStartUs >= 5000000) {
-        ESP_LOGI(TAG, "video %u frames/%u ms, LVGL lock avg/max %u/%u ms, write avg/max %u/%u ms, max frame gap %u ms",
+        ESP_LOGI(TAG, "video(PPA direct) %u frames/%u ms, blit avg/max %u/%u us, max frame gap %u ms, blit failures %u",
                  (unsigned)backend->frameCount, (unsigned)((now - backend->statsStartUs) / 1000),
-                 (unsigned)(backend->lockWaitUs / backend->lockCount / 1000),
-                 (unsigned)(backend->maxLockUs / 1000),
-                 (unsigned)(backend->writeUs / backend->frameCount / 1000),
-                 (unsigned)(backend->maxWriteUs / 1000), (unsigned)(backend->maxGapUs / 1000));
+                 (unsigned)(backend->writeUs / backend->frameCount),
+                 (unsigned)backend->maxWriteUs, (unsigned)(backend->maxGapUs / 1000),
+                 (unsigned)backend->failCount);
         backend->statsStartUs = now;
-        backend->lockWaitUs = backend->writeUs = 0;
-        backend->lockCount = backend->frameCount = 0;
-        backend->maxLockUs = backend->maxWriteUs = backend->maxGapUs = 0;
+        backend->writeUs = 0;
+        backend->frameCount = backend->failCount = 0;
+        backend->maxWriteUs = backend->maxGapUs = 0;
     }
-    MyLvgl::unlock();
     return ESP_VIDEO_RENDER_ERR_OK;
 }
 
@@ -281,10 +234,7 @@ esp_video_render_err_t backendDeinit(esp_video_render_backend_handle_t handle)
 {
     if (!handle) return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     auto *backend = static_cast<LvBackend *>(handle);
-    if (MyLvgl::lock(1000)) {
-        if (backend->image) lv_obj_delete(backend->image);
-        MyLvgl::unlock();
-    }
+    s_videoRect = {};
     heap_caps_free(backend->fb.data);
     delete backend;
     return ESP_VIDEO_RENDER_ERR_OK;
@@ -404,6 +354,11 @@ bool makeVideoRender()
 }
 
 }  // namespace
+
+void setVideoArea(int x, int y, int w, int h)
+{
+    s_area = {x, y, w, h};
+}
 
 bool start(const char *audioPath, const char *videoPath)
 {
@@ -546,16 +501,23 @@ extern "C" esp_video_render_err_t __wrap_esp_video_render_stream_open(
     esp_video_render_disp_info_t display{};
     esp_video_render_err_t status = esp_video_render_get_display_info(render, &display);
     if (status == ESP_VIDEO_RENDER_ERR_OK) {
-        const auto fit = SupernovaVideo::fit(info->info.width, info->info.height, display.width, display.height);
+        const auto &area = SupernovaPlayer::s_area;
+        const bool areaOk = area.w > 0 && area.h > 0 && area.x + area.w <= display.width &&
+                            area.y + area.h <= display.height;
+        const auto fit = SupernovaVideo::fit(info->info.width, info->info.height,
+                                             areaOk ? area.w : display.width, areaOk ? area.h : display.height);
         if (!fit.width || !fit.height) {
             status = ESP_VIDEO_RENDER_ERR_INVALID_ARG;
         } else {
-            esp_video_render_rect_t rect{fit.x, fit.y, fit.width, fit.height};
+            const uint16_t ox = (uint16_t)(((areaOk ? area.x : 0) + fit.x) & ~1);
+            const uint16_t oy = (uint16_t)(((areaOk ? area.y : 0) + fit.y) & ~1);
+            SupernovaPlayer::s_videoRect = {ox, oy, fit.width, fit.height};
+            esp_video_render_rect_t rect{ox, oy, fit.width, fit.height};
             status = esp_video_render_stream_set_disp_rect(*stream, &rect);
             if (status == ESP_VIDEO_RENDER_ERR_OK) {
                 ESP_LOGI("supernova", "video scale %ux%u -> %ux%u at %u,%u",
                          (unsigned)info->info.width, (unsigned)info->info.height,
-                         (unsigned)fit.width, (unsigned)fit.height, (unsigned)fit.x, (unsigned)fit.y);
+                         (unsigned)fit.width, (unsigned)fit.height, (unsigned)ox, (unsigned)oy);
             }
         }
     }
@@ -570,6 +532,7 @@ extern "C" esp_video_render_err_t __wrap_esp_video_render_stream_open(
 #else
 
 namespace SupernovaPlayer {
+void setVideoArea(int, int, int, int) {}
 bool start(const char *, const char *) { return false; }
 void stop() {}
 bool pause() { return false; }

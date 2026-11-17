@@ -177,6 +177,10 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   ljud-/bildsynk, texttiming, paus/återgång och upprepad uppspelning på enheten.
   Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
   S3-portning beslutas efter praktiskt P4-test.
+  Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms
+  CPU per bildruta. v0.26.8 testar direkt PPA-rotation till DPI-framebufferten
+  förbi LVGL; väntar på enhetstest (bildruta, rotationsriktning, färger,
+  tearing, `video(PPA direct)`-loggraden).
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.

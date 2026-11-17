@@ -4,6 +4,8 @@
 
 namespace SupernovaPlayer {
 
+// Logical (landscape) rectangle that LVGL never draws over while video plays; call before start().
+void setVideoArea(int x, int y, int w, int h);
 bool start(const char *audioPath, const char *videoPath);
 void stop();
 bool pause();

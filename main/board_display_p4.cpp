@@ -10,6 +10,7 @@
 #include <atomic>
 #include "board_pins.h"
 #include "driver/gpio.h"
+#include "driver/ppa.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_io.h"
@@ -231,6 +232,44 @@ bool setLandscape(bool on, bool flip)
 }
 
 bool landscape() { return g_ok && g_land; }
+
+bool videoBlit(const void *src, int picW, int picH, int x, int y, int w, int h)
+{
+    static ppa_client_handle_t client = nullptr;
+    if (!g_ok || !g_land || g_panelSleeping || !src || w <= 0 || h <= 0) return false;
+    if (x < 0 || y < 0 || x + w > picW || y + h > picH || picW != LCD_V_RES || picH != LCD_H_RES) return false;
+    if (!client) {
+        ppa_client_config_t cc = {};
+        cc.oper_type = PPA_OPERATION_SRM;
+        cc.max_pending_trans_num = 1;
+        if (ppa_register_client(&cc, &client) != ESP_OK) return false;
+    }
+    void *fb = nullptr;
+    if (esp_lcd_dpi_panel_get_frame_buffer(g_panel, 1, &fb) != ESP_OK || !fb) return false;
+    // Same mapping as LVGL's software rotation: 90 = (x,y)->(y,H-1-x), 270 = (x,y)->(W-1-y,x).
+    const bool r270 = g_landFlip != g_rot180;
+    ppa_srm_oper_config_t op = {};
+    op.in.buffer = src;
+    op.in.pic_w = picW;
+    op.in.pic_h = picH;
+    op.in.block_w = w;
+    op.in.block_h = h;
+    op.in.block_offset_x = x;
+    op.in.block_offset_y = y;
+    op.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+    op.out.buffer = fb;
+    op.out.buffer_size = LCD_H_RES * LCD_V_RES * 2;
+    op.out.pic_w = LCD_H_RES;
+    op.out.pic_h = LCD_V_RES;
+    op.out.block_offset_x = r270 ? LCD_H_RES - y - h : y;
+    op.out.block_offset_y = r270 ? x : LCD_V_RES - x - w;
+    op.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+    op.rotation_angle = r270 ? PPA_SRM_ROTATION_ANGLE_270 : PPA_SRM_ROTATION_ANGLE_90;
+    op.scale_x = 1.0f;
+    op.scale_y = 1.0f;
+    op.mode = PPA_TRANS_MODE_BLOCKING;
+    return ppa_do_scale_rotate_mirror(client, &op) == ESP_OK;
+}
 
 bool ok() { return g_ok; }
 bool panelOk() { return g_panelOk; }

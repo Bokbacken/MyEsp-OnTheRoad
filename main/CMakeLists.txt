@@ -1,7 +1,7 @@
 # Board-specific drivers behind the shared board_*.h APIs (profile is bound to the target in Kconfig).
 if(CONFIG_OTR_HW_PROFILE_P4_43)
   set(board_srcs "board_display_p4.cpp" "board_touch_gt911.cpp" "host_ota.cpp")
-  set(board_reqs esp_lcd esp_hw_support esp_hosted)
+  set(board_reqs esp_lcd esp_hw_support esp_hosted esp_driver_ppa)
 elseif(CONFIG_OTR_HW_PROFILE_S3_35B)
   set(board_srcs "board_display_s3_35b.cpp" "board_touch_axs15231b.cpp")
   set(board_reqs esp_lcd esp_driver_spi)
