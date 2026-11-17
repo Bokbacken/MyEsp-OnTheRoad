@@ -22,7 +22,8 @@ struct Info { unsigned short width, height; };
 struct esp_video_render_stream_info_t { Info info; };
 struct esp_video_render_disp_info_t { unsigned short width, height; };
 struct esp_video_render_rect_t { unsigned short x, y, width, height; };
-namespace SupernovaPlayer { void *s_videoRender = reinterpret_cast<void *>(1); }
+struct Area { int x = 0, y = 0, w = 0, h = 0; };
+namespace SupernovaPlayer { void *s_videoRender = reinterpret_cast<void *>(1); Area s_area, s_videoRect; }
 esp_video_render_rect_t configured{};
 int closed = 0, calls = 0;
 bool failOpen = false, failScale = false;
@@ -60,6 +61,13 @@ int main() {
     assert(__wrap_esp_video_render_stream_open(SupernovaPlayer::s_videoRender, &info, &stream)
            == ESP_VIDEO_RENDER_ERR_OK);
     assert(configured.x == 80 && configured.width == 640 && configured.height == 480);
+    SupernovaPlayer::s_area = {0, 40, 800, 324};
+    info.info = {800, 480};
+    assert(__wrap_esp_video_render_stream_open(SupernovaPlayer::s_videoRender, &info, &stream)
+           == ESP_VIDEO_RENDER_ERR_OK);
+    assert(configured.height == 324 && configured.width == 540 && configured.x == 130 && configured.y == 40);
+    assert(SupernovaPlayer::s_videoRect.w == 540 && SupernovaPlayer::s_videoRect.y == 40);
+    SupernovaPlayer::s_area = {};
     assert(__wrap_esp_video_render_stream_open(reinterpret_cast<void *>(3), &info, &stream)
            == ESP_VIDEO_RENDER_ERR_OK && calls == 2);
     failScale = true;
