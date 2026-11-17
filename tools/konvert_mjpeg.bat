@@ -17,7 +17,7 @@ if not exist "%~1" (
 )
 
 rem Baseline MJPEG (yuvj420p, 800x480 = multiples of 16) for the P4 hardware JPEG decoder, MP3 audio in AVI.
-ffmpeg -i "%~1" -vf "scale=800:480:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=800:480:(ow-iw)/2:(oh-ih)/2" -r 25 -c:v mjpeg -pix_fmt yuvj420p -q:v 6 -c:a libmp3lame -b:a 160k -ar 44100 "%~2"
+ffmpeg -i "%~1" -vf "scale=800:480:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=800:480:(ow-iw)/2:(oh-ih)/2" -r 15 -c:v mjpeg -pix_fmt yuvj420p -q:v 10 -c:a libmp3lame -b:a 160k -ar 44100 "%~2"
 exit /b %errorlevel%
 
 :usage
