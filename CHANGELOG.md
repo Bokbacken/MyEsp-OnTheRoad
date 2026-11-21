@@ -8,6 +8,18 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.14
+
+- Supernova (P4): new "MP4 -> AVI" button in the song list converts every song
+  that only has an MP4 to `video.avi` on the device (H.264 software decode,
+  hardware MJPEG encode at 15 fps, max 800x480, quality 75). The original AAC/MP3
+  audio is copied into the AVI without re-encoding. Wi-Fi is paused and the
+  conversion can be cancelled; the result is written as `video.avi.tmp` and
+  renamed when complete. New dependency `espressif/esp_muxer` (already pulled in
+  by esp_player) and encoder/muxer sdkconfig defaults.
+- Unverified on hardware: conversion speed, H.264 profile support and whether
+  the player's AVI reader plays AAC audio inside AVI. MP3 audio is expected to work.
+
 ## v0.26.13
 
 - Supernova (P4): right-edge crop raised from 6 to 16 px (bottom stays 6 px)
