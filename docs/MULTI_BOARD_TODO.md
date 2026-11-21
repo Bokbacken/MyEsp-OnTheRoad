@@ -175,9 +175,9 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   `.mp3` är valfri, annars används MP4:ans ljudspår. Texten tidsätts från
   UltraStar BPM/GAP. Bygg på P4 och verifiera faktisk H.264-/AAC-/MP3-kompatibilitet,
   ljud-/bildsynk, texttiming, paus/återgång och upprepad uppspelning på enheten.
-  v0.26.14: knappen "MP4 -> AVI" konverterar MP4 till AVI på enheten (H.264-
-  avkodning, MJPEG-kodning, originalljudet kopieras). Overifierat på hårdvara:
-  konverteringstid, H.264-profiler och om AAC i AVI spelas upp (annars MP3/omkodning).
+  Konvertering på enheten (v0.26.14-17) prövades och togs bort i v0.26.18:
+  ägarens MP4-filer var inte H.264. Konvertera till MJPEG-AVI på dator
+  (`tools/konvert_mjpeg.bat`) eller hämta H.264 (avc1).
   Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
   S3-portning beslutas efter praktiskt P4-test.
   Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms

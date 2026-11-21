@@ -16,7 +16,6 @@
 #include "lang.h"
 #include "my_storage.h"
 #include "my_theme.h"
-#include "supernova_convert.h"
 #include "supernova_lyrics.h"
 #include "supernova_player.h"
 #include "ui_metrics.h"
@@ -547,155 +546,6 @@ void home()
     UiYatzy::showMenu();
 }
 
-// On-device MP4 -> AVI conversion of every song that only has an MP4.
-std::vector<size_t> s_convQueue;
-size_t s_convPos = 0;
-int s_convDone = 0, s_convFailed = 0;
-char s_convError[64] = "";
-lv_timer_t *s_convTimer = nullptr;
-lv_obj_t *s_convLabel = nullptr;
-lv_obj_t *s_convBar = nullptr;
-lv_obj_t *s_convButton = nullptr;
-lv_obj_t *s_convButtonLabel = nullptr;
-
-bool isMp4(const Song &song) { return endsWithExt(song.video, ".mp4"); }
-
-std::string aviPathFor(const std::string &mp4) { return mp4.substr(0, mp4.size() - 4) + ".avi"; }
-
-std::string songName(const Song &song)
-{
-    const size_t slash = song.folder.find_last_of('/');
-    return slash == std::string::npos ? song.folder : song.folder.substr(slash + 1);
-}
-
-void showConvert(size_t only);
-
-bool convStartNext()
-{
-    while (s_convPos < s_convQueue.size()) {
-        const Song &song = s_songs[s_convQueue[s_convPos]];
-        if (SupernovaConvert::start(song.video.c_str(), aviPathFor(song.video).c_str())) return true;
-        snprintf(s_convError, sizeof(s_convError), "%s", SupernovaConvert::error());
-        s_convFailed++;
-        s_convPos++;
-    }
-    return false;
-}
-
-void convFinish()
-{
-    if (s_convTimer) { lv_timer_delete(s_convTimer); s_convTimer = nullptr; }
-    lv_label_set_text_fmt(s_convLabel, tr(Str::SUPERNOVA_CONVERT_DONE), s_convDone, s_convFailed);
-    if (s_convFailed > 0 && s_convError[0]) {
-        lv_obj_t *err = Theme::label(lv_obj_get_parent(s_convLabel), "", &my_font_14, Theme::MUTED);
-        lv_label_set_text_fmt(err, tr(Str::SUPERNOVA_CONVERT_FAILED), s_convError);
-        lv_obj_align_to(err, s_convLabel, LV_ALIGN_OUT_BOTTOM_MID, 0, 12);
-    }
-    lv_bar_set_value(s_convBar, s_convFailed == 0 ? 100 : lv_bar_get_value(s_convBar), LV_ANIM_OFF);
-    lv_label_set_text(s_convButtonLabel, tr(Str::BTN_BACK));
-}
-
-void convTick(lv_timer_t *)
-{
-    using SupernovaConvert::State;
-    const State st = SupernovaConvert::state();
-    if (st == State::Running) {
-        const uint32_t sec = SupernovaConvert::elapsedMs() / 1000;
-        const std::string name = songName(s_songs[s_convQueue[s_convPos]]);
-        lv_label_set_text_fmt(s_convLabel, tr(Str::SUPERNOVA_CONVERT_PROGRESS), (int)s_convPos + 1,
-                              (int)s_convQueue.size(), name.c_str(), SupernovaConvert::percent(),
-                              (unsigned)(sec / 60), (unsigned)(sec % 60));
-        lv_bar_set_value(s_convBar, SupernovaConvert::percent(), LV_ANIM_OFF);
-        return;
-    }
-    if (st == State::Cancelled) {
-        SupernovaConvert::reset();
-        convFinish();
-        return;
-    }
-    if (st == State::Done || st == State::Failed) {
-        if (st == State::Done) s_convDone++;
-        else {
-            s_convFailed++;
-            snprintf(s_convError, sizeof(s_convError), "%s", SupernovaConvert::error());
-        }
-        s_convPos++;
-        SupernovaConvert::reset();
-        if (!convStartNext()) convFinish();
-    }
-}
-
-void showConvert(size_t only)
-{
-    s_convQueue.clear();
-    for (size_t i = 0; i < s_songs.size(); i++)
-        if (isMp4(s_songs[i]) && (only == SIZE_MAX || only == i)) s_convQueue.push_back(i);
-    if (s_convQueue.empty()) return;
-    s_convPos = 0;
-    s_convDone = s_convFailed = 0;
-    s_convError[0] = 0;
-    lv_obj_t *screen = Theme::screen();
-    Theme::header(screen, tr(Str::SUPERNOVA_CONVERT_TITLE));
-    const int32_t w = UiMetrics::screenW();
-    s_convLabel = Theme::label(screen, "", &my_font_18, Theme::TEXT);
-    lv_obj_set_width(s_convLabel, w - 2 * UiMetrics::marginNormal());
-    lv_label_set_long_mode(s_convLabel, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_style_text_align(s_convLabel, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_convLabel, LV_ALIGN_CENTER, 0, -50);
-    s_convBar = lv_bar_create(screen);
-    lv_obj_set_size(s_convBar, w - 4 * UiMetrics::marginNormal(), 18);
-    lv_bar_set_range(s_convBar, 0, 100);
-    lv_obj_align(s_convBar, LV_ALIGN_CENTER, 0, 40);
-    s_convButton = Theme::button(screen, tr(Str::BTN_CANCEL), 200, 48, Theme::MUTED);
-    s_convButtonLabel = lv_obj_get_child(s_convButton, 0);
-    lv_obj_align(s_convButton, LV_ALIGN_BOTTOM_MID, 0, -20);
-    lv_obj_add_event_cb(s_convButton, [](lv_event_t *) {
-        if (SupernovaConvert::state() == SupernovaConvert::State::Running) {
-            SupernovaConvert::cancel();
-            lv_label_set_text(s_convLabel, tr(Str::SUPERNOVA_CONVERT_STOPPING));
-        } else {
-            if (s_convTimer) { lv_timer_delete(s_convTimer); s_convTimer = nullptr; }
-            show();
-        }
-    }, LV_EVENT_CLICKED, nullptr);
-    Theme::loadScreen(screen);
-    if (!convStartNext()) {
-        convFinish();
-        return;
-    }
-    s_convTimer = lv_timer_create(convTick, 500, nullptr);
-}
-
-void showConvertPicker()
-{
-    lv_obj_t *screen = Theme::screen();
-    lv_obj_t *header = Theme::header(screen, tr(Str::SUPERNOVA_CONVERT_TITLE));
-    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { show(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *list = lv_obj_create(screen);
-    lv_obj_remove_style_all(list);
-    lv_obj_set_pos(list, UiMetrics::marginNormal(), UiMetrics::headerH());
-    lv_obj_set_size(list, UiMetrics::screenW() - 2 * UiMetrics::marginNormal(),
-                    UiMetrics::screenH() - UiMetrics::headerH() - UiMetrics::footerH());
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
-    lv_obj_set_scrollable(list, true);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    lv_obj_t *all = Theme::menuCard(list, LV_PCT(100), tr(Str::SUPERNOVA_CONVERT_ALL), "",
-                                    nullptr, LV_SYMBOL_DOWNLOAD, Theme::ACCENT);
-    lv_obj_add_event_cb(all, [](lv_event_t *) { showConvert(SIZE_MAX); }, LV_EVENT_CLICKED, nullptr);
-    for (size_t i = 0; i < s_songs.size(); i++) {
-        if (!isMp4(s_songs[i])) continue;
-        const std::string name = songName(s_songs[i]);
-        lv_obj_t *card = Theme::menuCard(list, LV_PCT(100), name.c_str(), "", nullptr, LV_SYMBOL_VIDEO, Theme::BLUE);
-        lv_obj_add_event_cb(card, [](lv_event_t *e) {
-            showConvert((size_t)(uintptr_t)lv_event_get_user_data(e));
-        }, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
-    }
-    Theme::loadScreen(screen);
-}
-
 }  // namespace
 
 void show()
@@ -723,11 +573,6 @@ void show()
     lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
     lv_obj_add_event_cb(back, [](lv_event_t *) { home(); }, LV_EVENT_CLICKED, nullptr);
-    if (std::any_of(s_songs.begin(), s_songs.end(), isMp4)) {
-        lv_obj_t *convert = Theme::button(header, tr(Str::SUPERNOVA_CONVERT), 130, 36, Theme::BLUE);
-        lv_obj_align_to(convert, back, LV_ALIGN_OUT_LEFT_MID, -8, 0);
-        lv_obj_add_event_cb(convert, [](lv_event_t *) { showConvertPicker(); }, LV_EVENT_CLICKED, nullptr);
-    }
     lv_obj_t *list = lv_obj_create(screen);
     lv_obj_remove_style_all(list);
     lv_obj_set_pos(list, UiMetrics::marginNormal(), UiMetrics::headerH());

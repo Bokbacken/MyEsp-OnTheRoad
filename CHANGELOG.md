@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.18
+
+- Supernova (P4): the on-device MP4 -> AVI converter (v0.26.14-v0.26.17) is
+  removed again. The owner's MP4 files were not H.264 (downloaded with yt-dlp,
+  which prefers VP9/AV1), which the P4 cannot decode in software, so the
+  converter could not be used. Playback of AVI (MJPEG) is unchanged; convert
+  other formats on a PC (`tools/konvert_mjpeg.bat`) or download H.264 (avc1).
+  The esp_muxer dependency and the encoder/muxer sdkconfig defaults are gone.
+
 ## v0.26.17
 
 - Supernova (P4): diagnostic. The MP4 converter now reports the video format
