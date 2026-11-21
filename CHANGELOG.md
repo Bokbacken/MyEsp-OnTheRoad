@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.17
+
+- Supernova (P4): diagnostic. The MP4 converter now reports the video format
+  code and size when the MP4 reader does not identify the video as H.264
+  (owner log: "Video is not H.264"). Unverified on hardware.
+
 ## v0.26.16
 
 - Supernova (P4): the "MP4 -> AVI" button now opens a list where one song can be

@@ -271,7 +271,14 @@ bool convert()
         if (vn == 0 || esp_extractor_get_stream_info(j.ex, ESP_EXTRACTOR_STREAM_TYPE_VIDEO, 0, &vi) != ESP_EXTRACTOR_ERR_OK) {
             fail("No video track"); break;
         }
-        if (vi.video_info.format != ESP_EXTRACTOR_VIDEO_FORMAT_H264) { fail("Video is not H.264"); break; }
+        if (vi.video_info.format != ESP_EXTRACTOR_VIDEO_FORMAT_H264) {
+            const uint32_t f = (uint32_t)vi.video_info.format;
+            static char msg[48];
+            snprintf(msg, sizeof(msg), "Video is not H.264 (code 0x%08x, %ux%u)", (unsigned)f,
+                     (unsigned)vi.video_info.width, (unsigned)vi.video_info.height);
+            fail(msg);
+            break;
+        }
         esp_extractor_enable_stream(j.ex, ESP_EXTRACTOR_STREAM_TYPE_VIDEO, 0, true);
         bool haveAudio = false;
         esp_muxer_audio_codec_t aCodec = ESP_MUXER_ADEC_NONE;
