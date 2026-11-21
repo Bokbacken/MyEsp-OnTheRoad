@@ -69,7 +69,7 @@ int main() {
     assert(SupernovaPlayer::s_videoRect.w == 540 && SupernovaPlayer::s_videoRect.y == 40);
     SupernovaPlayer::s_area = {};
     assert(__wrap_esp_video_render_stream_open(reinterpret_cast<void *>(3), &info, &stream)
-           == ESP_VIDEO_RENDER_ERR_OK && calls == 2);
+           == ESP_VIDEO_RENDER_ERR_OK && calls == 3);
     failScale = true;
     assert(__wrap_esp_video_render_stream_open(SupernovaPlayer::s_videoRender, &info, &stream)
            == ESP_VIDEO_RENDER_ERR_NO_MEM && !stream && closed == 1);
