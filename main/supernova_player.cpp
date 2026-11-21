@@ -323,7 +323,13 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
         fb->info.height != backend->fb.info.height || fb->info.format != backend->fb.info.format)
         return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     const int64_t writeStart = esp_timer_get_time();
-    const Area r = s_videoRect;
+    Area r = s_videoRect;
+    // The scaled frame has a few garbage pixels along its right/bottom edge (seen with AVI); crop them.
+    constexpr int EDGE_CROP = 6;
+    if (r.w > 4 * EDGE_CROP && r.h > 4 * EDGE_CROP) {
+        r.w -= EDGE_CROP;
+        r.h -= EDGE_CROP;
+    }
     if (r.w > 0 && r.h > 0) blendOverlay(fb->data, fb->info.width, r);
     if (r.w > 0 && r.h > 0 &&
         !Display::videoBlit(fb->data, fb->info.width, fb->info.height, r.x, r.y, r.w, r.h))

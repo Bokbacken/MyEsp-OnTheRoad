@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.12
+
+- Supernova (P4): the right and bottom 6 px of the scaled video are no longer
+  blitted, hiding the noise pixels seen along those edges with AVI. The cause
+  of the noise is not identified; this is a crop workaround. Not hardware-verified.
+
 ## v0.26.11
 
 - Supernova (P4): the video now uses the whole screen below a thin header.
