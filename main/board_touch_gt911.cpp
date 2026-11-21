@@ -26,6 +26,8 @@ constexpr uint32_t POLL_MS = 15;
 constexpr uint32_t RELEASE_HOLD_MS = 60;
 
 Touch::Info g_info = {};
+bool g_multiTouch = false;
+Touch::Contacts g_contacts;
 uint8_t g_scan[16];
 int g_scanCount = 0;
 uint32_t g_lastPoll = 0;
@@ -86,15 +88,33 @@ bool readPoint(bool &pressed, uint16_t &x, uint16_t &y)
         pressed = g_info.pressed && !g_gap;   // No new report yet: keep the previous state
         return true;
     }
+    if (g_multiTouch) {
+        g_contacts = {};
+        g_contacts.sampledAt = MySys::millis();
+    }
     const int n = st & 0x0F;
     bool ok = true;
     if (n > 0) {
-        uint8_t p[8];
-        ok = readReg(REG_POINT_0, p, sizeof(p));
+        uint8_t p[5 * 8];
+        if (g_multiTouch && n > 5) {
+            ESP_LOGW(TAG, "invalid multi-touch count %d", n);
+            writeReg8(REG_STATUS, 0);
+            return false;
+        }
+        ok = readReg(REG_POINT_0, p, g_multiTouch ? size_t(n) * 8 : 8);
         if (ok) {
             x = scale((uint16_t)(p[1] | (p[2] << 8)), g_info.maxX, LCD_H_RES);
             y = scale((uint16_t)(p[3] | (p[4] << 8)), g_info.maxY, LCD_V_RES);
             pressed = true;
+            if (g_multiTouch) {
+                for (int i = 0; i < n && i < 2; ++i) {
+                    const uint8_t *point = p + i * 8;
+                    g_contacts.points[g_contacts.count++] = {
+                        int16_t(scale(uint16_t(point[1] | (point[2] << 8)), g_info.maxX, LCD_H_RES)),
+                        int16_t(scale(uint16_t(point[3] | (point[4] << 8)), g_info.maxY, LCD_V_RES))
+                    };
+                }
+            }
         }
     }
     writeReg8(REG_STATUS, 0);
@@ -111,6 +131,7 @@ bool pointerRead(int16_t *outX, int16_t *outY)
         if (!readPoint(pressed, x, y)) {
             g_info.readErrors++;
             pressed = false;
+            g_contacts = {};
         }
         if (pressed) {
             if (!g_info.pressed) g_info.touchCount++;
@@ -196,5 +217,13 @@ bool deviceFound(uint8_t addr) { return deviceFoundLocal(addr); }
 i2c_master_bus_handle_t bus() { return g_bus; }
 lv_indev_t *indev() { return g_indev; }
 Info info() { return g_info; }
+
+void setMultiTouch(bool enabled)
+{
+    g_multiTouch = enabled;
+    g_contacts = {};
+}
+
+Contacts contacts() { return g_contacts; }
 
 }  // namespace Touch

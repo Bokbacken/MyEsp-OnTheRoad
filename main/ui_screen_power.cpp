@@ -144,6 +144,11 @@ void tick(lv_timer_t *)
 }  // namespace
 
 namespace UiScreenPower {
+bool inputBlocked()
+{
+    return Backlight::sleeping() || s_blockTouch || s_wakePending;
+}
+
 void setPowerMessageHandler(PowerMessageHandler handler)
 {
     s_powerMessageHandler = handler;

@@ -136,14 +136,55 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
 - [ ] Rörelsesensor/IMU i nya S3_35B: verifiera modell, axlar och anslutning
   mot kortrevisionen; läs acceleration/rotation utan att störa touch på delad
   I2C-buss. Prova neutralställeskalibrering, filtrering och låg styrfördröjning.
-  Första spelidé: luta en kullabyrint, undvik hål och nå målet; alternativ
-  touchstyrning på kort utan sensor.
-- [ ] Miniarkad, idéstadium: egna spel inspirerade av labyrintjakt,
-  Space Invaders och Parsec-liknande sidscrollande rymdspel i liggande läge.
-  Prova även Breakout/Pong. Prioritera stora tydliga objekt, få reglage,
-  styrning utan att skymma spelplanen och stabil bild-/inmatningsrytm på S3.
-  Verifiera samtidiga styr-/skjutgester innan spel kräver flerfingerstyrning;
-  överväg automatisk eld. Egna namn, banor, grafik och ljud.
+  Pausat enligt ägarens beslut. Spelidé: luta en kullabyrint,
+  undvik hål och nå målet; alternativ touchstyrning på kort utan sensor.
+- [x] v0.26.4: **Arcade** finns som huvudmenykategori för framtida egna
+  arkadspel. Första styrprototypen är ett sidscrollande rymdflygfält med
+  direkt fingerföljning, automatisk eld, portar, målträffar, kollisioner och
+  omstart. Kollisioner räknas och skeppet blinkar, men testet avbryts inte.
+  Vid släpp stannar skeppet på sin senaste position. Ingen lutningssensor
+  krävs; detta är en touchprototyp, inte ett färdigt spel. Hårdvarutest kvar.
+- [x] Ägarens S3_35B-test av v0.26.4: grafiken flyter tillräckligt bra, men
+  fingret skymmer skeppet och direktstyrningen känns för enkel.
+- [x] Ägarens S3_35B-test av v0.26.5: tvåtumstyrningen fungerar bra.
+- [x] v0.26.5: separata styrzoner för två tummar utanför spelplanen.
+  Vänster väljer önskad höjd med mjuk acceleration/inbromsning; skeppet
+  hoppar inte till fingret. Höger styr sidofart: uppåt åt höger, nedåt åt
+  vänster, neutralzon i mitten och släpp bromsar till stopp. Vid vänstersläpp
+  behålls senaste målhöjden. Banans scrollfart är konstant.
+  Touchdrivrutinerna exponerar två cachade kontakter i opt-in-läge; vanliga
+  menyer behåller sin enfingerinmatning. Ingen extra I2C-pollning på S3_35B.
+- [x] v0.26.6: synliga styrspår krympta till en fjärdedel av tidigare bredd;
+  ursprunglig touchträffyta behållen. Spelplanen breddad in under de
+  genomskinliga, större touchzonerna.
+- [ ] Hårdvarutesta v0.26.5 med två fingrar samtidigt, omvänd nedtrycksordning
+  och släpp av ett finger i taget. Kontrollera tröghet, stoppzon, kanter,
+  rotationsinställning, väckning och att menyer fungerar efter återgång.
+- [ ] Hårdvarutesta touchprototypen på S3_35B, ES3C35P och P4_43: fingerföljning
+  över hela fältet, hörn/kanter, svep, release/press-lost och rotationsbyte.
+  Anteckna om skeppet känns följsamt, om touchfel stör kursen och om
+  portar/feedback tillräckligt tydligt visar hur styrningen beter sig.
+- [ ] Fortsatt Arcade: forma ett originellt sidscrollande rymdspel, inspirerat
+  löst av TI-99 Parsec. Prova även Breakout/Pong eller labyrintjakt som senare
+  titlar. Prioritera stora tydliga objekt, kontroller som inte skymmer
+  spelplanen och stabil bild-/inmatningsrytm på S3. Egna namn, banor, grafik
+  och ljud; undvik att kopiera Parsec-innehåll eller presentation.
+- [ ] Supernova (v0.26.7): första UltraStar-inspirerade video-/texttestet är
+  avgränsat till ESP32-P4. Katalogen är
+  `/sdcard/otr/supernova/<Artist - Title>/` med `.mp4` och `.txt`; separat
+  `.mp3` är valfri, annars används MP4:ans ljudspår. Texten tidsätts från
+  UltraStar BPM/GAP. Bygg på P4 och verifiera faktisk H.264-/AAC-/MP3-kompatibilitet,
+  ljud-/bildsynk, texttiming, paus/återgång och upprepad uppspelning på enheten.
+  Konvertering på enheten (v0.26.14-17) prövades och togs bort i v0.26.18:
+  ägarens MP4-filer var inte H.264. Konvertera till MJPEG-AVI på dator
+  (`tools/konvert_mjpeg.bat`) eller hämta H.264 (avc1).
+  Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
+  S3-portning beslutas efter praktiskt P4-test.
+  Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms
+  CPU per bildruta. v0.26.8 testar direkt PPA-rotation till DPI-framebufferten
+  förbi LVGL; v0.26.11 lägger texten som genomskinligt grått band blandat
+  i videobilden (storlek S/M/L, läge topp/mitten/botten); väntar på enhetstest (bildruta, rotationsriktning, färger,
+  tearing, `video(PPA direct)`-loggraden).
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.
@@ -1232,26 +1273,24 @@ rekommendation innan kod skrivs.
 
 ### P4-partitionstabell: USB-migrering
 
-P4-tabellen utökar FFat från 5.875 MiB till 21.875 MiB. Appslotarnas offset
-(`0x10000` och `0x510000`), `otadata`, NVS och FFat-start (`0xA10000`) är
-oförändrade, så app OTA använder samma slotar. En gammal installerad
-partitionstabell kan däremot inte ändras via app OTA: uppdateringen måste göras
-via USB en gång.
+P4-layouten har nu två 7 MiB OTA-slotar och 17.875 MiB FFat. App0 ligger kvar
+på `0x10000`; app1 flyttas till `0x710000` och FFat till `0xE10000`.
+Partitionstabellen kan inte ändras via OTA. Alla befintliga P4-enheter kräver
+en engångs USB-flash med den nya layouten.
 
-1. Säkerhetskopiera innehåll från FFat innan migrering. Den befintliga FAT-
-   volymen kan fortsätta fungera eftersom startadressen inte flyttas, men FAT:s
-   egen volymstorlek kan förbli den gamla; utökad kapacitet kan kräva att FFat
-   formateras och filer återställs. Förlita dig inte på automatisk migrering.
-2. Bygg för `esp32p4` så att `partitions.esp32p4.csv` väljs. Anslut USB och kör
-   `idf.py -p PORT partition-table-flash` för att skriva den nya tabellen. Läs
-   tillbaka/validera loggen och starta om. En full USB `idf.py -p PORT flash`
-   från samma P4-build skriver också rätt tabell, men raderar mer firmwaredata.
-3. Kontrollera FFat, OTA till en appslot, omstart och coredump-partition.
-   Formatera FFat endast efter säkerhetskopiering och återställ därefter
-   användarfilerna. Testa inte migreringen på enda kopian av användardata.
+1. Bygg P4-firmware så att `partitions.esp32p4.csv` används. Anslut USB och
+   radera hela flashen, till exempel med
+   `idf.py -B build_esp32p4 -D SDKCONFIG=build_esp32p4/sdkconfig -p PORT erase-flash`,
+   och skriv därefter firmware med `idf.py ... flash` eller skriv den nya
+   `merged.bin` vid offset `0x0`. Enbart skrivning av merged-imagen raderar inte
+   gamla FFat-data i området som nu tillhör den nya partitionen.
+2. Helradering tar bort NVS-inställningar, nätverk, FFat-data och befintliga
+   firmware. Den nya FFat-partitionen är tom och formateras vid första start.
+   Kontrollera att FFat monteras innan fortsatt användning.
+3. Verifiera OTA till den andra appslotten, omstart och coredump-partitionen.
 
-**Hårdvara:** ägaren behöver verifiera USB-uppdatering, befintlig FFat-data,
-utökad kapacitet, OTA och återstart på P4. Ingen P4-migrering har mätts här.
+**Hårdvara:** P4 USB-migrering, FFat-montering, OTA och återstart behöver
+verifieras på enheten. S3-layouten ändras inte.
 
 OTA-artefakter för v0.22.5, nedladdade och SHA-256 verifierade:
 

@@ -51,6 +51,9 @@ bool rotated();
 // screen for the new orientation is created. NOT verified on hardware yet.
 bool setLandscape(bool on, bool flip = false);
 bool landscape();
+// P4 only (declared for all boards, defined in board_display_p4.cpp): rotates an RGB565 block of a
+// landscape picture with the PPA straight into the DPI framebuffer, bypassing LVGL. Needs landscape().
+bool videoBlit(const void *src, int picW, int picH, int x, int y, int w, int h);
 
 }  // namespace Display
 

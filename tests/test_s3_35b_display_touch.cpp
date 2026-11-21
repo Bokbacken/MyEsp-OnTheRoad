@@ -11,6 +11,7 @@
 #include <vector>
 #include "../main/board_pins_s3_35b.h"
 #include "../main/touch_raw_capture.h"
+#include "../main/touch_contacts.h"
 #include "host_stubs/freertos/portmacro.h"
 
 using esp_err_t = int;
@@ -468,7 +469,7 @@ int main(int argc, char **argv) {
         assert(!poll(x, y) && Touch::info().readErrors == 0);
         return 0;
     }
-    if (mode != "normal" && mode != "capture" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
+    if (mode != "normal" && mode != "multitouch" && mode != "capture" && mode != "diagnostics" && mode != "idle-first" && mode != "startup-recovery" &&
         mode != "startup-corrupt") {
         assert(!ready && !Touch::info().present && !Touch::indev());
         if (mode == "bad-first-report" || mode == "startup-stuck" || mode == "command-failure") {
@@ -504,6 +505,47 @@ int main(int argc, char **argv) {
     assert(Touch::scanResults(nullptr, 4) == 0 && Touch::scanResults(addrs, -1) == 0);
     assert(!Touch::deviceFound(0x55));
     int16_t x = -1, y = -1;
+    if (mode == "multitouch") {
+        Touch::setMultiTouch(true);
+        assert(Touch::contacts().count == 0);
+        const uint8_t two[] = {0, 2, 0x80, 10, 0, 30, 0, 0, 0x80, 200, 0x11, 0x90, 0, 0};
+        std::memcpy(report, two, sizeof(report));
+        assert(poll(x, y) && x == 10 && y == 30);
+        auto contacts = Touch::contacts();
+        assert(contacts.count == 2 && contacts.sampledAt == uint32_t(clockUs / 1000));
+        assert(contacts.points[0].x == 10 && contacts.points[0].y == 30);
+        assert(contacts.points[1].x == 200 && contacts.points[1].y == 400);
+        const int before = reads;
+        Touch::contacts();
+        assert(before == reads); // No second polling path.
+        report[2] = 0x40; // First contact released, second still held.
+        assert(!poll(x, y));
+        contacts = Touch::contacts();
+        assert(contacts.count == 1 && contacts.points[0].x == 200);
+        std::memcpy(report, two, sizeof(report));
+        report[8] = 0x81; report[9] = 0x40; // Invalid second X = 320, not a clamped edge.
+        const uint32_t errors = Touch::info().readErrors;
+        poll(x, y);
+        assert(Touch::contacts().count == 0 && Touch::info().readErrors == errors + 1);
+        std::memcpy(report, two, sizeof(report));
+        poll(x, y);
+        assert(Touch::contacts().count == 2);
+        reportError = ESP_ERR_TIMEOUT;
+        poll(x, y);
+        assert(Touch::contacts().count == 0);
+        reportError = ESP_OK;
+        setPoint(20, 40);
+        poll(x, y);
+        assert(Touch::contacts().count == 1);
+        std::memset(report, 0x57, sizeof(report));
+        poll(x, y);
+        assert(Touch::contacts().count == 0);
+        Touch::setMultiTouch(false);
+        setPoint(42, 300, 2);
+        report[1] = 2; // The menu still ignores the unused second record, exactly as before.
+        assert(poll(x, y) && x == 42 && y == 300 && Touch::contacts().count == 0);
+        return 0;
+    }
     if (mode == "capture") {
         failRawAllocation = true;
         assert(!TouchRawCapture::start());

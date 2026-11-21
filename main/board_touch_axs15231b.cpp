@@ -47,6 +47,8 @@ uint32_t g_lastDown = 0;
 bool g_gap = false;
 uint16_t g_touchStartX = 0, g_touchStartY = 0;
 bool g_tapCancelled = false;
+bool g_multiTouch = false;
+Touch::Contacts g_contacts;
 constexpr bool BUFFERED_TRACE = TOUCH_DIAGNOSTICS;
 struct RawSample {
     int64_t timeUs;
@@ -166,10 +168,12 @@ void cancelMovedClick(lv_event_t *event)
     lv_indev_stop_processing(g_indev);
 }
 
-esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released, uint16_t &x, uint16_t &y)
+esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &released,
+                      uint16_t &x, uint16_t &y, Touch::Contacts *contacts = nullptr)
 {
     down = false;
     released = false;
+    if (contacts) *contacts = {};
     // Without contact the controller returns copies of one filler byte whose value
     // varies between boots (owner logs: 02, 13, 17, 37, 57, D7). Waveshare's BSP drops
     // these silently. Only a fully uniform report qualifies; other malformed data stays an error.
@@ -196,10 +200,23 @@ esp_err_t decodePoint(const uint8_t (&data)[REPORT_LEN], bool &down, bool &relea
     y = py;
     released = (data[2] >> 6) == 1;
     down = !released;
+    if (contacts) {
+        Touch::Contacts next;
+        for (unsigned i = 0; i < data[1]; ++i) {
+            const uint8_t *p = data + 2 + i * 6;
+            const uint16_t cx = ((p[0] & 0x0F) << 8) | p[1];
+            const uint16_t cy = ((p[2] & 0x0F) << 8) | p[3];
+            if (cx >= LCD_H_RES || cy >= LCD_V_RES) return ESP_ERR_INVALID_RESPONSE;
+            if ((p[0] >> 6) != 1)
+                next.points[next.count++] = {int16_t(cx), int16_t(cy)};
+        }
+        *contacts = next;
+    }
     return ESP_OK;
 }
 
-esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool logReport = false)
+esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y,
+                    bool logReport = false, Touch::Contacts *contacts = nullptr)
 {
     uint8_t data[REPORT_LEN] = {};
     const int64_t startUs = esp_timer_get_time();
@@ -224,7 +241,7 @@ esp_err_t readPoint(bool &down, bool &released, uint16_t &x, uint16_t &y, bool l
                               esp_err_to_name(err), (unsigned)(g_info.readErrors + 1));
         return err;
     }
-    err = decodePoint(data, down, released, x, y);
+    err = decodePoint(data, down, released, x, y, contacts);
     if (err != ESP_OK && logError) {
         ESP_LOGW(TAG, "AXS15231B invalid report (%u errors): "
                  "%02X %02X %02X %02X %02X %02X %02X %02X "
@@ -253,10 +270,16 @@ void sampleTouch()
     bool down = false, released = false;
     portENTER_CRITICAL(&g_infoMux);
     uint16_t x = g_info.lastX, y = g_info.lastY;
+    const bool multiTouch = g_multiTouch;
     portEXIT_CRITICAL(&g_infoMux);
-    const esp_err_t err = readPoint(down, released, x, y);
+    Touch::Contacts next;
+    const esp_err_t err = readPoint(down, released, x, y, false, multiTouch ? &next : nullptr);
     const uint32_t sampledAt = uint32_t(esp_timer_get_time() / 1000);
     portENTER_CRITICAL(&g_infoMux);
+    if (g_multiTouch && multiTouch) {
+        g_contacts = err == ESP_OK ? next : Touch::Contacts{};
+        g_contacts.sampledAt = sampledAt;
+    }
     if (err == ESP_ERR_NOT_SUPPORTED) {
         // Malformed frame: drop it without touching press state or cancelling the tap.
         g_info.readErrors++;
@@ -433,6 +456,22 @@ Info info()
 {
     portENTER_CRITICAL(&g_infoMux);
     const Info snapshot = g_info;
+    portEXIT_CRITICAL(&g_infoMux);
+    return snapshot;
+}
+
+void setMultiTouch(bool enabled)
+{
+    portENTER_CRITICAL(&g_infoMux);
+    g_multiTouch = enabled;
+    g_contacts = {};
+    portEXIT_CRITICAL(&g_infoMux);
+}
+
+Contacts contacts()
+{
+    portENTER_CRITICAL(&g_infoMux);
+    const Contacts snapshot = g_contacts;
     portEXIT_CRITICAL(&g_infoMux);
     return snapshot;
 }
