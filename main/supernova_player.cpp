@@ -324,11 +324,11 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
         return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     const int64_t writeStart = esp_timer_get_time();
     Area r = s_videoRect;
-    // The scaled frame has a few garbage pixels along its right/bottom edge (seen with AVI); crop them.
-    constexpr int EDGE_CROP = 6;
-    if (r.w > 4 * EDGE_CROP && r.h > 4 * EDGE_CROP) {
-        r.w -= EDGE_CROP;
-        r.h -= EDGE_CROP;
+    // The scaled frame has noise pixels along its right/bottom edge (seen with AVI); crop them.
+    constexpr int EDGE_CROP_RIGHT = 16, EDGE_CROP_BOTTOM = 6;
+    if (r.w > 4 * EDGE_CROP_RIGHT && r.h > 4 * EDGE_CROP_BOTTOM) {
+        r.w -= EDGE_CROP_RIGHT;
+        r.h -= EDGE_CROP_BOTTOM;
     }
     if (r.w > 0 && r.h > 0) blendOverlay(fb->data, fb->info.width, r);
     if (r.w > 0 && r.h > 0 &&

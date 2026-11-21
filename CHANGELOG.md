@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.13
+
+- Supernova (P4): right-edge crop raised from 6 to 16 px (bottom stays 6 px)
+  after the owner reported the 6 px crop removed about half of the noise.
+  Not hardware-verified.
+
 ## v0.26.12
 
 - Supernova (P4): the right and bottom 6 px of the scaled video are no longer
