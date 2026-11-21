@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.15
+
+- Supernova (P4): MP4 conversion fix attempt after the owner's log showed
+  `H264_DEC.SW: failed to activate param sets` for every sample after the first
+  song. SPS/PPS are now inserted before every IDR sample lacking them, the avcC
+  NAL length size is honoured, the decoder gives up after 60 consecutive errors
+  instead of looping, and the first bytes of the codec config/sample are logged
+  (`sn_conv`). Unverified on hardware.
+
 ## v0.26.14
 
 - Supernova (P4): new "MP4 -> AVI" button in the song list converts every song

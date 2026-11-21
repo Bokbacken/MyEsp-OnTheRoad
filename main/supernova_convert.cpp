@@ -45,6 +45,7 @@ char s_mp4[192];
 char s_avi[192];
 char s_tmp[200];
 TaskHandle_t s_task = nullptr;
+int s_nalLen = 4;
 
 uint32_t nowMs() { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -125,6 +126,7 @@ size_t buildParamSets(const uint8_t *s, uint32_t n, uint8_t *out, size_t cap)
         return n;
     }
     if (s[0] != 1 || n < 7) return 0;
+    s_nalLen = (s[4] & 3) + 1;
     static const uint8_t sc[4] = {0, 0, 0, 1};
     size_t pos = 0, off = 5;
     for (int pass = 0; pass < 2; pass++) {
@@ -146,16 +148,32 @@ size_t buildParamSets(const uint8_t *s, uint32_t n, uint8_t *out, size_t cap)
 }
 
 // Copies a sample into dst as Annex-B (converting 4-byte NAL lengths when needed). Returns the size.
+bool hasNal(const uint8_t *d, size_t n, int type)
+{
+    for (size_t i = 0; i + 3 < n; i++)
+        if (d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 1 && (d[i + 3] & 0x1F) == type) return true;
+    return false;
+}
+
+void logHead(const char *what, const uint8_t *d, uint32_t n)
+{
+    char b[80];
+    int p = 0;
+    for (uint32_t i = 0; i < n && i < 16; i++) p += snprintf(b + p, sizeof(b) - p, "%02x ", d[i]);
+    ESP_LOGI(TAG, "%s (%u bytes): %s", what, (unsigned)n, b);
+}
+
 size_t toAnnexB(const uint8_t *s, uint32_t n, uint8_t *dst)
 {
-    if (isAnnexB(s, n)) {
+    if (s_nalLen == 4 && isAnnexB(s, n)) {
         memcpy(dst, s, n);
         return n;
     }
     size_t pos = 0, off = 0;
-    while (off + 4 <= n) {
-        const uint32_t len = ((uint32_t)s[off] << 24) | ((uint32_t)s[off + 1] << 16) | ((uint32_t)s[off + 2] << 8) | s[off + 3];
-        off += 4;
+    while (off + s_nalLen <= n) {
+        uint32_t len = 0;
+        for (int k = 0; k < s_nalLen; k++) len = (len << 8) | s[off + k];
+        off += s_nalLen;
         if (len == 0 || off + len > n) break;
         dst[pos++] = 0; dst[pos++] = 0; dst[pos++] = 0; dst[pos++] = 1;
         memcpy(dst + pos, s + off, len);
@@ -340,7 +358,10 @@ bool convert()
         // SPS/PPS go in front of the first sample so the decoder always has them.
         uint8_t params[1024];
         const size_t paramLen = buildParamSets(vi.spec_info, vi.spec_info_len, params, sizeof(params));
-        bool first = true;
+        logHead("spec_info", vi.spec_info, vi.spec_info_len);
+        ESP_LOGI(TAG, "param sets %u bytes, NAL length size %d", (unsigned)paramLen, s_nalLen);
+        int decFails = 0;
+        bool firstLogged = false;
         uint32_t outIdx = 0;
         const uint32_t durationMs = vi.duration ? vi.duration : (an ? ai.duration : 0);
         bool eos = false;
@@ -363,13 +384,18 @@ bool convert()
                     esp_muxer_audio_packet_t ap{fi.frame_buffer, (int)fi.frame_size, fi.pts};
                     if (esp_muxer_add_audio_packet(j.mux, aIdx, &ap) != ESP_MUXER_ERR_OK) { fail("AVI audio write failed"); bad = true; }
                 } else if (fi.stream_type == ESP_EXTRACTOR_STREAM_TYPE_VIDEO) {
-                    if (!ensureScratch(j, fi.frame_size + fi.frame_size / 2 + sizeof(params) + 64)) {
+                    if (!ensureScratch(j, 2 * (size_t)fi.frame_size + 2 * sizeof(params) + 64)) {
                         fail("Out of memory"); bad = true;
                     } else {
+                        if (!firstLogged) { logHead("first sample", fi.frame_buffer, fi.frame_size); firstLogged = true; }
                         size_t n = 0;
-                        if (first && paramLen) { memcpy(j.scratch, params, paramLen); n = paramLen; }
-                        first = false;
-                        n += toAnnexB(fi.frame_buffer, fi.frame_size, j.scratch + n);
+                        n = toAnnexB(fi.frame_buffer, fi.frame_size, j.scratch + paramLen);
+                        if (paramLen && hasNal(j.scratch + paramLen, n, 5) && !hasNal(j.scratch + paramLen, n, 7)) {
+                            memcpy(j.scratch, params, paramLen);
+                            n += paramLen;
+                        } else if (n) {
+                            memmove(j.scratch, j.scratch + paramLen, n);
+                        }
                         size_t off = 0;
                         while (off < n && !bad) {
                             esp_video_dec_in_frame_t in{};
@@ -391,7 +417,11 @@ bool convert()
                                 if (!j.decBuf) { fail("Out of memory"); bad = true; }
                                 continue;
                             }
-                            if (dr < 0) break;  // Skip a damaged sample
+                            if (dr < 0) {
+                                if (++decFails > 60) { fail("H.264 decode failed"); bad = true; }
+                                break;
+                            }
+                            decFails = 0;
                             off += in.consumed;
                             if (out.decoded_size > 0) {
                                 const uint32_t pts = fi.pts;
