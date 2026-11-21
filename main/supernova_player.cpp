@@ -5,6 +5,7 @@
 
 #if CONFIG_OTR_HW_PROFILE_P4_43
 
+#include <algorithm>
 #include <new>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 #include "esp_audio_dec_default.h"
 #include "esp_audio_render.h"
 #include "esp_extractor_defaults.h"
+#include "esp_cache.h"
 #include "esp_gmf_alc.h"
 #include "esp_gmf_bit_cvt.h"
 #include "esp_gmf_ch_cvt.h"
@@ -35,6 +37,7 @@
 #include "lvgl.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "freertos/semphr.h"
 
 namespace SupernovaPlayer {
 namespace {
@@ -159,6 +162,95 @@ bool s_paused = false;
 bool s_started = false;
 char s_error[96] = "";
 
+// Lyrics overlay: LVGL renders ARGB8888 into a back buffer; the render thread alpha-blends the
+// published front buffer into the video canvas right before the PPA rotation, so it never tears.
+constexpr int OVERLAY_MAX_W = 800;
+constexpr int OVERLAY_MAX_H = 160;
+constexpr uint32_t OVERLAY_BYTES = OVERLAY_MAX_W * OVERLAY_MAX_H * 4;   // multiple of the 64 B cache line
+struct Overlay {
+    uint8_t *buf[2] = {nullptr, nullptr};
+    int front = 0;
+    bool active = false;
+    bool stale = true;   // Front buffer written by another core: invalidate before reading
+    int w = 0, h = 0, stride = 0, dx = 0, dy = 0;
+};
+Overlay s_overlay;
+SemaphoreHandle_t s_overlayLock = nullptr;
+
+void overlayFree()
+{
+    if (s_overlayLock) xSemaphoreTake(s_overlayLock, portMAX_DELAY);
+    for (uint8_t *&b : s_overlay.buf) {
+        heap_caps_free(b);
+        b = nullptr;
+    }
+    s_overlay.active = false;
+    if (s_overlayLock) {
+        xSemaphoreGive(s_overlayLock);
+        vSemaphoreDelete(s_overlayLock);
+        s_overlayLock = nullptr;
+    }
+}
+
+bool overlayAlloc()
+{
+    if (s_overlay.buf[0]) return true;
+    s_overlayLock = xSemaphoreCreateMutex();
+    for (uint8_t *&b : s_overlay.buf) {
+        b = static_cast<uint8_t *>(heap_caps_aligned_alloc(64, OVERLAY_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!b) break;
+    }
+    if (!s_overlayLock || !s_overlay.buf[0] || !s_overlay.buf[1]) {
+        overlayFree();
+        return false;
+    }
+    s_overlay.front = 0;
+    s_overlay.active = false;
+    return true;
+}
+
+// Straight-alpha ARGB8888 over RGB565 using 5-bit alpha on the packed 0x07E0F81F channel layout.
+inline uint16_t blendPixel(uint16_t dst, uint32_t argb)
+{
+    const uint32_t alpha = argb >> 24;
+    if (alpha < 4) return dst;
+    const uint32_t a5 = (alpha >> 3) + (alpha >> 7);
+    const uint32_t src565 = ((argb >> 8) & 0xF800) | ((argb >> 5) & 0x07E0) | ((argb >> 3) & 0x001F);
+    constexpr uint32_t MASK = 0x07E0F81F;
+    const uint32_t s = (src565 | (src565 << 16)) & MASK;
+    const uint32_t d = (dst | ((uint32_t)dst << 16)) & MASK;
+    const uint32_t out = (d + (((s - d) * a5) >> 5)) & MASK;
+    return (uint16_t)(out | (out >> 16));
+}
+
+void blendOverlay(uint8_t *canvas, int canvasW, const Area &rect)
+{
+    if (!s_overlayLock || xSemaphoreTake(s_overlayLock, 0) != pdTRUE) return;
+    Overlay &o = s_overlay;
+    if (o.active && o.buf[o.front]) {
+        const int x0 = rect.x + o.dx, y0 = rect.y + o.dy;
+        const int w = std::min(o.w, rect.x + rect.w - x0);
+        const int h = std::min(o.h, rect.y + rect.h - y0);
+        if (w > 0 && h > 0 && x0 >= 0 && y0 >= 0) {
+            const size_t rowBytes = (size_t)canvasW * 2;
+            uint8_t *rows = canvas + (size_t)y0 * rowBytes;
+            const size_t rowsSize = (size_t)h * rowBytes;
+            if (o.stale) {
+                esp_cache_msync(o.buf[o.front], OVERLAY_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+                o.stale = false;
+            }
+            esp_cache_msync(rows, rowsSize, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+            for (int y = 0; y < h; y++) {
+                const uint32_t *src = reinterpret_cast<const uint32_t *>(o.buf[o.front] + (size_t)y * o.stride);
+                uint16_t *dst = reinterpret_cast<uint16_t *>(rows + (size_t)y * rowBytes) + x0;
+                for (int x = 0; x < w; x++) dst[x] = blendPixel(dst[x], src[x]);
+            }
+            esp_cache_msync(rows, rowsSize, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+        }
+    }
+    xSemaphoreGive(s_overlayLock);
+}
+
 int audioWriter(uint8_t *pcm, uint32_t len, void *)
 {
     return s_audioRing.push(pcm, len);
@@ -232,6 +324,7 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
         return ESP_VIDEO_RENDER_ERR_INVALID_ARG;
     const int64_t writeStart = esp_timer_get_time();
     const Area r = s_videoRect;
+    if (r.w > 0 && r.h > 0) blendOverlay(fb->data, fb->info.width, r);
     if (r.w > 0 && r.h > 0 &&
         !Display::videoBlit(fb->data, fb->info.width, fb->info.height, r.x, r.y, r.w, r.h))
         backend->failCount++;
@@ -326,6 +419,7 @@ void cleanup()
         MyWifi::setSuspended(false);
         s_wifiSuspendedByUs = false;
     }
+    overlayFree();
     s_started = s_paused = false;
 }
 
@@ -396,6 +490,48 @@ bool makeVideoRender()
 void setVideoArea(int x, int y, int w, int h)
 {
     s_area = {x, y, w, h};
+}
+
+bool videoRect(int &x, int &y, int &w, int &h)
+{
+    const Area r = s_videoRect;
+    x = r.x;
+    y = r.y;
+    w = r.w;
+    h = r.h;
+    return w > 0 && h > 0;
+}
+
+uint8_t *overlayBack(uint32_t &capacity)
+{
+    if (!overlayAlloc()) return nullptr;
+    capacity = OVERLAY_BYTES;
+    return s_overlay.buf[1 - s_overlay.front];
+}
+
+void overlayPublish(int w, int h, int stride, int dx, int dy)
+{
+    if (!s_overlayLock || w <= 0 || h <= 0 || (uint32_t)stride * h > OVERLAY_BYTES) return;
+    uint8_t *back = s_overlay.buf[1 - s_overlay.front];
+    esp_cache_msync(back, OVERLAY_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    xSemaphoreTake(s_overlayLock, portMAX_DELAY);
+    s_overlay.front = 1 - s_overlay.front;
+    s_overlay.w = w;
+    s_overlay.h = h;
+    s_overlay.stride = stride;
+    s_overlay.dx = dx;
+    s_overlay.dy = dy;
+    s_overlay.stale = true;
+    s_overlay.active = true;
+    xSemaphoreGive(s_overlayLock);
+}
+
+void overlayClear()
+{
+    if (!s_overlayLock) return;
+    xSemaphoreTake(s_overlayLock, portMAX_DELAY);
+    s_overlay.active = false;
+    xSemaphoreGive(s_overlayLock);
 }
 
 bool start(const char *audioPath, const char *videoPath)
@@ -583,6 +719,10 @@ void stop() {}
 bool pause() { return false; }
 bool resume() { return false; }
 uint32_t positionMs() { return 0; }
+bool videoRect(int &, int &, int &, int &) { return false; }
+uint8_t *overlayBack(uint32_t &) { return nullptr; }
+void overlayPublish(int, int, int, int, int) {}
+void overlayClear() {}
 const char *error() { return "Video playback is available on P4 only"; }
 }  // namespace SupernovaPlayer
 

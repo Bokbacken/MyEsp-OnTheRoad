@@ -179,7 +179,8 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   S3-portning beslutas efter praktiskt P4-test.
   Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms
   CPU per bildruta. v0.26.8 testar direkt PPA-rotation till DPI-framebufferten
-  förbi LVGL; väntar på enhetstest (bildruta, rotationsriktning, färger,
+  förbi LVGL; v0.26.11 lägger texten som genomskinligt grått band blandat
+  i videobilden (storlek S/M/L, läge topp/mitten/botten); väntar på enhetstest (bildruta, rotationsriktning, färger,
   tearing, `video(PPA direct)`-loggraden).
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och

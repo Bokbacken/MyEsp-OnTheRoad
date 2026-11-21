@@ -27,6 +27,8 @@ struct esp_video_render_rect_t {};
 struct esp_video_render_pos_t { int x, y; };
 struct Area { int x = 0, y = 0, w = 0, h = 0; };
 Area s_videoRect;
+int overlays = 0;
+void blendOverlay(uint8_t *, int, const Area &) { ++overlays; }
 constexpr size_t PCM_CAPACITY = 8192;
 struct { void takeStats(uint32_t &u, size_t &m) { u = 0; m = PCM_CAPACITY; } } s_audioRing;
 struct LvBackend {
@@ -68,7 +70,7 @@ int main() {
     assert(blits == 0);
     s_videoRect = {0, 0, 2, 2};
     assert(backendWriteFb(&backend, &incoming, nullptr, nullptr) == ESP_VIDEO_RENDER_ERR_OK);
-    assert(blits == 1 && backend.failCount == 0);
+    assert(blits == 1 && overlays == 1 && backend.failCount == 0);
     blitResult = false;
     assert(backendWriteFb(&backend, &own, nullptr, nullptr) == ESP_VIDEO_RENDER_ERR_OK);
     assert(backend.failCount == 1);

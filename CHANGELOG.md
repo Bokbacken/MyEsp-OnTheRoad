@@ -8,6 +8,21 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.11
+
+- Supernova (P4): the video now uses the whole screen below a thin header.
+  Lyrics float over the picture: current line (sung syllables in gold) and a
+  smaller next line, centred on a translucent grey band. They are rendered with
+  LVGL off-screen (`CONFIG_LV_USE_SNAPSHOT`) and alpha-blended by the player into
+  the video canvas before the PPA rotation, so LVGL still never draws over the
+  video.
+- Header buttons choose text size (S/M/L) and position (top/middle/bottom);
+  both persist in NVS namespace `supernova`.
+- The overlay is only refreshed when a frame is rendered, so it does not update
+  while paused.
+- Not built or verified on hardware: colour order, blend cost/frame rate and the
+  cache handling of the overlay are untested.
+
 ## v0.26.10
 
 - Supernova (P4): the current lyric line stays in place and sung syllables turn

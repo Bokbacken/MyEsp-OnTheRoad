@@ -14,6 +14,8 @@ CONFIG_OTR_SD_IO_DIAGNOSTICS=y
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 
 # --- Supernova UltraStar video test (P4 only) ---
+# Lyrics overlay is rendered off-screen with LVGL and blended into the video frames.
+CONFIG_LV_USE_SNAPSHOT=y
 CONFIG_ESP_PLAYER_ENABLE_AUDIO=y
 CONFIG_ESP_PLAYER_ENABLE_VIDEO=y
 CONFIG_ESP_PLAYER_ENABLE_FILE_IO=y
