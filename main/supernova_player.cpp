@@ -96,6 +96,14 @@ struct AudioRing {
         portEXIT_CRITICAL(&mux);
     }
 
+    size_t pendingSamples()
+    {
+        portENTER_CRITICAL(&mux);
+        const size_t n = used;
+        portEXIT_CRITICAL(&mux);
+        return n;
+    }
+
     void takeStats(uint32_t &under, size_t &minFill)
     {
         portENTER_CRITICAL(&mux);
@@ -513,6 +521,9 @@ uint32_t positionMs()
     if (!clockPlayer) return 0;
     uint64_t position = 0;
     if (esp_player_get_play_time(clockPlayer, &position) != ESP_PLAYER_ERR_OK) return 0;
+    // The player clock is the decoder PTS; the ring holds audio that has not been heard yet.
+    const uint64_t pending = (uint64_t)s_audioRing.pendingSamples() * 1000 / AUDIO_RATE;
+    position = position > pending ? position - pending : 0;
     return position > UINT32_MAX ? UINT32_MAX : (uint32_t)position;
 }
 

@@ -8,6 +8,21 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.10
+
+- Supernova (P4): the current lyric line stays in place and sung syllables turn
+  gold over it as their timestamps are reached, instead of showing only the
+  current syllable. Long lines step down to a smaller font to fit.
+- Lyric clock now subtracts the audio still queued in the PCM ring (decoder time
+  ran up to ~370 ms ahead of what is heard, assuming mono at 22.05 kHz) and the
+  UI updates every 33 ms instead of 100 ms.
+- Smaller opaque header (button height + 8 px) and lyrics panel (80 px) give the
+  video a larger area. The picture still cannot fill the whole screen because
+  LVGL cannot draw over the PPA direct framebuffer.
+- Not built or verified on hardware; ring latency and mono assumption are
+  unconfirmed. v0.26.9 changes (Wi-Fi suspended during playback, audio underrun
+  counters) remain.
+
 ## v0.26.9
 
 - Supernova (P4): Wi-Fi is suspended while a song plays and restored on stop, to

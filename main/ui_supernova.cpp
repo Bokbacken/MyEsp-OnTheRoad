@@ -44,13 +44,13 @@ lv_obj_t *s_pauseButton = nullptr;
 lv_obj_t *s_prevLine = nullptr;
 lv_obj_t *s_curLine = nullptr;
 lv_obj_t *s_nextLine = nullptr;
-lv_obj_t *s_curSyllable = nullptr;
+lv_obj_t *s_curSung = nullptr;   // Gold copy of the current line holding only the sung syllables
+uint32_t s_lastNote = UINT32_MAX;
 lv_obj_t *s_timeLabel = nullptr;
 lv_obj_t *s_playLabel = nullptr;
 lv_timer_t *s_startTimer = nullptr;
 lv_timer_t *s_playerTimer = nullptr;
 size_t s_pendingSong = 0;
-uint32_t s_lastPos = UINT32_MAX;
 uint32_t s_lastPhrase = UINT32_MAX;
 bool s_playerPaused = false;
 bool s_closeRequested = false;
@@ -158,6 +158,22 @@ void showError(const char *message)
     Theme::msgboxFonts(box);
 }
 
+void placeCurrentLine(const std::string &text)
+{
+    const int32_t panelW = lv_obj_get_width(s_lyricsPanel);
+    const lv_font_t *fonts[] = {&my_font_24, &my_font_18, &my_font_14};
+    lv_label_set_text(s_curLine, text.c_str());
+    for (const lv_font_t *font : fonts) {
+        lv_obj_set_style_text_font(s_curLine, font, 0);
+        lv_obj_set_style_text_font(s_curSung, font, 0);
+        lv_obj_update_layout(s_curLine);
+        if (lv_obj_get_width(s_curLine) <= panelW - 16) break;
+    }
+    const int32_t x = (panelW - lv_obj_get_width(s_curLine)) / 2;
+    lv_obj_set_pos(s_curLine, x < 0 ? 0 : x, 19);
+    lv_obj_set_pos(s_curSung, x < 0 ? 0 : x, 19);
+}
+
 void updateLyrics(uint32_t pos)
 {
     if (!s_playerScreen || s_lyrics.phrases.empty()) return;
@@ -166,23 +182,24 @@ void updateLyrics(uint32_t pos)
         const std::string previous = phraseIndex
                                          ? SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex - 1].text)
                                          : "";
-        const std::string current = SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex].text);
         const std::string next = phraseIndex + 1 < s_lyrics.phrases.size()
                                      ? SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex + 1].text) : "";
         lv_label_set_text(s_prevLine, previous.c_str());
-        lv_label_set_text(s_curLine, current.c_str());
         lv_label_set_text(s_nextLine, next.c_str());
+        placeCurrentLine(SupernovaLyrics::toDisplayText(s_lyrics.phrases[phraseIndex].text));
+        lv_label_set_text(s_curSung, "");
         s_lastPhrase = phraseIndex;
-        s_lastPos = UINT32_MAX;
+        s_lastNote = UINT32_MAX;
     }
-    if (pos == s_lastPos) return;
-    s_lastPos = pos;
+    // Syllables light up when they start and stay lit until the phrase changes.
     const SupernovaLyrics::Phrase &phrase = s_lyrics.phrases[phraseIndex];
-    const uint32_t noteIndex = SupernovaLyrics::noteAt(phrase, pos);
-    if (noteIndex < phrase.notes.size()) {
-        const std::string syllable = SupernovaLyrics::toDisplayText(phrase.notes[noteIndex].text);
-        lv_label_set_text(s_curSyllable, syllable.c_str());
-    }
+    uint32_t sungCount = 0;
+    while (sungCount < phrase.notes.size() && phrase.notes[sungCount].startMs <= pos) sungCount++;
+    if (sungCount == s_lastNote) return;
+    s_lastNote = sungCount;
+    std::string sung;
+    for (uint32_t i = 0; i < sungCount; i++) sung += phrase.notes[i].text;
+    lv_label_set_text(s_curSung, SupernovaLyrics::toDisplayText(sung).c_str());
 }
 
 void closePlayer();
@@ -206,9 +223,9 @@ void closePlayer()
     }
     s_playerScreen = nullptr;
     s_playerHeader = s_lyricsPanel = s_pauseButton = nullptr;
-    s_prevLine = s_curLine = s_nextLine = s_curSyllable = s_timeLabel = s_playLabel = nullptr;
+    s_prevLine = s_curLine = s_nextLine = s_curSung = s_timeLabel = s_playLabel = nullptr;
     s_lastPhrase = UINT32_MAX;
-    s_lastPos = UINT32_MAX;
+    s_lastNote = UINT32_MAX;
     s_playerPaused = false;
     s_closeRequested = false;
     s_playerVisible = false;
@@ -320,8 +337,11 @@ void playerTick(lv_timer_t *)
         s_playerVisible = true;
     }
     const uint32_t pos = SupernovaPlayer::positionMs();
-    lv_label_set_text_fmt(s_timeLabel, "%02u:%02u",
-                          (unsigned)(pos / 60000), (unsigned)((pos / 1000) % 60));
+    static uint32_t shownSeconds = UINT32_MAX;
+    if (pos / 1000 != shownSeconds) {
+        shownSeconds = pos / 1000;
+        lv_label_set_text_fmt(s_timeLabel, "%02u:%02u", (unsigned)(pos / 60000), (unsigned)(shownSeconds % 60));
+    }
     updateLyrics(pos);
 }
 
@@ -337,9 +357,10 @@ void playSong(size_t index)
         showError(tr(Str::SUPERNOVA_ROTATION_FAILED));
         return;
     }
-    constexpr int LYRICS_H = 116;
-    SupernovaPlayer::setVideoArea(0, UiMetrics::headerH(), UiMetrics::screenW(),
-                                  UiMetrics::screenH() - UiMetrics::headerH() - LYRICS_H);
+    // Compact opaque bars leave the video the largest area LVGL does not draw in.
+    constexpr int LYRICS_H = 80;
+    const int headerH = UiMetrics::buttonH() + 8;
+    SupernovaPlayer::setVideoArea(0, headerH, UiMetrics::screenW(), UiMetrics::screenH() - headerH - LYRICS_H);
     lv_obj_t *screen = Theme::screen();
     s_playerScreen = screen;
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
@@ -348,7 +369,7 @@ void playSong(size_t index)
     lv_obj_t *top = lv_obj_create(screen);
     s_playerHeader = top;
     lv_obj_remove_style_all(top);
-    lv_obj_set_size(top, UiMetrics::screenW(), UiMetrics::headerH());
+    lv_obj_set_size(top, UiMetrics::screenW(), headerH);
     lv_obj_set_style_bg_color(top, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
     lv_obj_t *back = lv_button_create(top);
@@ -370,21 +391,20 @@ void playSong(size_t index)
     lv_obj_t *lyrics = lv_obj_create(screen);
     s_lyricsPanel = lyrics;
     lv_obj_remove_style_all(lyrics);
-    lv_obj_set_size(lyrics, UiMetrics::screenW(), 116);
+    lv_obj_set_size(lyrics, UiMetrics::screenW(), LYRICS_H);
     lv_obj_align(lyrics, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_color(lyrics, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(lyrics, LV_OPA_COVER, 0);
     s_prevLine = makeText(lyrics, "", &my_font_14, Theme::c(Theme::LINE));
     lv_obj_set_width(s_prevLine, UiMetrics::screenW() - 24);
-    lv_obj_align(s_prevLine, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_align(s_prevLine, LV_ALIGN_TOP_MID, 0, 0);
     s_curLine = makeText(lyrics, "", &my_font_24, lv_color_white());
-    lv_obj_set_width(s_curLine, UiMetrics::screenW() - 24);
-    lv_obj_align(s_curLine, LV_ALIGN_TOP_MID, 0, 25);
+    lv_label_set_long_mode(s_curLine, LV_LABEL_LONG_MODE_CLIP);
     s_nextLine = makeText(lyrics, "", &my_font_14, Theme::c(Theme::LINE));
     lv_obj_set_width(s_nextLine, UiMetrics::screenW() - 24);
-    lv_obj_align(s_nextLine, LV_ALIGN_TOP_MID, 0, 60);
-    s_curSyllable = makeText(lyrics, "", &my_font_18, Theme::c(Theme::GOLD));
-    lv_obj_align(s_curSyllable, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_align(s_nextLine, LV_ALIGN_TOP_MID, 0, 56);
+    s_curSung = makeText(lyrics, "", &my_font_24, Theme::c(Theme::GOLD));
+    lv_label_set_long_mode(s_curSung, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_t *pause = lv_button_create(top);
     s_pauseButton = pause;
     lv_obj_add_state(pause, LV_STATE_DISABLED);
@@ -400,7 +420,7 @@ void playSong(size_t index)
     s_playerVisible = false;
     s_startTaskFailed = false;
     s_stopTaskFailed = false;
-    s_playerTimer = lv_timer_create(playerTick, 100, nullptr);
+    s_playerTimer = lv_timer_create(playerTick, 33, nullptr);
     s_startTimer = lv_timer_create(startPendingPlayer, 230, nullptr);
     lv_timer_set_repeat_count(s_startTimer, 1);
 }
