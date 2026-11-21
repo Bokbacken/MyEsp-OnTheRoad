@@ -8,6 +8,11 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.16
+
+- Supernova (P4): the "MP4 -> AVI" button now opens a list where one song can be
+  chosen for conversion, or all MP4-only songs at once. Unverified on hardware.
+
 ## v0.26.15
 
 - Supernova (P4): MP4 conversion fix attempt after the owner's log showed

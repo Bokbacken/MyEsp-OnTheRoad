@@ -568,6 +568,8 @@ std::string songName(const Song &song)
     return slash == std::string::npos ? song.folder : song.folder.substr(slash + 1);
 }
 
+void showConvert(size_t only);
+
 bool convStartNext()
 {
     while (s_convPos < s_convQueue.size()) {
@@ -623,11 +625,11 @@ void convTick(lv_timer_t *)
     }
 }
 
-void showConvert()
+void showConvert(size_t only)
 {
     s_convQueue.clear();
     for (size_t i = 0; i < s_songs.size(); i++)
-        if (isMp4(s_songs[i])) s_convQueue.push_back(i);
+        if (isMp4(s_songs[i]) && (only == SIZE_MAX || only == i)) s_convQueue.push_back(i);
     if (s_convQueue.empty()) return;
     s_convPos = 0;
     s_convDone = s_convFailed = 0;
@@ -664,6 +666,36 @@ void showConvert()
     s_convTimer = lv_timer_create(convTick, 500, nullptr);
 }
 
+void showConvertPicker()
+{
+    lv_obj_t *screen = Theme::screen();
+    lv_obj_t *header = Theme::header(screen, tr(Str::SUPERNOVA_CONVERT_TITLE));
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { show(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *list = lv_obj_create(screen);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, UiMetrics::marginNormal(), UiMetrics::headerH());
+    lv_obj_set_size(list, UiMetrics::screenW() - 2 * UiMetrics::marginNormal(),
+                    UiMetrics::screenH() - UiMetrics::headerH() - UiMetrics::footerH());
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
+    lv_obj_set_scrollable(list, true);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_t *all = Theme::menuCard(list, LV_PCT(100), tr(Str::SUPERNOVA_CONVERT_ALL), "",
+                                    nullptr, LV_SYMBOL_DOWNLOAD, Theme::ACCENT);
+    lv_obj_add_event_cb(all, [](lv_event_t *) { showConvert(SIZE_MAX); }, LV_EVENT_CLICKED, nullptr);
+    for (size_t i = 0; i < s_songs.size(); i++) {
+        if (!isMp4(s_songs[i])) continue;
+        const std::string name = songName(s_songs[i]);
+        lv_obj_t *card = Theme::menuCard(list, LV_PCT(100), name.c_str(), "", nullptr, LV_SYMBOL_VIDEO, Theme::BLUE);
+        lv_obj_add_event_cb(card, [](lv_event_t *e) {
+            showConvert((size_t)(uintptr_t)lv_event_get_user_data(e));
+        }, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
+    }
+    Theme::loadScreen(screen);
+}
+
 }  // namespace
 
 void show()
@@ -694,7 +726,7 @@ void show()
     if (std::any_of(s_songs.begin(), s_songs.end(), isMp4)) {
         lv_obj_t *convert = Theme::button(header, tr(Str::SUPERNOVA_CONVERT), 130, 36, Theme::BLUE);
         lv_obj_align_to(convert, back, LV_ALIGN_OUT_LEFT_MID, -8, 0);
-        lv_obj_add_event_cb(convert, [](lv_event_t *) { showConvert(); }, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(convert, [](lv_event_t *) { showConvertPicker(); }, LV_EVENT_CLICKED, nullptr);
     }
     lv_obj_t *list = lv_obj_create(screen);
     lv_obj_remove_style_all(list);

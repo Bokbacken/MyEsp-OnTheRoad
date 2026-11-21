@@ -632,6 +632,7 @@ extern const Entry LANG_SV[] = {
     {Str::SUPERNOVA_ROTATION_FAILED, "Skärmen kunde inte växlas till liggande läge."},
     {Str::SUPERNOVA_P4_ONLY, "Supernova-testet med video är just nu bara tillgängligt på ESP32-P4."},
     {Str::SUPERNOVA_CONVERT, "MP4 -> AVI"},
+    {Str::SUPERNOVA_CONVERT_ALL, "Alla MP4-låtar"},
     {Str::SUPERNOVA_CONVERT_TITLE, "Konvertera MP4"},
     {Str::SUPERNOVA_CONVERT_PROGRESS, "Konverterar %d/%d: %s\n%d %%  (%u:%02u)\nLämna enheten påslagen. Wi-Fi är pausat."},
     {Str::SUPERNOVA_CONVERT_DONE, "Klart: %d konverterade, %d misslyckades."},
