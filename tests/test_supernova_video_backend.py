@@ -27,6 +27,8 @@ struct esp_video_render_rect_t {};
 struct esp_video_render_pos_t { int x, y; };
 struct Area { int x = 0, y = 0, w = 0, h = 0; };
 Area s_videoRect;
+constexpr size_t PCM_CAPACITY = 8192;
+struct { void takeStats(uint32_t &u, size_t &m) { u = 0; m = PCM_CAPACITY; } } s_audioRing;
 struct LvBackend {
     esp_video_render_fb_t fb{};
     int64_t statsStartUs = 0, previousFrameUs = 0;

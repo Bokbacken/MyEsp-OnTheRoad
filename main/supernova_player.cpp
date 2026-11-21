@@ -30,6 +30,7 @@
 #include "esp_video_render.h"
 #include "esp_video_render_backend.h"
 #include "media_lib_adapter.h"
+#include "my_wifi.h"
 #include "my_lvgl.h"
 #include "lvgl.h"
 #include "freertos/FreeRTOS.h"
@@ -49,6 +50,9 @@ struct AudioRing {
     size_t read = 0;
     size_t write = 0;
     size_t used = 0;
+    bool primed = false;
+    uint32_t underruns = 0;
+    size_t minUsed = PCM_CAPACITY;
     portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
     int push(const uint8_t *data, size_t bytes)
@@ -80,12 +84,25 @@ struct AudioRing {
     void render(int32_t *acc, int count)
     {
         portENTER_CRITICAL(&mux);
+        if (primed && used < (size_t)count) underruns++;
+        if (used) primed = true;
         for (int i = 0; i < count; i++) {
             if (!used) break;
             acc[i] += samples[read];
             read = (read + 1) % PCM_CAPACITY;
             used--;
         }
+        if (primed && used < minUsed) minUsed = used;
+        portEXIT_CRITICAL(&mux);
+    }
+
+    void takeStats(uint32_t &under, size_t &minFill)
+    {
+        portENTER_CRITICAL(&mux);
+        under = underruns;
+        minFill = minUsed;
+        underruns = 0;
+        minUsed = PCM_CAPACITY;
         portEXIT_CRITICAL(&mux);
     }
 
@@ -93,6 +110,9 @@ struct AudioRing {
     {
         portENTER_CRITICAL(&mux);
         read = write = used = 0;
+        primed = false;
+        underruns = 0;
+        minUsed = PCM_CAPACITY;
         portEXIT_CRITICAL(&mux);
     }
 };
@@ -125,6 +145,8 @@ esp_player_handle_t s_audioPlayer = nullptr;
 esp_player_handle_t s_videoPlayer = nullptr;
 bool s_defaultsRegistered = false;
 bool s_sdTransfer = false;
+// Test hypothesis: C6 SDIO radio traffic shares the SDMMC host with the card and stalls playback.
+bool s_wifiSuspendedByUs = false;
 bool s_paused = false;
 bool s_started = false;
 char s_error[96] = "";
@@ -217,11 +239,15 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
     backend->previousFrameUs = now;
     backend->frameCount++;
     if (now - backend->statsStartUs >= 5000000) {
-        ESP_LOGI(TAG, "video(PPA direct) %u frames/%u ms, blit avg/max %u/%u us, max frame gap %u ms, blit failures %u",
+        uint32_t underruns = 0;
+        size_t minFill = 0;
+        s_audioRing.takeStats(underruns, minFill);
+        ESP_LOGI(TAG, "video(PPA direct) %u frames/%u ms, blit avg/max %u/%u us, max frame gap %u ms, blit failures %u, "
+                      "audio underruns %u, min ring fill %u/%u",
                  (unsigned)backend->frameCount, (unsigned)((now - backend->statsStartUs) / 1000),
                  (unsigned)(backend->writeUs / backend->frameCount),
                  (unsigned)backend->maxWriteUs, (unsigned)(backend->maxGapUs / 1000),
-                 (unsigned)backend->failCount);
+                 (unsigned)backend->failCount, (unsigned)underruns, (unsigned)minFill, (unsigned)PCM_CAPACITY);
         backend->statsStartUs = now;
         backend->writeUs = 0;
         backend->frameCount = backend->failCount = 0;
@@ -287,6 +313,10 @@ void cleanup()
     if (s_sdTransfer) {
         BoardSd::endTransfer();
         s_sdTransfer = false;
+    }
+    if (s_wifiSuspendedByUs) {
+        MyWifi::setSuspended(false);
+        s_wifiSuspendedByUs = false;
     }
     s_started = s_paused = false;
 }
@@ -375,6 +405,10 @@ bool start(const char *audioPath, const char *videoPath)
         return false;
     }
     s_sdTransfer = true;
+    if (!MyWifi::suspended()) {
+        MyWifi::setSuspended(true);
+        s_wifiSuspendedByUs = true;
+    }
     media_lib_add_default_adapter();
     esp_extractor_register_default();
     esp_audio_dec_register_default();

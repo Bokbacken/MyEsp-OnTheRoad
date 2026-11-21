@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.9
+
+- Supernova (P4): Wi-Fi is suspended while a song plays and restored on stop, to
+  test whether C6 SDIO traffic shares the SDMMC host with the card and causes
+  the stutter the owner saw in v0.26.8 (picture and sound together; frame rate
+  15.4 fps, blit max 4.2 ms, max gap 70 ms in the log). The 5 s video log now
+  also reports audio ring underruns and minimum fill. Not built or verified on
+  hardware. If playback is smooth, the cause is radio/SD contention; if not,
+  the new counters show whether SD reads starve the audio ring.
+
 ## v0.26.8
 
 - Supernova (P4): video now bypasses LVGL. Decoded frames are rotated by the PPA
