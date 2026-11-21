@@ -6,6 +6,7 @@
 
 #include "driver/i2c_master.h"
 #include "lvgl.h"
+#include "touch_contacts.h"
 
 namespace Touch {
 
@@ -37,5 +38,10 @@ lv_indev_t *indev();
 // Info::lastX/lastY stay panel-native.
 void setRotation(bool rot180);
 Info info();
+
+// Opt-in extra contacts for games. Call with the LVGL lock held; menus retain their
+// existing single-pointer/debounce path. Coordinates match the pointer before LVGL rotation.
+void setMultiTouch(bool enabled);
+Contacts contacts();  // Cached only: never starts another I2C transaction.
 
 }  // namespace Touch

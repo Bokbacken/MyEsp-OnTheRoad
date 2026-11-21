@@ -10,3 +10,43 @@ dependencies:
     version: "3.1.0"
     rules:
       - if: "target in [esp32p4]"
+  espressif/esp_player:
+    version: "~1.1.1"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/esp_video_render:
+    version: "~1.1"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/esp_audio_render:
+    version: "~1.1"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/esp_video_codec:
+    version: "~0.5"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/esp_extractor:
+    version: "~1.0"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/esp_muxer:
+    version: "~1.2"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/gmf_core:
+    version: "~1.1"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/gmf_audio:
+    version: "~1.1"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/gmf_video:
+    version: "~1.1"
+    rules:
+      - if: "target in [esp32p4]"
+  espressif/media_lib_sal:
+    version: "~1.0"
+    rules:
+      - if: "target in [esp32p4]"

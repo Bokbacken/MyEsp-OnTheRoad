@@ -549,9 +549,11 @@ def partitions(path):
 def main():
     s3 = partitions(ROOT / "partitions.csv")
     p4 = partitions(ROOT / "partitions.esp32p4.csv")
-    for name in ("app0", "app1"):
-        assert p4[name] == s3[name], f"{name} OTA slot changed on P4"
-    assert p4["ffat"][0] == s3["ffat"][0] and p4["ffat"][1] == 0x15E0000
+    assert s3["app0"] == (0x10000, 0x500000)
+    assert s3["app1"] == (0x510000, 0x500000)
+    assert p4["app0"] == (0x10000, 0x700000)
+    assert p4["app1"] == (0x710000, 0x700000)
+    assert p4["ffat"] == (0xE10000, 0x11E0000)
     assert p4["coredump"][0] + p4["coredump"][1] == 32 * 1024 * 1024
     for table, flash in ((s3, 16 * 1024 * 1024), (p4, 32 * 1024 * 1024)):
         ranges = sorted((offset, offset + size, name) for name, (offset, size) in table.items())

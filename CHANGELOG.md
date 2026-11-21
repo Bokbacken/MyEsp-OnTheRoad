@@ -8,6 +8,116 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.14
+
+- Supernova (P4): new "MP4 -> AVI" button in the song list converts every song
+  that only has an MP4 to `video.avi` on the device (H.264 software decode,
+  hardware MJPEG encode at 15 fps, max 800x480, quality 75). The original AAC/MP3
+  audio is copied into the AVI without re-encoding. Wi-Fi is paused and the
+  conversion can be cancelled; the result is written as `video.avi.tmp` and
+  renamed when complete. New dependency `espressif/esp_muxer` (already pulled in
+  by esp_player) and encoder/muxer sdkconfig defaults.
+- Unverified on hardware: conversion speed, H.264 profile support and whether
+  the player's AVI reader plays AAC audio inside AVI. MP3 audio is expected to work.
+
+## v0.26.13
+
+- Supernova (P4): right-edge crop raised from 6 to 16 px (bottom stays 6 px)
+  after the owner reported the 6 px crop removed about half of the noise.
+  Not hardware-verified.
+
+## v0.26.12
+
+- Supernova (P4): the right and bottom 6 px of the scaled video are no longer
+  blitted, hiding the noise pixels seen along those edges with AVI. The cause
+  of the noise is not identified; this is a crop workaround. Not hardware-verified.
+
+## v0.26.11
+
+- Supernova (P4): the video now uses the whole screen below a thin header.
+  Lyrics float over the picture: current line (sung syllables in gold) and a
+  smaller next line, centred on a translucent grey band. They are rendered with
+  LVGL off-screen (`CONFIG_LV_USE_SNAPSHOT`) and alpha-blended by the player into
+  the video canvas before the PPA rotation, so LVGL still never draws over the
+  video.
+- Header buttons choose text size (S/M/L) and position (top/middle/bottom);
+  both persist in NVS namespace `supernova`.
+- The overlay is only refreshed when a frame is rendered, so it does not update
+  while paused.
+- Not built or verified on hardware: colour order, blend cost/frame rate and the
+  cache handling of the overlay are untested.
+
+## v0.26.10
+
+- Supernova (P4): the current lyric line stays in place and sung syllables turn
+  gold over it as their timestamps are reached, instead of showing only the
+  current syllable. Long lines step down to a smaller font to fit.
+- Lyric clock now subtracts the audio still queued in the PCM ring (decoder time
+  ran up to ~370 ms ahead of what is heard, assuming mono at 22.05 kHz) and the
+  UI updates every 33 ms instead of 100 ms.
+- Smaller opaque header (button height + 8 px) and lyrics panel (80 px) give the
+  video a larger area. The picture still cannot fill the whole screen because
+  LVGL cannot draw over the PPA direct framebuffer.
+- Not built or verified on hardware; ring latency and mono assumption are
+  unconfirmed. v0.26.9 changes (Wi-Fi suspended during playback, audio underrun
+  counters) remain.
+
+## v0.26.9
+
+- Supernova (P4): Wi-Fi is suspended while a song plays and restored on stop, to
+  test whether C6 SDIO traffic shares the SDMMC host with the card and causes
+  the stutter the owner saw in v0.26.8 (picture and sound together; frame rate
+  15.4 fps, blit max 4.2 ms, max gap 70 ms in the log). The 5 s video log now
+  also reports audio ring underruns and minimum fill. Not built or verified on
+  hardware. If playback is smooth, the cause is radio/SD contention; if not,
+  the new counters show whether SD reads starve the audio ring.
+
+## v0.26.8
+
+- Supernova (P4): video now bypasses LVGL. Decoded frames are rotated by the PPA
+  straight into the DPI framebuffer (no LVGL mutex, image copy or software
+  rotation), to free CPU for later microphone scoring. The video is letterboxed
+  between an opaque header and an opaque lyrics panel; the pause button moved
+  into the header. `tools\konvert_mjpeg.bat` now makes 15 fps, `-q:v 10` files.
+  Not built or verified on hardware: PPA rotation direction/colour order and
+  tearing with the single framebuffer are unconfirmed.
+
+## v0.26.7
+
+- Add **Supernova**, an ESP32-P4-only UltraStar-inspired test player. It scans
+  `/otr/supernova/<Artist - Title>/` for MP4 video and UltraStar v1 TXT lyrics,
+  with optional separate MP3 audio; without an MP3 it uses audio embedded in
+  the MP4. Timed lyrics are presented over the video. This first step does not
+  score microphone input. The P4 partition table now has 7 MiB OTA slots and
+  17.875 MiB FFat; existing P4 devices need a one-time full USB flash.
+  Firmware build and device playback verification are pending.
+
+## v0.26.6
+
+- Slim the visible Arcade side rails to one quarter of their former width,
+  while preserving the original full-width touch hit zones. Expand the
+  playfield to use the reclaimed space.
+
+## v0.26.5
+
+- Replace direct-on-ship Arcade steering with two separate thumb strips:
+  left selects target height, right commands horizontal speed (up moves
+  right, down moves left, central 20% zone stops). Acceleration and braking
+  are gradual; the ship glides toward its selected height without jumping.
+  Course scrolling stays constant and automatic fire remains enabled.
+- Add opt-in cached two-contact input for all three touch drivers, preserving
+  the normal menu pointer path and S3_35B's shared touch/power sampler.
+  Stale/failed input releases the throttle; sleep/wake input guards apply
+  to game contacts too. Two-finger hardware verification is pending.
+
+## v0.26.4
+
+- Add an **Arcade** main-menu category and the first playable control-test
+  course: a side-scrolling space-flight lane with direct finger-follow
+  steering, auto-fire, moving gates, target-hit/impact counters and reset.
+  Uses original simple shapes and no tilt sensor. Hardware touch evaluation
+  is pending; this is a steering prototype, not a finished arcade game.
+
 ## v0.26.3
 
 - Correct karaoke diagnostics: the old `underruns` counter is now labelled

@@ -1,7 +1,7 @@
 # Board-specific drivers behind the shared board_*.h APIs (profile is bound to the target in Kconfig).
 if(CONFIG_OTR_HW_PROFILE_P4_43)
   set(board_srcs "board_display_p4.cpp" "board_touch_gt911.cpp" "host_ota.cpp")
-  set(board_reqs esp_lcd esp_hw_support esp_hosted)
+  set(board_reqs esp_lcd esp_hw_support esp_hosted esp_driver_ppa)
 elseif(CONFIG_OTR_HW_PROFILE_S3_35B)
   set(board_srcs "board_display_s3_35b.cpp" "board_touch_axs15231b.cpp")
   set(board_reqs esp_lcd esp_driver_spi)
@@ -14,18 +14,25 @@ if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
   list(APPEND board_srcs "board_sd_clock.cpp")
 endif()
 
+set(supernova_reqs "")
+if(CONFIG_OTR_HW_PROFILE_P4_43)
+  list(APPEND supernova_reqs espressif__esp_player espressif__esp_video_render espressif__esp_audio_render
+       espressif__esp_video_codec espressif__esp_extractor espressif__esp_muxer espressif__gmf_core espressif__gmf_audio
+       espressif__gmf_video espressif__media_lib_sal)
+endif()
+
 idf_component_register(
   SRCS "ui_sudoku.cpp" "ui_touch_test.cpp" "sudoku_game.cpp" "sudoku_sd.cpp"
        "app_main.cpp" "app_config.cpp" "app_players.cpp" "app_web.cpp" "fat_time.cpp"
        "board_backlight.cpp" "board_rgb.cpp" "board_power.cpp" "power_history.cpp" "power_io.cpp" ${board_srcs}
        "board_audio.cpp" "board_battery.cpp" "board_sd.cpp" "app_web_files.cpp" "app_web_adventure_editor.cpp" "audio_synth.cpp" "sound_bank.cpp" "fs_path.cpp" "fs_upload.cpp"
        "dice_cup.cpp" "game_live.cpp" "adv_live.cpp" "adv_session.cpp" "adv_loader.cpp" "adv_validator.cpp" "adv_catalog.cpp" "adv_sd_session.cpp" "adv_resource_art.cpp" "game_yatzy.cpp" "game_pig.cpp" "game_farkle.cpp" "game_scc.cpp"
-       "hw_profile.cpp" "ui_metrics.cpp" "ui_boot.cpp" "ui_clock.cpp" "ui_numpad.cpp" "ui_ota.cpp" "ui_screen_power.cpp" "ui_settings.cpp" "ui_wifi.cpp" "ui_yatzy.cpp" "ui_multiplayer.cpp" "ui_adventure.cpp" "ui_karaoke.cpp" "karaoke.cpp" "kara_settings.cpp" "kara_lyrics.cpp" "kara_stream.cpp" "kara_web.cpp" "kara_index.cpp" "kara_songs_web.cpp" "otr_log.cpp"
+       "hw_profile.cpp" "ui_metrics.cpp" "ui_boot.cpp" "ui_clock.cpp" "ui_numpad.cpp" "ui_ota.cpp" "ui_screen_power.cpp" "ui_settings.cpp" "ui_wifi.cpp" "ui_yatzy.cpp" "ui_arcade.cpp" "ui_supernova.cpp" "supernova_player.cpp" "supernova_convert.cpp" "supernova_lyrics.cpp" "ui_multiplayer.cpp" "ui_adventure.cpp" "ui_karaoke.cpp" "karaoke.cpp" "kara_settings.cpp" "kara_lyrics.cpp" "kara_stream.cpp" "kara_web.cpp" "kara_index.cpp" "kara_songs_web.cpp" "otr_log.cpp"
        "lang/lang.cpp" "lang/lang_sv.cpp" "lang/lang_en.cpp"
   INCLUDE_DIRS "." "lang"
   REQUIRES my_log my_storage my_time my_diag my_rtc my_wifi my_web my_ota my_lvgl my_ui otr_i2c
            otr_engine otr_story otr_midi otr_synth lvgl__lvgl espressif__led_strip espressif__cjson
-           ${board_reqs} esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_adc esp_timer esp_app_format
+           ${board_reqs} ${supernova_reqs} esp_driver_gpio esp_driver_ledc esp_driver_i2c esp_adc esp_timer esp_app_format
            esp_driver_i2s esp_driver_sdmmc esp_http_client espressif__mdns espressif__esp_websocket_client
            sdmmc fatfs vfs)
 
@@ -34,6 +41,12 @@ target_link_libraries(${COMPONENT_LIB} INTERFACE
   "-Wl,--undefined=__wrap_esp_partition_write"
   "-Wl,--wrap=esp_partition_read"
   "-Wl,--wrap=esp_partition_write")
+
+if(CONFIG_OTR_HW_PROFILE_P4_43)
+  target_link_libraries(${COMPONENT_LIB} INTERFACE
+    "-Wl,--undefined=__wrap_esp_video_render_stream_open"
+    "-Wl,--wrap=esp_video_render_stream_open")
+endif()
 
 if(CONFIG_OTR_SD_50MHZ_EXPERIMENT)
   # These wrappers have no ordinary callers in main; retain their archive

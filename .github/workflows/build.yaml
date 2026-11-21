@@ -319,6 +319,10 @@ jobs:
               grep -qx 'CONFIG_OTR_HW_PROFILE_S3_35B=y' sdkconfig
               grep -qx "# CONFIG_OTR_S3_TOUCH_DIAGNOSTICS is not set" sdkconfig
             fi
+            if [ "${{ matrix.board }}" = p4-43 ]; then
+              grep -qx 'CONFIG_VIDEO_DECODER_HW_MJPEG_SUPPORT=y' sdkconfig
+              grep -qx 'CONFIG_AVI_EXTRACTOR_SUPPORT=y' sdkconfig
+            fi
             grep -qx 'CONFIG_LOG_DEFAULT_LEVEL=3' sdkconfig
             grep -qx 'CONFIG_LOG_MAXIMUM_LEVEL=4' sdkconfig
             grep -qx 'CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y' sdkconfig
@@ -337,9 +341,19 @@ jobs:
           TEST_TOUCH_CAPTURE=1 python3 tests/test_sudoku_ui.py /tmp/sudoku-ui-s3-capture
           python3 tests/test_adv_game_layout.py /tmp/adventure-layout
           python3 tests/test_yatzy_layout.py /tmp/menu-layout
+          python3 tests/test_arcade_touch.py
+          python3 tests/test_touch_contacts.py
+          python3 tests/test_arcade_layout.py /tmp/arcade-layout
           python3 tests/test_karaoke_layout.py /tmp/karaoke-layout
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_karaoke_geometry.cpp -o /tmp/test_karaoke_geometry
           /tmp/test_karaoke_geometry
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain main/supernova_lyrics.cpp tests/test_supernova_lyrics.cpp -o /tmp/test_supernova_lyrics
+          /tmp/test_supernova_lyrics
+          python3 tests/test_supernova_video_backend.py
+          python3 tests/test_supernova_scaling.py
+          python3 tests/test_supernova_media.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_supernova_video_geometry.cpp -o /tmp/test_supernova_video_geometry
+          /tmp/test_supernova_video_geometry
 
       - name: Upload build artifacts
         if: always()
