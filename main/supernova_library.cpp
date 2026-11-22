@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <vector>
 
 #include "board_sd.h"
@@ -106,6 +107,51 @@ constexpr const char *SYNC_TMP = "/sdcard/otr/supernova/supernova.sntmp";
 constexpr size_t MAX_SYNC_BYTES = 512 * 1024;
 SupernovaSync::Store s_sync;   // Only touched from the LVGL task
 bool s_syncLoaded = false;
+
+constexpr const char *PLAYLISTS = "/sdcard/otr/supernova/supernova.pl";
+constexpr const char *PLAYLISTS_TMP = "/sdcard/otr/supernova/supernova.pltmp";
+constexpr size_t MAX_PLAYLIST_BYTES = 512 * 1024;
+std::mutex s_plMutex;
+SupernovaPlaylists::Store s_playlists;
+bool s_plLoaded = false;
+
+// Caller holds s_plMutex. Without a card the store stays empty and is loaded on a later call.
+void loadPlaylistsLocked()
+{
+    if (s_plLoaded) return;
+    BoardSd::Guard guard;
+    if (!BoardSd::mounted()) return;
+    s_plLoaded = true;
+    FILE *f = fopen(PLAYLISTS, "rb");
+    if (!f) return;
+    std::string data;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        const long size = ftell(f);
+        if (size > 0 && (size_t)size <= MAX_PLAYLIST_BYTES && fseek(f, 0, SEEK_SET) == 0) {
+            data.resize((size_t)size);
+            if (fread(&data[0], 1, data.size(), f) != data.size()) data.clear();
+        }
+    }
+    fclose(f);
+    s_playlists.decode(data.data(), data.size());
+}
+
+bool savePlaylistsLocked()
+{
+    const std::string data = s_playlists.encode();
+    BoardSd::Guard guard;
+    if (!BoardSd::mounted() || !BoardSd::ensureDir(ROOT)) return false;
+    FILE *f = fopen(PLAYLISTS_TMP, "wb");
+    if (!f) return false;
+    const bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
+    fclose(f);
+    if (!ok) {
+        remove(PLAYLISTS_TMP);
+        return false;
+    }
+    remove(PLAYLISTS);
+    return rename(PLAYLISTS_TMP, PLAYLISTS) == 0;
+}
 
 struct Dir {
     std::string name;
@@ -277,6 +323,27 @@ bool saveSync()
         return false;
     }
     return true;
+}
+
+void readPlaylists(const std::function<void(const SupernovaPlaylists::Store &)> &fn)
+{
+    std::lock_guard<std::mutex> lock(s_plMutex);
+    loadPlaylistsLocked();
+    fn(s_playlists);
+}
+
+bool editPlaylists(const std::function<bool(SupernovaPlaylists::Store &)> &fn, bool &saved)
+{
+    std::lock_guard<std::mutex> lock(s_plMutex);
+    loadPlaylistsLocked();
+    saved = true;
+    if (!s_plLoaded) {   // No card: changes could not be kept
+        saved = false;
+        return false;
+    }
+    const bool changed = fn(s_playlists);
+    if (changed) saved = savePlaylistsLocked();
+    return changed;
 }
 
 bool findMedia(const std::string &folder, Media &song)

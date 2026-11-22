@@ -353,6 +353,8 @@ jobs:
           /tmp/test_supernova_lyrics
           g++ -std=c++17 -Wall -Wextra -Werror -Imain main/supernova_sync.cpp tests/test_supernova_sync.cpp -o /tmp/test_supernova_sync
           /tmp/test_supernova_sync
+          g++ -std=c++17 -Wall -Wextra -Werror -Imain main/supernova_playlists.cpp tests/test_supernova_playlists.cpp -o /tmp/test_supernova_playlists
+          /tmp/test_supernova_playlists
           python3 tests/test_supernova_scaling.py
           python3 tests/test_supernova_media.py
           g++ -std=c++17 -Wall -Wextra -Werror -Imain tests/test_supernova_video_geometry.cpp -o /tmp/test_supernova_video_geometry
