@@ -170,7 +170,7 @@ bool ensureOverlay()
     if (s_ovlScreen) return true;
     int rx, ry, rw, rh;
     if (!SupernovaPlayer::videoRect(rx, ry, rw, rh)) return false;
-    s_ovlW = std::min(UiMetrics::screenW() - RAIL_W, 800);
+    s_ovlW = std::min<int32_t>(UiMetrics::screenW() - RAIL_W, 800);
     s_ovlScreen = lv_obj_create(nullptr);
     s_ovlBox = lv_obj_create(s_ovlScreen);
     lv_obj_remove_style_all(s_ovlBox);
