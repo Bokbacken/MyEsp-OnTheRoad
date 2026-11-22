@@ -89,7 +89,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   changed folders are re-read) from the `#TITLE`, `#ARTIST`, `#GENRE`, `#LANGUAGE` and `#YEAR` tags, with
   search, sort (artist/title/year), filter (genre/language/decade), A–Ö jump and a Rescan button.
   When a folder has `Name.mp3` plus `Name [Kar].mp3` (instrumental), playback asks for with/without
-  vocals. The player has a narrow master-volume rail at the right edge, a thin progress bar at the
+  vocals; if the names lack `[Kar]`/`[Voc]`, the `.txt` tags `#AUDIO`/`#MP3`, `#INSTRUMENTAL` and
+  `#VOCALS` are used. The player has a narrow master-volume rail at the right edge, a thin progress bar at the
   bottom and countdown dots in long instrumental pauses.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh

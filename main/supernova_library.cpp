@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -199,6 +200,33 @@ void scanTask(void *)
     vTaskDelete(nullptr);
 }
 
+// File names found by name patterns win; the .txt tags (#AUDIO/#MP3, #INSTRUMENTAL, #VOCALS) fill in
+// what is missing. A tag must name a file that exists in the folder (no paths).
+void applyAudioTags(const std::string &folder, const std::vector<std::string> &files, Media &song,
+                    std::string &vocals)
+{
+    FILE *f = fopen(song.lyrics.c_str(), "rb");
+    if (!f) return;
+    std::string buf(SupernovaIndex::TAG_SCAN_BYTES, '\0');
+    const size_t n = fread(&buf[0], 1, buf.size(), f);
+    fclose(f);
+    SupernovaIndex::Tags tags;
+    SupernovaIndex::parseTags(buf.data(), n, tags);
+    auto resolve = [&](const std::string &name) -> std::string {
+        if (name.empty() || name.find('/') != std::string::npos || name.find('\\') != std::string::npos) return "";
+        for (const std::string &file : files)
+            if (strcasecmp(file.c_str(), name.c_str()) == 0) return folder + "/" + file;
+        return "";
+    };
+    if (song.instrumental.empty()) song.instrumental = resolve(tags.instrumental);
+    if (vocals.empty()) vocals = resolve(tags.vocals);
+    if (song.audio.empty()) {
+        song.audio = resolve(tags.audio);
+        if (song.audio.empty()) song.audio = resolve(tags.mp3);
+    }
+    if (song.instrumental == song.audio || song.instrumental == vocals) song.instrumental.clear();
+}
+
 }  // namespace
 
 std::string folderPath(const char *folderName) { return std::string(ROOT) + "/" + folderName; }
@@ -235,6 +263,7 @@ bool findMedia(const std::string &folder, Media &song)
         else if (song.lyrics.empty() && endsWithExt(file, ".txt")) song.lyrics = path;
     }
     if (!avi.empty()) song.video = avi;
+    if (!song.lyrics.empty()) applyAudioTags(folder, files, song, vocals);
     if (song.audio.empty()) song.audio = vocals;
     return !song.video.empty() && !song.lyrics.empty();
 }

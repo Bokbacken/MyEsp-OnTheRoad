@@ -28,6 +28,9 @@ int main()
     CHECK(t.year == 0 && t.title.empty());
     parseTags(nullptr, 0, t);
     CHECK(t.artist.empty());
+    const char *aud = "#MP3:old.mp3\n#AUDIO:Song.mp3\n#instrumental:Song [Kar].mp3\n#VOCALS:v.mp3\n: 0 4 0 la\n";
+    parseTags(aud, strlen(aud), t);
+    CHECK(t.audio == "Song.mp3" && t.mp3 == "old.mp3" && t.instrumental == "Song [Kar].mp3" && t.vocals == "v.mp3");
 
     std::string a, ti;
     namesFromFolder("Queen - Radio Ga Ga", a, ti);

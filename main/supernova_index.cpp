@@ -151,6 +151,10 @@ void parseTags(const char *data, size_t len, Tags &out)
         else if (iequals(key, keyLen, "ARTIST")) out.artist = value;
         else if (iequals(key, keyLen, "GENRE")) out.genre = value;
         else if (iequals(key, keyLen, "LANGUAGE")) out.language = value;
+        else if (iequals(key, keyLen, "AUDIO")) out.audio = value;
+        else if (iequals(key, keyLen, "MP3")) { if (out.mp3.empty()) out.mp3 = value; }
+        else if (iequals(key, keyLen, "INSTRUMENTAL")) out.instrumental = value;
+        else if (iequals(key, keyLen, "VOCALS")) out.vocals = value;
         else if (iequals(key, keyLen, "YEAR")) {
             unsigned y = 0;
             size_t digits = 0;

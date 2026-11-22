@@ -202,11 +202,10 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
      sortera (artist/titel/år), filtrera (genre/språk/årtionde), artist–titel
      i stället för mappnamn. Ändring av en fil på plats syns först efter
      Läs om.
-  2b. [ ] Ljudvarianter `[Kar]`/`[Voc]` (v0.26.20, val med/utan sång) samt
-     spelarens volymlist (master), förloppsstapel och nedräkningspunkter
-     (v0.26.22) är ej verifierade på enhet. Spelarkontrollerna fungerade ej
-     i v0.26.20 (kvarlämnad modal bakgrund), rättat i v0.26.21; kontrollera
-     om. Längd hämtas via `esp_player_get_duration`, annars sista frasens slut.
+  2b. [ ] Ljudvarianter `[Kar]`/`[Voc]` (v0.26.20) och `#AUDIO`/`#MP3`/
+     `#INSTRUMENTAL`/`#VOCALS`-taggar som reserv (v0.26.23) är ej verifierade
+     på enhet. Volymlist, förloppsstapel      och nedräkningspunkter (v0.26.22) är verifierade av ägaren på enheten.
+     Längd hämtas via `esp_player_get_duration`, annars sista frasens slut.
   3. Webb: spellisteditor (skapa/byt namn/ordning/radera) enligt karaokens
      modell (`karaoke.reg`, identitet via mappnamn); valfri import/export av
      USDX `.upl`.

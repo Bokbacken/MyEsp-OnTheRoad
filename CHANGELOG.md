@@ -8,6 +8,13 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.23
+
+- Supernova (P4): when file names have no `[Kar]`/`[Voc]` marker, the `.txt`
+  tags `#AUDIO` (or `#MP3`), `#INSTRUMENTAL` and `#VOCALS` of UltraStar format
+  1.1.0 name the audio files (same folder only). Name patterns still win.
+  Not yet run on hardware; host test covers the tag parsing.
+
 ## v0.26.22
 
 - Supernova (P4): player gets a narrow master-volume slider at the right

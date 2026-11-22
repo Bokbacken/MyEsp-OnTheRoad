@@ -31,6 +31,9 @@ constexpr size_t TAG_SCAN_BYTES = 4096;    // Only the start of the .txt is read
 struct Tags {
     std::string title, artist, genre, language;
     uint16_t year = 0;   // 0 = unknown
+    // Audio file names from the USDX 1.1.0 tags; used at play time only, not stored in the index.
+    // #AUDIO supersedes #MP3, which is kept separately.
+    std::string audio, mp3, instrumental, vocals;
 };
 
 // Reads the "#KEY:value" header lines (TITLE, ARTIST, GENRE, LANGUAGE, YEAR) and stops at the
