@@ -36,6 +36,7 @@ ASSETS = [
     ("WEB_SONGS_PICKER_HTML", "songs_picker.html", HTML, ["/karaoke/songs", "/songs_picker.html"]),
     ("WEB_PLAYLISTS_HTML", "playlists.html", HTML, ["/karaoke/playlists", "/playlists.html"]),
     ("WEB_SUPERNOVA_HTML", "supernova.html", HTML, ["/supernova", "/supernova.html"]),
+    ("WEB_SUPERNOVA_PLAY_HTML", "supernova-play.html", HTML, ["/supernova/play", "/supernova-play.html"]),
     ("WEB_DEVICE_NAME_JS", "device-name.js", "text/javascript; charset=utf-8", ["/device-name.js"]),
     ("WEB_FAVICON_SVG", "favicon.svg", "image/svg+xml", ["/favicon.svg", "/favicon.ico"]),
     ("WEB_STYLE_CSS", "style.css", "text/css; charset=utf-8", ["/style.css"]),

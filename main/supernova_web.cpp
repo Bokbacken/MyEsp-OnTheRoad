@@ -10,6 +10,7 @@
 #include "my_web.h"
 #include "supernova_library.h"
 #include "supernova_live.h"
+#include "supernova_stream.h"
 #include "web_util.h"
 
 namespace SupernovaWeb {
@@ -270,6 +271,7 @@ bool registerRoutes()
     bool ok = MyWeb::on("/api/supernova/songs", HTTP_GET, songsGet);
     ok &= MyWeb::on("/api/supernova/now", HTTP_GET, nowGet);
     ok &= MyWeb::on("/api/supernova/control", HTTP_POST, controlPost);
+    ok &= SupernovaStream::registerRoutes();
     ok &= MyWeb::on("/api/supernova/playlists", HTTP_GET, playlistsGet);
     ok &= MyWeb::on("/api/supernova/playlists", HTTP_POST, playlistsPost);
     return ok;

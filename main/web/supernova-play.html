@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>OnTheRoad – Supernova</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/device-name.js"></script>
+<style>
+.top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.langs button { padding: .3rem .6rem; font-size: .9rem; }
+.langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
+.actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
+.actions input[type=search] { flex: 1; min-width: 8rem; }
+.hint { color: var(--otr-muted); font-size: .85rem; }
+#notice { color: var(--otr-orange); min-height: 1.3em; }
+#stage { position: relative; background: #000; color: #fff; border-radius: .6rem; overflow: hidden; margin: .6rem 0; max-width: 60rem; }
+#stage:fullscreen { max-width: none; border-radius: 0; display: flex; flex-direction: column; justify-content: center; }
+#screen { display: block; width: 100%; max-height: 60vh; background: #000; margin: 0 auto; }
+#stage:fullscreen #screen { max-height: 70vh; }
+#lyrics { padding: .6rem .8rem 1rem; text-align: center; min-height: 6.5em; }
+#cur { font-size: clamp(1.3rem, 4vw, 2.2rem); font-weight: bold; line-height: 1.25; }
+#cur .sung { color: #ffc400; }
+#nxt { font-size: clamp(1rem, 2.6vw, 1.5rem); color: #b8c0cc; margin-top: .3rem; }
+#dots { font-size: 1.6rem; letter-spacing: .3rem; color: #555; min-height: 1.3em; }
+#dots .on { color: #ffc400; }
+audio { width: 100%; max-width: 60rem; }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; align-items: center; gap: .6rem; padding: .5rem; border-bottom: 1px solid var(--otr-line); }
+ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/supernova">&#127916; <span data-t="lists"></span></a></nav>
+<div class="top">
+  <h1>&#127908; <span data-t="title"></span></h1>
+  <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
+</div>
+<div id="notice" role="status" aria-live="polite"></div>
+<div id="player" hidden>
+  <h2 id="song-name"></h2>
+  <div id="stage">
+    <canvas id="screen" width="320" height="180" hidden></canvas>
+    <div id="lyrics"><div id="dots"></div><div id="cur"></div><div id="nxt"></div></div>
+  </div>
+  <audio id="audio" controls preload="auto"></audio>
+  <div class="actions">
+    <label id="plain-row" hidden><input id="plain" type="checkbox"> <span data-t="plain"></span></label>
+    <button class="secondary" id="fs" onclick="fullscreen()" data-t="fullscreen"></button>
+  </div>
+  <p class="hint" id="player-hint"></p>
+</div>
+<section>
+  <h2 data-t="pick"></h2>
+  <form class="actions" id="search-form"><input id="q" type="search" maxlength="60" autocomplete="off"></form>
+  <div class="hint" id="status"></div>
+  <ul class="list" id="songs"></ul>
+  <div class="actions"><button id="more" class="secondary" hidden onclick="loadSongs(true)" data-t="more"></button></div>
+</section>
+<script>
+const T = {
+  sv: { title: 'Sjung i webbläsaren', lists: 'Spellistor', pick: 'Välj en sång', search: 'Sök artist eller titel', more: 'Visa fler',
+    sing: 'Sjung', plain: 'Utan sång (instrumental)', fullscreen: 'Helskärm', neterr: 'Ingen kontakt med enheten',
+    shown: '{0} av {1} sånger', scanning: 'Enheten läser in sångerna …', empty: 'Inga sånger hittades.',
+    noVideo: 'Den här sången har ingen video som webbläsaren kan visa (den måste vara en AVI gjord med konverteringsskriptet). Ljud och text fungerar ändå.',
+    hint: 'Tryck på play i spelaren. Videon hämtas bild för bild från enheten, så den kan hacka om flera tittar samtidigt. Ljudet och texten är alltid i takt.',
+    noAudio: 'Sången har inget ljud.', noLyrics: 'Texten kunde inte läsas.' },
+  en: { title: 'Sing in the browser', lists: 'Playlists', pick: 'Pick a song', search: 'Search artist or title', more: 'Show more',
+    sing: 'Sing', plain: 'Without vocals (instrumental)', fullscreen: 'Full screen', neterr: 'No contact with the device',
+    shown: '{0} of {1} songs', scanning: 'The device is reading the songs …', empty: 'No songs found.',
+    noVideo: 'This song has no video the browser can show (it must be an AVI made by the convert script). Audio and lyrics still work.',
+    hint: 'Press play in the player. The video is fetched frame by frame from the device, so it may stutter when several people watch. Audio and lyrics always stay in step.',
+    noAudio: 'The song has no audio.', noLyrics: 'The lyrics could not be read.' }
+};
+let L = 'sv', songs = [], count = 0, total = 0, seq = 0, scanTimer = 0, typing = 0;
+let folder = '', media = null, phrases = [], fps = 10, shown = -1, loading = false, raf = 0, label = '';
+const $ = id => document.getElementById(id);
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+function setLang(l, save) {
+  if (!T[l]) return;
+  L = l; document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  $('q').placeholder = t('search'); $('player-hint').textContent = t('hint');
+  $('l-sv').classList.toggle('on', l === 'sv'); $('l-en').classList.toggle('on', l === 'en');
+  if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
+  renderSongs();
+}
+async function request(url) {
+  let r;
+  try { r = await fetch(url, { cache: 'no-store' }); } catch (e) { throw new Error(t('neterr')); }
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok || !j.ok) throw new Error(j.error || String(r.status));
+  return j;
+}
+const fail = e => { $('notice').textContent = e.message || t('neterr'); };
+const nameOf = s => (s.artist ? s.artist + ' – ' : '') + s.title;
+async function loadSongs(append) {
+  const my = ++seq;
+  const url = '/api/supernova/songs?q=' + encodeURIComponent($('q').value.trim()) + '&offset=' + (append ? songs.length : 0) + '&limit=100';
+  try {
+    const j = await request(url);
+    if (my !== seq) return;
+    songs = append ? songs.concat(j.songs) : j.songs; total = j.total; count = j.count;
+    renderSongs();
+    $('status').textContent = j.scanning ? t('scanning') : !songs.length ? t('empty') : t('shown', songs.length, count);
+    clearTimeout(scanTimer);
+    if (j.scanning) scanTimer = setTimeout(() => loadSongs(false), 3000);
+  } catch (e) { if (my === seq) fail(e); }
+}
+function renderSongs() {
+  const ul = $('songs'); ul.textContent = '';
+  songs.forEach(s => {
+    const li = el('li'), b = el('button', '', '▶ ' + t('sing'));
+    b.onclick = () => openSong(s);
+    li.append(el('span', 'tx', nameOf(s)), b); ul.appendChild(li);
+  });
+  $('more').hidden = songs.length >= count;
+}
+async function openSong(s) {
+  $('notice').textContent = '';
+  folder = s.folder; label = nameOf(s);
+  $('plain').checked = false;
+  await loadSong(0);
+  $('player').hidden = false;
+  $('song-name').textContent = label;
+  window.scrollTo(0, 0);
+}
+async function loadSong(variant) {
+  stopLoop();
+  const a = $('audio'); a.pause();
+  const q = '?f=' + encodeURIComponent(folder) + '&v=' + variant;
+  try {
+    media = await request('/api/supernova/media' + q);
+    phrases = [];
+    try { phrases = (await request('/api/supernova/lyrics?f=' + encodeURIComponent(folder) + '&v=' + variant)).phrases; }
+    catch (e) { $('notice').textContent = t('noLyrics'); }
+    $('plain-row').hidden = !media.hasPlain;
+    a.hidden = !media.audio;
+    if (!media.audio) $('notice').textContent = t('noAudio');
+    else { a.src = '/api/supernova/audio' + q; a.load(); }
+    const c = $('screen');
+    c.hidden = !media.video;
+    if (media.video) {
+      fps = media.fps || 10;
+      c.width = media.w; c.height = media.h; shown = -1;
+      c.getContext('2d').fillRect(0, 0, c.width, c.height);
+      showFrame(0);
+    } else {
+      $('notice').textContent = t('noVideo');
+    }
+    startLoop();
+  } catch (e) { fail(e); }
+}
+$('plain').addEventListener('change', () => { if (folder) loadSong($('plain').checked ? 1 : 0); });
+function showFrame(n) {
+  if (loading || n === shown || !media || !media.video) return;
+  n = Math.max(0, Math.min(media.frames - 1, n));
+  loading = true;
+  const img = new Image();
+  const q = '?f=' + encodeURIComponent(folder) + '&v=' + ($('plain').checked ? 1 : 0) + '&n=' + n;
+  img.onload = () => { $('screen').getContext('2d').drawImage(img, 0, 0, $('screen').width, $('screen').height); shown = n; loading = false; };
+  img.onerror = () => { loading = false; };
+  img.src = '/api/supernova/frame' + q;
+}
+function phraseAt(ms) {
+  let lo = 0, hi = phrases.length - 1, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (phrases[m].s <= ms) { r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+let lastKey = '';
+function drawLyrics(ms) {
+  if (!phrases.length) return;
+  let i = phraseAt(ms);
+  const next = i + 1 < phrases.length ? phrases[i + 1] : null;
+  // Pause before the first phrase / between phrases: show the upcoming line and countdown dots
+  const gapTo = (p, after) => p ? p.s - after : 0;
+  let dots = 0, lit = 0, cur = i >= 0 ? phrases[i] : null;
+  if (!cur || ms > cur.e) {
+    const upcoming = cur ? next : phrases[0];
+    const from = cur ? cur.e : 0, gap = gapTo(upcoming, from);
+    if (upcoming && gap >= 3000) { dots = Math.min(8, Math.round(gap / 1000)); lit = Math.min(dots, Math.floor((ms - from) / gap * dots)); }
+  }
+  const sung = cur ? cur.n.filter(n => n[0] <= ms).length : 0;
+  const key = i + ':' + sung + ':' + dots + ':' + lit;
+  if (key === lastKey) return;
+  lastKey = key;
+  const full = cur ? cur.n.map(n => n[1]).join('') : '';
+  const done = cur ? cur.n.slice(0, sung).map(n => n[1]).join('') : '';
+  const c = $('cur'); c.textContent = '';
+  if (cur) { const s = el('span', 'sung', done); c.append(s, document.createTextNode(full.slice(done.length))); }
+  $('nxt').textContent = next ? next.n.map(n => n[1]).join('') : '';
+  const d = $('dots'); d.textContent = '';
+  for (let k = 0; k < dots; k++) d.appendChild(el('span', k < lit ? 'on' : '', '● '));
+}
+function loop() {
+  const a = $('audio'), ms = Math.round(a.currentTime * 1000);
+  drawLyrics(ms);
+  if (media && media.video) showFrame(Math.floor(a.currentTime * fps));
+  raf = requestAnimationFrame(loop);
+}
+function startLoop() { stopLoop(); lastKey = ''; raf = requestAnimationFrame(loop); }
+function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; }
+function fullscreen() { const s = $('stage'); if (document.fullscreenElement) document.exitFullscreen(); else if (s.requestFullscreen) s.requestFullscreen(); }
+$('search-form').onsubmit = e => { e.preventDefault(); loadSongs(false); };
+$('q').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => loadSongs(false), 350); });
+let saved = null; try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
+loadSongs(false);
+</script>
+</body>
+</html>

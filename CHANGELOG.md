@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.29
+
+- Supernova: new page `/supernova/play` plays a song in the browser so several
+  people can sing along. The device serves the audio (MP3, with Range
+  requests), the lyrics as JSON and the video as single JPEG frames taken from
+  the converted MJPEG AVI; the page keeps picture and highlighted lyrics in
+  step with the audio clock. Without-vocals variant and full screen are
+  supported; songs without an AVI give audio and lyrics only. Web lyrics do
+  not apply the sync offsets stored on the device.
+- New routes `/api/supernova/media`, `/frame`, `/audio`, `/lyrics`; URI reserve
+  raised. Not verified on hardware; the video may stutter with several viewers.
+- Not changed: the remote panel on `/supernova` still needs a usability pass.
+
 ## v0.26.28
 
 - Supernova: the web page `/supernova` now has a remote control. It shows the
