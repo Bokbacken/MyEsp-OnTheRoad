@@ -9,6 +9,7 @@
 
 #include "my_web.h"
 #include "supernova_library.h"
+#include "supernova_live.h"
 #include "web_util.h"
 
 namespace SupernovaWeb {
@@ -184,11 +185,91 @@ esp_err_t playlistsPost(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
+const char *stateName(SupernovaLive::State s)
+{
+    switch (s) {
+    case SupernovaLive::State::BROWSE: return "browse";
+    case SupernovaLive::State::PLAYING: return "playing";
+    case SupernovaLive::State::PAUSED: return "paused";
+    default: return "off";
+    }
+}
+
+esp_err_t nowGet(httpd_req_t *r)
+{
+    const SupernovaLive::Status s = SupernovaLive::get();
+    std::string o = "{\"ok\":true,\"version\":";
+    WebUtil::appendNum(o, s.version);
+    o += ",\"state\":\"";
+    o += stateName(s.state);
+    o += "\",\"folder\":";
+    WebUtil::appendStr(o, s.folder.c_str());
+    o += ",\"artist\":";
+    WebUtil::appendStr(o, s.artist.c_str());
+    o += ",\"title\":";
+    WebUtil::appendStr(o, s.title.c_str());
+    o += ",\"line\":";
+    WebUtil::appendStr(o, s.line.c_str());
+    o += ",\"next\":";
+    WebUtil::appendStr(o, s.next.c_str());
+    o += ",\"pos\":";
+    WebUtil::appendNum(o, s.posMs);
+    o += ",\"dur\":";
+    WebUtil::appendNum(o, s.durMs);
+    o += ",\"volume\":";
+    WebUtil::appendNum(o, s.volume);
+    o += ",\"instrumental\":";
+    o += s.instrumental ? "true" : "false";
+    o += '}';
+    return WebUtil::sendJsonText(r, o);
+}
+
+esp_err_t controlPost(httpd_req_t *r)
+{
+    Json j(WebUtil::readJson(r, 512), cJSON_Delete);
+    if (!j || !cJSON_IsObject(j.get())) return MyWeb::sendError(r, 400, "bad JSON");
+    const std::string action = stringField(j.get(), "action");
+    const cJSON *argItem = cJSON_GetObjectItemCaseSensitive(j.get(), "value");
+    const double argValue = cJSON_IsNumber(argItem) ? argItem->valuedouble : 0;
+    SupernovaLive::Cmd c;
+    using T = SupernovaLive::CmdType;
+    if (action == "play") {
+        c.type = T::PLAY;
+        c.folder = stringField(j.get(), "folder");
+        c.arg = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j.get(), "instrumental")) ? 1 : 0;
+        if (c.folder.empty() || c.folder.size() > 200 || c.folder.find_first_of("/\\") != std::string::npos ||
+            c.folder == "." || c.folder == "..")
+            return MyWeb::sendError(r, 400, "bad song");
+        if (SupernovaLive::get().state != SupernovaLive::State::BROWSE)
+            return MyWeb::sendError(r, 409, "open the song list on the device first");
+    } else if (action == "pause") {
+        c.type = T::PAUSE;
+    } else if (action == "resume") {
+        c.type = T::RESUME;
+    } else if (action == "stop") {
+        c.type = T::STOP;
+    } else if (action == "seek") {
+        c.type = T::SEEK;
+        c.arg = (int32_t)std::max(-60000.0, std::min(60000.0, argValue));
+    } else if (action == "volume") {
+        c.type = T::VOLUME;
+        c.arg = (int32_t)std::max(0.0, std::min(100.0, argValue));
+    } else {
+        return MyWeb::sendError(r, 400, "bad action");
+    }
+    if (!SupernovaLive::push(c)) return MyWeb::sendError(r, 503, "busy");
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", true);
+    return MyWeb::sendJson(r, 200, o);
+}
+
 }  // namespace
 
 bool registerRoutes()
 {
     bool ok = MyWeb::on("/api/supernova/songs", HTTP_GET, songsGet);
+    ok &= MyWeb::on("/api/supernova/now", HTTP_GET, nowGet);
+    ok &= MyWeb::on("/api/supernova/control", HTTP_POST, controlPost);
     ok &= MyWeb::on("/api/supernova/playlists", HTTP_GET, playlistsGet);
     ok &= MyWeb::on("/api/supernova/playlists", HTTP_POST, playlistsPost);
     return ok;

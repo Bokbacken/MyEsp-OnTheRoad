@@ -223,9 +223,11 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
      låtar behålls och märks). Spellistor väljs under Filter på enheten; ändringar
      från webben syns efter nästa filterbyte eller omskanning. Kvar: USDX
      `.upl` import/export.
-  4. Webbfjärr för Supernova liknande `/ws/karaoke`: sånglista, starta, paus,
-     nästa, aktuell textrad och position. Ingen videoström till webben
-     (bandbredd/minne); bara text och styrning.
+  4. Webbfjärr för Supernova implementerad i v0.26.28 (ej hårdvarutestad):
+     fjärrpanel på `/supernova` (aktuell sång och textrad, position, start ▶,
+     paus/återuppta, ±10 s, stopp, volym) via `/api/supernova/now` och
+     `/api/supernova/control`. Start kräver att sånglistan är öppen på
+     enheten. Ingen videoström till webben. Kvar: nästa i spellista/kö.
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.

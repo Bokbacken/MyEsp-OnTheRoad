@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.28
+
+- Supernova: the web page `/supernova` now has a remote control. It shows the
+  current song, the current and next lyric line and the position, and offers
+  play (▶ next to a song, optionally without vocals), pause/resume, ±10 s seek,
+  stop and volume. Songs can only be started while the Supernova song list is
+  open on the device. The page polls `/api/supernova/now` once a second and sends
+  commands to `/api/supernova/control`; there is no video or audio in the browser.
+- Verified by CI build and the host test `tests/test_supernova_live.cpp` only;
+  not yet tested on hardware.
+
 ## v0.26.27
 
 - Supernova (P4): the lyrics box now uses the full video area width instead of being limited to

@@ -21,6 +21,7 @@
 #include "my_theme.h"
 #include "supernova_lyrics.h"
 #include "supernova_library.h"
+#include "supernova_live.h"
 #include "supernova_player.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
@@ -36,6 +37,8 @@ using Song = SupernovaLibrary::Media;
 
 Song s_song;
 std::string s_songFolder;   // Folder name of the song being played
+std::string s_songTitle;
+bool s_instrumental = false;   // Playing the version without vocals
 SupernovaLyrics::Document s_lyrics;
 lv_obj_t *s_playerScreen = nullptr;
 lv_obj_t *s_playerHeader = nullptr;
@@ -566,6 +569,7 @@ void chooseVariant(const std::string &title)
     lv_obj_add_event_cb(without, [](lv_event_t *e) {
         lv_msgbox_close_async(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e))));
         s_song.audio = s_song.instrumental;
+        s_instrumental = true;
         beginSong(pendingTitle);
     }, LV_EVENT_CLICKED, nullptr);
 }
@@ -584,6 +588,8 @@ void playSong(const std::string &folderName, const std::string &title)
         return;
     }
     s_songFolder = folderName;
+    s_songTitle = title;
+    s_instrumental = false;
     if (!s_song.instrumental.empty() && !s_song.audio.empty()) chooseVariant(title);
     else beginSong(title);
 }
@@ -1147,6 +1153,89 @@ void buildBrowser()
     lv_obj_add_event_cb(screen, browserDeleted, LV_EVENT_DELETE, nullptr);
     Theme::loadScreen(screen);
 }
+
+// Web remote: publishes the status and runs queued commands on the LVGL task.
+void remotePlay(const std::string &folder, bool withoutVocals)
+{
+    std::string title;
+    SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+        const int i = lib.find(folder.c_str());
+        if (i >= 0) title = lib.title((size_t)i);
+    });
+    if (title.empty()) return;
+    s_songReady = false;
+    s_song = Song();
+    bool complete;
+    {
+        BoardSd::Guard guard;
+        complete = SupernovaLibrary::findMedia(SupernovaLibrary::folderPath(folder.c_str()), s_song);
+    }
+    if (!complete) {
+        showError(tr(Str::SUPERNOVA_CATALOG_ERROR));
+        return;
+    }
+    s_songFolder = folder;
+    s_songTitle = title;
+    s_instrumental = withoutVocals && !s_song.instrumental.empty();
+    if (s_instrumental) s_song.audio = s_song.instrumental;
+    beginSong(title);
+}
+
+void remoteTick(lv_timer_t *)
+{
+    const bool playing = s_playerScreen && s_mediaState.load(std::memory_order_acquire) == MediaState::PLAYING;
+    const bool browsing = !s_playerScreen && s_list;
+    SupernovaLive::Cmd c;
+    while (SupernovaLive::pop(c)) {
+        using T = SupernovaLive::CmdType;
+        if (c.type == T::PLAY) {
+            if (browsing && !s_input && !s_sheet) remotePlay(c.folder, c.arg == 1);
+        } else if (c.type == T::VOLUME) {
+            const uint8_t v = (uint8_t)std::min<int32_t>(100, std::max<int32_t>(0, c.arg));
+            Audio::setMasterVolume(v);
+            Config::get().masterVol = v;
+            Config::save();
+            if (s_volSlider) lv_slider_set_value(s_volSlider, v, LV_ANIM_OFF);
+            if (s_volLabel) lv_label_set_text_fmt(s_volLabel, "%d%%", (int)v);
+        } else if (!playing) {
+            continue;
+        } else if (c.type == T::PAUSE) {
+            if (!s_playerPaused) togglePause();
+        } else if (c.type == T::RESUME) {
+            if (s_playerPaused) togglePause();
+        } else if (c.type == T::SEEK) {
+            seekSong(c.arg);
+        } else if (c.type == T::STOP) {
+            backToSongs();
+        }
+    }
+
+    SupernovaLive::Status st;
+    st.volume = Config::get().masterVol;
+    if (s_playerScreen) {
+        st.state = playing && !s_playerPaused ? SupernovaLive::State::PLAYING : SupernovaLive::State::PAUSED;
+        if (!playing) st.state = SupernovaLive::State::BROWSE;
+        st.folder = s_songFolder;
+        st.title = s_songTitle;
+        st.instrumental = s_instrumental;
+        if (playing) {
+            st.posMs = SupernovaPlayer::positionMs();
+            st.durMs = s_durationMs;
+            if (s_lastPhrase < s_lyrics.phrases.size()) {
+                st.line = SupernovaLyrics::toDisplayText(s_lyrics.phrases[s_lastPhrase].text);
+                if (s_lastPhrase + 1 < s_lyrics.phrases.size())
+                    st.next = SupernovaLyrics::toDisplayText(s_lyrics.phrases[s_lastPhrase + 1].text);
+            }
+        }
+        SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+            const int i = lib.find(st.folder.c_str());
+            if (i >= 0) st.artist = lib.artist((size_t)i);
+        });
+    } else {
+        st.state = browsing ? SupernovaLive::State::BROWSE : SupernovaLive::State::OFF;
+    }
+    SupernovaLive::publish(st);
+}
 #endif
 
 }  // namespace
@@ -1162,6 +1251,8 @@ void show()
         return;
     }
     SupernovaLibrary::start(false);
+    static lv_timer_t *remoteTimer = nullptr;
+    if (!remoteTimer) remoteTimer = lv_timer_create(remoteTick, 250, nullptr);
     buildBrowser();
 #endif
 }

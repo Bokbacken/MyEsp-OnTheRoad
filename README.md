@@ -95,7 +95,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   lyrics (±0.1/1/5 s) from the current position onwards, saved per song in `supernova.sync`, and mark a song
   as having bad sync (shown as `(!)` in the list). In Sync mode `<5s`/`5s>` jump within the song and the
   middle button pauses/resumes; the lyrics box may span the whole video area, also over side bars of narrow videos. The web page `/supernova` has a searchable song list and a
-  playlist editor (stored in `supernova.pl`); playlists appear under Filter on the device.
+  playlist editor (stored in `supernova.pl`); playlists appear under Filter on the device. The same page is a remote control: it shows the
+  current song and lyric line and can start songs (while the song list is open on the device), pause/resume, seek ±10 s, stop and set the volume.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.
