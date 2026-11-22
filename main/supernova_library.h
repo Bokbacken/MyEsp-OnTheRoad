@@ -10,6 +10,7 @@
 #include <string>
 
 #include "supernova_index.h"
+#include "supernova_playlists.h"
 #include "supernova_sync.h"
 
 namespace SupernovaLibrary {
@@ -29,6 +30,12 @@ std::string folderPath(const char *folderName);
 // loaded on first use; saveSync() writes it back (false if the card is missing or the write failed).
 SupernovaSync::Store &syncStore();
 bool saveSync();
+
+// Playlists (supernova.pl), shared by the web handlers and the device UI. Both calls lock the
+// store; fn must not call back into the library. editPlaylists runs fn, and when it returns true
+// writes the file (before returning); `saved` tells whether that write worked.
+void readPlaylists(const std::function<void(const SupernovaPlaylists::Store &)> &fn);
+bool editPlaylists(const std::function<bool(SupernovaPlaylists::Store &)> &fn, bool &saved);
 
 // Loads the cache (first call only) and starts a background scan unless one is running.
 // force = read every folder again, otherwise unchanged folders (same mtime) are reused.

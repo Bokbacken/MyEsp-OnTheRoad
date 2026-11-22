@@ -649,6 +649,7 @@ extern const Entry LANG_EN[] = {
     {Str::SUPERNOVA_SYNC_RESET, "Reset"},
     {Str::SUPERNOVA_SYNC_BAD, "Bad sync"},
     {Str::SUPERNOVA_SYNC_DONE, "Done"},
+    {Str::SUPERNOVA_PLAYLISTS, "Playlists"},
     {Str::KARA_FONT_LOADING, "Loading sound bank..."},
     {Str::KARA_FONT_READY, "Sound bank: %s"},
     {Str::KARA_SONGS, "%u songs in /otr/karaoke"},

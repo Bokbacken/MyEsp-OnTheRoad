@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>OnTheRoad – Supernova</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/device-name.js"></script>
+<style>
+.top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.langs button { padding: .3rem .6rem; font-size: .9rem; }
+.langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+@media (max-width: 52rem) { .cols { grid-template-columns: 1fr; } }
+.actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
+.actions select, .actions input { flex: 1; min-width: 8rem; }
+.hint { color: var(--otr-muted); font-size: .85rem; }
+#status, #pl-status { color: var(--otr-muted); min-height: 1.3em; font-size: .9rem; }
+#notice { color: var(--otr-orange); min-height: 1.3em; position: sticky; top: 0; background: var(--otr-panel); z-index: 1; }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; align-items: center; gap: .6rem; padding: .5rem .5rem; border-bottom: 1px solid var(--otr-line); border-radius: .5rem; }
+ul.list li:hover { background: var(--otr-panel); }
+ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+ul.list li .sub { display: block; color: var(--otr-muted); font-size: .8rem; }
+ul.list li.missing .tx { color: var(--otr-muted); text-decoration: line-through; }
+li button { padding: .3rem .5rem; font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/karaoke">&#127908; <span data-t="karaoke"></span></a></nav>
+<div class="top">
+  <h1>&#127916; Supernova</h1>
+  <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
+</div>
+<div id="notice" role="status" aria-live="polite"></div>
+<div class="cols">
+  <section>
+    <h2 data-t="songs"></h2>
+    <form class="actions" id="search-form">
+      <input id="q" type="search" maxlength="60" autocomplete="off">
+      <select id="sort"><option value="artist"></option><option value="title"></option><option value="year"></option></select>
+    </form>
+    <div id="status"></div>
+    <ul class="list" id="songs"></ul>
+    <div class="actions"><button id="more" class="secondary" hidden onclick="loadMore()" data-t="more"></button></div>
+  </section>
+  <section>
+    <h2 data-t="playlists"></h2>
+    <div class="actions">
+      <select id="playlist"></select>
+      <button id="delete-list" class="secondary" onclick="deleteList()" data-t="delete"></button>
+      <button id="rename-list" class="secondary" onclick="beginRename()" data-t="rename"></button>
+    </div>
+    <form class="actions" id="list-form">
+      <input id="list-name" maxlength="48" autocomplete="off">
+      <button id="save-list" type="submit" data-t="create"></button>
+      <button id="cancel-edit" type="button" class="secondary" onclick="cancelEdit()" hidden data-t="cancel"></button>
+    </form>
+    <p class="hint" data-t="hint"></p>
+    <div id="pl-status"></div>
+    <ul class="list" id="playlist-songs"></ul>
+  </section>
+</div>
+<script>
+const T = {
+  sv: { karaoke: 'Webbkaraoke', songs: 'Sånger', playlists: 'Spellistor', search: 'Sök artist eller titel', more: 'Visa fler',
+    sortArtist: 'Artist', sortTitle: 'Titel', sortYear: 'År', create: 'Skapa', rename: 'Spara namn', delete: 'Radera spellista',
+    cancel: 'Avbryt', remove: 'Ta bort', add: 'Lägg till', name: 'Spellistans namn',
+    deleteList: 'Radera spellistan "{0}"? Sångerna behålls.', noLists: 'Skapa en spellista',
+    hint: 'Välj spellista och tryck + vid en sång. Spellistorna kan väljas under Filter på enheten.',
+    noSongs: 'Spellistan är tom.', songsCount: '{0} sånger', shown: '{0} av {1} sånger', scanning: 'Enheten läser in sångerna …',
+    empty: 'Inga sånger hittades. Sångerna läses in på enheten (Supernova → Läs om).', missing: 'Saknas på kortet',
+    saved: 'Sparat', added: 'Tillagd', neterr: 'Ingen kontakt med enheten', up: 'Flytta upp', down: 'Flytta ned', pickList: 'Skapa eller välj en spellista först' },
+  en: { karaoke: 'Web karaoke', songs: 'Songs', playlists: 'Playlists', search: 'Search artist or title', more: 'Show more',
+    sortArtist: 'Artist', sortTitle: 'Title', sortYear: 'Year', create: 'Create', rename: 'Save name', delete: 'Delete playlist',
+    cancel: 'Cancel', remove: 'Remove', add: 'Add', name: 'Playlist name',
+    deleteList: 'Delete playlist "{0}"? The songs are kept.', noLists: 'Create a playlist',
+    hint: 'Pick a playlist and press + next to a song. Playlists can be chosen under Filter on the device.',
+    noSongs: 'This playlist is empty.', songsCount: '{0} songs', shown: '{0} of {1} songs', scanning: 'The device is reading the songs …',
+    empty: 'No songs found. The songs are read on the device (Supernova → Rescan).', missing: 'Not on the card',
+    saved: 'Saved', added: 'Added', neterr: 'No contact with the device', up: 'Move up', down: 'Move down', pickList: 'Create or choose a playlist first' }
+};
+const PAGE = 100;
+let L = 'sv', loadedOnce = false, playlists = [], entries = [], songs = [], total = 0, count = 0, busy = false, editId = 0, songSeq = 0, listSeq = 0, timer = 0;
+const $ = id => document.getElementById(id);
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+function setLang(l, save) {
+  if (!T[l]) return;
+  L = l; document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  const o = $('sort').options; o[0].textContent = t('sortArtist'); o[1].textContent = t('sortTitle'); o[2].textContent = t('sortYear');
+  $('q').placeholder = t('search'); $('list-name').placeholder = t('name');
+  $('save-list').textContent = t(editId ? 'rename' : 'create');
+  $('l-sv').classList.toggle('on', l === 'sv'); $('l-en').classList.toggle('on', l === 'en');
+  if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
+  renderOptions($('playlist').value); renderSongs(); renderEntries(); updateStatus();
+}
+async function request(url, data) {
+  let r;
+  try {
+    r = await fetch(url, data === undefined ? { cache: 'no-store' } :
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  } catch (e) { throw new Error(t('neterr')); }
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok || !j.ok) throw new Error(j.error || String(r.status));
+  return j;
+}
+const fail = e => { $('notice').textContent = e.message || t('neterr'); };
+const label = s => (s.artist ? s.artist + ' – ' : '') + s.title;
+function updateStatus() {
+  if (!loadedOnce) return;
+  $('status').textContent = !songs.length && !count ? (total ? '' : t('empty')) : t('shown', songs.length, count);
+}
+async function loadSongs(append) {
+  const my = ++songSeq;
+  const offset = append ? songs.length : 0;
+  const url = '/api/supernova/songs?q=' + encodeURIComponent($('q').value.trim()) + '&sort=' + $('sort').value +
+    '&offset=' + offset + '&limit=' + PAGE;
+  try {
+    const j = await request(url);
+    if (my !== songSeq) return;
+    songs = append ? songs.concat(j.songs) : j.songs; total = j.total; count = j.count; loadedOnce = true;
+    renderSongs(); updateStatus();
+    if (j.scanning) { $('status').textContent = t('scanning'); clearTimeout(timer); timer = setTimeout(() => loadSongs(false), 3000); }
+  } catch (e) { if (my === songSeq) fail(e); }
+}
+function loadMore() { loadSongs(true); }
+function renderSongs() {
+  const ul = $('songs'); ul.textContent = '';
+  songs.forEach(s => {
+    const li = el('li'), tx = el('span', 'tx', label(s));
+    const sub = [s.year || '', s.genre || ''].filter(Boolean).join(' · ');
+    if (sub) tx.appendChild(el('span', 'sub', sub));
+    const b = el('button', '', '+'); b.setAttribute('aria-label', t('add')); b.title = t('add');
+    b.onclick = () => addSong(s);
+    li.append(tx, b); ul.appendChild(li);
+  });
+  $('more').hidden = songs.length >= count;
+}
+function currentId() { return Number($('playlist').value) || 0; }
+async function addSong(s) {
+  const id = currentId();
+  if (!id) { $('notice').textContent = t('pickList'); return; }
+  await mutate({ action: 'add', id, folder: s.folder }, t('added') + ': ' + label(s));
+}
+function renderOptions(selected) {
+  const select = $('playlist'); select.textContent = '';
+  if (!playlists.length) { const o = el('option', '', t('noLists')); o.value = ''; select.appendChild(o); }
+  playlists.forEach(p => { const o = el('option', '', p.name + ' (' + p.count + ')'); o.value = String(p.id); select.appendChild(o); });
+  if (playlists.some(p => String(p.id) === String(selected))) select.value = String(selected);
+  else if (playlists.length) select.value = String(playlists[0].id);
+  $('delete-list').disabled = $('rename-list').disabled = !playlists.length;
+  try { localStorage.setItem('otr_sn_playlist', select.value); } catch (e) {}
+}
+async function loadPlaylists(selected) {
+  const j = await request('/api/supernova/playlists'); playlists = j.playlists;
+  let saved = ''; try { saved = localStorage.getItem('otr_sn_playlist') || ''; } catch (e) {}
+  renderOptions(selected || saved);
+  await loadEntries();
+}
+async function loadEntries() {
+  const my = ++listSeq, id = currentId();
+  entries = []; renderEntries();
+  if (!id) return;
+  try {
+    let n = 0;
+    do {
+      const j = await request('/api/supernova/playlists?id=' + id + '&offset=' + entries.length + '&limit=' + PAGE);
+      if (my !== listSeq) return;
+      const p = j.playlists[0]; n = p.count; entries = entries.concat(p.songs);
+      if (!p.songs.length) break;
+    } while (entries.length < n);
+    if (my === listSeq) renderEntries();
+  } catch (e) { if (my === listSeq) fail(e); }
+}
+function renderEntries() {
+  const ul = $('playlist-songs'); ul.textContent = '';
+  const id = currentId();
+  $('pl-status').textContent = !id ? '' : entries.length ? t('songsCount', entries.length) : t('noSongs');
+  entries.forEach((s, i) => {
+    const li = el('li', s.missing ? 'missing' : ''), tx = el('span', 'tx', label(s));
+    if (s.missing) tx.title = t('missing');
+    li.appendChild(tx);
+    [['up', '↑', i === 0], ['down', '↓', i + 1 === entries.length], ['remove', '✕', false]].forEach(([action, text, off]) => {
+      const b = el('button', 'secondary', text); b.disabled = off || busy;
+      b.setAttribute('aria-label', action === 'remove' ? t('remove') : t(action)); b.title = b.getAttribute('aria-label');
+      b.onclick = () => mutate({ action, id, folder: s.folder });
+      li.appendChild(b);
+    });
+    ul.appendChild(li);
+  });
+}
+async function mutate(data, message) {
+  if (busy) return;
+  busy = true;
+  try {
+    const j = await request('/api/supernova/playlists', data);
+    await loadPlaylists(j.id || currentId());
+    $('notice').textContent = message || '';
+  } catch (e) { fail(e); }
+  finally { busy = false; renderEntries(); }
+}
+function beginRename() {
+  const p = playlists.find(p => String(p.id) === $('playlist').value); if (!p) return;
+  editId = p.id; $('list-name').value = p.name; $('save-list').textContent = t('rename');
+  $('cancel-edit').hidden = false; $('list-name').focus();
+}
+function cancelEdit() { editId = 0; $('list-name').value = ''; $('save-list').textContent = t('create'); $('cancel-edit').hidden = true; }
+$('list-form').onsubmit = async e => {
+  e.preventDefault();
+  const name = $('list-name').value.trim(); if (!name) return;
+  const data = editId ? { action: 'rename', id: editId, name } : { action: 'create', name };
+  cancelEdit(); await mutate(data, t('saved'));
+};
+$('playlist').addEventListener('change', () => {
+  cancelEdit();
+  try { localStorage.setItem('otr_sn_playlist', $('playlist').value); } catch (e) {}
+  loadEntries();
+});
+async function deleteList() {
+  const id = currentId(), p = playlists.find(p => p.id === id);
+  if (!p || !confirm(t('deleteList', p.name))) return;
+  cancelEdit(); await mutate({ action: 'delete', id }, t('saved'));
+}
+$('search-form').onsubmit = e => { e.preventDefault(); loadSongs(false); };
+let typing = 0;
+$('q').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => loadSongs(false), 350); });
+$('sort').addEventListener('change', () => loadSongs(false));
+let saved = null; try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
+loadSongs(false); loadPlaylists().catch(fail);
+</script>
+</body>
+</html>

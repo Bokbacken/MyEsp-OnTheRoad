@@ -649,6 +649,7 @@ extern const Entry LANG_SV[] = {
     {Str::SUPERNOVA_SYNC_RESET, "Nollställ"},
     {Str::SUPERNOVA_SYNC_BAD, "Trasig synk"},
     {Str::SUPERNOVA_SYNC_DONE, "Klar"},
+    {Str::SUPERNOVA_PLAYLISTS, "Spellistor"},
     {Str::KARA_FONT_LOADING, "Laddar ljudbank..."},
     {Str::KARA_FONT_READY, "Ljudbank: %s"},
     {Str::KARA_SONGS, "%u låtar i /otr/karaoke"},

@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 #include "game_live.h"
 #include "kara_songs_web.h"
+#include "supernova_web.h"
 #include "kara_web.h"
 #include "adv_live.h"
 #include "app_web_adventure_editor.h"
@@ -1548,6 +1549,7 @@ bool begin()
     ok &= AppWebFiles::registerRoutes();
     ok &= AppWebAdventureEditor::registerRoutes();
     ok &= KaraSongsWeb::registerRoutes();   // v0.13.7 song picker API
+    ok &= SupernovaWeb::registerRoutes();   // Supernova song list + playlists
     ok &= otr_log_register_routes();        // v0.13.7 /api/log/stream + /api/log/download
     ok &= wsBegin();
     if (Config::get().karaWebStream) ok &= KaraWeb::begin();   // v0.13.5 web karaoke

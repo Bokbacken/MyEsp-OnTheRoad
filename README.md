@@ -93,7 +93,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   `#VOCALS` are used. The player has a narrow master-volume rail at the right edge, a thin progress bar at the
   bottom and countdown dots in long instrumental pauses. Header buttons are dark; **Sync** lets you move the
   lyrics (±0.1/1/5 s) from the current position onwards, saved per song in `supernova.sync`, and mark a song
-  as having bad sync (shown as `(!)` in the list).
+  as having bad sync (shown as `(!)` in the list). The web page `/supernova` has a searchable song list and a
+  playlist editor (stored in `supernova.pl`); playlists appear under Filter on the device.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.

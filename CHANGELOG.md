@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.26
+
+- Supernova (P4): new web page `/supernova` (linked from the home page) with a searchable,
+  sortable song list and a playlist editor (create, rename, delete, add, remove, reorder).
+  Playlists are stored in `/sdcard/otr/supernova/supernova.pl` (folder names; songs missing
+  from the library are kept and flagged).
+- Supernova (P4): the on-device Filter sheet lists the playlists; picking one shows its songs
+  in playlist order. Web edits appear on the device after the next filter change or rescan.
+- Automated checks only (host playlist model test, CI builds); not verified on hardware.
+  The web remote/player and USDX `.upl` import/export are still open.
+
 ## v0.26.25
 
 - Supernova (P4): the header buttons use a dark style so they no longer glare over the video.

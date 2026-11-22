@@ -743,6 +743,8 @@ constexpr size_t MAX_FILTER_VALUES = 40;
 
 // Kept while the player is open so the list is where the user left it
 SupernovaIndex::Query s_query;
+uint16_t s_playlistId = 0;   // 0 = no playlist; otherwise the view is that playlist in its own order
+std::string s_playlistName;
 size_t s_page = 0;
 std::vector<uint16_t> s_view;
 uint32_t s_shownGen = UINT32_MAX;
@@ -765,14 +767,35 @@ const char *sortText()
 
 std::string filterText()
 {
+    if (s_playlistId) return s_playlistName;
     if (s_query.kind == SupernovaIndex::FilterKind::NONE) return tr(Str::SUPERNOVA_FILTER);
     return s_query.kind == SupernovaIndex::FilterKind::DECADE ? s_query.value + "s" : s_query.value;
 }
 
 void rebuildView()
 {
-    SupernovaLibrary::withLibrary([](const SupernovaIndex::Library &lib) {
-        s_view = lib.view(s_query);
+    std::vector<std::string> folders;
+    if (s_playlistId) {
+        bool exists = false;
+        SupernovaLibrary::readPlaylists([&](const SupernovaPlaylists::Store &store) {
+            if (const SupernovaPlaylists::Playlist *p = store.find(s_playlistId)) {
+                exists = true;
+                s_playlistName = p->name;
+                folders = p->folders;
+            }
+        });
+        if (!exists) s_playlistId = 0;   // Deleted from the web page
+    }
+    SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+        if (s_playlistId) {
+            s_view.clear();
+            for (const std::string &f : folders) {
+                const int i = lib.find(f.c_str());
+                if (i >= 0) s_view.push_back((uint16_t)i);
+            }
+        } else {
+            s_view = lib.view(s_query);
+        }
         s_shownGen = SupernovaLibrary::generation();
     });
     if (s_page >= pageCount()) s_page = pageCount() - 1;
@@ -792,7 +815,7 @@ void updateInfo()
     lv_label_set_text(s_filterLabel, filterText().c_str());
     lv_obj_t *searchLabel = lv_obj_get_child(s_searchBtn, 0);
     lv_label_set_text(searchLabel, s_query.text.empty() ? tr(Str::SUPERNOVA_SEARCH_TITLE) : s_query.text.c_str());
-    const bool jump = s_query.sort != SupernovaIndex::Sort::YEAR && s_view.size() > PAGE;
+    const bool jump = s_query.sort != SupernovaIndex::Sort::YEAR && s_view.size() > PAGE && !s_playlistId;
     if (jump) lv_obj_clear_flag(s_jumpCol, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_jumpCol, LV_OBJ_FLAG_HIDDEN);
 }
@@ -813,7 +836,7 @@ void renderList()
     lv_obj_clean(s_list);
     lv_obj_scroll_to_y(s_list, 0, LV_ANIM_OFF);
     if (s_view.empty()) {
-        const bool filtered = !s_query.text.empty() || s_query.kind != SupernovaIndex::FilterKind::NONE;
+        const bool filtered = !s_query.text.empty() || s_query.kind != SupernovaIndex::FilterKind::NONE || s_playlistId;
         if (!(SupernovaLibrary::scanning() && !filtered)) {
             lv_obj_t *empty = Theme::label(s_list, filtered ? tr(Str::KARA_NO_MATCH) : tr(Str::SUPERNOVA_EMPTY),
                                            &my_font_18, Theme::MUTED);
@@ -868,6 +891,7 @@ void searchDone(const char *text, bool confirmed, void *)
     while (!q.empty() && q.back() == ' ') q.pop_back();
     while (!q.empty() && q[0] == ' ') q.erase(0, 1);
     s_query.text = q;
+    s_playlistId = 0;
     requery();
 }
 
@@ -877,10 +901,11 @@ void closeSheet()
     s_sheet = nullptr;
 }
 
-void applyFilter(SupernovaIndex::FilterKind kind, const std::string &value)
+void applyFilter(SupernovaIndex::FilterKind kind, const std::string &value, uint16_t playlist = 0)
 {
     s_query.kind = kind;
     s_query.value = value;
+    s_playlistId = playlist;
     closeSheet();
     requery();
 }
@@ -888,6 +913,7 @@ void applyFilter(SupernovaIndex::FilterKind kind, const std::string &value)
 struct FilterPick {
     SupernovaIndex::FilterKind kind;
     std::string value;
+    uint16_t playlist = 0;
 };
 
 void openSheet()
@@ -905,22 +931,33 @@ void openSheet()
     lv_obj_set_scroll_dir(s_sheet, LV_DIR_VER);
     const int32_t w = UiMetrics::screenW() - 2 * UiMetrics::marginNormal();
     const int32_t h = UiMetrics::buttonH();
-    auto addButton = [&](const std::string &text, uint32_t color, SupernovaIndex::FilterKind kind, const std::string &value) {
+    auto addButton = [&](const std::string &text, uint32_t color, SupernovaIndex::FilterKind kind, const std::string &value,
+                         uint16_t playlist = 0) {
         lv_obj_t *b = Theme::button(s_sheet, text.c_str(), w, h, color);
-        auto *pick = new FilterPick{kind, value};
+        auto *pick = new FilterPick{kind, value, playlist};
         lv_obj_add_event_cb(b, [](lv_event_t *e) {
             static uint32_t last = 0;
             if (!Theme::debounce(last, DEBOUNCE_MS)) return;
             const FilterPick p = *(FilterPick *)lv_event_get_user_data(e);
             lv_async_call([](void *arg) {
                 FilterPick *q = (FilterPick *)arg;
-                applyFilter(q->kind, q->value);
+                applyFilter(q->kind, q->value, q->playlist);
                 delete q;
             }, new FilterPick(p));
         }, LV_EVENT_CLICKED, pick);
         lv_obj_add_event_cb(b, [](lv_event_t *e) { delete (FilterPick *)lv_event_get_user_data(e); }, LV_EVENT_DELETE, pick);
     };
     addButton(tr(Str::SUPERNOVA_FILTER_ALL), Theme::GOLD, SupernovaIndex::FilterKind::NONE, "");
+    std::vector<std::pair<uint16_t, std::string>> lists;
+    SupernovaLibrary::readPlaylists([&](const SupernovaPlaylists::Store &store) {
+        for (const SupernovaPlaylists::Playlist &p : store.lists())
+            lists.emplace_back(p.id, p.name + " (" + std::to_string(p.folders.size()) + ")");
+    });
+    if (!lists.empty()) {
+        lv_obj_t *title = Theme::label(s_sheet, tr(Str::SUPERNOVA_PLAYLISTS), &my_font_18, Theme::MUTED);
+        lv_obj_set_width(title, w);
+        for (const auto &l : lists) addButton(l.second, Theme::GREEN, SupernovaIndex::FilterKind::NONE, "", l.first);
+    }
     struct Section {
         SupernovaIndex::FilterKind kind;
         Str title;
@@ -999,6 +1036,7 @@ void buildBrowser()
         static uint32_t last = 0;
         if (!Theme::debounce(last, DEBOUNCE_MS)) return;
         using S = SupernovaIndex::Sort;
+        s_playlistId = 0;
         s_query.sort = s_query.sort == S::ARTIST ? S::TITLE : s_query.sort == S::TITLE ? S::YEAR : S::ARTIST;
         requery();
     }, LV_EVENT_CLICKED, nullptr);

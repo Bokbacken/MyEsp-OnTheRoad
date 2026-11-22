@@ -216,9 +216,12 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
      spelaren stängs). Trasiga låtar märks "(!)" i listan. Kvar: filter/sortering
      på trasiga, justera/markera från webben, kontroll av att knapparna ryms på
      fysisk skärm.
-  3. Webb: spellisteditor (skapa/byt namn/ordning/radera) enligt karaokens
-     modell (`karaoke.reg`, identitet via mappnamn); valfri import/export av
-     USDX `.upl`.
+  3. Webb: spellisteditor på `/supernova` implementerad i v0.26.26 (ej
+     verifierad på enhet): skapa/byt namn/ordning/radera, sånglista med sök
+     och sortering, lagring i `supernova.pl` (identitet via mappnamn, saknade
+     låtar behålls och märks). Spellistor väljs under Filter på enheten; ändringar
+     från webben syns efter nästa filterbyte eller omskanning. Kvar: USDX
+     `.upl` import/export.
   4. Webbfjärr för Supernova liknande `/ws/karaoke`: sånglista, starta, paus,
      nästa, aktuell textrad och position. Ingen videoström till webben
      (bandbredd/minne); bara text och styrning.
