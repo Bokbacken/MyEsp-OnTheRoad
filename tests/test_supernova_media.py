@@ -5,10 +5,17 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / "main/ui_supernova.cpp").read_text()
-start = source.index("bool endsWithExt(")
-end = source.index("\nstd::vector<Song> scanSongs", start)
-functions = source[start:end]
+source = (root / "main/supernova_library.cpp").read_text()
+
+
+def piece(first, last):
+    start = source.index(first)
+    return source[start:source.index(last, start)]
+
+
+functions = (piece("bool endsWithExt(", "\nbool loadCache") +
+             piece("void applyAudioTags(", "\n}  // namespace") +
+             piece("bool findMedia(", "\nvoid start("))
 header = r'''
 #include <algorithm>
 #include <cassert>
@@ -17,9 +24,11 @@ header = r'''
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <strings.h>
 #include <sys/stat.h>
 #include <vector>
-struct Media { std::string folder, audio, video, lyrics; };
+#include "supernova_index.h"
+struct Media { std::string audio, video, lyrics, instrumental; };
 '''
 test = r'''
 int main(int argc, char **argv) {
@@ -56,7 +65,8 @@ with tempfile.TemporaryDirectory(prefix="supernova-media-") as tmp:
     cpp.write_text(header + functions + test)
     binary = work / "test"
     subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
-                    "-Imain", "-Icomponents", str(cpp), str(root / "main/supernova_index.cpp"), "-o", str(binary)], check=True)
+                    "-Imain", str(cpp), str(root / "main/supernova_index.cpp"),
+                    str(root / "main/kara_index.cpp"), "-o", str(binary)], check=True)
     files = work / "song"
     files.mkdir()
     subprocess.run([str(binary), str(files)], check=True)
