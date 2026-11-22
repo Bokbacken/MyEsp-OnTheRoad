@@ -8,6 +8,14 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.20
+
+- Supernova (P4): song folders with several audio files (converted SingStar:
+  `Name.mp3` full mix, `Name [Kar].mp3` instrumental, `Name [Voc].mp3` vocals
+  only) now ask "With vocals / Without vocals" before playback. `[Voc]` is used
+  only when no plain file exists. Not yet run on hardware; the `#INSTRUMENTAL`
+  / `#VOCALS` tags of UltraStar format 1.1.0 are not read yet (file names only).
+
 ## v0.26.19
 
 - Supernova (P4): song library for large collections. The song list is now

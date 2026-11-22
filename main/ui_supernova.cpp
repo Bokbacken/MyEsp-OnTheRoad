@@ -379,6 +379,31 @@ void playerTick(lv_timer_t *)
     updateLyrics(pos);
 }
 
+void beginSong(const std::string &title);
+
+void chooseVariant(const std::string &title)
+{
+    static std::string pendingTitle;
+    pendingTitle = title;
+    lv_obj_t *box = lv_msgbox_create(nullptr);
+    lv_msgbox_add_title(box, tr(Str::SUPERNOVA_CHOOSE_AUDIO));
+    lv_msgbox_add_text(box, title.c_str());
+    lv_obj_t *with = lv_msgbox_add_footer_button(box, tr(Str::SUPERNOVA_WITH_VOCALS));
+    lv_obj_t *without = lv_msgbox_add_footer_button(box, tr(Str::SUPERNOVA_WITHOUT_VOCALS));
+    Theme::msgboxFonts(box);
+    lv_obj_add_event_cb(with, [](lv_event_t *e) {
+        lv_obj_t *b = lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e)));
+        lv_obj_delete_async(b);
+        beginSong(pendingTitle);
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(without, [](lv_event_t *e) {
+        lv_obj_t *b = lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e)));
+        lv_obj_delete_async(b);
+        s_song.audio = s_song.instrumental;
+        beginSong(pendingTitle);
+    }, LV_EVENT_CLICKED, nullptr);
+}
+
 void playSong(const std::string &folderName, const std::string &title)
 {
     s_songReady = false;
@@ -392,8 +417,14 @@ void playSong(const std::string &folderName, const std::string &title)
         showError(tr(Str::SUPERNOVA_CATALOG_ERROR));
         return;
     }
-    s_songReady = true;
     s_songFolder = folderName;
+    if (!s_song.instrumental.empty() && !s_song.audio.empty()) chooseVariant(title);
+    else beginSong(title);
+}
+
+void beginSong(const std::string &title)
+{
+    s_songReady = true;
     if (!readLyrics(s_song.lyrics.c_str(), s_lyrics)) {
         showError(tr(Str::SUPERNOVA_BAD_LYRICS));
         return;

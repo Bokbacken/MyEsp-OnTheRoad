@@ -3,6 +3,7 @@
 
 #include <dirent.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -215,15 +216,26 @@ bool findMedia(const std::string &folder, Media &song)
     }
     closedir(dir);
     std::sort(files.begin(), files.end());
-    std::string avi;
+    std::string avi, vocals;
     for (const std::string &file : files) {
         const std::string path = folder + "/" + file;
-        if (song.audio.empty() && endsWithExt(file, ".mp3")) song.audio = path;
+        if (endsWithExt(file, ".mp3")) {
+            std::string low = file;
+            for (char &c : low) c = (char)tolower((unsigned char)c);
+            if (low.find("[kar") != std::string::npos || low.find("[inst") != std::string::npos) {
+                if (song.instrumental.empty()) song.instrumental = path;
+            } else if (low.find("[voc") != std::string::npos) {
+                if (vocals.empty()) vocals = path;
+            } else if (song.audio.empty()) {
+                song.audio = path;
+            }
+        }
         else if (song.video.empty() && endsWithExt(file, ".mp4")) song.video = path;
         else if (avi.empty() && endsWithExt(file, ".avi")) avi = path;
         else if (song.lyrics.empty() && endsWithExt(file, ".txt")) song.lyrics = path;
     }
     if (!avi.empty()) song.video = avi;
+    if (song.audio.empty()) song.audio = vocals;
     return !song.video.empty() && !song.lyrics.empty();
 }
 
