@@ -178,6 +178,9 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   Konvertering på enheten (v0.26.14-17) prövades och togs bort i v0.26.18:
   ägarens MP4-filer var inte H.264. Konvertera till MJPEG-AVI på dator
   (`tools/konvert_mjpeg.bat`) eller hämta H.264 (avc1).
+  `tools/supernova_convert.ps1` konverterar hela samlingar direkt till SD-kortet
+  med optimal storlek per bildformat (värdetestat med syntetiska videor; ännu
+  inte på enheten – verifiera bildyta `-Area`, kanter och uppspelning).
   Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
   S3-portning beslutas efter praktiskt P4-test.
   Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms
@@ -185,6 +188,22 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   förbi LVGL; v0.26.11 lägger texten som genomskinligt grått band blandat
   i videobilden (storlek S/M/L, läge topp/mitten/botten); väntar på enhetstest (bildruta, rotationsriktning, färger,
   tearing, `video(PPA direct)`-loggraden).
+- [ ] Supernova med ~1000 sånger (planerad, ej påbörjad). Indexet byggs på
+  enheten (ingen PC-/SD-flytt krävs), jämför `main/kara_index.*` och
+  USDX-metadata:
+  1. `supernova_index` i PSRAM med cache `supernova.idx`: mapp, artist, titel,
+     genre, språk, år, omslag/video-/ljudflagga ur `.txt`-taggar (inte full
+     textparsning). Bakgrundsskanning med förloppsvisning, rescan-knapp,
+     ändringsdetektering via mapptid/filstorlek. Gränsen ska vara ≥ 2000.
+  2. Enhets-UI: sidindelad lista, sök (titel/artist), A–Ö, sortera och
+     filtrera på artist/genre/språk/år, visa artist–titel i stället för
+     mappnamn.
+  3. Webb: spellisteditor (skapa/byt namn/ordning/radera) enligt karaokens
+     modell (`karaoke.reg`, identitet via mappnamn); valfri import/export av
+     USDX `.upl`.
+  4. Webbfjärr för Supernova liknande `/ws/karaoke`: sånglista, starta, paus,
+     nästa, aktuell textrad och position. Ingen videoström till webben
+     (bandbredd/minne); bara text och styrning.
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.

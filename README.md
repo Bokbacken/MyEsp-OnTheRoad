@@ -80,6 +80,11 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   The hardware MJPEG decoder is used only for MJPEG video: an H.264 `.mp4` always
   uses the software decoder (`H264_DEC.SW`). `tools\konvert_mjpeg.bat "input.mp4" "video.avi"`
   makes an 800x480 MJPEG/MP3 AVI for that path (untested on device).
+  `tools\supernova_convert.bat <songs> <SD>:\otr\supernova` (launches the `.ps1` next to it, bypassing
+  the script execution policy) batch-converts whole song folders
+  directly onto the SD card, sizing each video to the full width or height of the video area
+  (`-Area WxH`, default 800x420), padded to 16-pixel multiples; copies `.txt`/`.mp3`/cover files
+  and skips existing output (`-Force` redoes, `-DryRun` previews, `-Jobs N` parallel).
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.
