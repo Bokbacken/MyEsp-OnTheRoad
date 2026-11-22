@@ -85,6 +85,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   directly onto the SD card, sizing each video to the full width or height of the video area
   (`-Area WxH`, default 800x420), padded to 16-pixel multiples; copies `.txt`/`.mp3`/cover files
   and skips existing output (`-Force` redoes, `-DryRun` previews, `-Jobs N` parallel).
+  The song list is built on the device into an index (`supernova.idx`, up to 2000 songs; only new or
+  changed folders are re-read) from the `#TITLE`, `#ARTIST`, `#GENRE`, `#LANGUAGE` and `#YEAR` tags, with
+  search, sort (artist/title/year), filter (genre/language/decade), A–Ö jump and a Rescan button.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.

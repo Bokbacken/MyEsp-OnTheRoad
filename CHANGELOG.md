@@ -8,6 +8,19 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.19
+
+- Supernova (P4): song library for large collections. The song list is now
+  backed by an index (`/sdcard/otr/supernova/supernova.idx`, up to 2000 songs)
+  built on the device in the background: new or changed folders are read, the
+  rest is reused, so reopening Supernova is fast. The list has search (artist
+  and title), sort (artist/title/year), filter (genre/language/decade from the
+  `#GENRE`, `#LANGUAGE` and `#YEAR` tags), A-Ö jump and pages, and a Rescan
+  button. Delete `supernova.idx` or press Rescan after editing files in place.
+  Playlists and the web editor/remote are still planned.
+  Verification: host test `tests/test_supernova_index.cpp`; not yet run on
+  hardware.
+
 ## v0.26.18
 
 - Supernova (P4): the on-device MP4 -> AVI converter (v0.26.14-v0.26.17) is

@@ -15,8 +15,10 @@
 #include "hw_profile.h"
 #include "lang.h"
 #include "my_storage.h"
+#include "my_textinput.h"
 #include "my_theme.h"
 #include "supernova_lyrics.h"
+#include "supernova_library.h"
 #include "supernova_player.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
@@ -26,17 +28,12 @@
 namespace UiSupernova {
 namespace {
 
-constexpr const char *SONG_ROOT = "/sdcard/otr/supernova";
 constexpr size_t MAX_LYRICS_BYTES = SupernovaLyrics::MAX_FILE_BYTES;
 
-struct Song {
-    std::string folder;
-    std::string audio;
-    std::string video;
-    std::string lyrics;
-};
+using Song = SupernovaLibrary::Media;
 
-std::vector<Song> s_songs;
+Song s_song;
+std::string s_songFolder;   // Folder name of the song being played
 SupernovaLyrics::Document s_lyrics;
 lv_obj_t *s_playerScreen = nullptr;
 lv_obj_t *s_playerHeader = nullptr;
@@ -60,7 +57,7 @@ lv_obj_t *s_timeLabel = nullptr;
 lv_obj_t *s_playLabel = nullptr;
 lv_timer_t *s_startTimer = nullptr;
 lv_timer_t *s_playerTimer = nullptr;
-size_t s_pendingSong = 0;
+bool s_songReady = false;
 uint32_t s_lastPhrase = UINT32_MAX;
 bool s_playerPaused = false;
 bool s_closeRequested = false;
@@ -69,77 +66,6 @@ bool s_startTaskFailed = false;
 bool s_stopTaskFailed = false;
 enum class MediaState : uint8_t { IDLE, STARTING, PLAYING, STOPPING, FAILED };
 std::atomic<MediaState> s_mediaState{MediaState::IDLE};
-
-bool endsWithExt(const std::string &name, const char *ext)
-{
-    const size_t extLen = strlen(ext);
-    if (name.size() <= extLen) return false;
-    const size_t start = name.size() - extLen;
-    for (size_t i = 0; i < extLen; i++) {
-        char a = name[start + i], b = ext[i];
-        if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
-        if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
-        if (a != b) return false;
-    }
-    return true;
-}
-
-bool isDirectory(const std::string &path)
-{
-    struct stat st {};
-    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
-}
-
-bool findMedia(const std::string &folder, Song &song)
-{
-    DIR *dir = opendir(folder.c_str());
-    if (!dir) return false;
-    std::vector<std::string> files;
-    while (dirent *entry = readdir(dir)) {
-        if (entry->d_name[0] == '.') continue;
-        const std::string path = folder + "/" + entry->d_name;
-        struct stat st {};
-        if (stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode))
-            files.emplace_back(entry->d_name);
-    }
-    closedir(dir);
-    std::sort(files.begin(), files.end());
-    std::string avi;
-    for (const std::string &file : files) {
-        const std::string path = folder + "/" + file;
-        if (song.audio.empty() && endsWithExt(file, ".mp3")) song.audio = path;
-        else if (song.video.empty() && endsWithExt(file, ".mp4")) song.video = path;
-        else if (avi.empty() && endsWithExt(file, ".avi")) avi = path;
-        else if (song.lyrics.empty() && endsWithExt(file, ".txt")) song.lyrics = path;
-    }
-    if (!avi.empty()) song.video = avi;
-    return !song.video.empty() && !song.lyrics.empty();
-}
-
-std::vector<Song> scanSongs(bool &sdReady, bool &catalogReady)
-{
-    std::vector<Song> songs;
-    catalogReady = false;
-    BoardSd::Guard guard;
-    sdReady = BoardSd::mounted();
-    if (!sdReady) return songs;
-    if (!BoardSd::ensureDir(SONG_ROOT)) return songs;
-    DIR *dir = opendir(SONG_ROOT);
-    if (!dir) return songs;
-    catalogReady = true;
-    while (dirent *entry = readdir(dir)) {
-        if (entry->d_name[0] == '.') continue;
-        const std::string name(entry->d_name);
-        const std::string path = std::string(SONG_ROOT) + "/" + name;
-        if (!isDirectory(path)) continue;
-        Song song;
-        song.folder = name;
-        if (findMedia(path, song)) songs.push_back(std::move(song));
-    }
-    closedir(dir);
-    std::sort(songs.begin(), songs.end(), [](const Song &a, const Song &b) { return a.folder < b.folder; });
-    return songs;
-}
 
 bool readLyrics(const char *path, SupernovaLyrics::Document &out)
 {
@@ -368,7 +294,7 @@ void backToSongs()
 
 void mediaStartTask(void *)
 {
-    const Song &song = s_songs[s_pendingSong];
+    const Song &song = s_song;
     const char *audioPath = song.audio.empty() ? nullptr : song.audio.c_str();
     const bool ok = SupernovaPlayer::start(audioPath, song.video.c_str());
     s_mediaState.store(ok ? MediaState::PLAYING : MediaState::FAILED, std::memory_order_release);
@@ -386,7 +312,7 @@ void startPendingPlayer(lv_timer_t *timer)
 {
     lv_timer_delete(timer);
     s_startTimer = nullptr;
-    if (!s_playerScreen || s_pendingSong >= s_songs.size()) return;
+    if (!s_playerScreen || !s_songReady) return;
     s_mediaState.store(MediaState::STARTING, std::memory_order_release);
     if (xTaskCreate(mediaStartTask, "supernova_start", 8192, nullptr, 5, nullptr) != pdPASS) {
         s_startTaskFailed = true;
@@ -453,11 +379,22 @@ void playerTick(lv_timer_t *)
     updateLyrics(pos);
 }
 
-void playSong(size_t index)
+void playSong(const std::string &folderName, const std::string &title)
 {
-    if (index >= s_songs.size()) return;
-    s_pendingSong = index;
-    if (!readLyrics(s_songs[index].lyrics.c_str(), s_lyrics)) {
+    s_songReady = false;
+    s_song = Song();
+    bool complete;
+    {
+        BoardSd::Guard guard;
+        complete = SupernovaLibrary::findMedia(SupernovaLibrary::folderPath(folderName.c_str()), s_song);
+    }
+    if (!complete) {
+        showError(tr(Str::SUPERNOVA_CATALOG_ERROR));
+        return;
+    }
+    s_songReady = true;
+    s_songFolder = folderName;
+    if (!readLyrics(s_song.lyrics.c_str(), s_lyrics)) {
         showError(tr(Str::SUPERNOVA_BAD_LYRICS));
         return;
     }
@@ -488,9 +425,6 @@ void playSong(size_t index)
     lv_obj_center(backLabel);
     lv_obj_add_event_cb(back, [](lv_event_t *) { backToSongs(); }, LV_EVENT_CLICKED, nullptr);
 
-    const Song &song = s_songs[index];
-    const size_t dash = song.folder.find(" - ");
-    const std::string title = dash == std::string::npos ? song.folder : song.folder.substr(dash + 3);
     lv_obj_t *name = makeText(top, title.c_str(), &my_font_18, lv_color_white());
     lv_obj_set_width(name, UiMetrics::screenW() / 3);
     lv_obj_align(name, LV_ALIGN_CENTER, -UiMetrics::buttonWMin(), 0);
@@ -546,6 +480,369 @@ void home()
     UiYatzy::showMenu();
 }
 
+#if CONFIG_OTR_HW_PROFILE_P4_43
+// ---- Song browser: search, sort, filter, A-Ö jump and pages over the library ---------------------
+constexpr size_t PAGE = 20;
+constexpr uint32_t DEBOUNCE_MS = 400;
+struct JumpKey {
+    const char *text;
+    uint16_t rank;
+};
+const JumpKey JUMP[] = {{"#", 0},  {"A", 30}, {"D", 33}, {"G", 36}, {"J", 39}, {"M", 42},
+                        {"P", 45}, {"S", 48}, {"V", 51}, {"\xc3\x85", 56}, {"\xc3\x84", 57}, {"\xc3\x96", 58}};
+constexpr int JUMP_N = (int)(sizeof(JUMP) / sizeof(JUMP[0]));
+constexpr size_t MAX_FILTER_VALUES = 40;
+
+// Kept while the player is open so the list is where the user left it
+SupernovaIndex::Query s_query;
+size_t s_page = 0;
+std::vector<uint16_t> s_view;
+uint32_t s_shownGen = UINT32_MAX;
+bool s_shownScanning = false;
+size_t s_shownDone = SIZE_MAX;
+lv_obj_t *s_list = nullptr, *s_info = nullptr, *s_pageLabel = nullptr, *s_searchBtn = nullptr;
+lv_obj_t *s_sortLabel = nullptr, *s_filterLabel = nullptr, *s_jumpCol = nullptr, *s_input = nullptr, *s_sheet = nullptr;
+lv_timer_t *s_browseTimer = nullptr;
+
+size_t pageCount() { return s_view.empty() ? 1 : (s_view.size() + PAGE - 1) / PAGE; }
+
+const char *sortText()
+{
+    switch (s_query.sort) {
+    case SupernovaIndex::Sort::TITLE: return tr(Str::SUPERNOVA_SORT_TITLE);
+    case SupernovaIndex::Sort::YEAR: return tr(Str::SUPERNOVA_SORT_YEAR);
+    default: return tr(Str::SUPERNOVA_SORT_ARTIST);
+    }
+}
+
+std::string filterText()
+{
+    if (s_query.kind == SupernovaIndex::FilterKind::NONE) return tr(Str::SUPERNOVA_FILTER);
+    return s_query.kind == SupernovaIndex::FilterKind::DECADE ? s_query.value + "s" : s_query.value;
+}
+
+void rebuildView()
+{
+    SupernovaLibrary::withLibrary([](const SupernovaIndex::Library &lib) {
+        s_view = lib.view(s_query);
+        s_shownGen = SupernovaLibrary::generation();
+    });
+    if (s_page >= pageCount()) s_page = pageCount() - 1;
+}
+
+void updateInfo()
+{
+    if (!s_info) return;
+    size_t done = 0, total = 0;
+    SupernovaLibrary::progress(done, total);
+    s_shownScanning = SupernovaLibrary::scanning();
+    s_shownDone = done;
+    if (s_shownScanning) lv_label_set_text_fmt(s_info, tr(Str::SUPERNOVA_SCANNING), (unsigned)done, (unsigned)total);
+    else lv_label_set_text_fmt(s_info, tr(Str::KARA_N_SONGS), (unsigned)s_view.size());
+    lv_label_set_text_fmt(s_pageLabel, tr(Str::KARA_PAGE), (unsigned)(s_page + 1), (unsigned)pageCount());
+    lv_label_set_text(s_sortLabel, sortText());
+    lv_label_set_text(s_filterLabel, filterText().c_str());
+    lv_obj_t *searchLabel = lv_obj_get_child(s_searchBtn, 0);
+    lv_label_set_text(searchLabel, s_query.text.empty() ? tr(Str::SUPERNOVA_SEARCH_TITLE) : s_query.text.c_str());
+    const bool jump = s_query.sort != SupernovaIndex::Sort::YEAR && s_view.size() > PAGE;
+    if (jump) lv_obj_clear_flag(s_jumpCol, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_jumpCol, LV_OBJ_FLAG_HIDDEN);
+}
+
+void playFromView(size_t pos)
+{
+    std::string folder, title;
+    SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+        if (SupernovaLibrary::generation() != s_shownGen || pos >= s_view.size()) return;
+        folder = lib.folder(s_view[pos]);
+        title = lib.title(s_view[pos]);
+    });
+    if (!folder.empty()) playSong(folder, title);
+}
+
+void renderList()
+{
+    lv_obj_clean(s_list);
+    lv_obj_scroll_to_y(s_list, 0, LV_ANIM_OFF);
+    if (s_view.empty()) {
+        const bool filtered = !s_query.text.empty() || s_query.kind != SupernovaIndex::FilterKind::NONE;
+        if (!(SupernovaLibrary::scanning() && !filtered)) {
+            lv_obj_t *empty = Theme::label(s_list, filtered ? tr(Str::KARA_NO_MATCH) : tr(Str::SUPERNOVA_EMPTY),
+                                           &my_font_18, Theme::MUTED);
+            lv_obj_set_width(empty, LV_PCT(100));
+        }
+    } else {
+        const size_t first = s_page * PAGE, last = std::min(first + PAGE, s_view.size());
+        SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+            for (size_t i = first; i < last; i++) {
+                const uint16_t idx = s_view[i];
+                std::string desc = lib.artist(idx);
+                if (lib.year(idx)) desc += (desc.empty() ? "" : "  ") + std::to_string(lib.year(idx));
+                lv_obj_t *button = Theme::menuCard(s_list, LV_PCT(100), lib.title(idx), desc.c_str(), nullptr,
+                                                   LV_SYMBOL_AUDIO, Theme::BLUE);
+                lv_obj_add_event_cb(button, [](lv_event_t *event) {
+                    static uint32_t last = 0;
+                    if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+                    playFromView((size_t)(uintptr_t)lv_event_get_user_data(event));
+                }, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
+            }
+        });
+    }
+    updateInfo();
+}
+
+void requery()
+{
+    s_page = 0;
+    rebuildView();
+    renderList();
+}
+
+void gotoPage(int delta)
+{
+    const int next = (int)s_page + delta;
+    if (next < 0 || next >= (int)pageCount()) return;
+    s_page = (size_t)next;
+    renderList();
+}
+
+void searchDone(const char *text, bool confirmed, void *)
+{
+    if (!confirmed) {   // BACK closes the widget itself
+        s_input = nullptr;
+        return;
+    }
+    TextInput::close(s_input);
+    s_input = nullptr;
+    std::string q = text ? text : "";
+    while (!q.empty() && q.back() == ' ') q.pop_back();
+    while (!q.empty() && q[0] == ' ') q.erase(0, 1);
+    s_query.text = q;
+    requery();
+}
+
+void closeSheet()
+{
+    if (s_sheet) lv_obj_delete(s_sheet);
+    s_sheet = nullptr;
+}
+
+void applyFilter(SupernovaIndex::FilterKind kind, const std::string &value)
+{
+    s_query.kind = kind;
+    s_query.value = value;
+    closeSheet();
+    requery();
+}
+
+struct FilterPick {
+    SupernovaIndex::FilterKind kind;
+    std::string value;
+};
+
+void openSheet()
+{
+    if (s_sheet) return;
+    s_sheet = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(s_sheet);
+    lv_obj_set_size(s_sheet, UiMetrics::screenW(), UiMetrics::screenH() - UiMetrics::headerH());
+    lv_obj_set_pos(s_sheet, 0, UiMetrics::headerH());
+    lv_obj_set_style_bg_color(s_sheet, Theme::c(Theme::BG), 0);
+    lv_obj_set_style_bg_opa(s_sheet, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(s_sheet, UiMetrics::marginNormal(), 0);
+    lv_obj_set_flex_flow(s_sheet, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_sheet, 6, 0);
+    lv_obj_set_scroll_dir(s_sheet, LV_DIR_VER);
+    const int32_t w = UiMetrics::screenW() - 2 * UiMetrics::marginNormal();
+    const int32_t h = UiMetrics::buttonH();
+    auto addButton = [&](const std::string &text, uint32_t color, SupernovaIndex::FilterKind kind, const std::string &value) {
+        lv_obj_t *b = Theme::button(s_sheet, text.c_str(), w, h, color);
+        auto *pick = new FilterPick{kind, value};
+        lv_obj_add_event_cb(b, [](lv_event_t *e) {
+            static uint32_t last = 0;
+            if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+            const FilterPick p = *(FilterPick *)lv_event_get_user_data(e);
+            lv_async_call([](void *arg) {
+                FilterPick *q = (FilterPick *)arg;
+                applyFilter(q->kind, q->value);
+                delete q;
+            }, new FilterPick(p));
+        }, LV_EVENT_CLICKED, pick);
+        lv_obj_add_event_cb(b, [](lv_event_t *e) { delete (FilterPick *)lv_event_get_user_data(e); }, LV_EVENT_DELETE, pick);
+    };
+    addButton(tr(Str::SUPERNOVA_FILTER_ALL), Theme::GOLD, SupernovaIndex::FilterKind::NONE, "");
+    struct Section {
+        SupernovaIndex::FilterKind kind;
+        Str title;
+    };
+    const Section sections[] = {{SupernovaIndex::FilterKind::GENRE, Str::SUPERNOVA_FILTER_GENRE},
+                                {SupernovaIndex::FilterKind::LANGUAGE, Str::SUPERNOVA_FILTER_LANGUAGE},
+                                {SupernovaIndex::FilterKind::DECADE, Str::SUPERNOVA_FILTER_DECADE}};
+    SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+        for (const Section &s : sections) {
+            const auto values = lib.values(s.kind);
+            if (values.empty()) continue;
+            lv_obj_t *title = Theme::label(s_sheet, tr(s.title), &my_font_18, Theme::MUTED);
+            lv_obj_set_width(title, w);
+            size_t n = 0;
+            for (const auto &v : values) {
+                if (++n > MAX_FILTER_VALUES) break;
+                addButton(v.name + " (" + std::to_string(v.count) + ")", Theme::BLUE, s.kind, v.key);
+            }
+        }
+    });
+}
+
+void browserDeleted(lv_event_t *)
+{
+    if (s_browseTimer) lv_timer_delete(s_browseTimer);
+    s_browseTimer = nullptr;
+    s_list = s_info = s_pageLabel = s_searchBtn = s_sortLabel = s_filterLabel = s_jumpCol = s_input = s_sheet = nullptr;
+}
+
+void browseTick(lv_timer_t *)
+{
+    if (s_input) return;
+    const bool scanningNow = SupernovaLibrary::scanning();
+    if (SupernovaLibrary::generation() != s_shownGen && !s_sheet) {
+        rebuildView();
+        renderList();
+        return;
+    }
+    size_t done = 0, total = 0;
+    SupernovaLibrary::progress(done, total);
+    if (scanningNow != s_shownScanning || (scanningNow && done != s_shownDone)) updateInfo();
+}
+
+void buildBrowser()
+{
+    lv_obj_t *screen = Theme::screen();
+    lv_obj_t *header = Theme::header(screen, tr(Str::MENU_SUPERNOVA));
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { home(); }, LV_EVENT_CLICKED, nullptr);
+
+    const int32_t margin = UiMetrics::marginNormal();
+    const int32_t gap = 6;
+    const int32_t w = UiMetrics::screenW();
+    const int32_t barH = UiMetrics::buttonH();
+    const int32_t y0 = UiMetrics::headerH() + gap;
+    const int32_t btnW = (w - 2 * margin) / 4;
+    const int32_t searchW = w - 2 * margin - 2 * btnW - 2 * gap;
+
+    s_searchBtn = Theme::button(screen, tr(Str::SUPERNOVA_SEARCH_TITLE), searchW, barH, Theme::BLUE);
+    lv_obj_set_pos(s_searchBtn, margin, y0);
+    lv_obj_t *searchLabel = lv_obj_get_child(s_searchBtn, 0);
+    lv_label_set_long_mode(searchLabel, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(searchLabel, searchW - 16);
+    lv_obj_add_event_cb(s_searchBtn, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, DEBOUNCE_MS) || s_input) return;
+        s_input = TextInput::open(lv_screen_active(), 0, 0, UiMetrics::screenW(), UiMetrics::screenH(),
+                                  tr(Str::SUPERNOVA_SEARCH_TITLE), s_query.text.c_str(), 40, false, searchDone, nullptr);
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *sort = Theme::button(screen, sortText(), btnW, barH, Theme::GOLD);
+    lv_obj_set_pos(sort, margin + searchW + gap, y0);
+    s_sortLabel = lv_obj_get_child(sort, 0);
+    lv_obj_add_event_cb(sort, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+        using S = SupernovaIndex::Sort;
+        s_query.sort = s_query.sort == S::ARTIST ? S::TITLE : s_query.sort == S::TITLE ? S::YEAR : S::ARTIST;
+        requery();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *filter = Theme::button(screen, filterText().c_str(), btnW, barH, Theme::BLUE);
+    lv_obj_set_pos(filter, margin + searchW + btnW + 2 * gap, y0);
+    s_filterLabel = lv_obj_get_child(filter, 0);
+    lv_label_set_long_mode(s_filterLabel, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_width(s_filterLabel, btnW - 12);
+    lv_obj_add_event_cb(filter, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (Theme::debounce(last, DEBOUNCE_MS)) openSheet();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    const int32_t infoY = y0 + barH + gap;
+    s_info = Theme::label(screen, "", &my_font_14, Theme::MUTED);
+    lv_obj_set_pos(s_info, margin, infoY);
+    lv_obj_set_width(s_info, w - 2 * margin);
+    lv_label_set_long_mode(s_info, LV_LABEL_LONG_MODE_DOTS);
+
+    const int32_t listY = infoY + 24;
+    const int32_t footerY = UiMetrics::screenH() - barH - gap;
+    const int32_t jumpW = 36;
+    s_list = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_list);
+    lv_obj_set_pos(s_list, margin, listY);
+    lv_obj_set_size(s_list, w - 2 * margin - jumpW - gap, footerY - listY - gap);
+    lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_list, UiMetrics::cardSpacing(), 0);
+    lv_obj_set_scrollable(s_list, true);
+    lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
+
+    s_jumpCol = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_jumpCol);
+    lv_obj_set_size(s_jumpCol, jumpW, footerY - listY - gap);
+    lv_obj_set_pos(s_jumpCol, w - margin - jumpW, listY);
+    const int32_t kh = (footerY - listY - gap) / JUMP_N;
+    for (int i = 0; i < JUMP_N; i++) {
+        lv_obj_t *k = lv_button_create(s_jumpCol);
+        lv_obj_remove_style_all(k);
+        lv_obj_set_size(k, jumpW, kh - 2);
+        lv_obj_set_pos(k, 0, i * kh);
+        lv_obj_set_style_radius(k, 6, 0);
+        lv_obj_set_style_bg_color(k, Theme::c(Theme::PANEL), 0);
+        lv_obj_set_style_bg_opa(k, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(k, Theme::c(Theme::ACCENT), LV_STATE_PRESSED);
+        lv_obj_center(Theme::label(k, JUMP[i].text, &my_font_14, Theme::TEXT));
+        lv_obj_add_event_cb(k, [](lv_event_t *e) {
+            static uint32_t last = 0;
+            if (!Theme::debounce(last, 250)) return;
+            const uint16_t rank = JUMP[(int)(intptr_t)lv_event_get_user_data(e)].rank;
+            size_t pos = 0;
+            SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
+                if (SupernovaLibrary::generation() == s_shownGen)
+                    pos = SupernovaIndex::jumpIndex(lib, s_view, s_query.sort, rank);
+            });
+            if (pos >= s_view.size()) pos = s_view.empty() ? 0 : s_view.size() - 1;
+            s_page = pos / PAGE;
+            renderList();
+        }, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    }
+
+    const int32_t navW = btnW;
+    lv_obj_t *prev = Theme::button(screen, LV_SYMBOL_LEFT, navW, barH, Theme::BLUE);
+    lv_obj_set_pos(prev, margin, footerY);
+    lv_obj_add_event_cb(prev, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (Theme::debounce(last, 250)) gotoPage(-1);
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *next = Theme::button(screen, LV_SYMBOL_RIGHT, navW, barH, Theme::BLUE);
+    lv_obj_set_pos(next, margin + navW + gap, footerY);
+    lv_obj_add_event_cb(next, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (Theme::debounce(last, 250)) gotoPage(1);
+    }, LV_EVENT_CLICKED, nullptr);
+    s_pageLabel = Theme::label(screen, "", &my_font_14, Theme::TEXT);
+    lv_obj_set_pos(s_pageLabel, margin + 2 * (navW + gap) + 4, footerY + (barH - 18) / 2);
+    lv_obj_t *rescan = Theme::button(screen, tr(Str::SUPERNOVA_RESCAN), navW + 20, barH, Theme::GOLD);
+    lv_obj_set_pos(rescan, w - margin - navW - 20, footerY);
+    lv_obj_add_event_cb(rescan, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+        SupernovaLibrary::start(true);
+        updateInfo();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    rebuildView();
+    renderList();
+    s_browseTimer = lv_timer_create(browseTick, 300, nullptr);
+    lv_obj_add_event_cb(screen, browserDeleted, LV_EVENT_DELETE, nullptr);
+    Theme::loadScreen(screen);
+}
+#endif
+
 }  // namespace
 
 void show()
@@ -558,48 +855,8 @@ void show()
         showError(tr(Str::SUPERNOVA_NO_SD));
         return;
     }
-    bool sdReady = false, catalogReady = false;
-    s_songs = scanSongs(sdReady, catalogReady);
-    if (!sdReady) {
-        showError(tr(Str::SUPERNOVA_NO_SD));
-        return;
-    }
-    if (!catalogReady) {
-        showError(tr(Str::SUPERNOVA_CATALOG_ERROR));
-        return;
-    }
-    lv_obj_t *screen = Theme::screen();
-    lv_obj_t *header = Theme::header(screen, tr(Str::MENU_SUPERNOVA));
-    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
-    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { home(); }, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *list = lv_obj_create(screen);
-    lv_obj_remove_style_all(list);
-    lv_obj_set_pos(list, UiMetrics::marginNormal(), UiMetrics::headerH());
-    lv_obj_set_size(list, UiMetrics::screenW() - 2 * UiMetrics::marginNormal(),
-                    UiMetrics::screenH() - UiMetrics::headerH() - UiMetrics::footerH());
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list, UiMetrics::cardSpacing(), 0);
-    lv_obj_set_scrollable(list, true);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    if (s_songs.empty()) {
-        lv_obj_t *empty = Theme::label(screen, tr(Str::SUPERNOVA_EMPTY), &my_font_18, Theme::MUTED);
-        lv_obj_set_width(empty, UiMetrics::screenW() - 2 * UiMetrics::marginNormal());
-        lv_obj_align(empty, LV_ALIGN_CENTER, 0, 0);
-    } else {
-        for (size_t i = 0; i < s_songs.size(); i++) {
-            const Song &song = s_songs[i];
-            const size_t dash = song.folder.find(" - ");
-            const std::string artist = dash == std::string::npos ? "" : song.folder.substr(0, dash);
-            const std::string title = dash == std::string::npos ? song.folder : song.folder.substr(dash + 3);
-            lv_obj_t *button = Theme::menuCard(list, LV_PCT(100), title.c_str(), artist.c_str(),
-                                               nullptr, LV_SYMBOL_AUDIO, Theme::BLUE);
-            lv_obj_add_event_cb(button, [](lv_event_t *event) {
-                playSong((size_t)(uintptr_t)lv_event_get_user_data(event));
-            }, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
-        }
-    }
-    Theme::loadScreen(screen);
+    SupernovaLibrary::start(false);
+    buildBrowser();
 #endif
 }
 
