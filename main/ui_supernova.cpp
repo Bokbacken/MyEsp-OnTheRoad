@@ -56,6 +56,8 @@ constexpr int32_t CD_DOT = 13, CD_GAP = 8;
 constexpr int32_t RAIL_W = 36;   // Narrow volume rail at the right edge
 constexpr int32_t BAR_H = 3;     // Song progress bar at the bottom edge
 lv_obj_t *s_volSlider = nullptr, *s_volLabel = nullptr, *s_progBar = nullptr;
+lv_obj_t *s_mainRow = nullptr, *s_syncRow = nullptr, *s_syncOffset = nullptr, *s_badButton = nullptr;
+bool s_syncDirty = false;
 bool s_volDragging = false;
 uint32_t s_durationMs = 0;
 int s_ovlW = 0;
@@ -318,7 +320,12 @@ void closePlayer()
     }
     s_playerScreen = nullptr;
     deleteOverlay();
+    if (s_syncDirty) {
+        s_syncDirty = false;
+        if (!SupernovaLibrary::saveSync()) showError(tr(Str::SET_SAVE_FAILED));
+    }
     s_playerHeader = s_pauseButton = nullptr;
+    s_mainRow = s_syncRow = s_syncOffset = s_badButton = nullptr;
     s_sizeLabel = s_posLabel = s_timeLabel = s_playLabel = nullptr;
     s_volSlider = s_volLabel = s_progBar = nullptr;
     s_volDragging = false;
@@ -425,6 +432,9 @@ void playerTick(lv_timer_t *)
         s_playerVisible = true;
     }
     const uint32_t pos = SupernovaPlayer::positionMs();
+    const SupernovaSync::Entry *sync = SupernovaLibrary::syncStore().find(s_songFolder);
+    if (s_syncOffset && lv_obj_is_visible(s_syncOffset))
+        lv_label_set_text_fmt(s_syncOffset, "%+.1fs", (sync ? SupernovaSync::offsetAt(*sync, pos) : 0) / 1000.0f);
     if (!s_durationMs) {
         s_durationMs = SupernovaPlayer::durationMs();
         if (!s_durationMs && !s_lyrics.phrases.empty()) s_durationMs = s_lyrics.phrases.back().endMs + 5000;
@@ -435,10 +445,91 @@ void playerTick(lv_timer_t *)
         shownSeconds = pos / 1000;
         lv_label_set_text_fmt(s_timeLabel, "%02u:%02u", (unsigned)(pos / 60000), (unsigned)(shownSeconds % 60));
     }
-    updateLyrics(pos);
+    updateLyrics(SupernovaSync::lyricTime(sync, pos));
 }
 
 void beginSong(const std::string &title);
+
+// Dark header buttons keep the controls from glaring over the video.
+void darkButton(lv_obj_t *button, bool active = false)
+{
+    lv_obj_set_style_bg_color(button, lv_color_hex(active ? 0x4a3410 : 0x1c1c1c), 0);
+    lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_NONE, 0);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
+    lv_obj_set_style_shadow_width(button, 0, 0);
+    lv_obj_set_style_border_width(button, 0, 0);
+    lv_obj_set_style_text_color(button, lv_color_hex(0x9a9a9a), 0);
+}
+
+void showSyncRow(bool on)
+{
+    if (!s_mainRow || !s_syncRow) return;
+    if (on) {
+        lv_obj_add_flag(s_mainRow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_syncRow, LV_OBJ_FLAG_HIDDEN);
+        darkButton(s_badButton, SupernovaLibrary::syncStore().broken(s_songFolder));
+    } else {
+        lv_obj_add_flag(s_syncRow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_mainRow, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// Lyrics move by deltaMs from the current position onwards (positive = later).
+void nudge(int32_t deltaMs)
+{
+    if (s_mediaState.load(std::memory_order_acquire) != MediaState::PLAYING) return;
+    if (!SupernovaLibrary::syncStore().adjust(s_songFolder, SupernovaPlayer::positionMs(), deltaMs)) return;
+    s_syncDirty = true;
+    s_lastPhrase = UINT32_MAX;
+    s_lastNote = UINT32_MAX;
+}
+
+void buildSyncRow(lv_obj_t *top, int32_t headerH)
+{
+    lv_obj_t *row = lv_obj_create(top);
+    s_syncRow = row;
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, UiMetrics::screenW(), headerH);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(row, 4, 0);
+    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+    auto add = [&](const char *text, lv_event_cb_t cb) {
+        lv_obj_t *button = lv_button_create(row);
+        darkButton(button);
+        lv_obj_set_size(button, LV_SIZE_CONTENT, UiMetrics::buttonH());
+        lv_obj_set_style_pad_hor(button, 8, 0);
+        lv_obj_t *label = lv_label_create(button);
+        lv_label_set_text(label, text);
+        lv_obj_center(label);
+        lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, nullptr);
+        return button;
+    };
+    add(tr(Str::SUPERNOVA_SYNC_DONE), [](lv_event_t *) { showSyncRow(false); });
+    add("-5s", [](lv_event_t *) { nudge(-5000); });
+    add("-1s", [](lv_event_t *) { nudge(-1000); });
+    add("-0.1s", [](lv_event_t *) { nudge(-100); });
+    s_syncOffset = makeText(row, "+0.0s", &my_font_18, lv_color_hex(0xc0c0c0));
+    lv_obj_set_style_min_width(s_syncOffset, 64, 0);
+    lv_obj_set_style_text_align(s_syncOffset, LV_TEXT_ALIGN_CENTER, 0);
+    add("+0.1s", [](lv_event_t *) { nudge(100); });
+    add("+1s", [](lv_event_t *) { nudge(1000); });
+    add("+5s", [](lv_event_t *) { nudge(5000); });
+    add(tr(Str::SUPERNOVA_SYNC_RESET), [](lv_event_t *) {
+        SupernovaLibrary::syncStore().resetAdjustments(s_songFolder);
+        s_syncDirty = true;
+        s_lastPhrase = UINT32_MAX;
+        s_lastNote = UINT32_MAX;
+    });
+    s_badButton = add(tr(Str::SUPERNOVA_SYNC_BAD), [](lv_event_t *) {
+        SupernovaSync::Store &store = SupernovaLibrary::syncStore();
+        store.setBroken(s_songFolder, !store.broken(s_songFolder));
+        s_syncDirty = true;
+        darkButton(s_badButton, store.broken(s_songFolder));
+    });
+}
 
 void chooseVariant(const std::string &title)
 {
@@ -505,7 +596,13 @@ void beginSong(const std::string &title)
     lv_obj_set_size(top, UiMetrics::screenW(), headerH);
     lv_obj_set_style_bg_color(top, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
-    lv_obj_t *back = lv_button_create(top);
+    lv_obj_t *row = lv_obj_create(top);   // Normal header controls; swapped for s_syncRow in sync mode
+    s_mainRow = row;
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, UiMetrics::screenW(), headerH);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *back = lv_button_create(row);
+    darkButton(back);
     lv_obj_set_size(back, UiMetrics::buttonWMin(), UiMetrics::buttonH());
     lv_obj_align(back, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_t *backLabel = lv_label_create(back);
@@ -513,13 +610,16 @@ void beginSong(const std::string &title)
     lv_obj_center(backLabel);
     lv_obj_add_event_cb(back, [](lv_event_t *) { backToSongs(); }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *name = makeText(top, title.c_str(), &my_font_18, lv_color_white());
-    lv_obj_set_width(name, UiMetrics::screenW() / 3);
-    lv_obj_align(name, LV_ALIGN_CENTER, -UiMetrics::buttonWMin(), 0);
-    s_timeLabel = makeText(top, "00:00", &my_font_14, lv_color_white());
+    const int step = UiMetrics::buttonWMin() + 6;
+    lv_obj_t *name = makeText(row, title.c_str(), &my_font_18, lv_color_hex(0x9a9a9a));
+    const int32_t nameX = UiMetrics::buttonWMin() + 12;
+    lv_obj_set_width(name, std::max<int32_t>(60, UiMetrics::screenW() - 64 - 3 * step - UiMetrics::buttonWMin() - nameX - 8));
+    lv_obj_align(name, LV_ALIGN_LEFT_MID, nameX, 0);
+    s_timeLabel = makeText(row, "00:00", &my_font_14, lv_color_hex(0x9a9a9a));
     lv_obj_align(s_timeLabel, LV_ALIGN_RIGHT_MID, -8, 0);
 
-    lv_obj_t *pause = lv_button_create(top);
+    lv_obj_t *pause = lv_button_create(row);
+    darkButton(pause);
     s_pauseButton = pause;
     lv_obj_add_state(pause, LV_STATE_DISABLED);
     lv_obj_set_size(pause, UiMetrics::buttonWMin(), UiMetrics::buttonH());
@@ -529,7 +629,8 @@ void beginSong(const std::string &title)
     lv_obj_center(s_playLabel);
     lv_obj_add_event_cb(pause, [](lv_event_t *) { togglePause(); }, LV_EVENT_CLICKED, nullptr);
     auto makeSetting = [&](lv_obj_t *&label, const char *text, int x, lv_event_cb_t cb) {
-        lv_obj_t *button = lv_button_create(top);
+        lv_obj_t *button = lv_button_create(row);
+        darkButton(button);
         lv_obj_set_size(button, UiMetrics::buttonWMin(), UiMetrics::buttonH());
         lv_obj_align(button, LV_ALIGN_RIGHT_MID, x, 0);
         label = lv_label_create(button);
@@ -537,7 +638,6 @@ void beginSong(const std::string &title)
         lv_obj_center(label);
         lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, nullptr);
     };
-    const int step = UiMetrics::buttonWMin() + 6;
     makeSetting(s_posLabel, posText(), -64 - step, [](lv_event_t *) {
         s_ovlPos = (s_ovlPos + 1) % 3;
         lv_label_set_text(s_posLabel, posText());
@@ -550,6 +650,9 @@ void beginSong(const std::string &title)
         saveOverlaySettings();
         s_lastPhrase = UINT32_MAX;
     });
+    lv_obj_t *syncLabel = nullptr;
+    makeSetting(syncLabel, tr(Str::SUPERNOVA_SYNC), -64 - 3 * step, [](lv_event_t *) { showSyncRow(true); });
+    buildSyncRow(top, headerH);
 
     s_volLabel = makeText(screen, "", &my_font_14, lv_color_white());
     lv_obj_set_width(s_volLabel, RAIL_W);
@@ -718,11 +821,13 @@ void renderList()
         }
     } else {
         const size_t first = s_page * PAGE, last = std::min(first + PAGE, s_view.size());
+        const SupernovaSync::Store &marks = SupernovaLibrary::syncStore();   // May read the card: before the lock
         SupernovaLibrary::withLibrary([&](const SupernovaIndex::Library &lib) {
             for (size_t i = first; i < last; i++) {
                 const uint16_t idx = s_view[i];
                 std::string desc = lib.artist(idx);
                 if (lib.year(idx)) desc += (desc.empty() ? "" : "  ") + std::to_string(lib.year(idx));
+                if (marks.broken(lib.folder(idx))) desc = "(!) " + desc;
                 lv_obj_t *button = Theme::menuCard(s_list, LV_PCT(100), lib.title(idx), desc.c_str(), nullptr,
                                                    LV_SYMBOL_AUDIO, Theme::BLUE);
                 lv_obj_add_event_cb(button, [](lv_event_t *event) {

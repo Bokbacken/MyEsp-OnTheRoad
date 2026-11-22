@@ -206,6 +206,16 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
      `#INSTRUMENTAL`/`#VOCALS`-taggar som reserv (v0.26.23) är ej verifierade
      på enhet. Volymlist, förloppsstapel      och nedräkningspunkter (v0.26.22) är verifierade av ägaren på enheten.
      Längd hämtas via `esp_player_get_duration`, annars sista frasens slut.
+     Ägaren har bekräftat att `.txt`-taggar enligt UltraStar-formatet räcker
+     (ingen ID3-läsning i mp3-filerna).
+  2c. [ ] Mörkare knappar i spelaren, textsynk och "trasig synk"-markering
+     (v0.26.25, ej verifierade på enhet): knappen Synk byter rubrikraden mot
+     −5/−1/−0,1 s och +0,1/+1/+5 s, Nollställ och Trasig synk. Justeringen
+     gäller från aktuell position och framåt, så ett glapp mitt i låten rättas
+     utan att början påverkas. Sparas per mapp i `supernova.sync` (sparas när
+     spelaren stängs). Trasiga låtar märks "(!)" i listan. Kvar: filter/sortering
+     på trasiga, justera/markera från webben, kontroll av att knapparna ryms på
+     fysisk skärm.
   3. Webb: spellisteditor (skapa/byt namn/ordning/radera) enligt karaokens
      modell (`karaoke.reg`, identitet via mappnamn); valfri import/export av
      USDX `.upl`.
