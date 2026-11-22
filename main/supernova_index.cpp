@@ -121,6 +121,28 @@ std::vector<std::string> words(const std::string &text)
     return out;
 }
 
+// The UI font lacks typographic quotes/dashes (they render as boxes), so map them to ASCII.
+std::string asciiPunct(const char *s)
+{
+    std::string out;
+    if (!s) return out;
+    for (const char *p = s; *p; p++) {
+        if ((uint8_t)p[0] == 0xE2 && (uint8_t)p[1] == 0x80 && p[2]) {
+            const uint8_t c = (uint8_t)p[2];
+            const char rep = (c == 0x98 || c == 0x99 || c == 0x9B) ? '\'' :
+                             (c == 0x9C || c == 0x9D || c == 0x9E) ? '"' :
+                             (c == 0x90 || c == 0x91 || c == 0x92 || c == 0x93 || c == 0x94) ? '-' : 0;
+            if (rep) {
+                out += rep;
+                p += 2;
+                continue;
+            }
+        }
+        out += *p;
+    }
+    return out;
+}
+
 }  // namespace
 
 void parseTags(const char *data, size_t len, Tags &out)
@@ -204,10 +226,10 @@ bool Library::add(const char *folder, const char *artist, const char *title, con
         return false;
     Rec r;
     r.folder = put(folder, MAX_FOLDER);
-    r.artist = put(artist, MAX_FIELD);
-    r.title = put(title, MAX_FIELD);
-    r.genre = put(genre, MAX_FIELD);
-    r.language = put(language, MAX_FIELD);
+    r.artist = put(asciiPunct(artist).c_str(), MAX_FIELD);
+    r.title = put(asciiPunct(title).c_str(), MAX_FIELD);
+    r.genre = put(asciiPunct(genre).c_str(), MAX_FIELD);
+    r.language = put(asciiPunct(language).c_str(), MAX_FIELD);
     r.year = year;
     r.mtime = mtime;
     m_recs.push_back(r);

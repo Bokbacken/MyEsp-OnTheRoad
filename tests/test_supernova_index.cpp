@@ -32,6 +32,10 @@ int main()
     parseTags(aud, strlen(aud), t);
     CHECK(t.audio == "Song.mp3" && t.mp3 == "old.mp3" && t.instrumental == "Song [Kar].mp3" && t.vocals == "v.mp3");
 
+    Library curly;
+    curly.add("Avril - Nobody's Home", "Avril Lavigne", "Nobody\xE2\x80\x99s Home \xE2\x80\x93 \xE2\x80\x9Cx\xE2\x80\x9D", "", "", 0, 1);
+    CHECK(strcmp(curly.title(0), "Nobody's Home - \"x\"") == 0);
+
     std::string a, ti;
     namesFromFolder("Queen - Radio Ga Ga", a, ti);
     CHECK(a == "Queen" && ti == "Radio Ga Ga");

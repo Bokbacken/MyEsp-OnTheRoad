@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.24
+
+- Supernova (P4): typographic apostrophes, quotes and dashes in artist/title
+  (e.g. `Nobody’s Home`) are shown as ASCII in the song list instead of a box.
+  Existing indexes are fixed on load; no rescan is needed.
+
 ## v0.26.23
 
 - Supernova (P4): when file names have no `[Kar]`/`[Voc]` marker, the `.txt`
