@@ -188,16 +188,24 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   förbi LVGL; v0.26.11 lägger texten som genomskinligt grått band blandat
   i videobilden (storlek S/M/L, läge topp/mitten/botten); väntar på enhetstest (bildruta, rotationsriktning, färger,
   tearing, `video(PPA direct)`-loggraden).
-- [ ] Supernova med ~1000 sånger (planerad, ej påbörjad). Indexet byggs på
-  enheten (ingen PC-/SD-flytt krävs), jämför `main/kara_index.*` och
-  USDX-metadata:
-  1. `supernova_index` i PSRAM med cache `supernova.idx`: mapp, artist, titel,
-     genre, språk, år, omslag/video-/ljudflagga ur `.txt`-taggar (inte full
-     textparsning). Bakgrundsskanning med förloppsvisning, rescan-knapp,
-     ändringsdetektering via mapptid/filstorlek. Gränsen ska vara ≥ 2000.
-  2. Enhets-UI: sidindelad lista, sök (titel/artist), A–Ö, sortera och
-     filtrera på artist/genre/språk/år, visa artist–titel i stället för
-     mappnamn.
+- [ ] Supernova med ~1000 sånger. Steg 1–2 implementerade i v0.26.19 (ej
+  verifierade på enhet: skanning/cache med ~50 och ~1000 mappar, sökning,
+  sortering, filter, A–Ö, ombyggnad efter att mappar lagts till/tagits bort,
+  `supernova.idx` på riktigt SD-kort). Indexet byggs på enheten (ingen
+  PC-/SD-flytt krävs), jämför `main/kara_index.*` och USDX-metadata:
+  1. [x] `supernova_index`/`supernova_library` i PSRAM med cache
+     `supernova.idx`: mapp, artist, titel, genre, språk, år ur `.txt`-taggar
+     (bara början av filen läses). Bakgrundsskanning med förloppsvisning,
+     rescan-knapp, ändringsdetektering via mapptid. Gräns 2000 låtar.
+     Omslag/video-/ljudflagga sparas inte; mediafiler hittas vid start.
+  2. [x] Enhets-UI: sidindelad lista (20/sida), sök (artist/titel), A–Ö,
+     sortera (artist/titel/år), filtrera (genre/språk/årtionde), artist–titel
+     i stället för mappnamn. Ändring av en fil på plats syns först efter
+     Läs om.
+  2b. [ ] Ljudvarianter `[Kar]`/`[Voc]` (v0.26.20) och `#AUDIO`/`#MP3`/
+     `#INSTRUMENTAL`/`#VOCALS`-taggar som reserv (v0.26.23) är ej verifierade
+     på enhet. Volymlist, förloppsstapel      och nedräkningspunkter (v0.26.22) är verifierade av ägaren på enheten.
+     Längd hämtas via `esp_player_get_duration`, annars sista frasens slut.
   3. Webb: spellisteditor (skapa/byt namn/ordning/radera) enligt karaokens
      modell (`karaoke.reg`, identitet via mappnamn); valfri import/export av
      USDX `.upl`.

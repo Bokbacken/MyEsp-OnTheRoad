@@ -8,6 +8,55 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.24
+
+- Supernova (P4): typographic apostrophes, quotes and dashes in artist/title
+  (e.g. `Nobody’s Home`) are shown as ASCII in the song list instead of a box.
+  Existing indexes are fixed on load; no rescan is needed.
+
+## v0.26.23
+
+- Supernova (P4): when file names have no `[Kar]`/`[Voc]` marker, the `.txt`
+  tags `#AUDIO` (or `#MP3`), `#INSTRUMENTAL` and `#VOCALS` of UltraStar format
+  1.1.0 name the audio files (same folder only). Name patterns still win.
+  Not yet run on hardware; host test covers the tag parsing.
+
+## v0.26.22
+
+- Supernova (P4): player gets a narrow master-volume slider at the right
+  edge (saved like the MIDI karaoke master volume), a 3 px progress bar at the
+  bottom (length from `esp_player_get_duration`, falling back to the last
+  lyric phrase) and countdown dots in pauses of 3 s or more (same rules as the
+  MIDI karaoke, drawn into the lyrics overlay). The video area shrinks by the
+  rail and bar. Not yet run on hardware; host test covers the dot logic.
+
+## v0.26.21
+
+- Supernova (P4): fixed the vocals chooser leaving its modal backdrop behind,
+  which blocked the player controls (back, text size, placement, pause).
+  Not yet run on hardware.
+
+## v0.26.20
+
+- Supernova (P4): song folders with several audio files (converted SingStar:
+  `Name.mp3` full mix, `Name [Kar].mp3` instrumental, `Name [Voc].mp3` vocals
+  only) now ask "With vocals / Without vocals" before playback. `[Voc]` is used
+  only when no plain file exists. Not yet run on hardware; the `#INSTRUMENTAL`
+  / `#VOCALS` tags of UltraStar format 1.1.0 are not read yet (file names only).
+
+## v0.26.19
+
+- Supernova (P4): song library for large collections. The song list is now
+  backed by an index (`/sdcard/otr/supernova/supernova.idx`, up to 2000 songs)
+  built on the device in the background: new or changed folders are read, the
+  rest is reused, so reopening Supernova is fast. The list has search (artist
+  and title), sort (artist/title/year), filter (genre/language/decade from the
+  `#GENRE`, `#LANGUAGE` and `#YEAR` tags), A-Ö jump and pages, and a Rescan
+  button. Delete `supernova.idx` or press Rescan after editing files in place.
+  Playlists and the web editor/remote are still planned.
+  Verification: host test `tests/test_supernova_index.cpp`; not yet run on
+  hardware.
+
 ## v0.26.18
 
 - Supernova (P4): the on-device MP4 -> AVI converter (v0.26.14-v0.26.17) is

@@ -674,6 +674,17 @@ const char *error()
     return s_error;
 }
 
+// Total length from container metadata; 0 when the player cannot tell (e.g. MP3 without a length header).
+uint32_t durationMs()
+{
+    for (esp_player_handle_t player : {s_audioPlayer, s_videoPlayer}) {
+        uint64_t duration = 0;
+        if (player && esp_player_get_duration(player, &duration) == ESP_PLAYER_ERR_OK && duration > 0)
+            return duration > UINT32_MAX ? UINT32_MAX : (uint32_t)duration;
+    }
+    return 0;
+}
+
 }  // namespace SupernovaPlayer
 
 extern "C" esp_video_render_err_t __real_esp_video_render_stream_open(
@@ -725,6 +736,7 @@ void stop() {}
 bool pause() { return false; }
 bool resume() { return false; }
 uint32_t positionMs() { return 0; }
+uint32_t durationMs() { return 0; }
 bool videoRect(int &, int &, int &, int &) { return false; }
 uint8_t *overlayBack(uint32_t &) { return nullptr; }
 void overlayPublish(int, int, int, int, int) {}

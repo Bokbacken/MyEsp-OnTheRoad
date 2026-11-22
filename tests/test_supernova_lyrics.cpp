@@ -60,5 +60,20 @@ int main()
     const char badUtf8[] = {'#', 'B', 'P', 'M', ':', '1', '0', '0', '\n', (char)0xFF};
     assert(parse(badUtf8, sizeof(badUtf8), doc) == Err::INVALID_UTF8);
     assert(parse(nullptr, 0, doc) == Err::EMPTY);
+
+    Document gap;
+    gap.phrases.resize(3);
+    gap.phrases[0].startMs = 5000, gap.phrases[0].endMs = 7000;
+    gap.phrases[1].startMs = 8000, gap.phrases[1].endMs = 9000;    // 1 s gap: no dots
+    gap.phrases[2].startMs = 19000, gap.phrases[2].endMs = 20000;  // 10 s gap: capped at 8 dots
+    assert(countdownAt(gap, 0).dots == 5);                          // intro 0..5 s
+    assert(countdownAt(gap, 0).lit == 0);
+    assert(countdownAt(gap, 3200).lit == 3);
+    assert(countdownAt(gap, 5000).dots == 0);
+    assert(countdownAt(gap, 7500).dots == 0);
+    assert(countdownAt(gap, 9000).dots == 8 && countdownAt(gap, 9000).lit == 0);
+    assert(countdownAt(gap, 15500).lit == 4);
+    assert(countdownAt(gap, 19000).dots == 0);
+    assert(countdownAt(gap, 25000).dots == 0);
     return 0;
 }

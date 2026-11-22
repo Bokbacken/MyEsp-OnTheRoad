@@ -57,4 +57,14 @@ std::string toDisplayText(const std::string &text);
 uint32_t phraseAt(const Document &doc, uint32_t timeMs);
 uint32_t noteAt(const Phrase &phrase, uint32_t timeMs);
 
+// Countdown dots for a long pause before the next phrase (same rules as MIDI karaoke): gaps of at
+// least COUNTDOWN_GAP_MS show round(gap seconds) dots, at most COUNTDOWN_MAX; lit dots grow left to right.
+constexpr uint32_t COUNTDOWN_GAP_MS = 3000;
+constexpr int COUNTDOWN_MAX = 8;
+struct Countdown {
+    int dots = 0;   // 0 = no countdown
+    int lit = 0;
+};
+Countdown countdownAt(const Document &doc, uint32_t timeMs);
+
 }  // namespace SupernovaLyrics
