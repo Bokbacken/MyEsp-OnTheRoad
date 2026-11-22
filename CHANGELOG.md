@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.25
+
+- Supernova (P4): the header buttons use a dark style so they no longer glare over the video.
+- Supernova (P4): new **Sync** mode in the player header. Nudge the lyrics −5/−1/−0.1 s or
+  +0.1/+1/+5 s; the change applies from the current position onwards, so drift that starts
+  mid-song is fixed without touching the beginning. Corrections and a "bad sync" mark are stored per
+  song folder in `supernova.sync` (written when the player closes); marked songs show `(!)` in the
+  list. Not hardware-verified.
+
 ## v0.26.24
 
 - Supernova (P4): typographic apostrophes, quotes and dashes in artist/title

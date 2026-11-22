@@ -101,6 +101,12 @@ void readTags(const std::string &path, SupernovaIndex::Tags &tags)
     SupernovaIndex::parseTags(buf.data(), n, tags);
 }
 
+constexpr const char *SYNC = "/sdcard/otr/supernova/supernova.sync";
+constexpr const char *SYNC_TMP = "/sdcard/otr/supernova/supernova.sntmp";
+constexpr size_t MAX_SYNC_BYTES = 512 * 1024;
+SupernovaSync::Store s_sync;   // Only touched from the LVGL task
+bool s_syncLoaded = false;
+
 struct Dir {
     std::string name;
     uint32_t mtime;
@@ -230,6 +236,48 @@ void applyAudioTags(const std::string &folder, const std::vector<std::string> &f
 }  // namespace
 
 std::string folderPath(const char *folderName) { return std::string(ROOT) + "/" + folderName; }
+
+SupernovaSync::Store &syncStore()
+{
+    if (s_syncLoaded) return s_sync;
+    BoardSd::Guard guard;
+    if (!BoardSd::mounted()) return s_sync;   // Try again once the card is there
+    s_syncLoaded = true;
+    if (FILE *f = fopen(SYNC, "rb")) {
+        std::string data;
+        if (fseek(f, 0, SEEK_END) == 0) {
+            const long size = ftell(f);
+            if (size > 0 && (size_t)size <= MAX_SYNC_BYTES && fseek(f, 0, SEEK_SET) == 0) {
+                data.resize((size_t)size);
+                if (fread(&data[0], 1, data.size(), f) != data.size()) data.clear();
+            }
+        }
+        fclose(f);
+        s_sync.decode(data.data(), data.size());
+    }
+    return s_sync;
+}
+
+bool saveSync()
+{
+    const std::string data = s_sync.encode();
+    BoardSd::Guard guard;
+    if (!BoardSd::mounted() || !BoardSd::ensureDir(ROOT)) return false;
+    FILE *f = fopen(SYNC_TMP, "wb");
+    if (!f) return false;
+    const bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
+    fclose(f);
+    if (!ok) {
+        remove(SYNC_TMP);
+        return false;
+    }
+    remove(SYNC);
+    if (rename(SYNC_TMP, SYNC) != 0) {
+        ESP_LOGW(TAG, "could not store %s", SYNC);
+        return false;
+    }
+    return true;
+}
 
 bool findMedia(const std::string &folder, Media &song)
 {

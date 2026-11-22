@@ -10,6 +10,7 @@
 #include <string>
 
 #include "supernova_index.h"
+#include "supernova_sync.h"
 
 namespace SupernovaLibrary {
 
@@ -23,6 +24,11 @@ struct Media {
 // preferred over .mp4).
 bool findMedia(const std::string &folderPath, Media &out);
 std::string folderPath(const char *folderName);
+
+// Lyrics sync corrections / "broken sync" marks (supernova.sync). LVGL task only. The store is
+// loaded on first use; saveSync() writes it back (false if the card is missing or the write failed).
+SupernovaSync::Store &syncStore();
+bool saveSync();
 
 // Loads the cache (first call only) and starts a background scan unless one is running.
 // force = read every folder again, otherwise unchanged folders (same mtime) are reused.
