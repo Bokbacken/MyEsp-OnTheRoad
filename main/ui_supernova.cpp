@@ -392,13 +392,11 @@ void chooseVariant(const std::string &title)
     lv_obj_t *without = lv_msgbox_add_footer_button(box, tr(Str::SUPERNOVA_WITHOUT_VOCALS));
     Theme::msgboxFonts(box);
     lv_obj_add_event_cb(with, [](lv_event_t *e) {
-        lv_obj_t *b = lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e)));
-        lv_obj_delete_async(b);
+        lv_msgbox_close_async(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e))));
         beginSong(pendingTitle);
     }, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(without, [](lv_event_t *e) {
-        lv_obj_t *b = lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e)));
-        lv_obj_delete_async(b);
+        lv_msgbox_close_async(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target_obj(e))));
         s_song.audio = s_song.instrumental;
         beginSong(pendingTitle);
     }, LV_EVENT_CLICKED, nullptr);

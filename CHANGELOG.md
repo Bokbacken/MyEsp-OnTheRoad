@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.21
+
+- Supernova (P4): fixed the vocals chooser leaving its modal backdrop behind,
+  which blocked the player controls (back, text size, placement, pause).
+  Not yet run on hardware.
+
 ## v0.26.20
 
 - Supernova (P4): song folders with several audio files (converted SingStar:
