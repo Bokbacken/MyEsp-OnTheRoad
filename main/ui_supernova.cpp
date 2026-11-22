@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "app_config.h"
+#include "board_audio.h"
 #include "board_display.h"
 #include "board_sd.h"
 #include "hw_profile.h"
@@ -47,6 +49,15 @@ lv_obj_t *s_nextLine = nullptr;
 lv_obj_t *s_curSung = nullptr;   // Gold copy of the current line holding only the sung syllables
 lv_obj_t *s_sizeLabel = nullptr;
 lv_obj_t *s_posLabel = nullptr;
+lv_obj_t *s_cdRow = nullptr;   // Countdown dots inside the lyrics overlay, shown in long pauses
+lv_obj_t *s_cdDot[SupernovaLyrics::COUNTDOWN_MAX] = {};
+int s_cdDots = -1, s_cdLit = -1;
+constexpr int32_t CD_DOT = 13, CD_GAP = 8;
+constexpr int32_t RAIL_W = 36;   // Narrow volume rail at the right edge
+constexpr int32_t BAR_H = 3;     // Song progress bar at the bottom edge
+lv_obj_t *s_volSlider = nullptr, *s_volLabel = nullptr, *s_progBar = nullptr;
+bool s_volDragging = false;
+uint32_t s_durationMs = 0;
 int s_ovlW = 0;
 bool s_ovlDirty = false;
 uint8_t s_ovlSize = 1;   // 0 small, 1 medium, 2 large
@@ -146,7 +157,8 @@ void fitFont(lv_obj_t *label, int firstStep, int32_t avail)
 void deleteOverlay()
 {
     if (s_ovlScreen) lv_obj_delete(s_ovlScreen);
-    s_ovlScreen = s_ovlBox = s_curBox = s_curLine = s_nextLine = s_curSung = nullptr;
+    s_ovlScreen = s_ovlBox = s_curBox = s_curLine = s_nextLine = s_curSung = s_cdRow = nullptr;
+    for (lv_obj_t *&dot : s_cdDot) dot = nullptr;
     s_ovlDirty = false;
 }
 
@@ -168,6 +180,20 @@ bool ensureOverlay()
     lv_obj_remove_flag(s_ovlBox, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(s_ovlBox, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_ovlBox, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_cdRow = lv_obj_create(s_ovlBox);
+    lv_obj_remove_style_all(s_cdRow);
+    lv_obj_remove_flag(s_cdRow, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_height(s_cdRow, CD_DOT);
+    lv_obj_add_flag(s_cdRow, LV_OBJ_FLAG_HIDDEN);
+    for (lv_obj_t *&dot : s_cdDot) {
+        dot = lv_obj_create(s_cdRow);
+        lv_obj_remove_style_all(dot);
+        lv_obj_set_size(dot, CD_DOT, CD_DOT);
+        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+    }
+    s_cdDots = s_cdLit = -1;
     s_curBox = lv_obj_create(s_ovlBox);
     lv_obj_remove_style_all(s_curBox);
     lv_obj_remove_flag(s_curBox, LV_OBJ_FLAG_SCROLLABLE);
@@ -217,9 +243,34 @@ void renderOverlay()
 #endif
 }
 
+void updateCountdown(uint32_t pos)
+{
+    const SupernovaLyrics::Countdown cd = SupernovaLyrics::countdownAt(s_lyrics, pos);
+    if (cd.dots == s_cdDots && cd.lit == s_cdLit) return;
+    s_cdDots = cd.dots;
+    s_cdLit = cd.lit;
+    if (cd.dots <= 0) {
+        lv_obj_add_flag(s_cdRow, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_set_width(s_cdRow, cd.dots * CD_DOT + (cd.dots - 1) * CD_GAP);
+        for (int i = 0; i < SupernovaLyrics::COUNTDOWN_MAX; i++) {
+            if (i >= cd.dots) {
+                lv_obj_add_flag(s_cdDot[i], LV_OBJ_FLAG_HIDDEN);
+                continue;
+            }
+            lv_obj_remove_flag(s_cdDot[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(s_cdDot[i], i * (CD_DOT + CD_GAP), 0);
+            lv_obj_set_style_bg_color(s_cdDot[i], i < cd.lit ? Theme::c(Theme::GOLD) : lv_color_white(), 0);
+        }
+        lv_obj_remove_flag(s_cdRow, LV_OBJ_FLAG_HIDDEN);
+    }
+    s_ovlDirty = true;
+}
+
 void updateLyrics(uint32_t pos)
 {
     if (!s_playerScreen || s_lyrics.phrases.empty() || !ensureOverlay()) return;
+    updateCountdown(pos);
     const uint32_t phraseIndex = SupernovaLyrics::phraseAt(s_lyrics, pos);
     if (phraseIndex != s_lastPhrase) {
         const std::string next = phraseIndex + 1 < s_lyrics.phrases.size()
@@ -269,6 +320,9 @@ void closePlayer()
     deleteOverlay();
     s_playerHeader = s_pauseButton = nullptr;
     s_sizeLabel = s_posLabel = s_timeLabel = s_playLabel = nullptr;
+    s_volSlider = s_volLabel = s_progBar = nullptr;
+    s_volDragging = false;
+    s_durationMs = 0;
     s_lastPhrase = UINT32_MAX;
     s_lastNote = UINT32_MAX;
     s_playerPaused = false;
@@ -371,6 +425,11 @@ void playerTick(lv_timer_t *)
         s_playerVisible = true;
     }
     const uint32_t pos = SupernovaPlayer::positionMs();
+    if (!s_durationMs) {
+        s_durationMs = SupernovaPlayer::durationMs();
+        if (!s_durationMs && !s_lyrics.phrases.empty()) s_durationMs = s_lyrics.phrases.back().endMs + 5000;
+    }
+    if (s_progBar && s_durationMs) lv_bar_set_value(s_progBar, (int32_t)std::min<uint64_t>(1000, (uint64_t)pos * 1000 / s_durationMs), LV_ANIM_OFF);
     static uint32_t shownSeconds = UINT32_MAX;
     if (pos / 1000 != shownSeconds) {
         shownSeconds = pos / 1000;
@@ -434,7 +493,7 @@ void beginSong(const std::string &title)
     // Only the thin header is opaque; lyrics are blended into the video frame itself.
     const int headerH = UiMetrics::buttonH() + 8;
     loadOverlaySettings();
-    SupernovaPlayer::setVideoArea(0, headerH, UiMetrics::screenW(), UiMetrics::screenH() - headerH);
+    SupernovaPlayer::setVideoArea(0, headerH, UiMetrics::screenW() - RAIL_W, UiMetrics::screenH() - headerH - BAR_H);
     lv_obj_t *screen = Theme::screen();
     s_playerScreen = screen;
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
@@ -491,6 +550,63 @@ void beginSong(const std::string &title)
         saveOverlaySettings();
         s_lastPhrase = UINT32_MAX;
     });
+
+    s_volLabel = makeText(screen, "", &my_font_14, lv_color_white());
+    lv_obj_set_width(s_volLabel, RAIL_W);
+    lv_obj_set_style_text_align(s_volLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_volLabel, UiMetrics::screenW() - RAIL_W, headerH + 4);
+    const int32_t trackW = 8;
+    const int32_t sliderY = headerH + 4 + my_font_14.line_height + 6;
+    const int32_t sliderH = UiMetrics::screenH() - BAR_H - 6 - sliderY;
+    s_volSlider = lv_slider_create(screen);
+    lv_obj_remove_style_all(s_volSlider);
+    lv_obj_set_size(s_volSlider, trackW, sliderH);
+    lv_obj_set_pos(s_volSlider, UiMetrics::screenW() - RAIL_W / 2 - trackW / 2, sliderY);
+    lv_obj_set_ext_click_area(s_volSlider, (RAIL_W - trackW) / 2);
+    lv_slider_set_orientation(s_volSlider, LV_SLIDER_ORIENTATION_VERTICAL);
+    lv_slider_set_range(s_volSlider, 0, 100);
+    lv_slider_set_value(s_volSlider, Config::get().masterVol, LV_ANIM_OFF);
+    lv_obj_set_style_radius(s_volSlider, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_volSlider, lv_color_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_volSlider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_volSlider, Theme::c(Theme::ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_volSlider, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_volSlider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s_volSlider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(s_volSlider, 6, LV_PART_KNOB);
+    lv_label_set_text_fmt(s_volLabel, "%d%%", (int)Config::get().masterVol);
+    lv_obj_add_event_cb(s_volSlider, [](lv_event_t *) { s_volDragging = true; }, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(s_volSlider, [](lv_event_t *) {
+        const int value = lv_slider_get_value(s_volSlider);
+        Audio::setMasterVolume((uint8_t)value);
+        lv_label_set_text_fmt(s_volLabel, "%d%%", value);
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(s_volSlider, [](lv_event_t *) {
+        if (!s_volDragging) return;
+        s_volDragging = false;
+        const uint8_t previous = Config::get().masterVol;
+        Config::get().masterVol = (uint8_t)lv_slider_get_value(s_volSlider);
+        Audio::setMasterVolume(Config::get().masterVol);
+        if (!Config::save()) {
+            Config::get().masterVol = previous;
+            Audio::setMasterVolume(previous);
+            lv_slider_set_value(s_volSlider, previous, LV_ANIM_OFF);
+            lv_label_set_text_fmt(s_volLabel, "%d%%", (int)previous);
+            showError(tr(Str::SET_SAVE_FAILED));
+        }
+    }, LV_EVENT_RELEASED, nullptr);
+
+    s_progBar = lv_bar_create(screen);
+    lv_obj_remove_style_all(s_progBar);
+    lv_obj_set_size(s_progBar, UiMetrics::screenW(), BAR_H);
+    lv_obj_set_pos(s_progBar, 0, UiMetrics::screenH() - BAR_H);
+    lv_bar_set_range(s_progBar, 0, 1000);
+    lv_bar_set_value(s_progBar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_progBar, lv_color_hex(0x303030), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_progBar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_progBar, Theme::c(Theme::GOLD), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_progBar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_remove_flag(s_progBar, LV_OBJ_FLAG_CLICKABLE);
     Theme::loadScreen(screen);
     s_mediaState.store(MediaState::IDLE, std::memory_order_release);
     s_closeRequested = false;

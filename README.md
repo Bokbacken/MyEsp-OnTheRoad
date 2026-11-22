@@ -88,6 +88,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   The song list is built on the device into an index (`supernova.idx`, up to 2000 songs; only new or
   changed folders are re-read) from the `#TITLE`, `#ARTIST`, `#GENRE`, `#LANGUAGE` and `#YEAR` tags, with
   search, sort (artist/title/year), filter (genre/language/decade), A–Ö jump and a Rescan button.
+  When a folder has `Name.mp3` plus `Name [Kar].mp3` (instrumental), playback asks for with/without
+  vocals. The player has a narrow master-volume rail at the right edge, a thin progress bar at the
+  bottom and countdown dots in long instrumental pauses.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.

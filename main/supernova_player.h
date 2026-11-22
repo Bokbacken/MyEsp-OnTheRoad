@@ -18,6 +18,8 @@ void stop();
 bool pause();
 bool resume();
 uint32_t positionMs();
+// Total length in ms, or 0 if unknown.
+uint32_t durationMs();
 const char *error();
 
 }  // namespace SupernovaPlayer

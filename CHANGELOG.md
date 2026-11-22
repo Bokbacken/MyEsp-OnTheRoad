@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.22
+
+- Supernova (P4): player gets a narrow master-volume slider at the right
+  edge (saved like the MIDI karaoke master volume), a 3 px progress bar at the
+  bottom (length from `esp_player_get_duration`, falling back to the last
+  lyric phrase) and countdown dots in pauses of 3 s or more (same rules as the
+  MIDI karaoke, drawn into the lyrics overlay). The video area shrinks by the
+  rail and bar. Not yet run on hardware; host test covers the dot logic.
+
 ## v0.26.21
 
 - Supernova (P4): fixed the vocals chooser leaving its modal backdrop behind,

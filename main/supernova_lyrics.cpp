@@ -333,6 +333,23 @@ uint32_t phraseAt(const Document &doc, uint32_t timeMs)
     return (uint32_t)(doc.phrases.size() - 1);
 }
 
+Countdown countdownAt(const Document &doc, uint32_t timeMs)
+{
+    Countdown cd;
+    if (doc.phrases.empty()) return cd;
+    const size_t next = phraseAt(doc, timeMs);
+    const uint32_t nextStart = doc.phrases[next].startMs;
+    if (timeMs >= nextStart) return cd;
+    const uint32_t gapStart = next > 0 ? doc.phrases[next - 1].endMs : 0;
+    if (timeMs < gapStart || nextStart <= gapStart || nextStart - gapStart < COUNTDOWN_GAP_MS) return cd;
+    int dots = (int)((nextStart - gapStart + 500) / 1000);
+    if (dots > COUNTDOWN_MAX) dots = COUNTDOWN_MAX;
+    const int remainSec = (int)((nextStart - timeMs + 999) / 1000);
+    cd.dots = dots;
+    cd.lit = std::max(0, dots - remainSec);
+    return cd;
+}
+
 uint32_t noteAt(const Phrase &phrase, uint32_t timeMs)
 {
     for (size_t i = 0; i < phrase.notes.size(); i++)
