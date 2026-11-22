@@ -57,6 +57,7 @@ constexpr int32_t RAIL_W = 36;   // Narrow volume rail at the right edge
 constexpr int32_t BAR_H = 3;     // Song progress bar at the bottom edge
 lv_obj_t *s_volSlider = nullptr, *s_volLabel = nullptr, *s_progBar = nullptr;
 lv_obj_t *s_mainRow = nullptr, *s_syncRow = nullptr, *s_syncOffset = nullptr, *s_badButton = nullptr;
+lv_obj_t *s_syncPlayLabel = nullptr;
 bool s_syncDirty = false;
 bool s_volDragging = false;
 uint32_t s_durationMs = 0;
@@ -169,7 +170,7 @@ bool ensureOverlay()
     if (s_ovlScreen) return true;
     int rx, ry, rw, rh;
     if (!SupernovaPlayer::videoRect(rx, ry, rw, rh)) return false;
-    s_ovlW = std::min(rw, 800);
+    s_ovlW = std::min(UiMetrics::screenW() - RAIL_W, 800);
     s_ovlScreen = lv_obj_create(nullptr);
     s_ovlBox = lv_obj_create(s_ovlScreen);
     lv_obj_remove_style_all(s_ovlBox);
@@ -241,7 +242,9 @@ void renderOverlay()
         return;
     int dy = s_ovlPos == 0 ? 8 : s_ovlPos == 1 ? (rh - h) / 2 : rh - h - 8;
     if (dy < 0) dy = 0;
-    SupernovaPlayer::overlayPublish(draw.header.w, draw.header.h, draw.header.stride, (rw - w) / 2, dy);
+    // Centered in the whole video area, not just on the (possibly narrower) video.
+    SupernovaPlayer::overlayPublish(draw.header.w, draw.header.h, draw.header.stride,
+                                    (UiMetrics::screenW() - RAIL_W - w) / 2 - rx, dy);
 #endif
 }
 
@@ -325,7 +328,7 @@ void closePlayer()
         if (!SupernovaLibrary::saveSync()) showError(tr(Str::SET_SAVE_FAILED));
     }
     s_playerHeader = s_pauseButton = nullptr;
-    s_mainRow = s_syncRow = s_syncOffset = s_badButton = nullptr;
+    s_mainRow = s_syncRow = s_syncOffset = s_badButton = s_syncPlayLabel = nullptr;
     s_sizeLabel = s_posLabel = s_timeLabel = s_playLabel = nullptr;
     s_volSlider = s_volLabel = s_progBar = nullptr;
     s_volDragging = false;
@@ -387,15 +390,25 @@ void togglePause()
         if (SupernovaPlayer::resume()) {
             s_playerPaused = false;
             lv_label_set_text(s_playLabel, LV_SYMBOL_PAUSE);
+            if (s_syncPlayLabel) lv_label_set_text(s_syncPlayLabel, LV_SYMBOL_PAUSE);
         } else {
             showError(SupernovaPlayer::error());
         }
     } else if (SupernovaPlayer::pause()) {
         s_playerPaused = true;
         lv_label_set_text(s_playLabel, LV_SYMBOL_PLAY);
+        if (s_syncPlayLabel) lv_label_set_text(s_syncPlayLabel, LV_SYMBOL_PLAY);
     } else {
         showError(SupernovaPlayer::error());
     }
+}
+
+void seekSong(int32_t deltaMs)
+{
+    if (s_mediaState.load(std::memory_order_acquire) != MediaState::PLAYING) return;
+    if (!SupernovaPlayer::seekBy(deltaMs)) return;
+    s_lastPhrase = UINT32_MAX;
+    s_lastNote = UINT32_MAX;
 }
 
 void playerTick(lv_timer_t *)
@@ -494,13 +507,13 @@ void buildSyncRow(lv_obj_t *top, int32_t headerH)
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_left(row, 4, 0);
-    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_set_style_pad_column(row, 4, 0);
     lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
     auto add = [&](const char *text, lv_event_cb_t cb) {
         lv_obj_t *button = lv_button_create(row);
         darkButton(button);
         lv_obj_set_size(button, LV_SIZE_CONTENT, UiMetrics::buttonH());
-        lv_obj_set_style_pad_hor(button, 8, 0);
+        lv_obj_set_style_pad_hor(button, 6, 0);
         lv_obj_t *label = lv_label_create(button);
         lv_label_set_text(label, text);
         lv_obj_center(label);
@@ -508,6 +521,11 @@ void buildSyncRow(lv_obj_t *top, int32_t headerH)
         return button;
     };
     add(tr(Str::SUPERNOVA_SYNC_DONE), [](lv_event_t *) { showSyncRow(false); });
+    // Song transport, so the right spot can be found while adjusting
+    add("<5s", [](lv_event_t *) { seekSong(-5000); });
+    s_syncPlayLabel = lv_obj_get_child(add(s_playerPaused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE,
+                                           [](lv_event_t *) { togglePause(); }), 0);
+    add("5s>", [](lv_event_t *) { seekSong(5000); });
     add("-5s", [](lv_event_t *) { nudge(-5000); });
     add("-1s", [](lv_event_t *) { nudge(-1000); });
     add("-0.1s", [](lv_event_t *) { nudge(-100); });
@@ -517,13 +535,13 @@ void buildSyncRow(lv_obj_t *top, int32_t headerH)
     add("+0.1s", [](lv_event_t *) { nudge(100); });
     add("+1s", [](lv_event_t *) { nudge(1000); });
     add("+5s", [](lv_event_t *) { nudge(5000); });
-    add(tr(Str::SUPERNOVA_SYNC_RESET), [](lv_event_t *) {
+    add(LV_SYMBOL_REFRESH, [](lv_event_t *) {
         SupernovaLibrary::syncStore().resetAdjustments(s_songFolder);
         s_syncDirty = true;
         s_lastPhrase = UINT32_MAX;
         s_lastNote = UINT32_MAX;
     });
-    s_badButton = add(tr(Str::SUPERNOVA_SYNC_BAD), [](lv_event_t *) {
+    s_badButton = add(LV_SYMBOL_WARNING, [](lv_event_t *) {
         SupernovaSync::Store &store = SupernovaLibrary::syncStore();
         store.setBroken(s_songFolder, !store.broken(s_songFolder));
         s_syncDirty = true;

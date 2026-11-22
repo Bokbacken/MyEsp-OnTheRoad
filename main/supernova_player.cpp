@@ -223,32 +223,72 @@ inline uint16_t blendPixel(uint16_t dst, uint32_t argb)
     return (uint16_t)(out | (out >> 16));
 }
 
-void blendOverlay(uint8_t *canvas, int canvasW, const Area &rect)
+// Blends the overlay into the canvas. The overlay may be wider than the video: the part over the
+// letterbox pillars (inside `area`) is cleared and blended too. Returns the rectangle that must be
+// blitted in addition to the video (overlay plus its previous extent), or an empty one.
+Area blendOverlay(uint8_t *canvas, int canvasW, const Area &rect, const Area &area)
 {
-    if (!s_overlayLock || xSemaphoreTake(s_overlayLock, 0) != pdTRUE) return;
+    static Area prev;   // Render thread only
+    if (!s_overlayLock || xSemaphoreTake(s_overlayLock, 0) != pdTRUE) return {};
     Overlay &o = s_overlay;
+    const bool areaOk = area.w > 0 && area.h > 0;
+    const int left = areaOk ? std::min(area.x, rect.x) : rect.x;
+    const int right = areaOk ? std::max(area.x + area.w, rect.x + rect.w) : rect.x + rect.w;
+    auto outside = [&](const Area &a) { return a.w > 0 && (a.x < rect.x || a.x + a.w > rect.x + rect.w); };
+
+    Area cur;
+    int srcSkip = 0;
     if (o.active && o.buf[o.front]) {
         const int x0 = rect.x + o.dx, y0 = rect.y + o.dy;
-        const int w = std::min(o.w, rect.x + rect.w - x0);
+        const int cx = std::max(x0, left);
+        const int w = std::min(x0 + o.w, right) - cx;
         const int h = std::min(o.h, rect.y + rect.h - y0);
-        if (w > 0 && h > 0 && x0 >= 0 && y0 >= 0) {
-            const size_t rowBytes = (size_t)canvasW * 2;
-            uint8_t *rows = canvas + (size_t)y0 * rowBytes;
-            const size_t rowsSize = (size_t)h * rowBytes;
-            if (o.stale) {
-                esp_cache_msync(o.buf[o.front], OVERLAY_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
-                o.stale = false;
-            }
-            esp_cache_msync(rows, rowsSize, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
-            for (int y = 0; y < h; y++) {
-                const uint32_t *src = reinterpret_cast<const uint32_t *>(o.buf[o.front] + (size_t)y * o.stride);
-                uint16_t *dst = reinterpret_cast<uint16_t *>(rows + (size_t)y * rowBytes) + x0;
-                for (int x = 0; x < w; x++) dst[x] = blendPixel(dst[x], src[x]);
-            }
-            esp_cache_msync(rows, rowsSize, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+        if (w > 0 && h > 0 && y0 >= 0) {
+            cur = {cx, y0, w, h};
+            srcSkip = cx - x0;
         }
     }
+    Area ext = cur;
+    if (outside(prev)) {
+        if (ext.w <= 0) {
+            ext = prev;
+        } else {
+            const int x = std::min(ext.x, prev.x), y = std::min(ext.y, prev.y);
+            const int r = std::max(ext.x + ext.w, prev.x + prev.w), b = std::max(ext.y + ext.h, prev.y + prev.h);
+            ext = {x, y, r - x, b - y};
+        }
+    }
+    Area blit;
+    if (ext.w > 0 && ext.h > 0) {
+        const size_t rowBytes = (size_t)canvasW * 2;
+        uint8_t *rows = canvas + (size_t)ext.y * rowBytes;
+        const size_t rowsSize = (size_t)ext.h * rowBytes;
+        if (o.stale && cur.w > 0) {
+            esp_cache_msync(o.buf[o.front], OVERLAY_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+            o.stale = false;
+        }
+        esp_cache_msync(rows, rowsSize, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+        for (int y = 0; y < ext.h; y++) {
+            uint16_t *line = reinterpret_cast<uint16_t *>(rows + (size_t)y * rowBytes);
+            if (ext.x < rect.x) memset(line + ext.x, 0, (size_t)(rect.x - ext.x) * 2);
+            const int rectEnd = rect.x + rect.w;
+            if (ext.x + ext.w > rectEnd) memset(line + rectEnd, 0, (size_t)(ext.x + ext.w - rectEnd) * 2);
+        }
+        for (int y = 0; y < cur.h; y++) {
+            const uint32_t *src = reinterpret_cast<const uint32_t *>(o.buf[o.front] + (size_t)y * o.stride) + srcSkip;
+            uint16_t *dst = reinterpret_cast<uint16_t *>(canvas + (size_t)(cur.y + y) * rowBytes) + cur.x;
+            for (int x = 0; x < cur.w; x++) dst[x] = blendPixel(dst[x], src[x]);
+        }
+        esp_cache_msync(rows, rowsSize, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+        if (outside(ext)) {
+            const int x = ext.x & ~1;
+            const int r = std::min((ext.x + ext.w + 1) & ~1, canvasW);
+            blit = {x, ext.y, r - x, ext.h};
+        }
+    }
+    prev = cur;
     xSemaphoreGive(s_overlayLock);
+    return blit;
 }
 
 int audioWriter(uint8_t *pcm, uint32_t len, void *)
@@ -330,9 +370,13 @@ esp_video_render_err_t backendWriteFb(esp_video_render_backend_handle_t handle, 
         r.w -= EDGE_CROP_RIGHT;
         r.h -= EDGE_CROP_BOTTOM;
     }
-    if (r.w > 0 && r.h > 0) blendOverlay(fb->data, fb->info.width, r);
+    Area pillar;
+    if (r.w > 0 && r.h > 0) pillar = blendOverlay(fb->data, fb->info.width, r, s_area);
     if (r.w > 0 && r.h > 0 &&
         !Display::videoBlit(fb->data, fb->info.width, fb->info.height, r.x, r.y, r.w, r.h))
+        backend->failCount++;
+    if (pillar.w > 0 && pillar.h > 0 &&
+        !Display::videoBlit(fb->data, fb->info.width, fb->info.height, pillar.x, pillar.y, pillar.w, pillar.h))
         backend->failCount++;
     const int64_t now = esp_timer_get_time();
     const uint32_t duration = (uint32_t)(now - writeStart);
@@ -674,6 +718,19 @@ const char *error()
     return s_error;
 }
 
+bool seekBy(int32_t deltaMs)
+{
+    if (!s_videoPlayer) return false;
+    int64_t target = (int64_t)positionMs() + deltaMs;
+    const uint32_t total = durationMs();
+    if (total) target = std::min<int64_t>(target, total > 1000 ? total - 1000 : 0);
+    if (target < 0) target = 0;
+    const bool audioOk = !s_audioPlayer || esp_player_seek(s_audioPlayer, (uint64_t)target) == ESP_PLAYER_ERR_OK;
+    const bool videoOk = esp_player_seek(s_videoPlayer, (uint64_t)target) == ESP_PLAYER_ERR_OK;
+    if (!audioOk || !videoOk) snprintf(s_error, sizeof(s_error), "Could not seek song media");
+    return audioOk && videoOk;
+}
+
 // Total length from container metadata; 0 when the player cannot tell (e.g. MP3 without a length header).
 uint32_t durationMs()
 {
@@ -735,6 +792,7 @@ bool start(const char *, const char *) { return false; }
 void stop() {}
 bool pause() { return false; }
 bool resume() { return false; }
+bool seekBy(int32_t) { return false; }
 uint32_t positionMs() { return 0; }
 uint32_t durationMs() { return 0; }
 bool videoRect(int &, int &, int &, int &) { return false; }

@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.27
+
+- Supernova (P4): the lyrics box now uses the full video area width instead of being limited to
+  the video width, so narrow (e.g. 1:1) videos get full-width lyrics over the black side bars.
+- Supernova (P4): Sync mode has `<5s`, play/pause and `5s>` buttons for jumping within the song
+  (`esp_player_seek`); Reset and Bad-sync are now icon buttons to make room.
+- Automated checks only (CI builds); not verified on hardware. Seek behavior (audio/video
+  alignment after a jump, blocking time) in particular is untested.
+
 ## v0.26.26
 
 - Supernova (P4): new web page `/supernova` (linked from the home page) with a searchable,

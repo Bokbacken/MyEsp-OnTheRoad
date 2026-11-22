@@ -17,6 +17,8 @@ bool start(const char *audioPath, const char *videoPath);
 void stop();
 bool pause();
 bool resume();
+// Moves the playback position by deltaMs (clamped to the song); works while playing or paused.
+bool seekBy(int32_t deltaMs);
 uint32_t positionMs();
 // Total length in ms, or 0 if unknown.
 uint32_t durationMs();
