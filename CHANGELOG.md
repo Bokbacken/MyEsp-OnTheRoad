@@ -8,6 +8,10 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.34
+
+- Supernova browser player: the picture keeps its aspect ratio in full screen and in the page (4:3 videos were stretched wide). Not tested on hardware.
+
 ## v0.26.33
 
 - Supernova on ESP32-P4: the device is a remote control for the browser player.
