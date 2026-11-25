@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.32
+
+- Supernova browser player (`/supernova/play`): "Play automatically" runs a
+  playlist (optionally shuffled) or random songs from the whole library; the
+  next song starts when one ends. Pause/resume, stop and next buttons sit on
+  the picture so they also work in full screen (keys: space, N, S). Songs that
+  fail to load are skipped. The device is not yet a remote for the browser
+  player. Not tested on hardware.
+
 ## v0.26.31
 
 - ESP32-P4 USB-C audio: hub support enabled (`CONFIG_USB_HOST_HUBS_SUPPORTED`,

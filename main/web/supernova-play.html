@@ -25,6 +25,10 @@
 #nxt { font-size: clamp(1rem, 2.6vw, 1.5rem); color: #b8c0cc; margin-top: .3rem; }
 #dots { font-size: 1.6rem; letter-spacing: .3rem; color: #555; min-height: 1.3em; }
 #dots .on { color: #ffc400; }
+#ctl { display: flex; justify-content: center; gap: .6rem; padding: .5rem; background: rgba(0, 0, 0, .55); }
+#ctl button { min-width: 3.2rem; font-size: 1.3rem; padding: .4rem .8rem; background: #1b2434; color: #fff; border: 1px solid #3a4660; }
+#ctl button:active { background: #2c3a56; }
+#stage:fullscreen #ctl { position: absolute; left: 0; right: 0; bottom: 0; }
 audio { width: 100%; max-width: 60rem; }
 ul.list { list-style: none; margin: 0; padding: 0; }
 ul.list li { display: flex; align-items: center; gap: .6rem; padding: .5rem; border-bottom: 1px solid var(--otr-line); }
@@ -43,6 +47,11 @@ ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   <div id="stage">
     <canvas id="screen" width="320" height="180" hidden></canvas>
     <div id="lyrics"><div id="dots"></div><div id="cur"></div><div id="nxt"></div></div>
+    <div id="ctl">
+      <button id="b-pause" onclick="togglePause()">&#9208;</button>
+      <button id="b-stop" onclick="stopAll()" data-title="stop">&#9209;</button>
+      <button id="b-next" onclick="nextSong()" data-title="next">&#9197;</button>
+    </div>
   </div>
   <audio id="audio" controls preload="auto"></audio>
   <div class="actions">
@@ -51,6 +60,15 @@ ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   </div>
   <p class="hint" id="player-hint"></p>
 </div>
+<section>
+  <h2 data-t="auto"></h2>
+  <div class="actions">
+    <select id="src"><option value="random" data-t="srcRandom"></option></select>
+    <label><input id="shuffle" type="checkbox"> <span data-t="shuffle"></span></label>
+    <button id="start" onclick="startQueue()" data-t="start"></button>
+  </div>
+  <p class="hint" data-t="autoHint"></p>
+</section>
 <section>
   <h2 data-t="pick"></h2>
   <form class="actions" id="search-form"><input id="q" type="search" maxlength="60" autocomplete="off"></form>
@@ -65,13 +83,21 @@ const T = {
     shown: '{0} av {1} sånger', scanning: 'Enheten läser in sångerna …', empty: 'Inga sånger hittades.',
     noVideo: 'Den här sången har ingen video som webbläsaren kan visa (den måste vara en AVI gjord med konverteringsskriptet). Ljud och text fungerar ändå.',
     hint: 'Tryck på play i spelaren. Videon hämtas bild för bild från enheten, så den kan hacka om flera tittar samtidigt. Ljudet och texten är alltid i takt.',
-    noAudio: 'Sången har inget ljud.', noLyrics: 'Texten kunde inte läsas.' },
+    noAudio: 'Sången har inget ljud.', noLyrics: 'Texten kunde inte läsas.',
+    auto: 'Spela automatiskt', srcRandom: 'Alla sånger (slumpvis)', shuffle: 'Blanda ordningen', start: 'Starta',
+    autoHint: 'Välj en spellista eller slumpa bland alla sånger. Nästa sång startar av sig själv, och knapparna i bilden fungerar även i helskärm.',
+    pause: 'Paus', resume: 'Fortsätt', stop: 'Stopp', next: 'Nästa sång', listEnd: 'Spellistan är slut.',
+    emptyList: 'Spellistan har inga sånger som finns kvar.', playBlocked: 'Tryck på play för att starta.' },
   en: { title: 'Sing in the browser', lists: 'Playlists', pick: 'Pick a song', search: 'Search artist or title', more: 'Show more',
     sing: 'Sing', plain: 'Without vocals (instrumental)', fullscreen: 'Full screen', neterr: 'No contact with the device',
     shown: '{0} of {1} songs', scanning: 'The device is reading the songs …', empty: 'No songs found.',
     noVideo: 'This song has no video the browser can show (it must be an AVI made by the convert script). Audio and lyrics still work.',
     hint: 'Press play in the player. The video is fetched frame by frame from the device, so it may stutter when several people watch. Audio and lyrics always stay in step.',
-    noAudio: 'The song has no audio.', noLyrics: 'The lyrics could not be read.' }
+    noAudio: 'The song has no audio.', noLyrics: 'The lyrics could not be read.',
+    auto: 'Play automatically', srcRandom: 'All songs (random)', shuffle: 'Shuffle the order', start: 'Start',
+    autoHint: 'Pick a playlist or shuffle all songs. The next song starts by itself, and the buttons on the picture also work in full screen.',
+    pause: 'Pause', resume: 'Resume', stop: 'Stop', next: 'Next song', listEnd: 'The playlist has ended.',
+    emptyList: 'The playlist has no songs left on the card.', playBlocked: 'Press play to start.' }
 };
 let L = 'sv', songs = [], count = 0, total = 0, seq = 0, scanTimer = 0, typing = 0;
 let folder = '', media = null, phrases = [], fps = 10, shown = -1, loading = false, raf = 0, label = '';
@@ -83,6 +109,7 @@ function setLang(l, save) {
   L = l; document.documentElement.lang = l;
   document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
   $('q').placeholder = t('search'); $('player-hint').textContent = t('hint');
+  $('b-stop').title = t('stop'); $('b-next').title = t('next'); updatePauseBtn();
   $('l-sv').classList.toggle('on', l === 'sv'); $('l-en').classList.toggle('on', l === 'en');
   if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
   renderSongs();
@@ -114,29 +141,34 @@ function renderSongs() {
   const ul = $('songs'); ul.textContent = '';
   songs.forEach(s => {
     const li = el('li'), b = el('button', '', '▶ ' + t('sing'));
-    b.onclick = () => openSong(s);
+    b.onclick = () => { queue = { mode: 'single', items: [], idx: 0, recent: [] }; openSong(s, false); };
     li.append(el('span', 'tx', nameOf(s)), b); ul.appendChild(li);
   });
   $('more').hidden = songs.length >= count;
 }
-async function openSong(s) {
+async function openSong(s, auto) {
   $('notice').textContent = '';
   folder = s.folder; label = nameOf(s);
   $('plain').checked = false;
-  await loadSong(0);
   $('player').hidden = false;
   $('song-name').textContent = label;
-  window.scrollTo(0, 0);
+  await loadSong(0, auto);
+  if (!auto) window.scrollTo(0, 0);
 }
-async function loadSong(variant) {
+let gen = 0, failures = 0, queue = { mode: 'single', items: [], idx: 0, recent: [] };
+async function loadSong(variant, auto) {
+  const my = ++gen;
   stopLoop();
   const a = $('audio'); a.pause();
   const q = '?f=' + encodeURIComponent(folder) + '&v=' + variant;
   try {
-    media = await request('/api/supernova/media' + q);
+    const m = await request('/api/supernova/media' + q);
+    if (my !== gen) return;
+    media = m;
     phrases = [];
     try { phrases = (await request('/api/supernova/lyrics?f=' + encodeURIComponent(folder) + '&v=' + variant)).phrases; }
     catch (e) { $('notice').textContent = t('noLyrics'); }
+    if (my !== gen) return;
     $('plain-row').hidden = !media.hasPlain;
     a.hidden = !media.audio;
     if (!media.audio) $('notice').textContent = t('noAudio');
@@ -152,7 +184,89 @@ async function loadSong(variant) {
       $('notice').textContent = t('noVideo');
     }
     startLoop();
+    failures = 0;
+    if (auto && media.audio) a.play().catch(() => { $('notice').textContent = t('playBlocked'); });
+    else if (auto && queue.mode !== 'single') setTimeout(() => { if (my === gen) nextSong(); }, 1500);
+  } catch (e) {
+    if (my !== gen) return;
+    fail(e);
+    if (auto && queue.mode !== 'single' && ++failures < 5) setTimeout(() => { if (my === gen) nextSong(); }, 1500);
+  }
+}
+function updatePauseBtn() {
+  const a = $('audio'), playing = !a.paused && !a.ended;
+  $('b-pause').innerHTML = playing ? '&#9208;' : '&#9654;';
+  $('b-pause').title = t(playing ? 'pause' : 'resume');
+}
+function togglePause() {
+  const a = $('audio');
+  if (a.paused || a.ended) a.play().catch(() => {}); else a.pause();
+}
+function stopAll() {
+  queue = { mode: 'single', items: [], idx: 0, recent: [] };
+  gen++;
+  const a = $('audio'); a.pause(); try { a.currentTime = 0; } catch (e) {}
+}
+['play', 'pause', 'ended', 'emptied'].forEach(ev => $('audio').addEventListener(ev, updatePauseBtn));
+$('audio').addEventListener('ended', () => { if (queue.mode !== 'single') nextSong(); });
+document.addEventListener('keydown', e => {
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || $('player').hidden) return;
+  if (e.key === ' ') { e.preventDefault(); togglePause(); }
+  else if (e.key === 'n' || e.key === 'N') nextSong();
+  else if (e.key === 's' || e.key === 'S') stopAll();
+});
+const shuffled = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+async function randomSong() {
+  const c = (await request('/api/supernova/songs?offset=0&limit=1')).count;
+  if (!c) throw new Error(t('empty'));
+  let s = null;
+  for (let k = 0; k < 6; k++) {
+    s = (await request('/api/supernova/songs?limit=1&offset=' + Math.floor(Math.random() * c))).songs[0];
+    if (s && !queue.recent.includes(s.folder)) break;
+  }
+  if (!s) throw new Error(t('empty'));
+  queue.recent.push(s.folder);
+  while (queue.recent.length > Math.min(20, c - 1)) queue.recent.shift();
+  return s;
+}
+async function nextSong() {
+  try {
+    if (queue.mode === 'random') await openSong(await randomSong(), true);
+    else if (queue.mode === 'list') {
+      if (queue.idx + 1 >= queue.items.length) { stopAll(); $('notice').textContent = t('listEnd'); return; }
+      await openSong(queue.items[++queue.idx], true);
+    }
   } catch (e) { fail(e); }
+}
+async function startQueue() {
+  $('notice').textContent = '';
+  const v = $('src').value;
+  try {
+    if (v === 'random') {
+      queue = { mode: 'random', items: [], idx: 0, recent: [] };
+      await openSong(await randomSong(), true);
+    } else {
+      const items = [];
+      for (let off = 0; ; off += 200) {
+        const j = await request('/api/supernova/playlists?id=' + v + '&limit=200&offset=' + off);
+        const p = j.playlists[0], page = p ? p.songs : [];
+        page.forEach(s => { if (!s.missing) items.push(s); });
+        if (!p || off + page.length >= p.count || !page.length) break;
+      }
+      if (!items.length) { $('notice').textContent = t('emptyList'); return; }
+      if ($('shuffle').checked) shuffled(items);
+      queue = { mode: 'list', items, idx: 0, recent: [] };
+      await openSong(items[0], true);
+    }
+    window.scrollTo(0, 0);
+  } catch (e) { fail(e); }
+}
+async function loadPlaylists() {
+  try {
+    (await request('/api/supernova/playlists')).playlists.forEach(p => {
+      const o = el('option', '', p.name + ' (' + p.count + ')'); o.value = p.id; $('src').appendChild(o);
+    });
+  } catch (e) {}
 }
 $('plain').addEventListener('change', () => { if (folder) loadSong($('plain').checked ? 1 : 0); });
 function showFrame(n) {
@@ -209,6 +323,6 @@ $('q').addEventListener('input', () => { clearTimeout(typing); typing = setTimeo
 let saved = null; try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
 setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
 loadSongs(false);
-</script>
+loadPlaylists();</script>
 </body>
 </html>
