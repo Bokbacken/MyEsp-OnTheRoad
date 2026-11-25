@@ -169,10 +169,14 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   titlar. Prioritera stora tydliga objekt, kontroller som inte skymmer
   spelplanen och stabil bild-/inmatningsrytm på S3. Egna namn, banor, grafik
   och ljud; undvik att kopiera Parsec-innehåll eller presentation.
-- [ ] Supernova i webbläsaren (v0.26.32): automatisk uppspelning (spellista/slump)
-  med paus/stopp/nästa i helskärm är införd i `/supernova/play`. Kvar: enheten
-  som fjärrkontroll för webbspelaren (välja sång, stopp, nästa från enhetens
-  skärm), vilket kräver en kommandokanal enhet → webbläsare; ej påbörjat.
+- [ ] Supernova i webbläsaren (v0.26.33): automatisk uppspelning (spellista/slump)
+  med paus/stopp/nästa i helskärm finns i `/supernova/play`. Enheten är
+  fjärrkontroll (huvudets WiFi-knapp i låtlistan): visar aktuell sång och
+  position men inte videon, och kan starta vald sång, spellista (blandad eller
+  inte) eller slump, samt pausa/stoppa/nästa. Webbsidan rapporterar status till
+  enheten ca varje sekund (`POST /api/supernova/web/state`) och hämtar köade
+  kommandon i samma anrop. Webbsidan måste vara öppen och ha klickats en gång
+  (webbläsarens regler för automatisk uppspelning). Ej hårdvarutestat.
 - [ ] USB-C-hörlurar/-högtalare på P4 (v0.26.30, första test): USB-host + UAC
   1.0-drivrutin (`board_usb_audio`) tar mixerns utdata (mono 22,05 kHz,
   uppsamplad till 44,1/48 kHz stereo) och tystar interna högtalaren medan ett

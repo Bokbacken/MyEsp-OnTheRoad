@@ -148,7 +148,7 @@ function renderSongs() {
 }
 async function openSong(s, auto) {
   $('notice').textContent = '';
-  folder = s.folder; label = nameOf(s);
+  folder = s.folder; label = nameOf(s); curSong = s; stopped = false;
   $('plain').checked = false;
   $('player').hidden = false;
   $('song-name').textContent = label;
@@ -204,6 +204,7 @@ function togglePause() {
 }
 function stopAll() {
   queue = { mode: 'single', items: [], idx: 0, recent: [] };
+  stopped = true;
   gen++;
   const a = $('audio'); a.pause(); try { a.currentTime = 0; } catch (e) {}
 }
@@ -238,9 +239,10 @@ async function nextSong() {
     }
   } catch (e) { fail(e); }
 }
-async function startQueue() {
+async function startQueue(src, shuf) {
   $('notice').textContent = '';
-  const v = $('src').value;
+  const v = src === undefined ? $('src').value : String(src);
+  if (shuf === undefined) shuf = $('shuffle').checked;
   try {
     if (v === 'random') {
       queue = { mode: 'random', items: [], idx: 0, recent: [] };
@@ -254,7 +256,7 @@ async function startQueue() {
         if (!p || off + page.length >= p.count || !page.length) break;
       }
       if (!items.length) { $('notice').textContent = t('emptyList'); return; }
-      if ($('shuffle').checked) shuffled(items);
+      if (shuf) shuffled(items);
       queue = { mode: 'list', items, idx: 0, recent: [] };
       await openSong(items[0], true);
     }
@@ -268,6 +270,30 @@ async function loadPlaylists() {
     });
   } catch (e) {}
 }
+// Device remote: report state about once a second and run the commands the device queued.
+let curSong = null, stopped = true;
+async function runCmd(c) {
+  if (c.type === 'play') { queue = { mode: 'single', items: [], idx: 0, recent: [] }; await openSong({ folder: c.folder, title: c.folder, artist: '' }, true); }
+  else if (c.type === 'random') await startQueue('random', false);
+  else if (c.type === 'list') await startQueue(c.list, c.shuffle);
+  else if (c.type === 'pause') $('audio').pause();
+  else if (c.type === 'resume') $('audio').play().catch(() => { $('notice').textContent = t('playBlocked'); });
+  else if (c.type === 'stop') stopAll();
+  else if (c.type === 'next') await nextSong();
+}
+async function heartbeat() {
+  const a = $('audio');
+  const st = !folder || stopped || a.ended ? 'stopped' : a.paused ? 'paused' : 'playing';
+  const body = { state: st, folder: st === 'stopped' ? '' : folder, title: curSong ? curSong.title : '', artist: curSong ? curSong.artist || '' : '',
+    pos: Math.round((a.currentTime || 0) * 1000), dur: Math.round((isFinite(a.duration) ? a.duration : 0) * 1000) };
+  try {
+    const r = await fetch('/api/supernova/web/state', { method: 'POST', body: JSON.stringify(body), cache: 'no-store' });
+    const j = await r.json();
+    for (const c of j.cmds || []) await runCmd(c);
+  } catch (e) {}
+  setTimeout(heartbeat, 1000);
+}
+heartbeat();
 $('plain').addEventListener('change', () => { if (folder) loadSong($('plain').checked ? 1 : 0); });
 function showFrame(n) {
   if (loading || n === shown || !media || !media.video) return;

@@ -45,6 +45,26 @@ int main()
     CHECK(pop(c) && c.type == CmdType::SEEK && c.arg == 0);
     clearCmds();
     CHECK(!pop(c));
+
+    WebCmd w;
+    WebStatus ws;
+    CHECK(!webPush(w));   // No browser has reported yet
+    ws.state = State::PLAYING;
+    ws.title = "Web song";
+    webReport(ws, 1000);
+    CHECK(webPush(w));
+    WebStatus got;
+    CHECK(webStatus(got, 1000 + WEB_LINK_TIMEOUT_MS) && got.title == "Web song");
+    w.type = WebCmdType::PLAY;
+    w.folder = "A - B";
+    CHECK(webPush(w));
+    WebCmd p;
+    CHECK(webPop(p) && p.type == WebCmdType::STOP);
+    CHECK(webPop(p) && p.type == WebCmdType::PLAY && p.folder == "A - B");
+    CHECK(!webPop(p));
+    CHECK(webPush(w));
+    CHECK(!webStatus(got, 1000 + WEB_LINK_TIMEOUT_MS + 1));   // Stale link drops pending commands
+    CHECK(!webPop(p));
     puts("OK");
     return 0;
 }

@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "esp_timer.h"
 #include "my_web.h"
 #include "supernova_library.h"
 #include "supernova_live.h"
@@ -264,11 +265,53 @@ esp_err_t controlPost(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
+// Browser player heartbeat: stores its state and returns the commands queued by the device UI.
+esp_err_t webStatePost(httpd_req_t *r)
+{
+    Json j(WebUtil::readJson(r, 1024), cJSON_Delete);
+    if (!j || !cJSON_IsObject(j.get())) return MyWeb::sendError(r, 400, "bad JSON");
+    auto num = [&](const char *k) {
+        const cJSON *i = cJSON_GetObjectItemCaseSensitive(j.get(), k);
+        return cJSON_IsNumber(i) && i->valuedouble > 0 ? (uint32_t)std::min(i->valuedouble, 4e9) : 0u;
+    };
+    const std::string state = stringField(j.get(), "state");
+    SupernovaLive::WebStatus s;
+    s.state = state == "playing" ? SupernovaLive::State::PLAYING :
+              state == "paused" ? SupernovaLive::State::PAUSED : SupernovaLive::State::BROWSE;
+    s.folder = stringField(j.get(), "folder");
+    s.title = stringField(j.get(), "title");
+    s.artist = stringField(j.get(), "artist");
+    s.posMs = num("pos");
+    s.durMs = num("dur");
+    SupernovaLive::webReport(s, (uint32_t)(esp_timer_get_time() / 1000));
+
+    std::string o = "{\"ok\":true,\"cmds\":[";
+    SupernovaLive::WebCmd c;
+    bool first = true;
+    static const char *const NAMES[] = {"play", "random", "list", "pause", "resume", "stop", "next"};
+    while (SupernovaLive::webPop(c)) {
+        if (!first) o += ',';
+        first = false;
+        o += "{\"type\":\"";
+        o += NAMES[(int)c.type];
+        o += "\",\"folder\":";
+        WebUtil::appendStr(o, c.folder.c_str());
+        o += ",\"list\":";
+        WebUtil::appendNum(o, c.list);
+        o += ",\"shuffle\":";
+        o += c.shuffle ? "true" : "false";
+        o += '}';
+    }
+    o += "]}";
+    return WebUtil::sendJsonText(r, o);
+}
+
 }  // namespace
 
 bool registerRoutes()
 {
     bool ok = MyWeb::on("/api/supernova/songs", HTTP_GET, songsGet);
+    ok &= MyWeb::on("/api/supernova/web/state", HTTP_POST, webStatePost);
     ok &= MyWeb::on("/api/supernova/now", HTTP_GET, nowGet);
     ok &= MyWeb::on("/api/supernova/control", HTTP_POST, controlPost);
     ok &= SupernovaStream::registerRoutes();

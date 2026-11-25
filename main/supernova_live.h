@@ -38,4 +38,30 @@ bool push(const Cmd &c);   // false when the queue is full
 bool pop(Cmd &out);        // false when empty
 void clearCmds();
 
+// ---- Browser player link: the device as remote for /supernova/play ----------------------------------
+// The browser reports its state about once a second (webReport) and receives the queued device
+// commands in the reply. The device only offers the remote while a report is fresh.
+constexpr uint32_t WEB_LINK_TIMEOUT_MS = 6000;
+
+struct WebStatus {
+    State state = State::BROWSE;   // BROWSE = nothing playing in the browser
+    std::string folder, title, artist;
+    uint32_t posMs = 0, durMs = 0;
+};
+
+enum class WebCmdType : uint8_t { PLAY, RANDOM, LIST, PAUSE, RESUME, STOP, NEXT };
+
+struct WebCmd {
+    WebCmdType type = WebCmdType::STOP;
+    uint16_t list = 0;      // LIST: playlist id
+    bool shuffle = false;   // LIST
+    std::string folder;     // PLAY
+};
+
+constexpr size_t WEB_CMD_QUEUE = 8;
+void webReport(const WebStatus &s, uint32_t nowMs);
+bool webStatus(WebStatus &out, uint32_t nowMs);   // false when no browser has reported recently
+bool webPush(const WebCmd &c);                    // false when no browser is linked or the queue is full
+bool webPop(WebCmd &out);
+
 }  // namespace SupernovaLive

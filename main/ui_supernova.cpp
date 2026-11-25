@@ -23,6 +23,7 @@
 #include "supernova_library.h"
 #include "supernova_live.h"
 #include "supernova_player.h"
+#include "esp_timer.h"
 #include "ui_metrics.h"
 #include "ui_yatzy.h"
 #include "freertos/FreeRTOS.h"
@@ -777,6 +778,8 @@ size_t s_shownDone = SIZE_MAX;
 lv_obj_t *s_list = nullptr, *s_info = nullptr, *s_pageLabel = nullptr, *s_searchBtn = nullptr;
 lv_obj_t *s_sortLabel = nullptr, *s_filterLabel = nullptr, *s_jumpCol = nullptr, *s_input = nullptr, *s_sheet = nullptr;
 lv_timer_t *s_browseTimer = nullptr;
+bool s_webPick = false;   // The next tapped song goes to the browser player instead of the device
+void buildWebRemote();
 
 size_t pageCount() { return s_view.empty() ? 1 : (s_view.size() + PAGE - 1) / PAGE; }
 
@@ -852,7 +855,18 @@ void playFromView(size_t pos)
         folder = lib.folder(s_view[pos]);
         title = lib.title(s_view[pos]);
     });
-    if (!folder.empty()) playSong(folder, title);
+    if (!folder.empty()) {
+        if (s_webPick) {
+            SupernovaLive::WebCmd cmd;
+            cmd.type = SupernovaLive::WebCmdType::PLAY;
+            cmd.folder = folder;
+            SupernovaLive::webPush(cmd);
+            s_webPick = false;
+            buildWebRemote();
+        } else {
+            playSong(folder, title);
+        }
+    }
 }
 
 void renderList()
@@ -1025,13 +1039,27 @@ void browseTick(lv_timer_t *)
     if (scanningNow != s_shownScanning || (scanningNow && done != s_shownDone)) updateInfo();
 }
 
+void buildWebRemote();
+
 void buildBrowser()
 {
     lv_obj_t *screen = Theme::screen();
-    lv_obj_t *header = Theme::header(screen, tr(Str::MENU_SUPERNOVA));
+    lv_obj_t *header = Theme::header(screen, tr(s_webPick ? Str::SUPERNOVA_WEB_CHOOSE : Str::MENU_SUPERNOVA));
     lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
     lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
-    lv_obj_add_event_cb(back, [](lv_event_t *) { home(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(back, [](lv_event_t *) {
+        if (s_webPick) {
+            s_webPick = false;
+            buildWebRemote();
+        } else {
+            home();
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+    if (!s_webPick) {
+        lv_obj_t *remote = Theme::button(header, LV_SYMBOL_WIFI, 44, 36, Theme::BLUE);
+        lv_obj_align(remote, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8 - 52, 0);
+        lv_obj_add_event_cb(remote, [](lv_event_t *) { buildWebRemote(); }, LV_EVENT_CLICKED, nullptr);
+    }
 
     const int32_t margin = UiMetrics::marginNormal();
     const int32_t gap = 6;
@@ -1154,6 +1182,174 @@ void buildBrowser()
     Theme::loadScreen(screen);
 }
 
+// Device as remote control for the browser player (/supernova/play).
+bool s_webShuffle = true;
+uint8_t s_webState = 0;   // 1 = playing in the browser
+lv_obj_t *s_webTitle = nullptr, *s_webSub = nullptr, *s_webBar = nullptr, *s_webPauseBtn = nullptr, *s_webShuffleBtn = nullptr,
+         *s_webSheet = nullptr;
+lv_timer_t *s_webTimer = nullptr;
+
+void webPushType(SupernovaLive::WebCmdType type, uint16_t list = 0)
+{
+    SupernovaLive::WebCmd cmd;
+    cmd.type = type;
+    cmd.list = list;
+    cmd.shuffle = s_webShuffle;
+    SupernovaLive::webPush(cmd);
+}
+
+void webTick(lv_timer_t *)
+{
+    if (!s_webTitle) return;
+    SupernovaLive::WebStatus st;
+    const bool linked = SupernovaLive::webStatus(st, (uint32_t)(esp_timer_get_time() / 1000));
+    s_webState = linked && st.state == SupernovaLive::State::PLAYING ? 1 : 0;
+    if (!linked) {
+        lv_label_set_text(s_webTitle, tr(Str::SUPERNOVA_WEB_NO_BROWSER));
+        lv_label_set_text(s_webSub, "");
+        lv_bar_set_value(s_webBar, 0, LV_ANIM_OFF);
+    } else if (st.state == SupernovaLive::State::BROWSE) {
+        lv_label_set_text(s_webTitle, tr(Str::SUPERNOVA_WEB_NOTHING));
+        lv_label_set_text(s_webSub, "");
+        lv_bar_set_value(s_webBar, 0, LV_ANIM_OFF);
+    } else {
+        lv_label_set_text(s_webTitle, st.title.c_str());
+        lv_label_set_text(s_webSub, st.artist.c_str());
+        lv_bar_set_value(s_webBar, st.durMs ? (int32_t)std::min<uint64_t>(1000, (uint64_t)st.posMs * 1000 / st.durMs) : 0,
+                         LV_ANIM_OFF);
+    }
+    lv_label_set_text(lv_obj_get_child(s_webPauseBtn, 0), s_webState ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+}
+
+void closeWebSheet()
+{
+    if (s_webSheet) lv_obj_delete(s_webSheet);
+    s_webSheet = nullptr;
+}
+
+void openWebLists()
+{
+    if (s_webSheet) return;
+    s_webSheet = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(s_webSheet);
+    lv_obj_set_size(s_webSheet, UiMetrics::screenW(), UiMetrics::screenH() - UiMetrics::headerH());
+    lv_obj_set_pos(s_webSheet, 0, UiMetrics::headerH());
+    lv_obj_set_style_bg_color(s_webSheet, Theme::c(Theme::BG), 0);
+    lv_obj_set_style_bg_opa(s_webSheet, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(s_webSheet, UiMetrics::marginNormal(), 0);
+    lv_obj_set_flex_flow(s_webSheet, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_webSheet, 6, 0);
+    lv_obj_set_scroll_dir(s_webSheet, LV_DIR_VER);
+    const int32_t w = UiMetrics::screenW() - 2 * UiMetrics::marginNormal();
+    lv_obj_t *cancel = Theme::button(s_webSheet, tr(Str::SUPERNOVA_WEB_CANCEL), w, UiMetrics::buttonH(), Theme::MUTED);
+    lv_obj_add_event_cb(cancel, [](lv_event_t *) { lv_async_call([](void *) { closeWebSheet(); }, nullptr); }, LV_EVENT_CLICKED,
+                        nullptr);
+    std::vector<std::pair<uint16_t, std::string>> lists;
+    SupernovaLibrary::readPlaylists([&](const SupernovaPlaylists::Store &store) {
+        for (const SupernovaPlaylists::Playlist &p : store.lists())
+            lists.emplace_back(p.id, p.name + " (" + std::to_string(p.folders.size()) + ")");
+    });
+    if (lists.empty()) {
+        lv_obj_set_width(Theme::label(s_webSheet, tr(Str::SUPERNOVA_WEB_NO_LISTS), &my_font_18, Theme::MUTED), w);
+        return;
+    }
+    for (const auto &l : lists) {
+        lv_obj_t *b = Theme::button(s_webSheet, l.second.c_str(), w, UiMetrics::buttonH(), Theme::GREEN);
+        lv_obj_add_event_cb(b, [](lv_event_t *e) {
+            static uint32_t last = 0;
+            if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+            webPushType(SupernovaLive::WebCmdType::LIST, (uint16_t)(uintptr_t)lv_event_get_user_data(e));
+            lv_async_call([](void *) { closeWebSheet(); }, nullptr);
+        }, LV_EVENT_CLICKED, (void *)(uintptr_t)l.first);
+    }
+}
+
+void webDeleted(lv_event_t *)
+{
+    if (s_webTimer) lv_timer_delete(s_webTimer);
+    s_webTimer = nullptr;
+    s_webTitle = s_webSub = s_webBar = s_webPauseBtn = s_webShuffleBtn = s_webSheet = nullptr;
+}
+
+void buildWebRemote()
+{
+    using C = SupernovaLive::WebCmdType;
+    lv_obj_t *screen = Theme::screen();
+    lv_obj_t *header = Theme::header(screen, tr(Str::SUPERNOVA_WEB_REMOTE));
+    lv_obj_t *back = Theme::button(header, LV_SYMBOL_LEFT, 44, 36, Theme::MUTED);
+    lv_obj_align(back, LV_ALIGN_RIGHT_MID, -Theme::batteryStatusWidth() - 8, 0);
+    lv_obj_add_event_cb(back, [](lv_event_t *) { buildBrowser(); }, LV_EVENT_CLICKED, nullptr);
+
+    const int32_t margin = UiMetrics::marginNormal(), gap = 8, w = UiMetrics::screenW() - 2 * margin;
+    const int32_t h = UiMetrics::buttonH();
+    int32_t y = UiMetrics::headerH() + 16;
+    s_webTitle = Theme::label(screen, "", &my_font_24, Theme::GOLD);
+    lv_obj_set_pos(s_webTitle, margin, y);
+    lv_obj_set_width(s_webTitle, w);
+    lv_label_set_long_mode(s_webTitle, LV_LABEL_LONG_MODE_DOTS);
+    y += 40;
+    s_webSub = Theme::label(screen, "", &my_font_18, Theme::TEXT);
+    lv_obj_set_pos(s_webSub, margin, y);
+    lv_obj_set_width(s_webSub, w);
+    lv_label_set_long_mode(s_webSub, LV_LABEL_LONG_MODE_DOTS);
+    y += 34;
+    s_webBar = lv_bar_create(screen);
+    lv_bar_set_range(s_webBar, 0, 1000);
+    lv_obj_set_pos(s_webBar, margin, y);
+    lv_obj_set_size(s_webBar, w, 10);
+    y += 28;
+
+    auto row = [&](int n, int32_t rowY, const char *const *texts, const uint32_t *colors, lv_event_cb_t cb, int base) {
+        const int32_t bw = (w - (n - 1) * gap) / n;
+        lv_obj_t *first = nullptr;
+        for (int i = 0; i < n; i++) {
+            lv_obj_t *b = Theme::button(screen, texts[i], bw, h, colors[i]);
+            lv_obj_set_pos(b, margin + i * (bw + gap), rowY);
+            lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void *)(intptr_t)(base + i));
+            if (!first) first = b;
+        }
+        return first;
+    };
+    const char *const ctl[] = {LV_SYMBOL_PAUSE, LV_SYMBOL_STOP, LV_SYMBOL_NEXT};
+    const uint32_t ctlColors[] = {Theme::GOLD, Theme::MUTED, Theme::BLUE};
+    s_webPauseBtn = row(3, y, ctl, ctlColors, [](lv_event_t *e) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, 250)) return;
+        const int k = (int)(intptr_t)lv_event_get_user_data(e);
+        webPushType(k == 0 ? (s_webState ? C::PAUSE : C::RESUME) : k == 1 ? C::STOP : C::NEXT);
+    }, 0);
+    y += h + gap * 2;
+    const char *const src[] = {tr(Str::SUPERNOVA_WEB_RANDOM), tr(Str::SUPERNOVA_WEB_PLAYLIST), tr(Str::SUPERNOVA_WEB_CHOOSE)};
+    const uint32_t srcColors[] = {Theme::GREEN, Theme::GREEN, Theme::BLUE};
+    row(3, y, src, srcColors, [](lv_event_t *e) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, DEBOUNCE_MS)) return;
+        const int k = (int)(intptr_t)lv_event_get_user_data(e);
+        if (k == 0) webPushType(C::RANDOM);
+        else if (k == 1) openWebLists();
+        else {
+            s_webPick = true;
+            buildBrowser();
+        }
+    }, 0);
+    y += h + gap * 2;
+    s_webShuffleBtn = Theme::button(screen, tr(s_webShuffle ? Str::SUPERNOVA_WEB_SHUFFLE_ON : Str::SUPERNOVA_WEB_SHUFFLE_OFF), w, h,
+                                    Theme::MUTED);
+    lv_obj_set_pos(s_webShuffleBtn, margin, y);
+    lv_obj_add_event_cb(s_webShuffleBtn, [](lv_event_t *) {
+        static uint32_t last = 0;
+        if (!Theme::debounce(last, 250)) return;
+        s_webShuffle = !s_webShuffle;
+        lv_label_set_text(lv_obj_get_child(s_webShuffleBtn, 0),
+                          tr(s_webShuffle ? Str::SUPERNOVA_WEB_SHUFFLE_ON : Str::SUPERNOVA_WEB_SHUFFLE_OFF));
+    }, LV_EVENT_CLICKED, nullptr);
+
+    s_webTimer = lv_timer_create(webTick, 500, nullptr);
+    lv_obj_add_event_cb(screen, webDeleted, LV_EVENT_DELETE, nullptr);
+    webTick(nullptr);
+    Theme::loadScreen(screen);
+}
+
 // Web remote: publishes the status and runs queued commands on the LVGL task.
 void remotePlay(const std::string &folder, bool withoutVocals)
 {
@@ -1253,6 +1449,7 @@ void show()
     SupernovaLibrary::start(false);
     static lv_timer_t *remoteTimer = nullptr;
     if (!remoteTimer) remoteTimer = lv_timer_create(remoteTick, 250, nullptr);
+    s_webPick = false;
     buildBrowser();
 #endif
 }

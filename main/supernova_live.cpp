@@ -65,4 +65,49 @@ void clearCmds()
     s_cmds.clear();
 }
 
+namespace {
+WebStatus s_web;
+std::deque<WebCmd> s_webCmds;
+bool s_webSeen = false;
+uint32_t s_webAt = 0;
+
+bool webFresh(uint32_t nowMs) { return s_webSeen && (uint32_t)(nowMs - s_webAt) <= WEB_LINK_TIMEOUT_MS; }
+}  // namespace
+
+void webReport(const WebStatus &s, uint32_t nowMs)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_web = s;
+    s_webSeen = true;
+    s_webAt = nowMs;
+}
+
+bool webStatus(WebStatus &out, uint32_t nowMs)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!webFresh(nowMs)) {
+        s_webCmds.clear();
+        return false;
+    }
+    out = s_web;
+    return true;
+}
+
+bool webPush(const WebCmd &c)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_webSeen || s_webCmds.size() >= WEB_CMD_QUEUE) return false;
+    s_webCmds.push_back(c);
+    return true;
+}
+
+bool webPop(WebCmd &out)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (s_webCmds.empty()) return false;
+    out = std::move(s_webCmds.front());
+    s_webCmds.pop_front();
+    return true;
+}
+
 }  // namespace SupernovaLive

@@ -8,6 +8,17 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.33
+
+- Supernova on ESP32-P4: the device is a remote control for the browser player.
+  A new "Web player" screen (WiFi button in the song browser header) shows the
+  song playing in the browser with a position bar (no video) and offers
+  pause/resume, stop, next, random all, a playlist (with a shuffle toggle) and
+  choosing a specific song. The browser page reports its state about once a
+  second (`POST /api/supernova/web/state`) and receives the queued commands in
+  the reply, so `/supernova/play` must be open and clicked once (browser
+  autoplay rules). Not tested on hardware.
+
 ## v0.26.32
 
 - Supernova browser player (`/supernova/play`): "Play automatically" runs a
