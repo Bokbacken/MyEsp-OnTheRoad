@@ -8,6 +8,16 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.30
+
+- ESP32-P4: first test of USB-C headphones/speakers. The USB host port runs a
+  UAC 1.0 driver (`espressif/usb_host_uac`); all mixer audio (games,
+  karaoke, Supernova) is resampled to 44.1/48 kHz stereo and sent to the
+  headset while the internal speaker is muted. `GET /api/usbaudio` shows the
+  state. Mixer audio is still 22.05 kHz mono. Not verified on hardware: VBUS
+  power on the port, enumeration and sound quality. New dependency, so the P4
+  lock file changes.
+
 ## v0.26.29
 
 - Supernova: new page `/supernova/play` plays a song in the browser so several

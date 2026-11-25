@@ -13,6 +13,7 @@
 #include "app_players.h"
 #include "app_web.h"
 #include "board_audio.h"
+#include "board_usb_audio.h"
 #include "board_battery.h"
 #include "board_sd.h"
 #include "otr_log.h"
@@ -311,6 +312,7 @@ extern "C" void app_main(void)
         Audio::setVolumes(cfg.soundOn, cfg.sfxVol, cfg.musicOn, cfg.musicVol);
         Audio::setMasterVolume(cfg.masterVol);
         ESP_LOGI(TAG, "audio %s", audioOk ? "ok" : "not available");
+        UsbAudio::begin();   // P4: USB host for a USB-C headset; inert elsewhere
     }
     UiBoot::setProgress(50);
 

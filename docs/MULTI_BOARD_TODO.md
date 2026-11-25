@@ -169,6 +169,13 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   titlar. Prioritera stora tydliga objekt, kontroller som inte skymmer
   spelplanen och stabil bild-/inmatningsrytm på S3. Egna namn, banor, grafik
   och ljud; undvik att kopiera Parsec-innehåll eller presentation.
+- [ ] USB-C-hörlurar/-högtalare på P4 (v0.26.30, första test): USB-host + UAC
+  1.0-drivrutin (`board_usb_audio`) tar mixerns utdata (mono 22,05 kHz,
+  uppsamplad till 44,1/48 kHz stereo) och tystar interna högtalaren medan ett
+  headset strömmar. `GET /api/usbaudio` visar läge, USB-ID, produkt och
+  byte-räknare. Hårdvarukontroller kvar: att OTG-porten matar VBUS till
+  headsetet, enumerering, ljud utan knaster, utdrag/insättning under spel,
+  samt konflikt med planerad USB-lagring (device-läge).
 - [ ] Supernova (v0.26.7): första UltraStar-inspirerade video-/texttestet är
   avgränsat till ESP32-P4. Katalogen är
   `/sdcard/otr/supernova/<Artist - Title>/` med `.mp4` och `.txt`; separat

@@ -11,6 +11,7 @@
 #include "app_players.h"
 #include "app_web_files.h"
 #include "board_audio.h"
+#include "board_usb_audio.h"
 #include "board_battery.h"
 #include "board_backlight.h"
 #include "board_sd.h"
@@ -351,6 +352,25 @@ static esp_err_t handleInfo(httpd_req_t *r)
     }
     MyWeb::Req q(r);
     if (q.has("tasks")) cJSON_AddItemToObject(o, "task_list", MyDiag::tasks());
+    return MyWeb::sendJson(r, 200, o);
+}
+
+// GET /api/usbaudio: USB-C headset state (P4 USB host), for hardware diagnosis.
+static esp_err_t handleUsbAudio(httpd_req_t *r)
+{
+    const UsbAudio::Status s = UsbAudio::status();
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "supported", s.supported);
+    cJSON_AddStringToObject(o, "state", UsbAudio::stateName(s.state));
+    cJSON_AddBoolToObject(o, "device_seen", s.deviceSeen);
+    char id[12];
+    snprintf(id, sizeof(id), "%04x:%04x", s.vid, s.pid);
+    cJSON_AddStringToObject(o, "usb_id", id);
+    cJSON_AddStringToObject(o, "product", s.product);
+    cJSON_AddNumberToObject(o, "rate", s.rate);
+    cJSON_AddNumberToObject(o, "written", s.written);
+    cJSON_AddNumberToObject(o, "dropped", s.dropped);
+    cJSON_AddStringToObject(o, "error", s.error);
     return MyWeb::sendJson(r, 200, o);
 }
 
@@ -1531,6 +1551,7 @@ bool begin()
     for (const MyWeb::Asset &a : WEB_ASSETS) MyWeb::addAsset(a);
     bool ok = MyWeb::on("/api/info", HTTP_GET, handleInfo);
     ok &= MyWeb::on("/api/diag/crash", HTTP_POST, handleDiagCrash);
+    ok &= MyWeb::on("/api/usbaudio", HTTP_GET, handleUsbAudio);
     ok &= MyWeb::on("/api/config", HTTP_GET, handleConfigGet);
     ok &= MyWeb::on("/api/config", HTTP_POST, handleConfigPost);
     ok &= MyWeb::on("/api/wifi", HTTP_POST, handleWifiPost);
