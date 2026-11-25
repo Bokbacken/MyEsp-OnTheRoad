@@ -176,6 +176,11 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   byte-räknare. Hårdvarukontroller kvar: att OTG-porten matar VBUS till
   headsetet, enumerering, ljud utan knaster, utdrag/insättning under spel,
   samt konflikt med planerad USB-lagring (device-läge).
+  Ägarens test v0.26.30: blotta hörlurar får ingen VBUS; med hubb/dock hittades
+  ljudkortet men hubbstöd var avstängt. v0.26.31 slår på hubbstöd och låter
+  `GET /api/usbaudio?select=N` (-1 = intern) välja bland flera USB-ljudkort;
+  valet sparas. Kvar att testa på hårdvara: dockens strömförsörjning, val av
+  extra ljudkort bakom hubben.
 - [ ] Supernova (v0.26.7): första UltraStar-inspirerade video-/texttestet är
   avgränsat till ESP32-P4. Katalogen är
   `/sdcard/otr/supernova/<Artist - Title>/` med `.mp4` och `.txt`; separat

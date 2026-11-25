@@ -1,6 +1,7 @@
 #include "board_usb_audio.h"
 
 #include <atomic>
+#include <stdio.h>
 #include <string.h>
 #include <wchar.h>
 
@@ -20,14 +21,15 @@ const char *stateName(State s)
     }
 }
 
-#if CONFIG_IDF_TARGET_ESP32P4
-
 }  // namespace UsbAudio
+
+#if CONFIG_IDF_TARGET_ESP32P4
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "nvs.h"
 #include "usb/uac_host.h"
 #include "usb/usb_host.h"
 
@@ -40,7 +42,22 @@ constexpr uint32_t THRESHOLD_BYTES = 4 * 1024;
 
 struct Found { uint8_t addr, iface; };
 
-uac_host_device_handle_t s_dev = nullptr;
+// One UAC speaker (a hub or dock can expose several sound cards). The handle stays open so a
+// removal is reported; streaming runs on at most one entry.
+struct Entry {
+    uac_host_device_handle_t h;
+    uint8_t iface;
+    uint16_t vid, pid;
+    char name[40];
+    char key[24];
+    bool streaming;
+    uac_host_stream_config_t cfg;
+};
+
+Entry s_list[MAX_DEVICES];
+int s_count = 0;
+Entry *s_cur = nullptr;   // Streaming entry
+char s_pref[24] = "";     // Saved choice: "" = first found, "-" = internal speaker, else Entry::key
 SemaphoreHandle_t s_lock = nullptr;
 QueueHandle_t s_found = nullptr;
 usb_host_client_handle_t s_client = nullptr;
@@ -66,32 +83,25 @@ void toAscii(const wchar_t *w, char *out, size_t cap)
     out[i] = 0;
 }
 
-void deviceEvent(uac_host_device_handle_t h, const uac_host_device_event_t ev, void *)
+void savePref()
 {
-    if (ev == UAC_HOST_DRIVER_EVENT_DISCONNECTED) {
-        ESP_LOGW(TAG, "headset removed");
-        xSemaphoreTake(s_lock, portMAX_DELAY);
-        s_streaming = false;
-        if (s_dev == h) s_dev = nullptr;
-        s_rate = 0;
-        s_st.rate = 0;
-        s_st.state = State::WAITING;
-        s_st.product[0] = 0;
-        xSemaphoreGive(s_lock);
-        uac_host_device_close(h);
-    } else if (ev == UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR) {
-        ESP_LOGW(TAG, "USB transfer error");
-    }
+    nvs_handle_t n;
+    if (nvs_open("usbaudio", NVS_READWRITE, &n) != ESP_OK) return;
+    nvs_set_str(n, "pref", s_pref);
+    nvs_commit(n);
+    nvs_close(n);
 }
 
-void driverEvent(uint8_t addr, uint8_t iface, const uac_host_driver_event_t ev, void *)
+void loadPref()
 {
-    if (ev != UAC_HOST_DRIVER_EVENT_TX_CONNECTED) return;   // Speaker side only
-    Found f{addr, iface};
-    xQueueSend(s_found, &f, 0);
+    nvs_handle_t n;
+    if (nvs_open("usbaudio", NVS_READONLY, &n) != ESP_OK) return;
+    size_t len = sizeof(s_pref);
+    if (nvs_get_str(n, "pref", s_pref, &len) != ESP_OK) s_pref[0] = 0;
+    nvs_close(n);
 }
 
-// Picks stereo 16-bit 44.1/48 kHz when offered; falls back to the first stereo 16-bit rate.
+// Picks stereo 16-bit 44.1/48 kHz when offered; otherwise the first stereo 16-bit rate.
 bool chooseFormat(uac_host_device_handle_t h, uint8_t altCount, uac_host_stream_config_t &cfg)
 {
     uint32_t best = 0;
@@ -118,8 +128,100 @@ bool chooseFormat(uac_host_device_handle_t h, uint8_t altCount, uac_host_stream_
     return true;
 }
 
+void stopEntry(Entry &e)
+{
+    s_streaming = false;
+    if (s_cur == &e) s_cur = nullptr;
+    s_rate = 0;
+    s_st.rate = 0;
+    s_st.product[0] = 0;
+    if (e.streaming) uac_host_device_stop(e.h);
+    e.streaming = false;
+}
+
+bool startEntry(Entry &e)
+{
+    esp_err_t err = uac_host_device_start(e.h, &e.cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "uac_host_device_start: %s", esp_err_to_name(err));
+        setError("UAC start failed");
+        return false;
+    }
+    uac_host_device_set_mute(e.h, false);
+    uac_host_device_set_volume(e.h, s_volume);
+    e.streaming = true;
+    s_cur = &e;
+    s_rate = e.cfg.sample_freq;
+    s_phase = 0;
+    s_st.rate = s_rate;
+    s_st.error[0] = 0;
+    strlcpy(s_st.product, e.name, sizeof(s_st.product));
+    s_st.state = State::STREAMING;
+    s_streaming = true;
+    ESP_LOGI(TAG, "streaming to '%s' at %u Hz", e.name, (unsigned)s_rate);
+    return true;
+}
+
+// Lock held. Makes the streaming entry match the saved choice.
+void applySelection()
+{
+    Entry *want = nullptr;
+    if (!strcmp(s_pref, "-")) {
+        want = nullptr;
+    } else if (s_pref[0]) {
+        for (int i = 0; i < s_count; i++)
+            if (!strcmp(s_list[i].key, s_pref)) want = &s_list[i];
+    } else {
+        want = s_cur ? s_cur : (s_count ? &s_list[0] : nullptr);
+    }
+    if (s_cur && s_cur != want) stopEntry(*s_cur);
+    if (want && !want->streaming) startEntry(*want);
+    if (!s_cur && s_st.state != State::ERROR) s_st.state = s_count ? State::OPEN : State::WAITING;
+}
+
+// Lock held.
+void removeEntry(uac_host_device_handle_t h)
+{
+    for (int i = 0; i < s_count; i++) {
+        if (s_list[i].h != h) continue;
+        ESP_LOGW(TAG, "'%s' removed", s_list[i].name);
+        Entry *cur = s_cur;
+        if (cur == &s_list[i]) stopEntry(s_list[i]);
+        const int curIdx = (s_cur && s_cur != &s_list[i]) ? (int)(s_cur - s_list) : -1;
+        for (int j = i; j + 1 < s_count; j++) s_list[j] = s_list[j + 1];
+        s_count--;
+        if (curIdx > i) s_cur = &s_list[curIdx - 1];
+        break;
+    }
+    if (!s_count) s_st.state = State::WAITING;
+}
+
+void deviceEvent(uac_host_device_handle_t h, const uac_host_device_event_t ev, void *)
+{
+    if (ev == UAC_HOST_DRIVER_EVENT_DISCONNECTED) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        removeEntry(h);
+        applySelection();
+        xSemaphoreGive(s_lock);
+        uac_host_device_close(h);
+    } else if (ev == UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR) {
+        ESP_LOGW(TAG, "USB transfer error");
+    }
+}
+
+void driverEvent(uint8_t addr, uint8_t iface, const uac_host_driver_event_t ev, void *)
+{
+    if (ev != UAC_HOST_DRIVER_EVENT_TX_CONNECTED) return;   // Speaker side only
+    Found f{addr, iface};
+    xQueueSend(s_found, &f, 0);
+}
+
 void openDevice(const Found &f)
 {
+    if (s_count >= MAX_DEVICES) {
+        ESP_LOGW(TAG, "too many USB speakers; ignoring one");
+        return;
+    }
     uac_host_device_config_t dc{};
     dc.addr = f.addr;
     dc.iface_num = f.iface;
@@ -129,44 +231,30 @@ void openDevice(const Found &f)
     uac_host_device_handle_t h = nullptr;
     esp_err_t err = uac_host_device_open(&dc, &h);
     if (err != ESP_OK) {
-        setError("UAC open failed");
         ESP_LOGE(TAG, "uac_host_device_open: %s", esp_err_to_name(err));
+        setError("UAC open failed");
         return;
     }
     uac_host_dev_info_t info{};
     uac_host_get_device_info(h, &info);
-    char name[40];
-    toAscii(info.iProduct, name, sizeof(name));
-    ESP_LOGI(TAG, "speaker %04x:%04x '%s' iface %u, %u alt settings", info.VID, info.PID, name, info.iface_num,
-             info.iface_alt_num);
-    uac_host_stream_config_t cfg{};
-    if (!chooseFormat(h, info.iface_alt_num, cfg)) {
-        setError("No stereo 16-bit format");
+    Entry e{};
+    e.h = h;
+    e.iface = info.iface_num;
+    e.vid = info.VID;
+    e.pid = info.PID;
+    toAscii(info.iProduct, e.name, sizeof(e.name));
+    snprintf(e.key, sizeof(e.key), "%04x:%04x:%u", e.vid, e.pid, e.iface);
+    ESP_LOGI(TAG, "speaker %s '%s', %u alt settings", e.key, e.name, info.iface_alt_num);
+    if (!chooseFormat(h, info.iface_alt_num, e.cfg)) {
+        ESP_LOGW(TAG, "'%s': no stereo 16-bit format", e.name);
         uac_host_device_close(h);
         return;
     }
-    err = uac_host_device_start(h, &cfg);
-    if (err != ESP_OK) {
-        setError("UAC start failed");
-        ESP_LOGE(TAG, "uac_host_device_start: %s", esp_err_to_name(err));
-        uac_host_device_close(h);
-        return;
-    }
-    uac_host_device_set_mute(h, false);
-    uac_host_device_set_volume(h, s_volume);
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    s_dev = h;
-    s_rate = cfg.sample_freq;
-    s_phase = 0;
-    s_st.rate = cfg.sample_freq;
-    s_st.vid = info.VID;
-    s_st.pid = info.PID;
-    s_st.error[0] = 0;
-    strlcpy(s_st.product, name, sizeof(s_st.product));
-    s_st.state = State::STREAMING;
-    s_streaming = true;
+    s_list[s_count++] = e;
+    if (s_st.state == State::ERROR) s_st.state = State::WAITING;
+    applySelection();
     xSemaphoreGive(s_lock);
-    ESP_LOGI(TAG, "streaming at %u Hz", (unsigned)cfg.sample_freq);
 }
 
 void clientEvent(const usb_host_client_event_msg_t *msg, void *)
@@ -215,6 +303,7 @@ void begin()
     s_lock = xSemaphoreCreateMutex();
     s_found = xQueueCreate(4, sizeof(Found));
     if (!s_lock || !s_found) { setError("out of memory"); return; }
+    loadPref();
 
     usb_host_config_t hc{};
     hc.skip_phy_setup = false;
@@ -248,7 +337,7 @@ void begin()
     }
     xTaskCreatePinnedToCore(openTask, "usb_open", 6144, nullptr, 4, nullptr, 0);
     s_st.state = State::WAITING;
-    ESP_LOGI(TAG, "USB host ready, waiting for a headset");
+    ESP_LOGI(TAG, "USB host ready, saved choice '%s'", s_pref);
 }
 
 bool active() { return s_streaming.load(); }
@@ -258,16 +347,36 @@ void setVolume(uint8_t percent)
     s_volume = percent > 100 ? 100 : percent;
     if (!s_lock) return;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (s_dev) uac_host_device_set_volume(s_dev, s_volume);
+    if (s_cur) uac_host_device_set_volume(s_cur->h, s_volume);
     xSemaphoreGive(s_lock);
+}
+
+bool select(int index)
+{
+    if (!s_lock) return false;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool ok = true;
+    if (index < 0) {
+        strlcpy(s_pref, "-", sizeof(s_pref));
+    } else if (index < s_count) {
+        strlcpy(s_pref, s_list[index].key, sizeof(s_pref));
+    } else {
+        ok = false;
+    }
+    if (ok) {
+        savePref();
+        applySelection();
+    }
+    xSemaphoreGive(s_lock);
+    return ok;
 }
 
 void push(const int16_t *mono, int n, int inRate)
 {
     if (!s_streaming.load() || n <= 0 || inRate <= 0) return;
     if (xSemaphoreTake(s_lock, 0) != pdTRUE) return;
-    if (s_dev && s_rate) {
-        // Linear interpolation from inRate to s_rate; (16.16) phase carries across blocks.
+    if (s_cur && s_rate) {
+        // Linear interpolation from inRate to s_rate; the (16.16) phase carries across blocks.
         const uint32_t step = (uint32_t)(((uint64_t)inRate << 16) / s_rate);
         int outN = 0;
         uint32_t pos = s_phase;   // Position relative to the previous-block sample at index -1
@@ -285,22 +394,40 @@ void push(const int16_t *mono, int n, int inRate)
         s_phase = pos - limit;
         s_prev = mono[n - 1];
         const uint32_t bytes = (uint32_t)outN * 4;
-        if (uac_host_device_write(s_dev, (uint8_t *)s_out, bytes, 0) == ESP_OK) s_st.written += bytes;
+        if (uac_host_device_write(s_cur->h, (uint8_t *)s_out, bytes, 0) == ESP_OK) s_st.written += bytes;
         else s_st.dropped += bytes;
     }
     xSemaphoreGive(s_lock);
 }
 
-Status status() { return s_st; }
+Status status()
+{
+    Status s = s_st;
+    if (!s_lock) return s;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s.deviceCount = s_count;
+    for (int i = 0; i < s_count; i++) {
+        strlcpy(s.devices[i].name, s_list[i].name, sizeof(s.devices[i].name));
+        s.devices[i].vid = s_list[i].vid;
+        s.devices[i].pid = s_list[i].pid;
+        s.devices[i].selected = s_list[i].streaming;
+    }
+    s.internalChosen = !strcmp(s_pref, "-");
+    xSemaphoreGive(s_lock);
+    return s;
+}
+
+}  // namespace UsbAudio
 
 #else  // Targets without a USB host
 
+namespace UsbAudio {
 void begin() {}
 bool active() { return false; }
 void push(const int16_t *, int, int) {}
 void setVolume(uint8_t) {}
+bool select(int) { return false; }
 Status status() { Status s{}; s.state = State::OFF; return s; }
+}  // namespace UsbAudio
 
 #endif
-
-}  // namespace UsbAudio

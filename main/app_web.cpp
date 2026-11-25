@@ -355,9 +355,16 @@ static esp_err_t handleInfo(httpd_req_t *r)
     return MyWeb::sendJson(r, 200, o);
 }
 
-// GET /api/usbaudio: USB-C headset state (P4 USB host), for hardware diagnosis.
+// GET /api/usbaudio[?select=N|-1]: USB-C speaker state (P4 USB host) and output choice.
+// select=-1 returns to the internal speaker; N is an index in "devices".
 static esp_err_t handleUsbAudio(httpd_req_t *r)
 {
+    MyWeb::Req q(r);
+    char sel[8] = "";
+    if (q.get("select", sel, sizeof(sel))) {
+        if (!q.adminAllowed()) return MyWeb::sendError(r, 403, tr(Str::WEB_ERR_PIN));
+        if (!UsbAudio::select(atoi(sel))) return MyWeb::sendError(r, 400, "select=-1|index");
+    }
     const UsbAudio::Status s = UsbAudio::status();
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "supported", s.supported);
@@ -371,6 +378,17 @@ static esp_err_t handleUsbAudio(httpd_req_t *r)
     cJSON_AddNumberToObject(o, "written", s.written);
     cJSON_AddNumberToObject(o, "dropped", s.dropped);
     cJSON_AddStringToObject(o, "error", s.error);
+    cJSON_AddBoolToObject(o, "internal_chosen", s.internalChosen);
+    cJSON *devs = cJSON_AddArrayToObject(o, "devices");
+    for (int i = 0; i < s.deviceCount; i++) {
+        cJSON *d = cJSON_CreateObject();
+        cJSON_AddNumberToObject(d, "index", i);
+        cJSON_AddStringToObject(d, "name", s.devices[i].name);
+        snprintf(id, sizeof(id), "%04x:%04x", s.devices[i].vid, s.devices[i].pid);
+        cJSON_AddStringToObject(d, "usb_id", id);
+        cJSON_AddBoolToObject(d, "selected", s.devices[i].selected);
+        cJSON_AddItemToArray(devs, d);
+    }
     return MyWeb::sendJson(r, 200, o);
 }
 

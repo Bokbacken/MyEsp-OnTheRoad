@@ -44,6 +44,10 @@ CONFIG_AUDIO_SIMPLE_DEC_WAV_SUPPORT=n
 CONFIG_AUDIO_SIMPLE_DEC_M4A_SUPPORT=n
 CONFIG_AUDIO_SIMPLE_DEC_TS_SUPPORT=n
 CONFIG_AUDIO_SIMPLE_DEC_OGG_SUPPORT=n
+
+# --- USB-C audio output through a powered hub/dock (main/board_usb_audio.cpp) ---
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
+CONFIG_USB_HOST_HUB_MULTI_LEVEL=y
 
 # --- Wi-Fi through the ESP32-C6 co-processor (ESP-Hosted 3.x, SDIO, board default pins) ---
 CONFIG_ESP_HOSTED=y

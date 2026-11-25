@@ -8,6 +8,15 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.31
+
+- ESP32-P4 USB-C audio: hub support enabled (`CONFIG_USB_HOST_HUBS_SUPPORTED`,
+  multi-level), so USB sound cards behind a powered hub/dock are enumerated.
+  Several speakers can be listed; `GET /api/usbaudio?select=N` picks one
+  (`select=-1` = internal speaker, PIN required when set). The choice is saved
+  in NVS and matched by VID:PID:interface; without a choice the first device is
+  used. Not verified on hardware.
+
 ## v0.26.30
 
 - ESP32-P4: first test of USB-C headphones/speakers. The USB host port runs a
