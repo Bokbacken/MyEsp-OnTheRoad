@@ -8,6 +8,10 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.36
+
+- Supernova browser player: with MP4 video the audio waits until about 4 s of video is buffered (max 10 s) and pauses again to rebuffer if the video stalls, instead of stuttering at the start. Not tested on hardware.
+
 ## v0.26.35
 
 - Supernova browser player: when the song folder has the original .mp4, the browser plays it (muted, following the audio clock so lyrics stay in sync) instead of the AVI frames, giving smooth, full-quality video; otherwise it falls back to the AVI frames. New route `GET /api/supernova/video` (range requests); `/api/supernova/media` reports `mp4`. Local playback on the device always uses the AVI. Not tested on hardware.

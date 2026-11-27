@@ -83,7 +83,7 @@ const T = {
   sv: { title: 'Sjung i webbläsaren', lists: 'Spellistor', pick: 'Välj en sång', search: 'Sök artist eller titel', more: 'Visa fler',
     sing: 'Sjung', plain: 'Utan sång (instrumental)', fullscreen: 'Helskärm', neterr: 'Ingen kontakt med enheten',
     shown: '{0} av {1} sånger', scanning: 'Enheten läser in sångerna …', empty: 'Inga sånger hittades.',
-    noVideo: 'Den här sången har ingen video som webbläsaren kan visa (den måste vara en AVI gjord med konverteringsskriptet). Ljud och text fungerar ändå.',
+    buffering: 'Buffrar video…', noVideo: 'Den här sången har ingen video som webbläsaren kan visa (den måste vara en AVI gjord med konverteringsskriptet). Ljud och text fungerar ändå.',
     hint: 'Tryck på play i spelaren. Videon hämtas bild för bild från enheten, så den kan hacka om flera tittar samtidigt. Ljudet och texten är alltid i takt.',
     noAudio: 'Sången har inget ljud.', noLyrics: 'Texten kunde inte läsas.',
     auto: 'Spela automatiskt', srcRandom: 'Alla sånger (slumpvis)', shuffle: 'Blanda ordningen', start: 'Starta',
@@ -93,7 +93,7 @@ const T = {
   en: { title: 'Sing in the browser', lists: 'Playlists', pick: 'Pick a song', search: 'Search artist or title', more: 'Show more',
     sing: 'Sing', plain: 'Without vocals (instrumental)', fullscreen: 'Full screen', neterr: 'No contact with the device',
     shown: '{0} of {1} songs', scanning: 'The device is reading the songs …', empty: 'No songs found.',
-    noVideo: 'This song has no video the browser can show (it must be an AVI made by the convert script). Audio and lyrics still work.',
+    buffering: 'Buffering video…', noVideo: 'This song has no video the browser can show (it must be an AVI made by the convert script). Audio and lyrics still work.',
     hint: 'Press play in the player. The video is fetched frame by frame from the device, so it may stutter when several people watch. Audio and lyrics always stay in step.',
     noAudio: 'The song has no audio.', noLyrics: 'The lyrics could not be read.',
     auto: 'Play automatically', srcRandom: 'All songs (random)', shuffle: 'Shuffle the order', start: 'Start',
@@ -160,6 +160,7 @@ async function openSong(s, auto) {
 let gen = 0, failures = 0, queue = { mode: 'single', items: [], idx: 0, recent: [] };
 async function loadSong(variant, auto) {
   const my = ++gen;
+  buffering = 0;
   stopLoop();
   const a = $('audio'); a.pause();
   const q = '?f=' + encodeURIComponent(folder) + '&v=' + variant;
@@ -343,8 +344,21 @@ function drawLyrics(ms) {
 }
 // The muted original MP4 follows the audio element, which stays the clock for lyrics and sync.
 let useMp4 = false;
+let buffering = 0;   // Time the audio was paused to let the video buffer; 0 = not buffering
+const bufAhead = v => { const t = v.currentTime; for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= t + 0.1 && v.buffered.end(i) >= t) return v.buffered.end(i) - t; return 0; };
+const BUFFER_S = 4, BUFFER_MAX_MS = 10000;
 function syncVideo(a) {
   const v = $('vid');
+  if (buffering) {
+    if (bufAhead(v) >= BUFFER_S || Date.now() - buffering > BUFFER_MAX_MS || v.readyState === 4 && v.buffered.end(v.buffered.length - 1) >= v.duration - 0.5) {
+      buffering = 0; $('notice').textContent = ''; a.play().catch(() => {});
+    }
+    return;
+  }
+  if (!a.paused && !a.ended && v.readyState < 3 && bufAhead(v) < 1) {
+    buffering = Date.now(); a.pause(); v.pause(); $('notice').textContent = t('buffering');
+    return;
+  }
   if (a.paused || a.ended) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - a.currentTime) > 0.1) v.currentTime = a.currentTime; return; }
   if (Math.abs(v.currentTime - a.currentTime) > 0.3) v.currentTime = a.currentTime;
   if (v.paused && v.readyState >= 2) v.play().catch(() => {});
