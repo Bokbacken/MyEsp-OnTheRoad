@@ -19,6 +19,7 @@ struct Media {
     // Full paths; audio may be empty. audio = full mix (or the vocals file when that is all there is),
     // instrumental = "[Kar]"/"[Inst..]" file (SingStar conversions), both empty when absent.
     std::string audio, video, lyrics, instrumental;
+    std::string mp4;   // Original .mp4 when present (video above prefers .avi); only the web player uses it
 };
 
 // Finds the media of a song folder (full path). True when video and lyrics exist (.avi is

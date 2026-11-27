@@ -373,11 +373,11 @@ bool findMedia(const std::string &folder, Media &song)
                 song.audio = path;
             }
         }
-        else if (song.video.empty() && endsWithExt(file, ".mp4")) song.video = path;
+        else if (song.mp4.empty() && endsWithExt(file, ".mp4")) song.mp4 = path;
         else if (avi.empty() && endsWithExt(file, ".avi")) avi = path;
         else if (song.lyrics.empty() && endsWithExt(file, ".txt")) song.lyrics = path;
     }
-    if (!avi.empty()) song.video = avi;
+    song.video = !avi.empty() ? avi : song.mp4;
     if (!song.lyrics.empty()) applyAudioTags(folder, files, song, vocals);
     if (song.audio.empty()) song.audio = vocals;
     return !song.video.empty() && !song.lyrics.empty();

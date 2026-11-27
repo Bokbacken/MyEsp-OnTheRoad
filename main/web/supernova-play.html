@@ -17,9 +17,9 @@
 #notice { color: var(--otr-orange); min-height: 1.3em; }
 #stage { position: relative; background: #000; color: #fff; border-radius: .6rem; overflow: hidden; margin: .6rem 0; max-width: 60rem; }
 #stage:fullscreen { max-width: none; border-radius: 0; display: flex; flex-direction: column; justify-content: center; }
-#screen { display: block; width: 100%; max-height: 60vh; aspect-ratio: auto; background: #000; margin: 0 auto; }
-#screen { object-fit: contain; }
-#stage:fullscreen #screen { max-height: 70vh; height: 70vh; }
+#screen, #vid { display: block; width: 100%; max-height: 60vh; aspect-ratio: auto; background: #000; margin: 0 auto; }
+#screen, #vid { object-fit: contain; }
+#stage:fullscreen #screen, #stage:fullscreen #vid { max-height: 70vh; height: 70vh; }
 #lyrics { padding: .6rem .8rem 1rem; text-align: center; min-height: 6.5em; }
 #cur { font-size: clamp(1.3rem, 4vw, 2.2rem); font-weight: bold; line-height: 1.25; }
 #cur .sung { color: #ffc400; }
@@ -46,6 +46,7 @@ ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 <div id="player" hidden>
   <h2 id="song-name"></h2>
   <div id="stage">
+    <video id="vid" muted playsinline preload="auto" hidden></video>
     <canvas id="screen" width="320" height="180" hidden></canvas>
     <div id="lyrics"><div id="dots"></div><div id="cur"></div><div id="nxt"></div></div>
     <div id="ctl">
@@ -174,9 +175,13 @@ async function loadSong(variant, auto) {
     a.hidden = !media.audio;
     if (!media.audio) $('notice').textContent = t('noAudio');
     else { a.src = '/api/supernova/audio' + q; a.load(); }
-    const c = $('screen');
-    c.hidden = !media.video;
-    if (media.video) {
+    const c = $('screen'), v = $('vid');
+    useMp4 = !!(media.mp4 && media.audio);
+    v.hidden = !useMp4;
+    v.pause(); v.removeAttribute('src');
+    if (useMp4) { v.src = '/api/supernova/video' + q; v.load(); }
+    c.hidden = useMp4 || !media.video;
+    if (!useMp4 && media.video) {
       fps = media.fps || 10;
       c.width = media.w; c.height = media.h; shown = -1;
       c.getContext('2d').fillRect(0, 0, c.width, c.height);
@@ -336,10 +341,23 @@ function drawLyrics(ms) {
   const d = $('dots'); d.textContent = '';
   for (let k = 0; k < dots; k++) d.appendChild(el('span', k < lit ? 'on' : '', '● '));
 }
+// The muted original MP4 follows the audio element, which stays the clock for lyrics and sync.
+let useMp4 = false;
+function syncVideo(a) {
+  const v = $('vid');
+  if (a.paused || a.ended) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - a.currentTime) > 0.1) v.currentTime = a.currentTime; return; }
+  if (Math.abs(v.currentTime - a.currentTime) > 0.3) v.currentTime = a.currentTime;
+  if (v.paused && v.readyState >= 2) v.play().catch(() => {});
+}
+$('vid').addEventListener('error', () => {
+  useMp4 = false; $('vid').hidden = true;
+  if (media && media.video) { const c = $('screen'); fps = media.fps || 10; c.width = media.w; c.height = media.h; c.hidden = false; shown = -1; } else $('notice').textContent = t('noVideo');
+});
 function loop() {
   const a = $('audio'), ms = Math.round(a.currentTime * 1000);
   drawLyrics(ms);
-  if (media && media.video) showFrame(Math.floor(a.currentTime * fps));
+  if (useMp4) syncVideo(a);
+  else if (media && media.video) showFrame(Math.floor(a.currentTime * fps));
   raf = requestAnimationFrame(loop);
 }
 function startLoop() { stopLoop(); lastKey = ''; raf = requestAnimationFrame(loop); }

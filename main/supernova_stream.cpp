@@ -24,6 +24,7 @@ namespace SupernovaStream {
 namespace {
 
 constexpr size_t AUDIO_PART = 96 * 1024;   // The httpd task is shared; keep each audio response short
+constexpr size_t VIDEO_PART = 256 * 1024;
 constexpr size_t MAX_FRAME = 256 * 1024;
 
 // The song the browser is playing. The httpd task serves one request at a time, the mutex is for safety.
@@ -36,6 +37,8 @@ struct Open {
     std::string audioPath;        // Separate MP3 file; empty = audio comes from the AVI
     uint32_t audioFileSize = 0;
     std::string lyricsPath;
+    std::string mp4Path;          // Original video for the browser (played muted; audio comes from audioPath/AVI)
+    uint32_t mp4Size = 0;
 };
 Open s_open;
 std::mutex s_mutex;
@@ -99,6 +102,17 @@ bool openSong(const char *folder, int variant)
         if (f) fclose(f);
         if (!next.audioFileSize) next.audioPath.clear();
     }
+    if (!media.mp4.empty()) {
+        FILE *f = fopen(media.mp4.c_str(), "rb");
+        if (f && fseek(f, 0, SEEK_END) == 0) {
+            const long size = ftell(f);
+            if (size > 0) {
+                next.mp4Path = media.mp4;
+                next.mp4Size = (uint32_t)size;
+            }
+        }
+        if (f) fclose(f);
+    }
     if (endsWith(media.video, ".avi")) {
         FILE *f = fopen(media.video.c_str(), "rb");
         if (f) {
@@ -142,6 +156,8 @@ esp_err_t mediaGet(httpd_req_t *r)
     o += video ? "true" : "false";
     o += ",\"audio\":";
     o += audio ? "true" : "false";
+    o += ",\"mp4\":";
+    o += s_open.mp4Size ? "true" : "false";
     o += ",\"hasPlain\":";
     SupernovaLibrary::Media media;
     bool plain = false;
@@ -269,6 +285,58 @@ esp_err_t audioGet(httpd_req_t *r)
     return e;
 }
 
+esp_err_t videoGet(httpd_req_t *r)
+{
+    char folder[208];
+    int variant;
+    if (!songArgs(r, folder, sizeof(folder), variant)) return MyWeb::sendError(r, 400, "bad song");
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!openSong(folder, variant)) return MyWeb::sendError(r, 404, "song not found");
+    const uint32_t total = s_open.mp4Size;
+    if (!total) return MyWeb::sendError(r, 404, "no mp4");
+
+    uint32_t from = 0, to = total - 1;
+    char hdr[64] = "";
+    const bool ranged = httpd_req_get_hdr_value_str(r, "Range", hdr, sizeof(hdr)) == ESP_OK;
+    if (ranged && !parseRange(hdr, total, from, to)) {
+        char cr[40];
+        snprintf(cr, sizeof(cr), "bytes */%u", (unsigned)total);
+        httpd_resp_set_status(r, "416 Range Not Satisfiable");
+        httpd_resp_set_hdr(r, "Content-Range", cr);
+        return httpd_resp_send(r, nullptr, 0);
+    }
+    to = std::min<uint32_t>(to, from + (uint32_t)VIDEO_PART - 1);
+    const size_t len = (size_t)(to - from + 1);
+    uint8_t *buf = (uint8_t *)psAlloc(len);
+    if (!buf) return MyWeb::sendError(r, 500, "out of memory");
+    size_t got = 0;
+    {
+        BoardSd::Guard guard;
+        if (BoardSd::transferHealthy()) {
+            FILE *f = fopen(s_open.mp4Path.c_str(), "rb");
+            if (f) {
+                if (fseek(f, (long)from, SEEK_SET) == 0) got = fread(buf, 1, len, f);
+                fclose(f);
+            }
+        }
+    }
+    if (got != len) {
+        free(buf);
+        return MyWeb::sendError(r, 503, "SD card read failed");
+    }
+    httpd_resp_set_type(r, "video/mp4");
+    httpd_resp_set_hdr(r, "Accept-Ranges", "bytes");
+    if (ranged) {
+        char cr[64];
+        snprintf(cr, sizeof(cr), "bytes %u-%u/%u", (unsigned)from, (unsigned)to, (unsigned)total);
+        httpd_resp_set_status(r, "206 Partial Content");
+        httpd_resp_set_hdr(r, "Content-Range", cr);
+    }
+    const esp_err_t e = httpd_resp_send(r, (const char *)buf, (ssize_t)len);
+    free(buf);
+    return e;
+}
+
 esp_err_t lyricsGet(httpd_req_t *r)
 {
     char folder[208];
@@ -334,6 +402,7 @@ bool registerRoutes()
     bool ok = MyWeb::on("/api/supernova/media", HTTP_GET, mediaGet);
     ok &= MyWeb::on("/api/supernova/frame", HTTP_GET, frameGet);
     ok &= MyWeb::on("/api/supernova/audio", HTTP_GET, audioGet);
+    ok &= MyWeb::on("/api/supernova/video", HTTP_GET, videoGet);
     ok &= MyWeb::on("/api/supernova/lyrics", HTTP_GET, lyricsGet);
     return ok;
 }

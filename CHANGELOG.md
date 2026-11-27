@@ -8,6 +8,10 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.35
+
+- Supernova browser player: when the song folder has the original .mp4, the browser plays it (muted, following the audio clock so lyrics stay in sync) instead of the AVI frames, giving smooth, full-quality video; otherwise it falls back to the AVI frames. New route `GET /api/supernova/video` (range requests); `/api/supernova/media` reports `mp4`. Local playback on the device always uses the AVI. Not tested on hardware.
+
 ## v0.26.34
 
 - Supernova browser player: the picture keeps its aspect ratio in full screen and in the page (4:3 videos were stretched wide). Not tested on hardware.
