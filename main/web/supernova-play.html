@@ -14,6 +14,7 @@
 .actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
 .actions input[type=search] { flex: 1; min-width: 8rem; }
 .hint { color: var(--otr-muted); font-size: .85rem; }
+#diag { position: absolute; left: 4px; top: 4px; z-index: 5; margin: 0; padding: 4px 6px; background: rgba(0,0,0,.7); color: #9f9; font: 11px/1.3 monospace; pointer-events: none; white-space: pre; }
 #notice { color: var(--otr-orange); min-height: 1.3em; }
 #stage { position: relative; background: #000; color: #fff; border-radius: .6rem; overflow: hidden; margin: .6rem 0; max-width: 60rem; }
 #stage:fullscreen { max-width: none; border-radius: 0; display: flex; flex-direction: column; justify-content: center; }
@@ -47,6 +48,7 @@ ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   <h2 id="song-name"></h2>
   <div id="stage">
     <video id="vid" muted playsinline preload="auto" hidden></video>
+    <pre id="diag" hidden></pre>
     <canvas id="screen" width="320" height="180" hidden></canvas>
     <div id="lyrics"><div id="dots"></div><div id="cur"></div><div id="nxt"></div></div>
     <div id="ctl">
@@ -160,7 +162,8 @@ async function openSong(s, auto) {
 let gen = 0, failures = 0, queue = { mode: 'single', items: [], idx: 0, recent: [] };
 async function loadSong(variant, auto) {
   const my = ++gen;
-  buffering = 0;
++
++  stopLoop();
   stopLoop();
   const a = $('audio'); a.pause();
   const q = '?f=' + encodeURIComponent(folder) + '&v=' + variant;
@@ -222,6 +225,7 @@ document.addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); togglePause(); }
   else if (e.key === 'n' || e.key === 'N') nextSong();
   else if (e.key === 's' || e.key === 'S') stopAll();
+  else if (e.key === 'd' || e.key === 'D') toggleDiag();
 });
 const shuffled = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
 async function randomSong() {
@@ -342,6 +346,36 @@ function drawLyrics(ms) {
   const d = $('dots'); d.textContent = '';
   for (let k = 0; k < dots; k++) d.appendChild(el('span', k < lit ? 'on' : '', '● '));
 }
+// Diagnostics (press D, or open the page with ?diag): where time goes while the video starts and plays.
+let dg = { t0: Date.now(), rebuf: 0, rebufMs: 0, waiting: 0, stalled: 0 }, diagOn = /[?&]diag/.test(location.search), devDiag = null, diagTimer = 0;
+const dgMark = k => { if (dg[k] === undefined) dg[k] = Date.now() - dg.t0; };
+['loadedmetadata', 'loadeddata', 'canplay', 'playing'].forEach(ev => $('vid').addEventListener(ev, () => dgMark(ev)));
+$('vid').addEventListener('waiting', () => { dg.waiting++; });
+$('vid').addEventListener('stalled', () => { dg.stalled++; });
+$('audio').addEventListener('playing', () => dgMark('audioPlaying'));
+function toggleDiag() { diagOn = !diagOn; if (!diagOn) $('diag').hidden = true; else renderDiag(); }
+async function pollDiag() {
+  if (!diagOn) return;
+  try { devDiag = await (await fetch('/api/supernova/diag', { cache: 'no-store' })).json(); } catch (e) { devDiag = null; }
+}
+function renderDiag() {
+  const d = $('diag'); if (!diagOn) { d.hidden = true; return; }
+  const v = $('vid'), a = $('audio'), L = [];
+  const r = performance.getEntriesByType('resource').filter(e => e.name.includes('/api/supernova/video')).slice(-6);
+  const s = (dg.song || '').split('/').pop();
+  L.push('song ' + s + '  ' + (useMp4 ? 'MP4' : 'AVI') + '  bufAhead ' + bufAhead(v).toFixed(1) + 's  ready ' + v.readyState);
+  L.push('meta ' + (dg.loadedmetadata ?? '-') + ' ms  canplay ' + (dg.canplay ?? '-') + '  video ' + (dg.playing ?? '-') + '  audio ' + (dg.audioPlaying ?? '-'));
+  L.push('waiting ' + dg.waiting + '  stalled ' + dg.stalled + '  rebuffer ' + dg.rebuf + ' (' + dg.rebufMs + ' ms)');
+  if (v.getVideoPlaybackQuality) { const q = v.getVideoPlaybackQuality(); L.push('frames ' + q.totalVideoFrames + '  dropped ' + q.droppedVideoFrames); }
+  r.forEach(e => { const kb = e.encodedBodySize / 1024; L.push('req ttfb ' + Math.round(e.responseStart - e.requestStart) + ' ms  dl ' + Math.round(e.responseEnd - e.responseStart) + ' ms  ' + Math.round(kb) + ' kB  ' + (kb * 8 / 1024 / Math.max(.001, (e.responseEnd - e.requestStart) / 1000)).toFixed(1) + ' Mbit/s'); });
+  if (devDiag) {
+    const x = devDiag, f = (n, o) => n + ' n=' + o.n + (o.fail ? ' FAIL=' + o.fail : '') + '  ' + o.kb + ' kB  SD ' + Math.round(o.read_ms / Math.max(1, o.n)) + '/' + o.read_max + ' ms  send ' + Math.round(o.send_ms / Math.max(1, o.n)) + '/' + o.send_max + ' ms (avg/max)  last ' + o.last_kb + ' kB: SD ' + o.last_read + ' send ' + o.last_send;
+    L.push('--- enhet ---'); L.push(f('video', x.video)); L.push(f('audio', x.audio));
+    L.push('wifi ' + x.rssi + ' dBm  kanal ' + x.channel + '  upp ' + x.wifi_up_s + ' s  disc ' + x.disconnects + '  roams ' + x.roams + '  SD ' + x.sd_khz + ' kHz');
+  }
+  d.textContent = L.join('\n'); d.hidden = false;
+}
+setInterval(() => { if (diagOn) { pollDiag(); renderDiag(); } }, 1000);
 // The muted original MP4 follows the audio element, which stays the clock for lyrics and sync.
 let useMp4 = false;
 let buffering = 0;   // Time the audio was paused to let the video buffer; 0 = not buffering
@@ -351,12 +385,12 @@ function syncVideo(a) {
   const v = $('vid');
   if (buffering) {
     if (bufAhead(v) >= BUFFER_S || Date.now() - buffering > BUFFER_MAX_MS || v.readyState === 4 && v.buffered.end(v.buffered.length - 1) >= v.duration - 0.5) {
-      buffering = 0; $('notice').textContent = ''; a.play().catch(() => {});
+      dg.rebufMs += Date.now() - buffering; buffering = 0; $('notice').textContent = ''; a.play().catch(() => {});
     }
     return;
   }
   if (!a.paused && !a.ended && v.readyState < 3 && bufAhead(v) < 1) {
-    buffering = Date.now(); a.pause(); v.pause(); $('notice').textContent = t('buffering');
+    buffering = Date.now(); dg.rebuf++; a.pause(); v.pause(); $('notice').textContent = t('buffering');
     return;
   }
   if (a.paused || a.ended) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - a.currentTime) > 0.1) v.currentTime = a.currentTime; return; }

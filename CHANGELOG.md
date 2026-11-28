@@ -8,6 +8,10 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.37
+
+- Supernova browser player: diagnostics for the start-up stutter. Press D in the player (or open `/supernova/play?diag`) to overlay time to metadata/canplay/first frame, waiting/stalled/rebuffer counts, dropped frames and per-request TTFB/throughput from the browser, plus the device's own counters from the new `GET /api/supernova/diag` (per route: SD read vs. WiFi send time avg/max, kB served, failures; RSSI, channel, WiFi uptime, SD clock). Measurement only, no playback behavior change. Not hardware verified.
+
 ## v0.26.36
 
 - Supernova browser player: with MP4 video the audio waits until about 4 s of video is buffered (max 10 s) and pauses again to rebuffer if the video stalls, instead of stuttering at the start. Not tested on hardware.

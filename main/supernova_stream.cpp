@@ -13,7 +13,9 @@
 
 #include "board_sd.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "my_web.h"
+#include "my_wifi.h"
 #include "supernova_avi.h"
 #include "supernova_library.h"
 #include "supernova_lyrics.h"
@@ -42,6 +44,38 @@ struct Open {
 };
 Open s_open;
 std::mutex s_mutex;
+
+// Where time goes while serving the browser: SD read vs. WiFi send, per response, since boot.
+struct Stat {
+    uint32_t n = 0, fail = 0;
+    uint64_t bytes = 0;
+    uint32_t readMs = 0, readMax = 0, sendMs = 0, sendMax = 0, lastRead = 0, lastSend = 0, lastLen = 0;
+};
+Stat s_audioStat, s_videoStat;
+
+void note(Stat &s, uint32_t len, int64_t t0, int64_t t1, int64_t t2, bool ok)
+{
+    const uint32_t rd = (uint32_t)((t1 - t0) / 1000), sd = (uint32_t)((t2 - t1) / 1000);
+    s.n++;
+    if (!ok) s.fail++;
+    s.bytes += len;
+    s.readMs += rd;
+    s.sendMs += sd;
+    s.lastRead = rd;
+    s.lastSend = sd;
+    s.lastLen = len;
+    s.readMax = std::max(s.readMax, rd);
+    s.sendMax = std::max(s.sendMax, sd);
+}
+
+void appendStat(std::string &o, const char *name, const Stat &s)
+{
+    char b[256];
+    snprintf(b, sizeof(b), "\"%s\":{\"n\":%u,\"fail\":%u,\"kb\":%u,\"read_ms\":%u,\"read_max\":%u,\"send_ms\":%u,\"send_max\":%u,\"last_read\":%u,\"last_send\":%u,\"last_kb\":%u}",
+             name, (unsigned)s.n, (unsigned)s.fail, (unsigned)(s.bytes / 1024), (unsigned)s.readMs, (unsigned)s.readMax, (unsigned)s.sendMs, (unsigned)s.sendMax,
+             (unsigned)s.lastRead, (unsigned)s.lastSend, (unsigned)(s.lastLen / 1024));
+    o += b;
+}
 
 void *psAlloc(size_t n)
 {
@@ -254,6 +288,7 @@ esp_err_t audioGet(httpd_req_t *r)
     uint8_t *buf = (uint8_t *)psAlloc(len);
     if (!buf) return MyWeb::sendError(r, 500, "out of memory");
     size_t got = 0;
+    const int64_t t0 = esp_timer_get_time();
     {
         BoardSd::Guard guard;
         if (BoardSd::transferHealthy()) {
@@ -268,7 +303,9 @@ esp_err_t audioGet(httpd_req_t *r)
             }
         }
     }
+    const int64_t t1 = esp_timer_get_time();
     if (got != len) {
+        note(s_audioStat, 0, t0, t1, t1, false);
         free(buf);
         return MyWeb::sendError(r, 503, "SD card read failed");
     }
@@ -281,6 +318,7 @@ esp_err_t audioGet(httpd_req_t *r)
         httpd_resp_set_hdr(r, "Content-Range", cr);
     }
     const esp_err_t e = httpd_resp_send(r, (const char *)buf, (ssize_t)len);
+    note(s_audioStat, (uint32_t)len, t0, t1, esp_timer_get_time(), e == ESP_OK);
     free(buf);
     return e;
 }
@@ -310,6 +348,7 @@ esp_err_t videoGet(httpd_req_t *r)
     uint8_t *buf = (uint8_t *)psAlloc(len);
     if (!buf) return MyWeb::sendError(r, 500, "out of memory");
     size_t got = 0;
+    const int64_t t0 = esp_timer_get_time();
     {
         BoardSd::Guard guard;
         if (BoardSd::transferHealthy()) {
@@ -320,7 +359,9 @@ esp_err_t videoGet(httpd_req_t *r)
             }
         }
     }
+    const int64_t t1 = esp_timer_get_time();
     if (got != len) {
+        note(s_videoStat, 0, t0, t1, t1, false);
         free(buf);
         return MyWeb::sendError(r, 503, "SD card read failed");
     }
@@ -333,8 +374,27 @@ esp_err_t videoGet(httpd_req_t *r)
         httpd_resp_set_hdr(r, "Content-Range", cr);
     }
     const esp_err_t e = httpd_resp_send(r, (const char *)buf, (ssize_t)len);
+    note(s_videoStat, (uint32_t)len, t0, t1, esp_timer_get_time(), e == ESP_OK);
     free(buf);
     return e;
+}
+
+esp_err_t diagGet(httpd_req_t *r)
+{
+    std::string o = "{";
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        appendStat(o, "audio", s_audioStat);
+        o += ',';
+        appendStat(o, "video", s_videoStat);
+        o += ",\"mp4_kb\":" + std::to_string(s_open.mp4Size / 1024);
+    }
+    const MyWifi::Info wi = MyWifi::info();
+    char b[160];
+    snprintf(b, sizeof(b), ",\"rssi\":%d,\"channel\":%u,\"wifi_up_s\":%u,\"disconnects\":%u,\"roams\":%u,\"sd_khz\":%u}", wi.rssi,
+             (unsigned)wi.channel, (unsigned)wi.uptimeS, (unsigned)wi.disconnects, (unsigned)wi.roams, (unsigned)BoardSd::info().freqKhz);
+    o += b;
+    return WebUtil::sendJsonText(r, o);
 }
 
 esp_err_t lyricsGet(httpd_req_t *r)
@@ -404,6 +464,7 @@ bool registerRoutes()
     ok &= MyWeb::on("/api/supernova/audio", HTTP_GET, audioGet);
     ok &= MyWeb::on("/api/supernova/video", HTTP_GET, videoGet);
     ok &= MyWeb::on("/api/supernova/lyrics", HTTP_GET, lyricsGet);
+    ok &= MyWeb::on("/api/supernova/diag", HTTP_GET, diagGet);
     return ok;
 }
 
