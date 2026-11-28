@@ -85,6 +85,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   directly onto the SD card, sizing each video to the full width or height of the video area
   (`-Area WxH`, default 800x420), padded to 16-pixel multiples; copies `.txt`/`.mp3`/cover files
   and skips existing output (`-Force` redoes, `-DryRun` previews, `-Jobs N` parallel).
+  `-WebMp4` also writes a browser-friendly H.264 `<name>.mp4` (faststart, no audio, max `-WebHeight` 720p,
+  `-WebKbps` 2500) and `-Mp4Only` adds just that to an already converted AVI-only card
+  (`supernova_convert.ps1 <SD>:\otr\supernova <SD>:\otr\supernova -Mp4Only`). The web player prefers the `.mp4`.
   The song list is built on the device into an index (`supernova.idx`, up to 2000 songs; only new or
   changed folders are re-read) from the `#TITLE`, `#ARTIST`, `#GENRE`, `#LANGUAGE` and `#YEAR` tags, with
   search, sort (artist/title/year), filter (genre/language/decade), A–Ö jump and a Rescan button.

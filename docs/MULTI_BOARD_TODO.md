@@ -201,6 +201,11 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   `tools/supernova_convert.ps1` konverterar hela samlingar direkt till SD-kortet
   med optimal storlek per bildformat (värdetestat med syntetiska videor; ännu
   inte på enheten – verifiera bildyta `-Area`, kanter och uppspelning).
+  `-WebMp4`/`-Mp4Only` (verktyg, ej firmware) skapar webb-MP4 (H.264, 720p max,
+  2500 kbit/s); testat på syntetisk video, ännu inte med ägarens samling.
+  USDX-taggar (v0.26.39): START/END/VIDEOGAP, duett P1/P2, BPM-byte och fler
+  metadatataggar tolkas; webbspelaren använder START/END/VIDEOGAP, enhetens
+  spelare ännu inte.
   Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
   S3-portning beslutas efter praktiskt P4-test.
   Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms
