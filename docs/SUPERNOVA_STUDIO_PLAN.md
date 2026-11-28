@@ -10,6 +10,30 @@ ersätter `tools/supernova_convert.ps1`. Status: **plan, inget är implementerat
 2. Förhandsgranska och justera synk: egen videospelare, singlestep och ljudvågsbild.
 3. Föreslå och skriva `#GAP`, `#START`, `#VIDEOGAP` i låtens `.txt`.
 
+## Kravbild och motiv
+
+Varje krav har en orsak. Förslag som inte tjänar någon av orsakerna är inte relevanta för ägaren;
+fråga hellre än att lägga till funktioner utanför kravbilden.
+
+| Krav | Orsak |
+|---|---|
+| Konvertering sker på PC, direkt till SD-kortet | Enhetens CPU och WiFi är för svaga för att koda video; en hel samling ska kunna läggas på kortet utan mellansteg. |
+| Windows-program i C#, ffmpeg som motor | Ägaren behärskar C#; ffmpeg gör redan alla kodningar, så Studio ska styra det, inte ersätta det. |
+| AVI (MJPEG + MP3) alltid för lokal uppspelning | Enhetens hårdvaru-JPEG-avkodare spelar MJPEG; bildytan 800x420 ska utnyttjas maximalt med bevarad bildproportion. |
+| Webb-MP4 (H.264 + AAC, <= 720p, ~2,5 Mbit/s) | Webbläsaren spelar MP4 direkt med bättre kvalitet och jämnare flyt än AVI-bildrutor. Enhetens WiFi (C6 via SDIO) är flaskhalsen, därför låg bitrate. |
+| Ljud i MP4:n | Visar att ljud finns och kan spara resurser (en ström i stället för två) när mp3 saknas. |
+| MP4 skapas även när bara AVI finns | Omkodade SingStar-kataloger saknar original-MP4 men ska ändå få bra webbuppspelning. |
+| Egen videospelare med bildrutesteg | Synk (GAP, VIDEOGAP) måste kunna justeras exakt; bildruta för bildruta är den enda pålitliga metoden. |
+| Ljudvågsbild med mitt-/sido-/differensfilter | Många låtar har sången lika i L och R, och med karaoke- plus originalfil blir differensen sången; det visar var sången verkligen startar. |
+| Skriva GAP, START, VIDEOGAP i `.txt` | Texten ska börja rulla vid sångstart, inte vid filens början (långa intron). Enhetens spelare ignorerar dem ännu; webbspelaren använder dem. |
+| `#VIDEO`-pekaren ignoreras | Vi skapar egna filer (AVI/MP4) vid sidan av originalet. |
+| Befintliga filer hoppas över, omkörning med tvång | Stora samlingar ska kunna konverteras i omgångar och återupptas. |
+| Format är kontrakt mot firmware | Ändras kodek eller filnamn i endera repot slutar enheten eller webben spela. |
+| Inget påstås vara hårdvaruverifierat | Ett lyckat bygge/test visar inte att filen spelas på enheten; ägaren testar på riktig hårdvara. |
+
+Utanför kravbilden (gör inte utan att fråga): streaming över UDP (webbläsare kan bara HTTP/TCP),
+ändrad enhetsfirmware, molntjänster, kontosystem.
+
 ## Teknik (förslag)
 
 - C# / .NET (WPF eller WinUI), Windows 10+.
