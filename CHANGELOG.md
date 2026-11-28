@@ -8,6 +8,10 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.38
+
+- ESP32-P4: larger lwIP TCP buffers (send buffer and receive window 32 kB, bigger TCP/tcpip mailboxes, SACK) in `sdkconfig.defaults.esp32p4` to raise WiFi throughput for Supernova web playback (v0.26.37 diagnostics showed ~2-3 Mbit/s send speed with SD reads at ~23 Mbit/s). Takes effect only in a fresh build (CI artifact or after deleting `sdkconfig`). Compare with the `D` overlay; not hardware verified.
+
 ## v0.26.37
 
 - Supernova browser player: diagnostics for the start-up stutter. Press D in the player (or open `/supernova/play?diag`) to overlay time to metadata/canplay/first frame, waiting/stalled/rebuffer counts, dropped frames and per-request TTFB/throughput from the browser, plus the device's own counters from the new `GET /api/supernova/diag` (per route: SD read vs. WiFi send time avg/max, kB served, failures; RSSI, channel, WiFi uptime, SD clock). Measurement only, no playback behavior change. Not hardware verified.
