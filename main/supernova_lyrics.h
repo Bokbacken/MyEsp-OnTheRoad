@@ -25,6 +25,7 @@ struct Note {
 struct Phrase {
     uint32_t startMs = 0;
     uint32_t endMs = 0;
+    uint8_t singer = 0;   // 0 = solo / everyone, 1 = P1, 2 = P2 (duets)
     std::string text;
     std::vector<Note> notes;
 };
@@ -35,7 +36,15 @@ struct Document {
     double bpm = 0;
     int32_t gapMs = 0;
     bool relative = false;
-    std::vector<Phrase> phrases;
+    // Optional UltraStar tags. Times are milliseconds, converted from the file's units.
+    uint32_t startMs = 0;        // #START: where in the audio the song begins
+    uint32_t endMs = 0;          // #END: where the song ends (0 = play to the end)
+    int32_t videoGapMs = 0;      // #VIDEOGAP: video runs this much ahead of the audio
+    uint32_t previewMs = 0;      // #PREVIEWSTART
+    bool duet = false;
+    std::string audio, instrumental, vocals, cover, background;
+    std::string genre, language, year, edition, tags, creator, p1, p2;
+    std::vector<Phrase> phrases;   // Duets: both singers, ordered by start time
     void clear();
 };
 

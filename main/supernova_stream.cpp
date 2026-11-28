@@ -432,6 +432,18 @@ esp_err_t lyricsGet(httpd_req_t *r)
     WebUtil::appendStr(o, doc.title.c_str());
     o += ",\"artist\":";
     WebUtil::appendStr(o, doc.artist.c_str());
+    o += ",\"start\":";
+    WebUtil::appendNum(o, doc.startMs);
+    o += ",\"end\":";
+    WebUtil::appendNum(o, doc.endMs);
+    o += ",\"vgap\":";
+    o += std::to_string(doc.videoGapMs);
+    if (doc.duet) {
+        o += ",\"p1\":";
+        WebUtil::appendStr(o, doc.p1.c_str());
+        o += ",\"p2\":";
+        WebUtil::appendStr(o, doc.p2.c_str());
+    }
     o += ",\"phrases\":[";
     for (size_t i = 0; i < doc.phrases.size(); i++) {
         const SupernovaLyrics::Phrase &p = doc.phrases[i];
@@ -440,6 +452,10 @@ esp_err_t lyricsGet(httpd_req_t *r)
         WebUtil::appendNum(o, p.startMs);
         o += ",\"e\":";
         WebUtil::appendNum(o, p.endMs);
+        if (p.singer) {
+            o += ",\"p\":";
+            WebUtil::appendNum(o, p.singer);
+        }
         o += ",\"n\":[";
         for (size_t k = 0; k < p.notes.size(); k++) {
             if (k) o += ',';

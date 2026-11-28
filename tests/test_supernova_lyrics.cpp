@@ -53,6 +53,29 @@ int main()
     assert(doc.phrases.size() == 2);
     assert(doc.phrases[1].notes[0].startMs == 1000);
 
+    // Optional tags, duet singers, BPM change and the two-number relative phrase line
+    const char rich[] =
+        "#TITLE:T\n#BPM:60\n#GAP:10120\n#START:2,5\n#END:90000\n#VIDEOGAP:-1.5\n#MP3:a.mp3\n#AUDIO:b.ogg\n"
+        "#GENRE:Pop\n#TAGS:a,b\n#P1:Anna\n#P2:Bo\n#VIDEO:x.mp4\n#UNKNOWN:1\n"
+        "P2\n: 4 4 60 Bo\n- 8\nP1\n: 0 4 60 Anna\n- 4\nE\n";
+    assert(parse(rich, sizeof(rich) - 1, doc) == Err::OK);
+    assert(doc.startMs == 2500 && doc.endMs == 90000 && doc.videoGapMs == -1500);
+    assert(doc.audio == "b.ogg" && doc.genre == "Pop" && doc.tags == "a,b");
+    assert(doc.p1 == "Anna" && doc.p2 == "Bo" && doc.duet);
+    assert(doc.phrases.size() == 2 && doc.phrases[0].singer == 1 && doc.phrases[1].singer == 2);
+    assert(doc.phrases[0].startMs == 10120 && doc.phrases[1].startMs == 11120);
+
+    const char tempo[] = "#BPM:60\n: 0 4 60 A\nB 4 120\n: 4 4 60 B\n- 8\nE\n";
+    assert(parse(tempo, sizeof(tempo) - 1, doc) == Err::OK);
+    assert(doc.phrases[0].notes[1].startMs == 1000);   // 4 beats at BPM 60
+    assert(doc.phrases[0].notes[1].endMs == 1500);     // then 4 beats at BPM 120
+    assert(doc.phrases[0].endMs == 1500);
+
+    const char relativeOffset[] =
+        "#BPM:60\n#RELATIVE:yes\n: 0 4 60 A\n- 4 8\n: 0 4 62 B\n- 4\nE\n";
+    assert(parse(relativeOffset, sizeof(relativeOffset) - 1, doc) == Err::OK);
+    assert(doc.phrases[1].notes[0].startMs == 2000);
+
     const char badBpm[] = "#TITLE:x\n: 0 4 60 hi\nE\n";
     assert(parse(badBpm, sizeof(badBpm) - 1, doc) == Err::BAD_HEADER);
     const char unsupported[] = "#VERSION:2.0.0\n#BPM:100\n: 0 4 60 hi\nE\n";

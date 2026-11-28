@@ -8,6 +8,12 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.39
+
+- Supernova lyrics parser (`supernova_lyrics.cpp`): reads more UltraStar tags - `START`, `END`, `VIDEOGAP`, `PREVIEWSTART`, `AUDIO`/`MP3`, `INSTRUMENTAL`, `VOCALS`, `COVER`, `BACKGROUND`, `GENRE`, `LANGUAGE`, `YEAR`, `EDITION`, `TAGS`, `CREATOR`, `P1`/`P2`. Fixes: BPM-change lines (`B beat bpm`) no longer reject the song, duets (`P1`/`P2` lines) are separated per singer instead of merged, and relative-mode phrase lines use the second number as the next offset (as USDX does). `#VIDEO` stays unused.
+- `/api/supernova/lyrics` adds `start`, `end`, `vgap`, `p1`/`p2` and a per-phrase singer `p`.
+- Browser player: seeks to `#START`, stops at `#END`, offsets the original MP4 by `#VIDEOGAP`, colours duet lines per singer, keeps the screen blank during a long intro/break and only counts in over the last 5 s (it previously showed the next line and spread the dots over the whole intro), and prebuffers 8 s of video (max 15 s) before the audio starts. The device player does not use START/END/VIDEOGAP yet. Host tested only; not hardware verified.
+
 ## v0.26.38
 
 - ESP32-P4: larger lwIP TCP buffers (send buffer and receive window 32 kB, bigger TCP/tcpip mailboxes, SACK) in `sdkconfig.defaults.esp32p4` to raise WiFi throughput for Supernova web playback (v0.26.37 diagnostics showed ~2-3 Mbit/s send speed with SD reads at ~23 Mbit/s). Takes effect only in a fresh build (CI artifact or after deleting `sdkconfig`). Compare with the `D` overlay; not hardware verified.

@@ -24,6 +24,8 @@
 #lyrics { padding: .6rem .8rem 1rem; text-align: center; min-height: 6.5em; }
 #cur { font-size: clamp(1.3rem, 4vw, 2.2rem); font-weight: bold; line-height: 1.25; }
 #cur .sung { color: #ffc400; }
+#cur.p1 { color: #7cc8ff; }
+#cur.p2 { color: #ff9ecf; }
 #nxt { font-size: clamp(1rem, 2.6vw, 1.5rem); color: #b8c0cc; margin-top: .3rem; }
 #dots { font-size: 1.6rem; letter-spacing: .3rem; color: #555; min-height: 1.3em; }
 #dots .on { color: #ffc400; }
@@ -104,7 +106,7 @@ const T = {
     emptyList: 'The playlist has no songs left on the card.', playBlocked: 'Press play to start.' }
 };
 let L = 'sv', songs = [], count = 0, total = 0, seq = 0, scanTimer = 0, typing = 0;
-let folder = '', media = null, phrases = [], fps = 10, shown = -1, loading = false, raf = 0, label = '';
+let folder = '', media = null, phrases = [], tags = {}, songDone = false, fps = 10, shown = -1, loading = false, raf = 0, label = '';
 const $ = id => document.getElementById(id);
 const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
@@ -162,8 +164,6 @@ async function openSong(s, auto) {
 let gen = 0, failures = 0, queue = { mode: 'single', items: [], idx: 0, recent: [] };
 async function loadSong(variant, auto) {
   const my = ++gen;
-+
-+  stopLoop();
   stopLoop();
   const a = $('audio'); a.pause();
   const q = '?f=' + encodeURIComponent(folder) + '&v=' + variant;
@@ -171,8 +171,8 @@ async function loadSong(variant, auto) {
     const m = await request('/api/supernova/media' + q);
     if (my !== gen) return;
     media = m;
-    phrases = [];
-    try { phrases = (await request('/api/supernova/lyrics?f=' + encodeURIComponent(folder) + '&v=' + variant)).phrases; }
+    phrases = []; tags = {}; songDone = false;
+    try { const l = await request('/api/supernova/lyrics?f=' + encodeURIComponent(folder) + '&v=' + variant); phrases = l.phrases; tags = l; }
     catch (e) { $('notice').textContent = t('noLyrics'); }
     if (my !== gen) return;
     $('plain-row').hidden = !media.hasPlain;
@@ -220,6 +220,17 @@ function stopAll() {
 }
 ['play', 'pause', 'ended', 'emptied'].forEach(ev => $('audio').addEventListener(ev, updatePauseBtn));
 $('audio').addEventListener('ended', () => { if (queue.mode !== 'single') nextSong(); });
+// #START: begin that far into the audio once its length is known
+$('audio').addEventListener('loadedmetadata', () => {
+  const a = $('audio'), s = (tags.start || 0) / 1000;
+  if (s > 0 && s < a.duration) a.currentTime = s;
+});
+// #END: the song stops there even if the audio file continues
+function checkEnd(a, ms) {
+  if (songDone || !tags.end || ms < tags.end || a.paused) return;
+  songDone = true; a.pause();
+  if (queue.mode !== 'single') nextSong();
+}
 document.addEventListener('keydown', e => {
   if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || $('player').hidden) return;
   if (e.key === ' ') { e.preventDefault(); togglePause(); }
@@ -328,21 +339,27 @@ function drawLyrics(ms) {
   const next = i + 1 < phrases.length ? phrases[i + 1] : null;
   // Pause before the first phrase / between phrases: show the upcoming line and countdown dots
   const gapTo = (p, after) => p ? p.s - after : 0;
-  let dots = 0, lit = 0, cur = i >= 0 ? phrases[i] : null;
+  let dots = 0, lit = 0, cur = i >= 0 ? phrases[i] : null, hide = false;
   if (!cur || ms > cur.e) {
     const upcoming = cur ? next : phrases[0];
     const from = cur ? cur.e : 0, gap = gapTo(upcoming, from);
-    if (upcoming && gap >= 3000) { dots = Math.min(8, Math.round(gap / 1000)); lit = Math.min(dots, Math.floor((ms - from) / gap * dots)); }
+    // Long intro or instrumental break: stay blank, then count in over the last 5 s before the line
+    const lead = Math.min(gap, 5000), left = upcoming ? upcoming.s - ms : 0;
+    if (upcoming && gap >= 3000) {
+      hide = left > lead;
+      if (hide) cur = null;
+      else { dots = Math.min(8, Math.max(1, Math.round(lead / 1000))); lit = Math.min(dots, Math.floor((lead - left) / lead * dots)); }
+    }
   }
   const sung = cur ? cur.n.filter(n => n[0] <= ms).length : 0;
-  const key = i + ':' + sung + ':' + dots + ':' + lit;
+  const key = i + ':' + sung + ':' + dots + ':' + lit + ':' + hide;
   if (key === lastKey) return;
   lastKey = key;
   const full = cur ? cur.n.map(n => n[1]).join('') : '';
   const done = cur ? cur.n.slice(0, sung).map(n => n[1]).join('') : '';
-  const c = $('cur'); c.textContent = '';
+  const c = $('cur'); c.textContent = ''; c.className = cur && cur.p ? 'p' + cur.p : '';
   if (cur) { const s = el('span', 'sung', done); c.append(s, document.createTextNode(full.slice(done.length))); }
-  $('nxt').textContent = next ? next.n.map(n => n[1]).join('') : '';
+  $('nxt').textContent = next && !hide ? next.n.map(n => n[1]).join('') : '';
   const d = $('dots'); d.textContent = '';
   for (let k = 0; k < dots; k++) d.appendChild(el('span', k < lit ? 'on' : '', '● '));
 }
@@ -380,7 +397,9 @@ setInterval(() => { if (diagOn) { pollDiag(); renderDiag(); } }, 1000);
 let useMp4 = false;
 let buffering = 0;   // Time the audio was paused to let the video buffer; 0 = not buffering
 const bufAhead = v => { const t = v.currentTime; for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= t + 0.1 && v.buffered.end(i) >= t) return v.buffered.end(i) - t; return 0; };
-const BUFFER_S = 4, BUFFER_MAX_MS = 10000;
+const BUFFER_S = 8, BUFFER_MAX_MS = 15000;
+// #VIDEOGAP: the original video starts this many seconds before the audio
+const videoTime = a => Math.max(0, a.currentTime + (tags.vgap || 0) / 1000);
 function syncVideo(a) {
   const v = $('vid');
   if (buffering) {
@@ -393,8 +412,9 @@ function syncVideo(a) {
     buffering = Date.now(); dg.rebuf++; a.pause(); v.pause(); $('notice').textContent = t('buffering');
     return;
   }
-  if (a.paused || a.ended) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - a.currentTime) > 0.1) v.currentTime = a.currentTime; return; }
-  if (Math.abs(v.currentTime - a.currentTime) > 0.3) v.currentTime = a.currentTime;
+  const vt = videoTime(a);
+  if (a.paused || a.ended) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - vt) > 0.1) v.currentTime = vt; return; }
+  if (Math.abs(v.currentTime - vt) > 0.3) v.currentTime = vt;
   if (v.paused && v.readyState >= 2) v.play().catch(() => {});
 }
 $('vid').addEventListener('error', () => {
@@ -404,6 +424,7 @@ $('vid').addEventListener('error', () => {
 function loop() {
   const a = $('audio'), ms = Math.round(a.currentTime * 1000);
   drawLyrics(ms);
+  checkEnd(a, ms);
   if (useMp4) syncVideo(a);
   else if (media && media.video) showFrame(Math.floor(a.currentTime * fps));
   raf = requestAnimationFrame(loop);

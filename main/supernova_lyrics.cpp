@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 
 namespace SupernovaLyrics {
@@ -104,15 +105,39 @@ bool parseFlag(const char *p, const char *end, bool &value)
     return false;
 }
 
-bool timeFromTicks(int64_t ticks, double bpm, int32_t gap, uint32_t &out)
+// Beat -> milliseconds with BPM changes ("B beat bpm" lines): each segment keeps the time at its start.
+struct Tempo {
+    double beat, bpm, startMs;
+};
+
+bool timeFromTicks(const std::vector<Tempo> &tempo, double ticks, int32_t gap, uint32_t &out)
 {
-    const double millis = (double)ticks * (60000.0 / (bpm * 4.0)) + gap;
+    size_t k = tempo.size() - 1;
+    while (k > 0 && tempo[k].beat > ticks) k--;
+    const double millis = tempo[k].startMs + (ticks - tempo[k].beat) * (60000.0 / (tempo[k].bpm * 4.0)) + gap;
     if (!std::isfinite(millis) || millis > UINT32_MAX) return false;
     if (millis < 0) {
         out = 0;
         return true;
     }
     out = (uint32_t)llround(millis);
+    return true;
+}
+
+bool readDouble(const char *&p, const char *end, double &value)
+{
+    while (p < end && (*p == ' ' || *p == '\t')) p++;
+    const char *begin = p;
+    while (p < end && *p != ' ' && *p != '\t') p++;
+    return begin != p && parseNumber(begin, p, value);
+}
+
+// Optional numeric tag in seconds or milliseconds; bad values are ignored rather than rejecting the song.
+bool scaledMs(const char *begin, const char *end, double scale, double &ms)
+{
+    double v = 0;
+    if (!parseNumber(begin, end, v) || v * scale > INT32_MAX || v * scale < INT32_MIN) return false;
+    ms = v * scale;
     return true;
 }
 
@@ -158,6 +183,12 @@ void Document::clear()
     bpm = 0;
     gapMs = 0;
     relative = false;
+    startMs = endMs = previewMs = 0;
+    videoGapMs = 0;
+    duet = false;
+    for (std::string *s : {&audio, &instrumental, &vocals, &cover, &background, &genre, &language, &year,
+                           &edition, &tags, &creator, &p1, &p2})
+        s->clear();
     phrases.clear();
 }
 
@@ -175,7 +206,9 @@ Err parse(const char *data, size_t len, Document &out)
     bool hasVersion = false;
     bool hasBpm = false;
     uint32_t versionMajor = 1, versionMinor = 0, versionPatch = 0;
-    int64_t relativeBase = 0;
+    int64_t relativeBase[3] = {0, 0, 0};   // Per singer: solo/P1/P2 each keep their own offset
+    uint8_t singer = 0;
+    std::vector<Tempo> tempo;
     size_t noteCount = 0;
     Phrase phrase;
     bool phraseHasNotes = false;
@@ -183,6 +216,7 @@ Err parse(const char *data, size_t len, Document &out)
     auto flushPhrase = [&]() -> Err {
         if (!phraseHasNotes) return Err::OK;
         if (out.phrases.size() >= MAX_PHRASES) return Err::TOO_MANY_PHRASES;
+        phrase.singer = singer;
         out.phrases.push_back(std::move(phrase));
         phrase = Phrase{};
         phraseHasNotes = false;
@@ -240,28 +274,78 @@ Err parse(const char *data, size_t len, Document &out)
                     !parseVersionPart(dot2 + 1, valueEnd, versionPatch))
                     return out.clear(), Err::UNSUPPORTED_VERSION;
                 hasVersion = true;
+            } else {
+                auto text = [&](const char *name, std::string &dst) {
+                    if (!iequals(key, keyLen, name)) return false;
+                    dst.assign(value, valueEnd);
+                    return true;
+                };
+                auto millis = [&](const char *name, double scale, uint32_t &dst) {
+                    if (!iequals(key, keyLen, name)) return false;
+                    double ms;
+                    if (scaledMs(value, valueEnd, scale, ms) && ms > 0) dst = (uint32_t)llround(ms);
+                    return true;
+                };
+                if (iequals(key, keyLen, "VIDEOGAP")) {
+                    double ms;
+                    if (scaledMs(value, valueEnd, 1000.0, ms)) out.videoGapMs = (int32_t)llround(ms);
+                } else if (iequals(key, keyLen, "MP3")) {
+                    if (out.audio.empty()) out.audio.assign(value, valueEnd);
+                } else {
+                    (void)(millis("START", 1000.0, out.startMs) || millis("END", 1.0, out.endMs) ||
+                        millis("PREVIEWSTART", 1000.0, out.previewMs) || text("AUDIO", out.audio) ||
+                        text("INSTRUMENTAL", out.instrumental) || text("VOCALS", out.vocals) ||
+                        text("COVER", out.cover) || text("BACKGROUND", out.background) ||
+                        text("GENRE", out.genre) || text("LANGUAGE", out.language) ||
+                        text("YEAR", out.year) || text("EDITION", out.edition) || text("TAGS", out.tags) ||
+                        text("CREATOR", out.creator) || text("P1", out.p1) || text("P2", out.p2));
+                }
             }
             continue;
         }
 
         if (!body && !hasBpm) return out.clear(), Err::BAD_HEADER;
+        if (!body) tempo.assign(1, Tempo{0, out.bpm, 0});
         body = true;
         if (*p == 'E') break;
+        if (*p == 'P' && p + 1 < end && (p[1] == '1' || p[1] == '2')) {
+            const Err result = flushPhrase();
+            if (result != Err::OK) return out.clear(), result;
+            singer = (uint8_t)(p[1] - '0');
+            out.duet = true;
+            continue;
+        }
         if (*p == 'P' || *p == 'V') continue;
+        if (*p == 'B') {
+            double beat = 0, bpm = 0;
+            const char *q = p + 1;
+            if (!readDouble(q, end, beat) || !readDouble(q, end, bpm) || bpm <= 0 || bpm > 10000 || beat < 0)
+                return out.clear(), Err::BAD_NOTE;
+            if (out.relative) beat += (double)relativeBase[singer];
+            if (beat > tempo.back().beat) {
+                const double startMs = tempo.back().startMs +
+                                       (beat - tempo.back().beat) * (60000.0 / (tempo.back().bpm * 4.0));
+                tempo.push_back(Tempo{beat, bpm, startMs});
+            } else if (beat == tempo.back().beat) {
+                tempo.back().bpm = bpm;
+            }
+            continue;
+        }
         if (*p == '-') {
-            int32_t lineStart = 0;
+            int32_t lineStart = 0, nextOffset = 0;
             p++;
             if (!readInteger(p, end, lineStart) || lineStart < 0) return out.clear(), Err::BAD_NOTE;
-            const int64_t absolute = relativeBase + lineStart;
+            const bool hasOffset = readInteger(p, end, nextOffset);
+            const int64_t absolute = relativeBase[singer] + lineStart;
             if (phraseHasNotes) {
                 uint32_t lineEndMs = 0;
-                if (!timeFromTicks(absolute, out.bpm, out.gapMs, lineEndMs))
+                if (!timeFromTicks(tempo, (double)absolute, out.gapMs, lineEndMs))
                     return out.clear(), Err::BAD_NOTE;
                 phrase.endMs = std::max(phrase.endMs, lineEndMs);
             }
             const Err result = flushPhrase();
             if (result != Err::OK) return out.clear(), result;
-            if (out.relative) relativeBase = absolute;
+            if (out.relative) relativeBase[singer] = hasOffset ? relativeBase[singer] + nextOffset : absolute;
             continue;
         }
 
@@ -280,10 +364,10 @@ Err parse(const char *data, size_t len, Document &out)
         Note note;
         if (!parseNote(line, kind, note)) return out.clear(), Err::BAD_NOTE;
         if (++noteCount > MAX_NOTES) return out.clear(), Err::TOO_MANY_NOTES;
-        const int64_t absoluteStart = relativeBase + note.startMs;
-        const int64_t absoluteEnd = relativeBase + note.endMs;
-        if (!timeFromTicks(absoluteStart, out.bpm, out.gapMs, note.startMs) ||
-            !timeFromTicks(absoluteEnd, out.bpm, out.gapMs, note.endMs))
+        const int64_t absoluteStart = relativeBase[singer] + note.startMs;
+        const int64_t absoluteEnd = relativeBase[singer] + note.endMs;
+        if (!timeFromTicks(tempo, (double)absoluteStart, out.gapMs, note.startMs) ||
+            !timeFromTicks(tempo, (double)absoluteEnd, out.gapMs, note.endMs))
             return out.clear(), Err::BAD_NOTE;
         if (!phraseHasNotes) {
             phrase.startMs = note.startMs;
@@ -302,6 +386,9 @@ Err parse(const char *data, size_t len, Document &out)
     const Err result = flushPhrase();
     if (result != Err::OK) return out.clear(), result;
     if (out.phrases.empty()) return out.clear(), Err::EMPTY;
+    if (out.duet)
+        std::stable_sort(out.phrases.begin(), out.phrases.end(),
+                         [](const Phrase &a, const Phrase &b) { return a.startMs < b.startMs; });
     return Err::OK;
 }
 
