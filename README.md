@@ -85,6 +85,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   directly onto the SD card, sizing each video to the full width or height of the video area
   (`-Area WxH`, default 800x420), padded to 16-pixel multiples; copies `.txt`/`.mp3`/cover files
   and skips existing output (`-Force` redoes, `-DryRun` previews, `-Jobs N` parallel).
+  `-WebMp4` also writes a browser-friendly H.264 `<name>.mp4` (faststart, AAC audio, max `-WebHeight` 720p,
+  `-WebKbps` 2500) and `-Mp4Only` adds just that to an already converted AVI-only card
+  (`supernova_convert.ps1 <SD>:\otr\supernova <SD>:\otr\supernova -Mp4Only`). The web player prefers the `.mp4`.
   The song list is built on the device into an index (`supernova.idx`, up to 2000 songs; only new or
   changed folders are re-read) from the `#TITLE`, `#ARTIST`, `#GENRE`, `#LANGUAGE` and `#YEAR` tags, with
   search, sort (artist/title/year), filter (genre/language/decade), A–Ö jump and a Rescan button.
@@ -95,7 +98,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and migration notes.
   lyrics (±0.1/1/5 s) from the current position onwards, saved per song in `supernova.sync`, and mark a song
   as having bad sync (shown as `(!)` in the list). In Sync mode `<5s`/`5s>` jump within the song and the
   middle button pauses/resumes; the lyrics box may span the whole video area, also over side bars of narrow videos. The web page `/supernova` has a searchable song list and a
-  playlist editor (stored in `supernova.pl`); playlists appear under Filter on the device.
+  playlist editor (stored in `supernova.pl`); playlists appear under Filter on the device. The same page is a remote control: it shows the
+  current song and lyric line and can start songs (while the song list is open on the device), pause/resume, seek ±10 s, stop and set the volume.
+  `/supernova/play` plays a song in the browser (audio, synced lyrics and video frames served by the device) so several people can sing along; songs without an AVI give audio and lyrics only. A playlist or a random mix of all songs can play on by itself, with pause/stop/next buttons that also work in full screen. If the song folder has the original .mp4, the browser plays that (smoother, better quality); otherwise the AVI frames. The device can act as a remote for it (WiFi button in the song browser): it shows what is playing and starts a song, playlist or random mix.
 - **Web navigation** – a shared menu and live device status across pages.
   The last known device name is reused within the browser tab while fresh
   status loads, avoiding the default-name flash on subsequent page changes.

@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>OnTheRoad – Supernova</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/device-name.js"></script>
+<style>
+.top { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.langs button { padding: .3rem .6rem; font-size: .9rem; }
+.langs button.on { background: var(--otr-orange); color: var(--otr-navy); }
+.actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
+.actions input[type=search] { flex: 1; min-width: 8rem; }
+.hint { color: var(--otr-muted); font-size: .85rem; }
+#diag { position: absolute; left: 4px; top: 4px; z-index: 5; margin: 0; padding: 4px 6px; background: rgba(0,0,0,.7); color: #9f9; font: 11px/1.3 monospace; pointer-events: none; white-space: pre; }
+#notice { color: var(--otr-orange); min-height: 1.3em; }
+#stage { position: relative; background: #000; color: #fff; border-radius: .6rem; overflow: hidden; margin: .6rem 0; max-width: 60rem; }
+#stage:fullscreen { max-width: none; border-radius: 0; display: flex; flex-direction: column; justify-content: center; }
+#screen, #vid { display: block; width: 100%; max-height: 60vh; aspect-ratio: auto; background: #000; margin: 0 auto; }
+#screen, #vid { object-fit: contain; }
+#stage:fullscreen #screen, #stage:fullscreen #vid { max-height: 70vh; height: 70vh; }
+#lyrics { padding: .6rem .8rem 1rem; text-align: center; min-height: 6.5em; }
+#cur { font-size: clamp(1.3rem, 4vw, 2.2rem); font-weight: bold; line-height: 1.25; }
+#cur .sung { color: #ffc400; }
+#cur.p1 { color: #7cc8ff; }
+#cur.p2 { color: #ff9ecf; }
+#nxt { font-size: clamp(1rem, 2.6vw, 1.5rem); color: #b8c0cc; margin-top: .3rem; }
+#dots { font-size: 1.6rem; letter-spacing: .3rem; color: #555; min-height: 1.3em; }
+#dots .on { color: #ffc400; }
+#ctl { display: flex; justify-content: center; gap: .6rem; padding: .5rem; background: rgba(0, 0, 0, .55); }
+#ctl button { min-width: 3.2rem; font-size: 1.3rem; padding: .4rem .8rem; background: #1b2434; color: #fff; border: 1px solid #3a4660; }
+#ctl button:active { background: #2c3a56; }
+#stage:fullscreen #ctl { position: absolute; left: 0; right: 0; bottom: 0; }
+audio { width: 100%; max-width: 60rem; }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; align-items: center; gap: .6rem; padding: .5rem; border-bottom: 1px solid var(--otr-line); }
+ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/supernova">&#127916; <span data-t="lists"></span></a></nav>
+<div class="top">
+  <h1>&#127908; <span data-t="title"></span></h1>
+  <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
+</div>
+<div id="notice" role="status" aria-live="polite"></div>
+<div id="player" hidden>
+  <h2 id="song-name"></h2>
+  <div id="stage">
+    <video id="vid" muted playsinline preload="auto" hidden></video>
+    <pre id="diag" hidden></pre>
+    <canvas id="screen" width="320" height="180" hidden></canvas>
+    <div id="lyrics"><div id="dots"></div><div id="cur"></div><div id="nxt"></div></div>
+    <div id="ctl">
+      <button id="b-pause" onclick="togglePause()">&#9208;</button>
+      <button id="b-stop" onclick="stopAll()" data-title="stop">&#9209;</button>
+      <button id="b-next" onclick="nextSong()" data-title="next">&#9197;</button>
+    </div>
+  </div>
+  <audio id="audio" controls preload="auto"></audio>
+  <div class="actions">
+    <label id="plain-row" hidden><input id="plain" type="checkbox"> <span data-t="plain"></span></label>
+    <button class="secondary" id="fs" onclick="fullscreen()" data-t="fullscreen"></button>
+  </div>
+  <p class="hint" id="player-hint"></p>
+</div>
+<section>
+  <h2 data-t="auto"></h2>
+  <div class="actions">
+    <select id="src"><option value="random" data-t="srcRandom"></option></select>
+    <label><input id="shuffle" type="checkbox"> <span data-t="shuffle"></span></label>
+    <button id="start" onclick="startQueue()" data-t="start"></button>
+  </div>
+  <p class="hint" data-t="autoHint"></p>
+</section>
+<section>
+  <h2 data-t="pick"></h2>
+  <form class="actions" id="search-form"><input id="q" type="search" maxlength="60" autocomplete="off"></form>
+  <div class="hint" id="status"></div>
+  <ul class="list" id="songs"></ul>
+  <div class="actions"><button id="more" class="secondary" hidden onclick="loadSongs(true)" data-t="more"></button></div>
+</section>
+<script>
+const T = {
+  sv: { title: 'Sjung i webbläsaren', lists: 'Spellistor', pick: 'Välj en sång', search: 'Sök artist eller titel', more: 'Visa fler',
+    sing: 'Sjung', plain: 'Utan sång (instrumental)', fullscreen: 'Helskärm', neterr: 'Ingen kontakt med enheten',
+    shown: '{0} av {1} sånger', scanning: 'Enheten läser in sångerna …', empty: 'Inga sånger hittades.',
+    buffering: 'Buffrar video…', noVideo: 'Den här sången har ingen video som webbläsaren kan visa (den måste vara en AVI gjord med konverteringsskriptet). Ljud och text fungerar ändå.',
+    hint: 'Tryck på play i spelaren. Videon hämtas bild för bild från enheten, så den kan hacka om flera tittar samtidigt. Ljudet och texten är alltid i takt.',
+    noAudio: 'Sången har inget ljud.', noLyrics: 'Texten kunde inte läsas.',
+    auto: 'Spela automatiskt', srcRandom: 'Alla sånger (slumpvis)', shuffle: 'Blanda ordningen', start: 'Starta',
+    autoHint: 'Välj en spellista eller slumpa bland alla sånger. Nästa sång startar av sig själv, och knapparna i bilden fungerar även i helskärm.',
+    pause: 'Paus', resume: 'Fortsätt', stop: 'Stopp', next: 'Nästa sång', listEnd: 'Spellistan är slut.',
+    emptyList: 'Spellistan har inga sånger som finns kvar.', playBlocked: 'Tryck på play för att starta.' },
+  en: { title: 'Sing in the browser', lists: 'Playlists', pick: 'Pick a song', search: 'Search artist or title', more: 'Show more',
+    sing: 'Sing', plain: 'Without vocals (instrumental)', fullscreen: 'Full screen', neterr: 'No contact with the device',
+    shown: '{0} of {1} songs', scanning: 'The device is reading the songs …', empty: 'No songs found.',
+    buffering: 'Buffering video…', noVideo: 'This song has no video the browser can show (it must be an AVI made by the convert script). Audio and lyrics still work.',
+    hint: 'Press play in the player. The video is fetched frame by frame from the device, so it may stutter when several people watch. Audio and lyrics always stay in step.',
+    noAudio: 'The song has no audio.', noLyrics: 'The lyrics could not be read.',
+    auto: 'Play automatically', srcRandom: 'All songs (random)', shuffle: 'Shuffle the order', start: 'Start',
+    autoHint: 'Pick a playlist or shuffle all songs. The next song starts by itself, and the buttons on the picture also work in full screen.',
+    pause: 'Pause', resume: 'Resume', stop: 'Stop', next: 'Next song', listEnd: 'The playlist has ended.',
+    emptyList: 'The playlist has no songs left on the card.', playBlocked: 'Press play to start.' }
+};
+let L = 'sv', songs = [], count = 0, total = 0, seq = 0, scanTimer = 0, typing = 0;
+let folder = '', media = null, phrases = [], tags = {}, songDone = false, fps = 10, shown = -1, loading = false, raf = 0, label = '';
+const $ = id => document.getElementById(id);
+const t = (k, ...a) => ((T[L] || T.sv)[k] || T.sv[k] || k).replace(/\{(\d)\}/g, (m, i) => a[i]);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+function setLang(l, save) {
+  if (!T[l]) return;
+  L = l; document.documentElement.lang = l;
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = t(e.dataset.t); });
+  $('q').placeholder = t('search'); $('player-hint').textContent = t('hint');
+  $('b-stop').title = t('stop'); $('b-next').title = t('next'); updatePauseBtn();
+  $('l-sv').classList.toggle('on', l === 'sv'); $('l-en').classList.toggle('on', l === 'en');
+  if (save) try { localStorage.setItem('otr_lang', l); } catch (e) {}
+  renderSongs();
+}
+async function request(url) {
+  let r;
+  try { r = await fetch(url, { cache: 'no-store' }); } catch (e) { throw new Error(t('neterr')); }
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok || !j.ok) throw new Error(j.error || String(r.status));
+  return j;
+}
+const fail = e => { $('notice').textContent = e.message || t('neterr'); };
+const nameOf = s => (s.artist ? s.artist + ' – ' : '') + s.title;
+async function loadSongs(append) {
+  const my = ++seq;
+  const url = '/api/supernova/songs?q=' + encodeURIComponent($('q').value.trim()) + '&offset=' + (append ? songs.length : 0) + '&limit=100';
+  try {
+    const j = await request(url);
+    if (my !== seq) return;
+    songs = append ? songs.concat(j.songs) : j.songs; total = j.total; count = j.count;
+    renderSongs();
+    $('status').textContent = j.scanning ? t('scanning') : !songs.length ? t('empty') : t('shown', songs.length, count);
+    clearTimeout(scanTimer);
+    if (j.scanning) scanTimer = setTimeout(() => loadSongs(false), 3000);
+  } catch (e) { if (my === seq) fail(e); }
+}
+function renderSongs() {
+  const ul = $('songs'); ul.textContent = '';
+  songs.forEach(s => {
+    const li = el('li'), b = el('button', '', '▶ ' + t('sing'));
+    b.onclick = () => { queue = { mode: 'single', items: [], idx: 0, recent: [] }; openSong(s, false); };
+    li.append(el('span', 'tx', nameOf(s)), b); ul.appendChild(li);
+  });
+  $('more').hidden = songs.length >= count;
+}
+async function openSong(s, auto) {
+  $('notice').textContent = '';
+  folder = s.folder; label = nameOf(s); curSong = s; stopped = false;
+  $('plain').checked = false;
+  $('player').hidden = false;
+  $('song-name').textContent = label;
+  await loadSong(0, auto);
+  if (!auto) window.scrollTo(0, 0);
+}
+let gen = 0, failures = 0, queue = { mode: 'single', items: [], idx: 0, recent: [] };
+async function loadSong(variant, auto) {
+  const my = ++gen;
+  stopLoop();
+  const a = $('audio'); a.pause();
+  const q = '?f=' + encodeURIComponent(folder) + '&v=' + variant;
+  try {
+    const m = await request('/api/supernova/media' + q);
+    if (my !== gen) return;
+    media = m;
+    phrases = []; tags = {}; songDone = false;
+    try { const l = await request('/api/supernova/lyrics?f=' + encodeURIComponent(folder) + '&v=' + variant); phrases = l.phrases; tags = l; }
+    catch (e) { $('notice').textContent = t('noLyrics'); }
+    if (my !== gen) return;
+    $('plain-row').hidden = !media.hasPlain;
+    a.hidden = !media.audio;
+    if (!media.audio) $('notice').textContent = t('noAudio');
+    else { a.src = '/api/supernova/audio' + q; a.load(); }
+    const c = $('screen'), v = $('vid');
+    useMp4 = !!(media.mp4 && media.audio);
+    v.hidden = !useMp4;
+    v.pause(); v.removeAttribute('src');
+    if (useMp4) { v.src = '/api/supernova/video' + q; v.load(); }
+    c.hidden = useMp4 || !media.video;
+    if (!useMp4 && media.video) {
+      fps = media.fps || 10;
+      c.width = media.w; c.height = media.h; shown = -1;
+      c.getContext('2d').fillRect(0, 0, c.width, c.height);
+      showFrame(0);
+    } else {
+      $('notice').textContent = t('noVideo');
+    }
+    startLoop();
+    failures = 0;
+    if (auto && media.audio) a.play().catch(() => { $('notice').textContent = t('playBlocked'); });
+    else if (auto && queue.mode !== 'single') setTimeout(() => { if (my === gen) nextSong(); }, 1500);
+  } catch (e) {
+    if (my !== gen) return;
+    fail(e);
+    if (auto && queue.mode !== 'single' && ++failures < 5) setTimeout(() => { if (my === gen) nextSong(); }, 1500);
+  }
+}
+function updatePauseBtn() {
+  const a = $('audio'), playing = !a.paused && !a.ended;
+  $('b-pause').innerHTML = playing ? '&#9208;' : '&#9654;';
+  $('b-pause').title = t(playing ? 'pause' : 'resume');
+}
+function togglePause() {
+  const a = $('audio');
+  if (a.paused || a.ended) a.play().catch(() => {}); else a.pause();
+}
+function stopAll() {
+  queue = { mode: 'single', items: [], idx: 0, recent: [] };
+  stopped = true;
+  gen++;
+  const a = $('audio'); a.pause(); try { a.currentTime = 0; } catch (e) {}
+}
+['play', 'pause', 'ended', 'emptied'].forEach(ev => $('audio').addEventListener(ev, updatePauseBtn));
+$('audio').addEventListener('ended', () => { if (queue.mode !== 'single') nextSong(); });
+// #START: begin that far into the audio once its length is known
+$('audio').addEventListener('loadedmetadata', () => {
+  const a = $('audio'), s = (tags.start || 0) / 1000;
+  if (s > 0 && s < a.duration) a.currentTime = s;
+});
+// #END: the song stops there even if the audio file continues
+function checkEnd(a, ms) {
+  if (songDone || !tags.end || ms < tags.end || a.paused) return;
+  songDone = true; a.pause();
+  if (queue.mode !== 'single') nextSong();
+}
+document.addEventListener('keydown', e => {
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || $('player').hidden) return;
+  if (e.key === ' ') { e.preventDefault(); togglePause(); }
+  else if (e.key === 'n' || e.key === 'N') nextSong();
+  else if (e.key === 's' || e.key === 'S') stopAll();
+  else if (e.key === 'd' || e.key === 'D') toggleDiag();
+});
+const shuffled = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+async function randomSong() {
+  const c = (await request('/api/supernova/songs?offset=0&limit=1')).count;
+  if (!c) throw new Error(t('empty'));
+  let s = null;
+  for (let k = 0; k < 6; k++) {
+    s = (await request('/api/supernova/songs?limit=1&offset=' + Math.floor(Math.random() * c))).songs[0];
+    if (s && !queue.recent.includes(s.folder)) break;
+  }
+  if (!s) throw new Error(t('empty'));
+  queue.recent.push(s.folder);
+  while (queue.recent.length > Math.min(20, c - 1)) queue.recent.shift();
+  return s;
+}
+async function nextSong() {
+  try {
+    if (queue.mode === 'random') await openSong(await randomSong(), true);
+    else if (queue.mode === 'list') {
+      if (queue.idx + 1 >= queue.items.length) { stopAll(); $('notice').textContent = t('listEnd'); return; }
+      await openSong(queue.items[++queue.idx], true);
+    }
+  } catch (e) { fail(e); }
+}
+async function startQueue(src, shuf) {
+  $('notice').textContent = '';
+  const v = src === undefined ? $('src').value : String(src);
+  if (shuf === undefined) shuf = $('shuffle').checked;
+  try {
+    if (v === 'random') {
+      queue = { mode: 'random', items: [], idx: 0, recent: [] };
+      await openSong(await randomSong(), true);
+    } else {
+      const items = [];
+      for (let off = 0; ; off += 200) {
+        const j = await request('/api/supernova/playlists?id=' + v + '&limit=200&offset=' + off);
+        const p = j.playlists[0], page = p ? p.songs : [];
+        page.forEach(s => { if (!s.missing) items.push(s); });
+        if (!p || off + page.length >= p.count || !page.length) break;
+      }
+      if (!items.length) { $('notice').textContent = t('emptyList'); return; }
+      if (shuf) shuffled(items);
+      queue = { mode: 'list', items, idx: 0, recent: [] };
+      await openSong(items[0], true);
+    }
+    window.scrollTo(0, 0);
+  } catch (e) { fail(e); }
+}
+async function loadPlaylists() {
+  try {
+    (await request('/api/supernova/playlists')).playlists.forEach(p => {
+      const o = el('option', '', p.name + ' (' + p.count + ')'); o.value = p.id; $('src').appendChild(o);
+    });
+  } catch (e) {}
+}
+// Device remote: report state about once a second and run the commands the device queued.
+let curSong = null, stopped = true;
+async function runCmd(c) {
+  if (c.type === 'play') { queue = { mode: 'single', items: [], idx: 0, recent: [] }; await openSong({ folder: c.folder, title: c.folder, artist: '' }, true); }
+  else if (c.type === 'random') await startQueue('random', false);
+  else if (c.type === 'list') await startQueue(c.list, c.shuffle);
+  else if (c.type === 'pause') $('audio').pause();
+  else if (c.type === 'resume') $('audio').play().catch(() => { $('notice').textContent = t('playBlocked'); });
+  else if (c.type === 'stop') stopAll();
+  else if (c.type === 'next') await nextSong();
+}
+async function heartbeat() {
+  const a = $('audio');
+  const st = !folder || stopped || a.ended ? 'stopped' : a.paused ? 'paused' : 'playing';
+  const body = { state: st, folder: st === 'stopped' ? '' : folder, title: curSong ? curSong.title : '', artist: curSong ? curSong.artist || '' : '',
+    pos: Math.round((a.currentTime || 0) * 1000), dur: Math.round((isFinite(a.duration) ? a.duration : 0) * 1000) };
+  try {
+    const r = await fetch('/api/supernova/web/state', { method: 'POST', body: JSON.stringify(body), cache: 'no-store' });
+    const j = await r.json();
+    for (const c of j.cmds || []) await runCmd(c);
+  } catch (e) {}
+  setTimeout(heartbeat, 1000);
+}
+heartbeat();
+$('plain').addEventListener('change', () => { if (folder) loadSong($('plain').checked ? 1 : 0); });
+function showFrame(n) {
+  if (loading || n === shown || !media || !media.video) return;
+  n = Math.max(0, Math.min(media.frames - 1, n));
+  loading = true;
+  const img = new Image();
+  const q = '?f=' + encodeURIComponent(folder) + '&v=' + ($('plain').checked ? 1 : 0) + '&n=' + n;
+  img.onload = () => { $('screen').getContext('2d').drawImage(img, 0, 0, $('screen').width, $('screen').height); shown = n; loading = false; };
+  img.onerror = () => { loading = false; };
+  img.src = '/api/supernova/frame' + q;
+}
+function phraseAt(ms) {
+  let lo = 0, hi = phrases.length - 1, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (phrases[m].s <= ms) { r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+let lastKey = '';
+function drawLyrics(ms) {
+  if (!phrases.length) return;
+  let i = phraseAt(ms);
+  const next = i + 1 < phrases.length ? phrases[i + 1] : null;
+  // Pause before the first phrase / between phrases: show the upcoming line and countdown dots
+  const gapTo = (p, after) => p ? p.s - after : 0;
+  let dots = 0, lit = 0, cur = i >= 0 ? phrases[i] : null, hide = false;
+  if (!cur || ms > cur.e) {
+    const upcoming = cur ? next : phrases[0];
+    const from = cur ? cur.e : 0, gap = gapTo(upcoming, from);
+    // Long intro or instrumental break: stay blank, then count in over the last 5 s before the line
+    const lead = Math.min(gap, 5000), left = upcoming ? upcoming.s - ms : 0;
+    if (upcoming && gap >= 3000) {
+      hide = left > lead;
+      if (hide) cur = null;
+      else { dots = Math.min(8, Math.max(1, Math.round(lead / 1000))); lit = Math.min(dots, Math.floor((lead - left) / lead * dots)); }
+    }
+  }
+  const sung = cur ? cur.n.filter(n => n[0] <= ms).length : 0;
+  const key = i + ':' + sung + ':' + dots + ':' + lit + ':' + hide;
+  if (key === lastKey) return;
+  lastKey = key;
+  const full = cur ? cur.n.map(n => n[1]).join('') : '';
+  const done = cur ? cur.n.slice(0, sung).map(n => n[1]).join('') : '';
+  const c = $('cur'); c.textContent = ''; c.className = cur && cur.p ? 'p' + cur.p : '';
+  if (cur) { const s = el('span', 'sung', done); c.append(s, document.createTextNode(full.slice(done.length))); }
+  $('nxt').textContent = next && !hide ? next.n.map(n => n[1]).join('') : '';
+  const d = $('dots'); d.textContent = '';
+  for (let k = 0; k < dots; k++) d.appendChild(el('span', k < lit ? 'on' : '', '● '));
+}
+// Diagnostics (press D, or open the page with ?diag): where time goes while the video starts and plays.
+let dg = { t0: Date.now(), rebuf: 0, rebufMs: 0, waiting: 0, stalled: 0 }, diagOn = /[?&]diag/.test(location.search), devDiag = null, diagTimer = 0;
+const dgMark = k => { if (dg[k] === undefined) dg[k] = Date.now() - dg.t0; };
+['loadedmetadata', 'loadeddata', 'canplay', 'playing'].forEach(ev => $('vid').addEventListener(ev, () => dgMark(ev)));
+$('vid').addEventListener('waiting', () => { dg.waiting++; });
+$('vid').addEventListener('stalled', () => { dg.stalled++; });
+$('audio').addEventListener('playing', () => dgMark('audioPlaying'));
+function toggleDiag() { diagOn = !diagOn; if (!diagOn) $('diag').hidden = true; else renderDiag(); }
+async function pollDiag() {
+  if (!diagOn) return;
+  try { devDiag = await (await fetch('/api/supernova/diag', { cache: 'no-store' })).json(); } catch (e) { devDiag = null; }
+}
+function renderDiag() {
+  const d = $('diag'); if (!diagOn) { d.hidden = true; return; }
+  const v = $('vid'), a = $('audio'), L = [];
+  const r = performance.getEntriesByType('resource').filter(e => e.name.includes('/api/supernova/video')).slice(-6);
+  const s = (dg.song || '').split('/').pop();
+  L.push('song ' + s + '  ' + (useMp4 ? 'MP4' : 'AVI') + '  bufAhead ' + bufAhead(v).toFixed(1) + 's  ready ' + v.readyState);
+  L.push('meta ' + (dg.loadedmetadata ?? '-') + ' ms  canplay ' + (dg.canplay ?? '-') + '  video ' + (dg.playing ?? '-') + '  audio ' + (dg.audioPlaying ?? '-'));
+  L.push('waiting ' + dg.waiting + '  stalled ' + dg.stalled + '  rebuffer ' + dg.rebuf + ' (' + dg.rebufMs + ' ms)');
+  if (v.getVideoPlaybackQuality) { const q = v.getVideoPlaybackQuality(); L.push('frames ' + q.totalVideoFrames + '  dropped ' + q.droppedVideoFrames); }
+  r.forEach(e => { const kb = e.encodedBodySize / 1024; L.push('req ttfb ' + Math.round(e.responseStart - e.requestStart) + ' ms  dl ' + Math.round(e.responseEnd - e.responseStart) + ' ms  ' + Math.round(kb) + ' kB  ' + (kb * 8 / 1024 / Math.max(.001, (e.responseEnd - e.requestStart) / 1000)).toFixed(1) + ' Mbit/s'); });
+  if (devDiag) {
+    const x = devDiag, f = (n, o) => n + ' n=' + o.n + (o.fail ? ' FAIL=' + o.fail : '') + '  ' + o.kb + ' kB  SD ' + Math.round(o.read_ms / Math.max(1, o.n)) + '/' + o.read_max + ' ms  send ' + Math.round(o.send_ms / Math.max(1, o.n)) + '/' + o.send_max + ' ms (avg/max)  last ' + o.last_kb + ' kB: SD ' + o.last_read + ' send ' + o.last_send;
+    L.push('--- enhet ---'); L.push(f('video', x.video)); L.push(f('audio', x.audio));
+    L.push('wifi ' + x.rssi + ' dBm  kanal ' + x.channel + '  upp ' + x.wifi_up_s + ' s  disc ' + x.disconnects + '  roams ' + x.roams + '  SD ' + x.sd_khz + ' kHz');
+  }
+  d.textContent = L.join('\n'); d.hidden = false;
+}
+setInterval(() => { if (diagOn) { pollDiag(); renderDiag(); } }, 1000);
+// The muted original MP4 follows the audio element, which stays the clock for lyrics and sync.
+let useMp4 = false;
+let buffering = 0;   // Time the audio was paused to let the video buffer; 0 = not buffering
+const bufAhead = v => { const t = v.currentTime; for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= t + 0.1 && v.buffered.end(i) >= t) return v.buffered.end(i) - t; return 0; };
+const BUFFER_S = 8, BUFFER_MAX_MS = 15000;
+// #VIDEOGAP: the original video starts this many seconds before the audio
+const videoTime = a => Math.max(0, a.currentTime + (tags.vgap || 0) / 1000);
+function syncVideo(a) {
+  const v = $('vid');
+  if (buffering) {
+    if (bufAhead(v) >= BUFFER_S || Date.now() - buffering > BUFFER_MAX_MS || v.readyState === 4 && v.buffered.end(v.buffered.length - 1) >= v.duration - 0.5) {
+      dg.rebufMs += Date.now() - buffering; buffering = 0; $('notice').textContent = ''; a.play().catch(() => {});
+    }
+    return;
+  }
+  if (!a.paused && !a.ended && v.readyState < 3 && bufAhead(v) < 1) {
+    buffering = Date.now(); dg.rebuf++; a.pause(); v.pause(); $('notice').textContent = t('buffering');
+    return;
+  }
+  const vt = videoTime(a);
+  if (a.paused || a.ended) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - vt) > 0.1) v.currentTime = vt; return; }
+  if (Math.abs(v.currentTime - vt) > 0.3) v.currentTime = vt;
+  if (v.paused && v.readyState >= 2) v.play().catch(() => {});
+}
+$('vid').addEventListener('error', () => {
+  useMp4 = false; $('vid').hidden = true;
+  if (media && media.video) { const c = $('screen'); fps = media.fps || 10; c.width = media.w; c.height = media.h; c.hidden = false; shown = -1; } else $('notice').textContent = t('noVideo');
+});
+function loop() {
+  const a = $('audio'), ms = Math.round(a.currentTime * 1000);
+  drawLyrics(ms);
+  checkEnd(a, ms);
+  if (useMp4) syncVideo(a);
+  else if (media && media.video) showFrame(Math.floor(a.currentTime * fps));
+  raf = requestAnimationFrame(loop);
+}
+function startLoop() { stopLoop(); lastKey = ''; raf = requestAnimationFrame(loop); }
+function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; }
+function fullscreen() { const s = $('stage'); if (document.fullscreenElement) document.exitFullscreen(); else if (s.requestFullscreen) s.requestFullscreen(); }
+$('search-form').onsubmit = e => { e.preventDefault(); loadSongs(false); };
+$('q').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => loadSongs(false), 350); });
+let saved = null; try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
+loadSongs(false);
+loadPlaylists();</script>
+</body>
+</html>

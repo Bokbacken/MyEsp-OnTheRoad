@@ -8,6 +8,97 @@ changes and migration requirements; distinguish automated checks from
 owner-reported hardware verification. A merged change is not automatically
 a published GitHub Release.
 
+## v0.26.39
+
+- Supernova lyrics parser (`supernova_lyrics.cpp`): reads more UltraStar tags - `START`, `END`, `VIDEOGAP`, `PREVIEWSTART`, `AUDIO`/`MP3`, `INSTRUMENTAL`, `VOCALS`, `COVER`, `BACKGROUND`, `GENRE`, `LANGUAGE`, `YEAR`, `EDITION`, `TAGS`, `CREATOR`, `P1`/`P2`. Fixes: BPM-change lines (`B beat bpm`) no longer reject the song, duets (`P1`/`P2` lines) are separated per singer instead of merged, and relative-mode phrase lines use the second number as the next offset (as USDX does). `#VIDEO` stays unused.
+- `/api/supernova/lyrics` adds `start`, `end`, `vgap`, `p1`/`p2` and a per-phrase singer `p`.
+- Browser player: seeks to `#START`, stops at `#END`, offsets the original MP4 by `#VIDEOGAP`, colours duet lines per singer, keeps the screen blank during a long intro/break and only counts in over the last 5 s (it previously showed the next line and spread the dots over the whole intro), and prebuffers 8 s of video (max 15 s) before the audio starts. The device player does not use START/END/VIDEOGAP yet. Host tested only; not hardware verified.
+
+- Tools: `supernova_convert.ps1 -WebMp4`/`-Mp4Only` write the web MP4 with AAC audio (self-contained). The web player still uses the mp3/AVI audio as clock; using the MP4's own audio is not implemented yet.
+
+## v0.26.38
+
+- ESP32-P4: larger lwIP TCP buffers (send buffer and receive window 32 kB, bigger TCP/tcpip mailboxes, SACK) in `sdkconfig.defaults.esp32p4` to raise WiFi throughput for Supernova web playback (v0.26.37 diagnostics showed ~2-3 Mbit/s send speed with SD reads at ~23 Mbit/s). Takes effect only in a fresh build (CI artifact or after deleting `sdkconfig`). Compare with the `D` overlay; not hardware verified.
+
+## v0.26.37
+
+- Supernova browser player: diagnostics for the start-up stutter. Press D in the player (or open `/supernova/play?diag`) to overlay time to metadata/canplay/first frame, waiting/stalled/rebuffer counts, dropped frames and per-request TTFB/throughput from the browser, plus the device's own counters from the new `GET /api/supernova/diag` (per route: SD read vs. WiFi send time avg/max, kB served, failures; RSSI, channel, WiFi uptime, SD clock). Measurement only, no playback behavior change. Not hardware verified.
+
+## v0.26.36
+
+- Supernova browser player: with MP4 video the audio waits until about 4 s of video is buffered (max 10 s) and pauses again to rebuffer if the video stalls, instead of stuttering at the start. Not tested on hardware.
+
+## v0.26.35
+
+- Supernova browser player: when the song folder has the original .mp4, the browser plays it (muted, following the audio clock so lyrics stay in sync) instead of the AVI frames, giving smooth, full-quality video; otherwise it falls back to the AVI frames. New route `GET /api/supernova/video` (range requests); `/api/supernova/media` reports `mp4`. Local playback on the device always uses the AVI. Not tested on hardware.
+
+## v0.26.34
+
+- Supernova browser player: the picture keeps its aspect ratio in full screen and in the page (4:3 videos were stretched wide). Not tested on hardware.
+
+## v0.26.33
+
+- Supernova on ESP32-P4: the device is a remote control for the browser player.
+  A new "Web player" screen (WiFi button in the song browser header) shows the
+  song playing in the browser with a position bar (no video) and offers
+  pause/resume, stop, next, random all, a playlist (with a shuffle toggle) and
+  choosing a specific song. The browser page reports its state about once a
+  second (`POST /api/supernova/web/state`) and receives the queued commands in
+  the reply, so `/supernova/play` must be open and clicked once (browser
+  autoplay rules). Not tested on hardware.
+
+## v0.26.32
+
+- Supernova browser player (`/supernova/play`): "Play automatically" runs a
+  playlist (optionally shuffled) or random songs from the whole library; the
+  next song starts when one ends. Pause/resume, stop and next buttons sit on
+  the picture so they also work in full screen (keys: space, N, S). Songs that
+  fail to load are skipped. The device is not yet a remote for the browser
+  player. Not tested on hardware.
+
+## v0.26.31
+
+- ESP32-P4 USB-C audio: hub support enabled (`CONFIG_USB_HOST_HUBS_SUPPORTED`,
+  multi-level), so USB sound cards behind a powered hub/dock are enumerated.
+  Several speakers can be listed; `GET /api/usbaudio?select=N` picks one
+  (`select=-1` = internal speaker, PIN required when set). The choice is saved
+  in NVS and matched by VID:PID:interface; without a choice the first device is
+  used. Not verified on hardware.
+
+## v0.26.30
+
+- ESP32-P4: first test of USB-C headphones/speakers. The USB host port runs a
+  UAC 1.0 driver (`espressif/usb_host_uac`); all mixer audio (games,
+  karaoke, Supernova) is resampled to 44.1/48 kHz stereo and sent to the
+  headset while the internal speaker is muted. `GET /api/usbaudio` shows the
+  state. Mixer audio is still 22.05 kHz mono. Not verified on hardware: VBUS
+  power on the port, enumeration and sound quality. New dependency, so the P4
+  lock file changes.
+
+## v0.26.29
+
+- Supernova: new page `/supernova/play` plays a song in the browser so several
+  people can sing along. The device serves the audio (MP3, with Range
+  requests), the lyrics as JSON and the video as single JPEG frames taken from
+  the converted MJPEG AVI; the page keeps picture and highlighted lyrics in
+  step with the audio clock. Without-vocals variant and full screen are
+  supported; songs without an AVI give audio and lyrics only. Web lyrics do
+  not apply the sync offsets stored on the device.
+- New routes `/api/supernova/media`, `/frame`, `/audio`, `/lyrics`; URI reserve
+  raised. Not verified on hardware; the video may stutter with several viewers.
+- Not changed: the remote panel on `/supernova` still needs a usability pass.
+
+## v0.26.28
+
+- Supernova: the web page `/supernova` now has a remote control. It shows the
+  current song, the current and next lyric line and the position, and offers
+  play (▶ next to a song, optionally without vocals), pause/resume, ±10 s seek,
+  stop and volume. Songs can only be started while the Supernova song list is
+  open on the device. The page polls `/api/supernova/now` once a second and sends
+  commands to `/api/supernova/control`; there is no video or audio in the browser.
+- Verified by CI build and the host test `tests/test_supernova_live.cpp` only;
+  not yet tested on hardware.
+
 ## v0.26.27
 
 - Supernova (P4): the lyrics box now uses the full video area width instead of being limited to

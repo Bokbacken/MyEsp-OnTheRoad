@@ -28,7 +28,7 @@ header = r'''
 #include <sys/stat.h>
 #include <vector>
 #include "supernova_index.h"
-struct Media { std::string audio, video, lyrics, instrumental; };
+struct Media { std::string audio, video, lyrics, instrumental, mp4; };
 '''
 test = r'''
 int main(int argc, char **argv) {
@@ -42,7 +42,8 @@ int main(int argc, char **argv) {
     file("video.AVI");
     file("music.MP3");
     Media avi;
-    assert(findMedia(dir, avi) && avi.video == dir + "/video.AVI" && avi.audio == dir + "/music.MP3");
+    assert(findMedia(dir, avi) && avi.video == dir + "/video.AVI" && avi.audio == dir + "/music.MP3" &&
+           avi.mp4 == dir + "/video.mp4");
     std::filesystem::remove(dir + "/video.AVI");
     Media fallback;
     assert(findMedia(dir, fallback) && fallback.video == dir + "/video.mp4");

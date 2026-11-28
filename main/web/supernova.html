@@ -25,15 +25,34 @@ ul.list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 ul.list li .sub { display: block; color: var(--otr-muted); font-size: .8rem; }
 ul.list li.missing .tx { color: var(--otr-muted); text-decoration: line-through; }
 li button { padding: .3rem .5rem; font-size: .85rem; }
+#remote { margin-bottom: 1rem; }
+#now-title { font-weight: bold; }
+#now-line { font-size: 1.25rem; min-height: 1.6em; color: var(--otr-orange); }
 </style>
 </head>
 <body>
-<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/karaoke">&#127908; <span data-t="karaoke"></span></a></nav>
+<nav><a href="/">&#8592; OnTheRoad</a> &nbsp; <a href="/karaoke">&#127908; <span data-t="karaoke"></span></a> &nbsp; <a href="/supernova/play">&#127911; Sjung i webbläsaren / Sing in browser</a></nav>
 <div class="top">
   <h1>&#127916; Supernova</h1>
   <div class="langs"><button id="l-sv" onclick="setLang('sv', true)">SV</button> <button id="l-en" onclick="setLang('en', true)">EN</button></div>
 </div>
 <div id="notice" role="status" aria-live="polite"></div>
+<section id="remote">
+  <h2 data-t="remote"></h2>
+  <div id="now-title"></div>
+  <div id="now-line"></div>
+  <div id="now-next" class="hint"></div>
+  <div id="now-time" class="hint"></div>
+  <div class="actions">
+    <button class="secondary" onclick="ctl('seek', -10000)">&#9194; 10s</button>
+    <button id="pp" onclick="togglePlay()">&#9208;</button>
+    <button class="secondary" onclick="ctl('seek', 10000)">10s &#9193;</button>
+    <button class="secondary" onclick="ctl('stop')">&#9209; <span data-t="stop"></span></button>
+  </div>
+  <div class="actions"><span data-t="volume"></span><input id="vol" type="range" min="0" max="100" step="5">
+    <label><input id="plain" type="checkbox" style="min-width:0"> <span data-t="playPlain"></span></label></div>
+  <div class="hint" id="remote-hint"></div>
+</section>
 <div class="cols">
   <section>
     <h2 data-t="songs"></h2>
@@ -71,7 +90,10 @@ const T = {
     hint: 'Välj spellista och tryck + vid en sång. Spellistorna kan väljas under Filter på enheten.',
     noSongs: 'Spellistan är tom.', songsCount: '{0} sånger', shown: '{0} av {1} sånger', scanning: 'Enheten läser in sångerna …',
     empty: 'Inga sånger hittades. Sångerna läses in på enheten (Supernova → Läs om).', missing: 'Saknas på kortet',
-    saved: 'Sparat', added: 'Tillagd', neterr: 'Ingen kontakt med enheten', up: 'Flytta upp', down: 'Flytta ned', pickList: 'Skapa eller välj en spellista först' },
+    saved: 'Sparat', added: 'Tillagd', neterr: 'Ingen kontakt med enheten', up: 'Flytta upp', down: 'Flytta ned', pickList: 'Skapa eller välj en spellista först',
+    remote: 'Fjärrkontroll', stop: 'Stoppa', volume: 'Volym', play: 'Spela', playPlain: 'Spela utan sång',
+    hintOff: 'Öppna Supernova på enheten för att starta sånger härifrån.', hintBrowse: 'Tryck ▶ vid en sång för att spela den på enheten.',
+    idle: 'Ingenting spelas' },
   en: { karaoke: 'Web karaoke', songs: 'Songs', playlists: 'Playlists', search: 'Search artist or title', more: 'Show more',
     sortArtist: 'Artist', sortTitle: 'Title', sortYear: 'Year', create: 'Create', rename: 'Save name', delete: 'Delete playlist',
     cancel: 'Cancel', remove: 'Remove', add: 'Add', name: 'Playlist name',
@@ -79,7 +101,10 @@ const T = {
     hint: 'Pick a playlist and press + next to a song. Playlists can be chosen under Filter on the device.',
     noSongs: 'This playlist is empty.', songsCount: '{0} songs', shown: '{0} of {1} songs', scanning: 'The device is reading the songs …',
     empty: 'No songs found. The songs are read on the device (Supernova → Rescan).', missing: 'Not on the card',
-    saved: 'Saved', added: 'Added', neterr: 'No contact with the device', up: 'Move up', down: 'Move down', pickList: 'Create or choose a playlist first' }
+    saved: 'Saved', added: 'Added', neterr: 'No contact with the device', up: 'Move up', down: 'Move down', pickList: 'Create or choose a playlist first',
+    remote: 'Remote control', stop: 'Stop', volume: 'Volume', play: 'Play', playPlain: 'Play without vocals',
+    hintOff: 'Open Supernova on the device to start songs from here.', hintBrowse: 'Press ▶ next to a song to play it on the device.',
+    idle: 'Nothing is playing' }
 };
 const PAGE = 100;
 let L = 'sv', loadedOnce = false, playlists = [], entries = [], songs = [], total = 0, count = 0, busy = false, editId = 0, songSeq = 0, listSeq = 0, timer = 0;
@@ -136,7 +161,7 @@ function renderSongs() {
     if (sub) tx.appendChild(el('span', 'sub', sub));
     const b = el('button', '', '+'); b.setAttribute('aria-label', t('add')); b.title = t('add');
     b.onclick = () => addSong(s);
-    li.append(tx, b); ul.appendChild(li);
+    li.append(tx, playBtn(s), b); ul.appendChild(li);
   });
   $('more').hidden = songs.length >= count;
 }
@@ -184,7 +209,7 @@ function renderEntries() {
     const li = el('li', s.missing ? 'missing' : ''), tx = el('span', 'tx', label(s));
     if (s.missing) tx.title = t('missing');
     li.appendChild(tx);
-    [['up', '↑', i === 0], ['down', '↓', i + 1 === entries.length], ['remove', '✕', false]].forEach(([action, text, off]) => {
+    if (!s.missing) li.appendChild(playBtn(s));, '↑', i === 0], ['down', '↓', i + 1 === entries.length], ['remove', '✕', false]].forEach(([action, text, off]) => {
       const b = el('button', 'secondary', text); b.disabled = off || busy;
       b.setAttribute('aria-label', action === 'remove' ? t('remove') : t(action)); b.title = b.getAttribute('aria-label');
       b.onclick = () => mutate({ action, id, folder: s.folder });
@@ -229,6 +254,35 @@ $('search-form').onsubmit = e => { e.preventDefault(); loadSongs(false); };
 let typing = 0;
 $('q').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => loadSongs(false), 350); });
 $('sort').addEventListener('change', () => loadSongs(false));
+let now = { state: 'off' }, volTouched = 0;
+const clock = ms => Math.floor(ms / 60000) + ':' + String(Math.floor(ms / 1000) % 60).padStart(2, '0');
+function playBtn(s) {
+  const b = el('button', 'secondary', '▶'); b.setAttribute('aria-label', t('play')); b.title = t('play');
+  b.onclick = () => ctl('play', 0, { folder: s.folder, instrumental: $('plain').checked });
+  return b;
+}
+async function ctl(action, value, extra) {
+  try { await request('/api/supernova/control', Object.assign({ action, value }, extra || {})); $('notice').textContent = ''; pollNow(); }
+  catch (e) { fail(e); }
+}
+function togglePlay() { ctl(now.state === 'playing' ? 'pause' : 'resume'); }
+function renderNow() {
+  const on = now.state === 'playing' || now.state === 'paused';
+  $('now-title').textContent = on ? label(now) : t('idle');
+  $('now-line').textContent = on ? now.line : '';
+  $('now-next').textContent = on ? now.next : '';
+  $('now-time').textContent = on && now.dur ? clock(now.pos) + ' / ' + clock(now.dur) : '';
+  $('pp').innerHTML = now.state === 'playing' ? '&#9208;' : '&#9654;';
+  $('remote-hint').textContent = on ? '' : t(now.state === 'browse' ? 'hintBrowse' : 'hintOff');
+  if (Date.now() - volTouched > 1500) $('vol').value = now.volume || 0;
+}
+async function pollNow() {
+  try { now = await request('/api/supernova/now'); } catch (e) { now = { state: 'off' }; }
+  renderNow();
+}
+$('vol').addEventListener('input', () => { volTouched = Date.now(); ctl('volume', Number($('vol').value)); });
+setInterval(pollNow, 1000);
+pollNow();
 let saved = null; try { saved = localStorage.getItem('otr_lang'); } catch (e) {}
 setLang(saved || ((navigator.language || 'sv').toLowerCase().startsWith('sv') ? 'sv' : 'en'), false);
 loadSongs(false); loadPlaylists().catch(fail);

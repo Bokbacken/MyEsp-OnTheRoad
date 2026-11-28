@@ -12,6 +12,7 @@
 
 #include "board_pins.h"
 #include "board_sd.h"
+#include "board_usb_audio.h"
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
 #include "esp_attr.h"
@@ -385,6 +386,11 @@ void handle(const Msg &m)
 
 void applyMasterVolume()
 {
+    static uint8_t s_usbVolume = 255;
+    if (UsbAudio::active() && s_masterVolume.load() != s_usbVolume) {
+        s_usbVolume = s_masterVolume.load();
+        UsbAudio::setVolume(s_usbVolume);
+    }
     if (s_webMuted) return;
     const uint8_t volume = s_masterVolume.load();
     if (volume == s_appliedMasterVolume) return;
@@ -436,7 +442,7 @@ void mixerTask(void *)
         }
         // Web stream: the browser plays the sound, the speaker is silent (DAC volume 0, amplifier
         // off) so it does not echo; the synth keeps running at its normal level for the stream
-        const bool web = s_webStream;
+        const bool web = s_webStream || UsbAudio::active();
         if (web != s_webMuted) {
             wr(0x32, web ? 0x00 : dacVolumeCode(s_masterVolume.load()));
             s_webMuted = web;
@@ -483,6 +489,7 @@ void mixerTask(void *)
         }
         const Tap tap = s_tap;
         if (tap) tap(s_mono, BLOCK, s_tapCtx);
+        UsbAudio::push(s_mono, BLOCK, Synth::RATE);
         s_mixSeq = s_mixSeq + 1;
         size_t written = 0;
         TickType_t t0 = xTaskGetTickCount();

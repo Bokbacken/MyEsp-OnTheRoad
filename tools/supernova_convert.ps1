@@ -8,7 +8,12 @@ Each video is scaled to use the full width or full height of the player's video 
 decoder. Output mirrors the player layout: <Dest>\<Artist - Title>\<name>.avi plus the
 .txt/.mp3/cover files. Needs ffmpeg and ffprobe on PATH; works on Windows PowerShell 5.1.
 
+-WebMp4 also writes <name>.mp4 (H.264 High, faststart, AAC audio, height <= -WebHeight, <= -WebKbps)
+for browser playback. -Mp4Only does just that, so an already converted AVI-only tree can be upgraded
+in place: .\supernova_convert.ps1 E:\otr\supernova E:\otr\supernova -Mp4Only
+
 .EXAMPLE
+.\supernova_convert.ps1 D:\Songs E:\otr\supernova -WebMp4
 .\supernova_convert.ps1 D:\Songs E:\otr\supernova
 .\supernova_convert.ps1 D:\Songs E:\otr\supernova -Jobs 4 -Area 800x420
 .\supernova_convert.ps1 D:\Songs C:\temp\out -DryRun
@@ -21,6 +26,10 @@ param(
     [int]$Quality = 10,                      # MJPEG -q:v, lower = better/larger
     [int]$AudioKbps = 160,
     [int]$Jobs = 2,
+    [switch]$WebMp4,                         # also make a web-friendly H.264 .mp4 next to the AVI
+    [switch]$Mp4Only,                        # only make the web .mp4 (e.g. Source = Dest, an already converted card)
+    [int]$WebHeight = 720,
+    [int]$WebKbps = 2500,
     [switch]$Force,
     [switch]$DryRun
 )
@@ -80,15 +89,38 @@ foreach ($folder in $folders) {
         }
     }
     $dst = Join-Path $outDir ($video.BaseName + '.avi')
-    if ((Test-Path -LiteralPath $dst) -and -not $Force) { Write-Host "skip (exists): $dst"; continue }
-    if ($video.FullName -eq $dst) { continue }
+    $mp4Dst = Join-Path $outDir ($video.BaseName + '.mp4')
     $size = Get-VideoSize $video.FullName
     if (-not $size) { Write-Warning "no video stream: $($video.FullName)"; continue }
-    $l = Get-Layout $size[0] $size[1]
-    $desc = "$($video.Name): $($size[0])x$($size[1]) -> $($l[0])x$($l[1]) in $($l[2])x$($l[3])"
-    if ($DryRun) { Write-Host "$desc  => $dst"; continue }
-    $vf = "scale=$($l[0]):$($l[1]):flags=lanczos,pad=$($l[2]):$($l[3]):($($l[2])-iw)/2:($($l[3])-ih)/2:black,setsar=1"
-    $work += [pscustomobject]@{ Src = $video.FullName; Dst = $dst; Vf = $vf; Desc = $desc }
+    if (-not $Mp4Only) {
+        if ((Test-Path -LiteralPath $dst) -and -not $Force) { Write-Host "skip (exists): $dst" }
+        elseif ($video.FullName -ne $dst) {
+            $l = Get-Layout $size[0] $size[1]
+            $desc = "$($video.Name): $($size[0])x$($size[1]) -> $($l[0])x$($l[1]) in $($l[2])x$($l[3])"
+            if ($DryRun) { Write-Host "$desc  => $dst" }
+            else {
+                $vf = "scale=$($l[0]):$($l[1]):flags=lanczos,pad=$($l[2]):$($l[3]):($($l[2])-iw)/2:($($l[3])-ih)/2:black,setsar=1"
+                $a = @('-y', '-v', 'error', '-i', $video.FullName, '-vf', $vf, '-r', $Fps, '-c:v', 'mjpeg', '-pix_fmt', 'yuvj420p',
+                       '-q:v', $Quality, '-c:a', 'libmp3lame', '-b:a', "${AudioKbps}k", '-ar', 44100, '-ac', 2, $dst)
+                $work += [pscustomobject]@{ Dst = $dst; Args = $a; Desc = $desc }
+            }
+        }
+    }
+    if ($WebMp4 -or $Mp4Only) {
+        if ((Test-Path -LiteralPath $mp4Dst) -and -not $Force) { Write-Host "skip (exists): $mp4Dst" }
+        elseif ($video.FullName -ne $mp4Dst) {
+            $desc = "$($video.Name): web MP4 (H.264, max ${WebHeight}p, ${WebKbps} kbit/s)"
+            if ($DryRun) { Write-Host "$desc  => $mp4Dst" }
+            else {
+                # Height capped without upscaling, width from the display aspect ratio, both even; audio is AAC so the file is self-contained.
+                $vf = "scale=w=trunc(min(ih\,$WebHeight)*dar/2)*2:h=trunc(min(ih\,$WebHeight)/2)*2:flags=lanczos,setsar=1"
+                $a = @('-y', '-v', 'error', '-i', $video.FullName, '-vf', $vf, '-c:v', 'libx264', '-preset', 'medium',
+                       '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-crf', 23, '-maxrate', "${WebKbps}k", '-bufsize', "$($WebKbps * 2)k",
+                       '-c:a', 'aac', '-b:a', "${AudioKbps}k", '-ar', 44100, '-ac', 2, '-movflags', '+faststart', $mp4Dst)
+                $work += [pscustomobject]@{ Dst = $mp4Dst; Args = $a; Desc = $desc }
+            }
+        }
+    }
 }
 
 $failed = 0
@@ -102,8 +134,7 @@ function Wait-One {
 }
 foreach ($item in $work) {
     while ($running.Count -ge [math]::Max(1, $Jobs)) { Wait-One }
-    $args = @('-y', '-v', 'error', '-i', $item.Src, '-vf', $item.Vf, '-r', $Fps, '-c:v', 'mjpeg', '-pix_fmt', 'yuvj420p',
-              '-q:v', $Quality, '-c:a', 'libmp3lame', '-b:a', "${AudioKbps}k", '-ar', 44100, '-ac', 2, $item.Dst)
+    $args = $item.Args
     $p = Start-Process ffmpeg -ArgumentList ($args | ForEach-Object { if ("$_" -match '\s') { "`"$_`"" } else { "$_" } }) -NoNewWindow -PassThru
     $null = $p.Handle   # keep the handle so ExitCode stays readable
     $running += [pscustomobject]@{ Proc = $p; Item = $item }

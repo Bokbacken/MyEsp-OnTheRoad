@@ -169,6 +169,26 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   titlar. Prioritera stora tydliga objekt, kontroller som inte skymmer
   spelplanen och stabil bild-/inmatningsrytm på S3. Egna namn, banor, grafik
   och ljud; undvik att kopiera Parsec-innehåll eller presentation.
+- [ ] Supernova i webbläsaren (v0.26.33): automatisk uppspelning (spellista/slump)
+  med paus/stopp/nästa i helskärm finns i `/supernova/play`. Enheten är
+  fjärrkontroll (huvudets WiFi-knapp i låtlistan): visar aktuell sång och
+  position men inte videon, och kan starta vald sång, spellista (blandad eller
+  inte) eller slump, samt pausa/stoppa/nästa. Webbsidan rapporterar status till
+  enheten ca varje sekund (`POST /api/supernova/web/state`) och hämtar köade
+  kommandon i samma anrop. Webbsidan måste vara öppen och ha klickats en gång
+  (webbläsarens regler för automatisk uppspelning). Ej hårdvarutestat.
+- [ ] USB-C-hörlurar/-högtalare på P4 (v0.26.30, första test): USB-host + UAC
+  1.0-drivrutin (`board_usb_audio`) tar mixerns utdata (mono 22,05 kHz,
+  uppsamplad till 44,1/48 kHz stereo) och tystar interna högtalaren medan ett
+  headset strömmar. `GET /api/usbaudio` visar läge, USB-ID, produkt och
+  byte-räknare. Hårdvarukontroller kvar: att OTG-porten matar VBUS till
+  headsetet, enumerering, ljud utan knaster, utdrag/insättning under spel,
+  samt konflikt med planerad USB-lagring (device-läge).
+  Ägarens test v0.26.30: blotta hörlurar får ingen VBUS; med hubb/dock hittades
+  ljudkortet men hubbstöd var avstängt. v0.26.31 slår på hubbstöd och låter
+  `GET /api/usbaudio?select=N` (-1 = intern) välja bland flera USB-ljudkort;
+  valet sparas. Kvar att testa på hårdvara: dockens strömförsörjning, val av
+  extra ljudkort bakom hubben.
 - [ ] Supernova (v0.26.7): första UltraStar-inspirerade video-/texttestet är
   avgränsat till ESP32-P4. Katalogen är
   `/sdcard/otr/supernova/<Artist - Title>/` med `.mp4` och `.txt`; separat
@@ -181,6 +201,11 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
   `tools/supernova_convert.ps1` konverterar hela samlingar direkt till SD-kortet
   med optimal storlek per bildformat (värdetestat med syntetiska videor; ännu
   inte på enheten – verifiera bildyta `-Area`, kanter och uppspelning).
+  `-WebMp4`/`-Mp4Only` (verktyg, ej firmware) skapar webb-MP4 (H.264, 720p max,
+  2500 kbit/s); testat på syntetisk video, ännu inte med ägarens samling.
+  USDX-taggar (v0.26.39): START/END/VIDEOGAP, duett P1/P2, BPM-byte och fler
+  metadatataggar tolkas; webbspelaren använder START/END/VIDEOGAP, enhetens
+  spelare ännu inte.
   Ingen mikrofonpoängsättning ingår i detta steg; karaokepoäng och eventuell
   S3-portning beslutas efter praktiskt P4-test.
   Mätning (ägarens logg, MJPEG-AVI 15 fps via LVGL): ~14,6 fps men ~65 ms
@@ -223,9 +248,11 @@ Separata framtida arbeten (ingår inte i uppsamlingen):
      låtar behålls och märks). Spellistor väljs under Filter på enheten; ändringar
      från webben syns efter nästa filterbyte eller omskanning. Kvar: USDX
      `.upl` import/export.
-  4. Webbfjärr för Supernova liknande `/ws/karaoke`: sånglista, starta, paus,
-     nästa, aktuell textrad och position. Ingen videoström till webben
-     (bandbredd/minne); bara text och styrning.
+  4. Webbfjärr för Supernova implementerad i v0.26.28 (ej hårdvarutestad):
+     fjärrpanel på `/supernova` (aktuell sång och textrad, position, start ▶,
+     paus/återuppta, ±10 s, stopp, volym) via `/api/supernova/now` och
+     `/api/supernova/control`. Start kräver att sånglistan är öppen på
+     enheten. Ingen videoström till webben. Kvar: nästa i spellista/kö.
 - [ ] NES-emulator, separat framtidsprojekt: utvärdera ESP32-S3-emulatorers
   prestanda, ljud, skärm-/kontrollerportning, lagring och UI. Emulator och
   firmware måste ha kompatibla licenser; ROM-ylland och BIOS ingår inte.
