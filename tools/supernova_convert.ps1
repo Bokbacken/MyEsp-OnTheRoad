@@ -8,7 +8,7 @@ Each video is scaled to use the full width or full height of the player's video 
 decoder. Output mirrors the player layout: <Dest>\<Artist - Title>\<name>.avi plus the
 .txt/.mp3/cover files. Needs ffmpeg and ffprobe on PATH; works on Windows PowerShell 5.1.
 
--WebMp4 also writes <name>.mp4 (H.264 High, faststart, no audio, height <= -WebHeight, <= -WebKbps)
+-WebMp4 also writes <name>.mp4 (H.264 High, faststart, AAC audio, height <= -WebHeight, <= -WebKbps)
 for browser playback. -Mp4Only does just that, so an already converted AVI-only tree can be upgraded
 in place: .\supernova_convert.ps1 E:\otr\supernova E:\otr\supernova -Mp4Only
 
@@ -112,11 +112,11 @@ foreach ($folder in $folders) {
             $desc = "$($video.Name): web MP4 (H.264, max ${WebHeight}p, ${WebKbps} kbit/s)"
             if ($DryRun) { Write-Host "$desc  => $mp4Dst" }
             else {
-                # Height capped without upscaling, width from the display aspect ratio, both even; no audio (the browser plays the mp3).
+                # Height capped without upscaling, width from the display aspect ratio, both even; audio is AAC so the file is self-contained.
                 $vf = "scale=w=trunc(min(ih\,$WebHeight)*dar/2)*2:h=trunc(min(ih\,$WebHeight)/2)*2:flags=lanczos,setsar=1"
-                $a = @('-y', '-v', 'error', '-i', $video.FullName, '-vf', $vf, '-an', '-c:v', 'libx264', '-preset', 'medium',
+                $a = @('-y', '-v', 'error', '-i', $video.FullName, '-vf', $vf, '-c:v', 'libx264', '-preset', 'medium',
                        '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-crf', 23, '-maxrate', "${WebKbps}k", '-bufsize', "$($WebKbps * 2)k",
-                       '-movflags', '+faststart', $mp4Dst)
+                       '-c:a', 'aac', '-b:a', "${AudioKbps}k", '-ar', 44100, '-ac', 2, '-movflags', '+faststart', $mp4Dst)
                 $work += [pscustomobject]@{ Dst = $mp4Dst; Args = $a; Desc = $desc }
             }
         }

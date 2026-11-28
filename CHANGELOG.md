@@ -14,6 +14,8 @@ a published GitHub Release.
 - `/api/supernova/lyrics` adds `start`, `end`, `vgap`, `p1`/`p2` and a per-phrase singer `p`.
 - Browser player: seeks to `#START`, stops at `#END`, offsets the original MP4 by `#VIDEOGAP`, colours duet lines per singer, keeps the screen blank during a long intro/break and only counts in over the last 5 s (it previously showed the next line and spread the dots over the whole intro), and prebuffers 8 s of video (max 15 s) before the audio starts. The device player does not use START/END/VIDEOGAP yet. Host tested only; not hardware verified.
 
+- Tools: `supernova_convert.ps1 -WebMp4`/`-Mp4Only` write the web MP4 with AAC audio (self-contained). The web player still uses the mp3/AVI audio as clock; using the MP4's own audio is not implemented yet.
+
 ## v0.26.38
 
 - ESP32-P4: larger lwIP TCP buffers (send buffer and receive window 32 kB, bigger TCP/tcpip mailboxes, SACK) in `sdkconfig.defaults.esp32p4` to raise WiFi throughput for Supernova web playback (v0.26.37 diagnostics showed ~2-3 Mbit/s send speed with SD reads at ~23 Mbit/s). Takes effect only in a fresh build (CI artifact or after deleting `sdkconfig`). Compare with the `D` overlay; not hardware verified.
